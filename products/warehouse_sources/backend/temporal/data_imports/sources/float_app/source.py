@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.float_app import (
     FloatAppResumeConfig,
     float_app_source,
@@ -30,12 +27,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
     FLOAT_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FloatAppSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
+    FloatAppSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FloatAppSource(ResumableSource[FloatAppSourceConfig, FloatAppResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developer.float.com/api_reference.html"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -49,7 +51,6 @@ class FloatAppSource(ResumableSource[FloatAppSourceConfig, FloatAppResumeConfig]
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Float",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Float access token to automatically pull your Float resource-management data into the PostHog Data warehouse.
 
 You can create an access token in Float under **Team Settings → Integrations → API**. The token has the same access as its account owner.
@@ -96,6 +97,7 @@ All streams sync via full refresh — Float's API exposes no server-side modifie
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FLOAT_ENDPOINTS[endpoint]
@@ -116,7 +118,11 @@ All streams sync via full refresh — Float's API exposes no server-side modifie
         return schemas
 
     def validate_credentials(
-        self, config: FloatAppSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FloatAppSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, status_code = validate_float_credentials(config.api_key)
         if ok:
@@ -137,6 +143,8 @@ All streams sync via full refresh — Float's API exposes no server-side modifie
         return float_app_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Float endpoint is full refresh
         )

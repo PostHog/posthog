@@ -16,7 +16,6 @@ import {
     TophogOutput,
 } from '~/common/outputs'
 import {
-    AiEventOutput,
     AsyncOutput,
     EventOutput,
     PersonDistinctIdsOutput,
@@ -32,14 +31,16 @@ import {
     EventIngestionRestrictionManagerComponent,
 } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { createOkContext } from '~/ingestion/framework/helpers'
+import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
     JoinedIngestionPipelineConfig,
@@ -59,11 +60,14 @@ import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-o
 import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
-import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.contract'
-import { IngestionConsumerConfig } from './config'
+import { createAnalyticsOverflowStrategies } from './common/overflow-redirect/overflow-strategy'
+import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
-    Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+    Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
+    // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
+    // merge-events gate reads the topic, so surface it here rather than relying on the runtime shape.
+    Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'>
 
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
@@ -72,7 +76,6 @@ export interface IngestionConsumerDeps {
     featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
-        | AiEventOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -91,7 +94,6 @@ export interface IngestionConsumerDeps {
     personRepository: PersonRepository
     cookielessManager: CookielessManager
     hogTransformer: HogTransformer
-    aiSubpipelineFactory: AiEventSubpipelineFactory
 }
 
 export const latestOffsetTimestampGauge = new Gauge({
@@ -167,7 +169,11 @@ export class IngestionConsumer {
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
         this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
-        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres)
+        // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+        // failure can surface as an unhandled rejection and restart the worker.
+        this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres, {
+            loaderRetry: DEFAULT_LOADER_RETRY,
+        })
 
         this.name = `ingestion-consumer-${this.topic}`
 
@@ -177,20 +183,26 @@ export class IngestionConsumer {
             redisTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
         })
 
-        // Create overflow redirect service only when overflow is enabled (main lane)
-        if (this.overflowEnabled()) {
+        // Overflow role for this consumer (redirect / consume / disabled).
+        const overflowMode = this.config.INGESTION_OVERFLOW_MODE
+
+        // Redirect hot partitions to the overflow topic (main lane).
+        if (overflowMode === 'redirect') {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                strategies: createAnalyticsOverflowStrategies({
+                    eventBucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                    eventReplenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                    mergeEventBucketCapacity: this.config.MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY,
+                    mergeEventReplenishRate: this.config.MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                }),
                 overflowType: 'events',
             })
         }
 
-        // Create TTL refresh service when consuming from overflow topic (overflow lane)
-        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        // Drain the overflow topic and refresh stateful TTLs (overflow lane).
+        if (overflowMode === 'consume') {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 overflowType: 'events',
@@ -213,16 +225,13 @@ export class IngestionConsumer {
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
 
-        this.groupStore = new BatchWritingGroupStore(
-            this.deps.outputs,
-            this.deps.groupRepository,
-            this.deps.clickhouseGroupRepository,
-            {
-                maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-                maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-                optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-            }
-        )
+        this.groupStore = new BatchWritingGroupStore(this.deps.groupRepository, this.deps.clickhouseGroupRepository, {
+            useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
+            useBatchCreates: this.config.GROUP_BATCH_WRITING_USE_BATCH_CREATES,
+            maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+        })
 
         this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
@@ -267,21 +276,26 @@ export class IngestionConsumer {
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
-            cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
+            groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
             outputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
-                PERSON_MERGE_EVENTS_ENABLED: this.config.PERSON_MERGE_EVENTS_ENABLED,
+                PERSON_MERGE_EVENTS_ENABLED: effectivePersonMergeEventsEnabled(this.config),
                 PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+                PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
+                PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
+                PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
+                PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
@@ -289,7 +303,6 @@ export class IngestionConsumer {
             personsStore: this.personsStore,
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
-            aiSubpipelineFactory: this.deps.aiSubpipelineFactory,
             eventFilterManager: this.eventFilterManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
@@ -427,28 +440,21 @@ export class IngestionConsumer {
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
-        const batch = messages.map((message) => createOkContext({ message }, { message }))
+        const batch = messages.map((message) =>
+            createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
+        )
 
-        const feedResult = await this.joinedPipeline.feed(batch)
+        const feedResult = await this.joinedPipeline.feed(batch, {})
         if (!feedResult.ok) {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }
 
-        // Drain the pipeline, scheduling batch-level side effects
+        // The pipeline handles its own side effects (scheduling them on the
+        // promise scheduler), so draining results is all that's left to do.
         let result = await this.joinedPipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void this.promiseScheduler.schedule(sideEffect)
-            }
             result = await this.joinedPipeline.next()
         }
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
-        )
     }
 }
 

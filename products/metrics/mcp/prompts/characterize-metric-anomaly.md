@@ -2,7 +2,7 @@ Characterize how a metric behaves in a suspicious window compared to a healthy b
 
 Required: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).
 
-The aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> p95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.
+The aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.
 
 Read the report in this order:
 

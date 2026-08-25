@@ -1,6 +1,7 @@
 import json
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -10,10 +11,10 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
 def _trends_query_dict(event: str = "$pageview") -> dict:
@@ -38,6 +39,17 @@ class TestDashboardRunInsights(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()
+
+    def test_records_dashboard_access(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dash")
+
+        with patch("products.dashboards.backend.api.dashboard.record_dashboard_access") as record_access:
+            body = self._run(dashboard.id, output_format="json")
+
+        self.assertEqual(body["results"], [])
+        record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
+        dashboard.refresh_from_db()
+        self.assertIsNone(dashboard.last_accessed_at)
 
     def test_returns_one_result_per_insight_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

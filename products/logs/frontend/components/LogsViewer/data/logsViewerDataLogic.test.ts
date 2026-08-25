@@ -9,6 +9,7 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import { logsViewerDataLogic, shouldSkipFilterGroupChange } from './logsViewerDataLogic'
 
@@ -65,6 +66,7 @@ describe('logsViewerDataLogic', () => {
 
         it.each([
             ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
+            ['unmounting component', 'exact match for UNMOUNTING_ERROR_MESSAGE'],
             ['Fetch is aborted', 'Safari abort message'],
             ['The operation was aborted', 'alternative abort message'],
             ['ABORTED', 'uppercase abort'],
@@ -106,23 +108,128 @@ describe('logsViewerDataLogic', () => {
         })
     })
 
+    describe('live-tail identity', () => {
+        const makeLog = (uuid: string, timestamp: string): any => ({
+            uuid,
+            timestamp,
+            body: `body of ${uuid}`,
+            attributes: { service: 'api' },
+            severity_text: 'info',
+        })
+
+        it('keeps existing log and parsed row references across a live-tail poll', async () => {
+            // The poll used to rebuild every log ({...log, new: false}) and parsedLogs re-cloned
+            // them all again, so every visible row's identity churned per 1-5s tick and the whole
+            // virtualized list re-rendered. Only genuinely new rows may get fresh references.
+            const existingA = makeLog('log-a', '2026-01-02T00:00:00Z')
+            const existingB = makeLog('log-b', '2026-01-01T00:00:00Z')
+            logic.actions.setLogs([existingA, existingB])
+            const parsedBefore = logic.values.parsedLogs
+
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': () => [
+                        200,
+                        {
+                            // The poll window overlaps: one genuinely new row plus repeats.
+                            results: [
+                                makeLog('log-c', '2026-01-03T00:00:00Z'),
+                                makeLog('log-a', '2026-01-02T00:00:00Z'),
+                                makeLog('log-b', '2026-01-01T00:00:00Z'),
+                            ],
+                            maxExportableLogs: 5000,
+                        },
+                    ],
+                },
+            })
+            logic.actions.setLiveTailRunning(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            const logByUuid = (uuid: string): any => logic.values.logs.find((log) => log.uuid === uuid)
+            expect(logic.values.logs).toHaveLength(3)
+            expect(logByUuid('log-a')).toBe(existingA)
+            expect(logByUuid('log-b')).toBe(existingB)
+
+            const parsedByUuid = (list: typeof parsedBefore, uuid: string): any => list.find((log) => log.uuid === uuid)
+            expect(parsedByUuid(logic.values.parsedLogs, 'log-a')).toBe(parsedByUuid(parsedBefore, 'log-a'))
+            expect(parsedByUuid(logic.values.parsedLogs, 'log-b')).toBe(parsedByUuid(parsedBefore, 'log-b'))
+
+            // Only the fresh batch is highlighted; the next poll replaces the set.
+            expect([...logic.values.newLogUuids]).toEqual(['log-c'])
+        })
+
+        it('clears the arrival highlight when a fresh query result set lands', async () => {
+            logic.actions.setNewLogUuids(['log-a'])
+            logic.actions.fetchLogs()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.newLogUuids.size).toBe(0)
+        })
+
+        it('unmounting mid-poll does not throw ([KEA] Can not find path ...)', async () => {
+            // beforeUnmount aborts the in-flight live-tail request. pollForNewLogs' finally
+            // block used to run unconditionally after that abort, dispatching actions against
+            // a logic that had already been torn down and crashing with a Kea "path not found"
+            // error. Guarding the finally block on signal.aborted (mirroring the existing catch
+            // block) fixes it.
+            let resolveQuery: (() => void) | undefined
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/logs/query/': () =>
+                        new Promise((resolve) => {
+                            resolveQuery = () => resolve([200, { results: [], maxExportableLogs: 5000 }])
+                        }),
+                },
+            })
+
+            logic.actions.setLiveTailRunning(true)
+            await expectLogic(logic).toDispatchActions(['setLiveTailAbortController'])
+
+            expect(() => logic.unmount()).not.toThrow()
+
+            // Let the aborted request's rejection propagate through pollForNewLogs' catch/finally.
+            resolveQuery?.()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        })
+    })
+
     describe('sparklineData selector', () => {
         it.each([
-            ['null', null, { labels: [], dates: [], data: [] }],
-            ['an empty array', [], { labels: [], dates: [], data: [] }],
+            ['null', null, { dates: [], data: [] }],
+            ['an empty array', [], { dates: [], data: [] }],
             [
                 'valid data',
                 [
                     { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
                     { time: '2024-01-01T00:01:00Z', severity: 'error', count: 3 },
                 ],
-                { labels: expect.any(Array), dates: expect.any(Array), data: expect.any(Array) },
+                {
+                    dates: ['2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z'],
+                    data: [
+                        expect.objectContaining({ name: 'error', values: [0, 3] }),
+                        expect.objectContaining({ name: 'info', values: [5, 0] }),
+                    ],
+                },
             ],
         ])('returns correct data when sparkline is %s', async (_, sparklineInput, expected) => {
             logic.actions.setSparkline(sparklineInput as any[] | null)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.sparklineData).toEqual(expected)
+        })
+
+        it('renders the collapsed bucket as a muted trailing series, not as a literal sentinel', async () => {
+            // The sentinel starts with '$', so without special-casing it would sort ahead of every
+            // real value and be drawn as a breakdown value named "$$_posthog_breakdown_other_$$".
+            logic.actions.setSparkline([
+                { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
+                { time: '2024-01-01T00:00:00Z', severity: OTHER_BREAKDOWN_VALUE, count: 7 },
+            ] as any[])
+            await expectLogic(logic).toFinishAllListeners()
+
+            const { data } = logic.values.sparklineData
+            expect(data.map((series: { name: string }) => series.name)).toEqual(['info', OTHER_BREAKDOWN_LABEL])
+            expect(data[1]).toEqual(expect.objectContaining({ color: 'muted', values: [7] }))
         })
     })
 
@@ -345,6 +452,38 @@ describe('logsViewerDataLogic', () => {
                     false
                 )
             }).toDispatchActions(['handleQueryChange', 'runQuery'])
+        })
+    })
+
+    describe('custom column aliases', () => {
+        // Aliases must key by expression, not request position: moveColumn reorders columns without
+        // re-fetching, so a positional zip would render each custom column another column's values.
+        it('maps server aliases to the expression that produced them', async () => {
+            useMocks({
+                post: {
+                    // Server echoes one alias per sent expression, in request (config) order.
+                    '/api/environments/:team_id/logs/query/': () => [
+                        200,
+                        { results: [], maxExportableLogs: 5000, columns: ['col_a', 'col_b'] },
+                    ],
+                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+                },
+            })
+            logic.actions.setColumns([
+                { id: 'timestamp', type: 'timestamp' },
+                { id: 'c1', type: 'custom', expression: 'upper(level)' },
+                { id: 'c2', type: 'custom', expression: 'lower(body)' },
+                { id: 'message', type: 'message' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.fetchLogs()
+            }).toFinishAllListeners()
+
+            expect(logic.values.customColumnAliases).toEqual({
+                'upper(level)': 'col_a',
+                'lower(body)': 'col_b',
+            })
         })
     })
 })

@@ -9,18 +9,21 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    ResumableSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SquarespaceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.squarespace import (
+    SquarespaceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -32,9 +35,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.squarespac
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Source-level vendor API version labels — opaque framework pins stored in
+# `ExternalDataSource.api_version`, distinct from the per-endpoint URL segments in
+# `SquarespaceEndpointConfig.api_version`. The source already requests each resource's newest
+# documented route — notably products via `/v2/commerce/products` (Products API v2, GA
+# 2025-12-18) — so both pins resolve to the same wire; `v2` only formalizes that generation as
+# the default for newly created sources.
+SQUARESPACE_API_VERSION_V1 = UNVERSIONED_API_VERSION
+SQUARESPACE_API_VERSION_V2 = "v2"
+
 
 @SourceRegistry.register
 class SquarespaceSource(ResumableSource[SquarespaceSourceConfig, SquarespaceResumeConfig]):
+    supported_versions = (SQUARESPACE_API_VERSION_V1, SQUARESPACE_API_VERSION_V2)
+    default_version = SQUARESPACE_API_VERSION_V2
+    api_docs_url = "https://developers.squarespace.com/commerce-apis/changelog"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SQUARESPACE
@@ -101,6 +117,7 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -119,7 +136,11 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
         return schemas
 
     def validate_credentials(
-        self, config: SquarespaceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SquarespaceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_valid, is_forbidden = validate_squarespace_credentials(config.api_key, schema_name)
         if is_valid:

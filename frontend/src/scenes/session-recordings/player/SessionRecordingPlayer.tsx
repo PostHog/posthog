@@ -4,15 +4,14 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { AnalysisNudge } from 'products/replay_vision/frontend/components/AnalysisNudge'
 import { ObservationsDock } from 'products/replay_vision/frontend/components/ObservationsDock'
+import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
-import { PlayerSummaryDock } from './PlayerSummaryDock'
 import { PurePlayer } from './PurePlayer'
 import {
     SessionRecordingPlayerLogicProps,
@@ -25,6 +24,7 @@ export { createPlaybackSpeedKey } from './PurePlayer'
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
     noBorder?: boolean
+    noDock?: boolean
     withSidebar?: boolean
     matchingEventsMatchType?: MatchingEventsMatchType
     accessToken?: string
@@ -38,6 +38,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         noMeta = false,
         matchingEventsMatchType,
         noBorder = false,
+        noDock = false,
         withSidebar = true,
         autoPlay = true,
         mode = SessionRecordingPlayerMode.Standard,
@@ -46,6 +47,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        skipToFirstMatchingEvent,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -57,6 +59,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingData,
         autoPlay,
         withSidebar,
+        noMeta,
+        noDock,
         mode,
         playerRef,
         pinned,
@@ -64,6 +68,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         accessToken,
         onRecordingDeleted,
         playNextRecording,
+        skipToFirstMatchingEvent,
     }
 
     return (
@@ -91,10 +96,6 @@ function SessionRecordingPlayerInternal({
 }): JSX.Element {
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showSummaryDock =
-        !noMeta && (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
-    const showVisionDock = showSummaryDock && !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
     return (
         <div
@@ -103,9 +104,14 @@ function SessionRecordingPlayerInternal({
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
         >
-            <div className="flex flex-col flex-1 min-w-0 min-h-0">
+            <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
-                {showVisionDock ? <ObservationsDock /> : showSummaryDock && <PlayerSummaryDock />}
+                {visionSurfaceShown(logicProps) && (
+                    <>
+                        <ObservationsDock />
+                        <AnalysisNudge />
+                    </>
+                )}
             </div>
             {withSidebar && <PlayerSidebar />}
         </div>

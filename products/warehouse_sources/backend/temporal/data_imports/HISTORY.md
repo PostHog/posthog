@@ -59,7 +59,7 @@ We have a handful of tables that require a parent object to cursor, for example,
 
 ##### 7 - PipelineNonDLT duplicate-data race on resume
 
-`products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/pipeline.py` (PipelineNonDLT) can produce duplicate rows in the destination when a pod dies between a successful `write_to_deltalake` commit and the source's subsequent `ResumableSourceManager.save_state` Redis write.
+`products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v2/pipeline.py` (PipelineNonDLT) can produce duplicate rows in the destination when a pod dies between a successful `write_to_deltalake` commit and the source's subsequent `ResumableSourceManager.save_state` Redis write.
 On resume, the stale Redis cursor causes the source to re-fetch rows that already landed in delta, and the re-fetched batch is appended without dedup.
 This was not fixed because PipelineNonDLT is being retired in favor of `pipeline_v3`; the equivalent writer-side idempotency gap in v3 _was_ fixed by tagging delta commits with `(run_uuid, batch_index)` in their `custom_metadata` so the idempotency check can fall back to delta history when the Redis dedup flag is missing.
 

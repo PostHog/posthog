@@ -20,6 +20,9 @@ export interface ProcessedRetentionPayload {
     people_url: string
     values: ProcessedRetentionValue[]
     breakdown_value?: string | number | null
+    /** The result's breakdown_value as returned by the query, before any display mapping
+     * (e.g. the raw "other" sentinel). Used to match dashboard breakdown color configs. */
+    rawBreakdownValue?: string | number | null
 }
 
 export interface RetentionTableRow {
@@ -36,6 +39,10 @@ export interface RetentionTrendPayload {
     labels: string[]
     index: number
     breakdown_value?: string | number | null
+    /** Set only when the series represents a single breakdown value (mean-per-breakdown and
+     * breakdown interval views). Unlike breakdown_value, which holds the display label there,
+     * this keeps the raw value so dashboard breakdown color configs can match it. */
+    rawBreakdownValue?: string | number | null
 }
 
 export interface RetentionTablePeoplePayload {

@@ -22,6 +22,8 @@ SdkTypes = Literal[
     "web",
     "posthog-ios",
     "posthog-android",
+    "posthog-java",
+    "posthog-server",
     "posthog-node",
     "posthog-python",
     "posthog-php",
@@ -29,6 +31,7 @@ SdkTypes = Literal[
     "posthog-go",
     "posthog-flutter",
     "posthog-react-native",
+    "posthog-kmp",
     "posthog-dotnet",
     "posthog-elixir",
 ]
@@ -36,6 +39,8 @@ SDK_TYPES: list[SdkTypes] = [
     "web",
     "posthog-ios",
     "posthog-android",
+    "posthog-java",
+    "posthog-server",
     "posthog-node",
     "posthog-python",
     "posthog-php",
@@ -43,13 +48,15 @@ SDK_TYPES: list[SdkTypes] = [
     "posthog-go",
     "posthog-flutter",
     "posthog-react-native",
+    "posthog-kmp",
     "posthog-dotnet",
     "posthog-elixir",
 ]
+LEGACY_JAVA_SDK = "posthog-java"
 
 
 class SdkVersionEntry(TypedDict):
-    lib_version: str
+    lib_version: str | None
     max_timestamp: str
     count: int
 
@@ -243,5 +250,5 @@ def github_sdk_versions_key(sdk_type: str) -> str:
     return f"github:sdk_versions:{sdk_type}"
 
 
-def team_sdk_versions_key(team_id: int) -> str:
-    return f"sdk_versions:team:{team_id}"
+def team_sdk_versions_v2_key(team_id: int) -> str:
+    return f"sdk_versions:team:v2:{team_id}"

@@ -36,6 +36,10 @@ class BugsnagEndpointConfig:
     # Stable, creation-time datetime column to partition by. Never a `last_seen`/`updated_at`
     # style field — those move and would rewrite partitions every sync. None disables partitioning.
     partition_key: Optional[str] = None
+    # per_page value used when paginating this endpoint. Most list endpoints accept up to 100, but
+    # a few cap lower and hard-reject an over-max value with a 400 instead of clamping, so those
+    # need their own limit.
+    page_size: int = 100
     # The menu of incremental cursor candidates advertised to the user. Empty = full refresh only.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Whether the table is selected for sync by default in the connection wizard.
@@ -96,6 +100,8 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         path="/projects/{project_id}/releases",
         primary_keys=["id", "project_id"],
         partition_key="released_at",
+        # This endpoint caps per_page at 10 and returns 400 for anything higher.
+        page_size=10,
     ),
     "pivots": BugsnagEndpointConfig(
         name="pivots",

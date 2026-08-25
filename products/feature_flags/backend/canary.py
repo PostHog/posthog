@@ -65,7 +65,7 @@ def run_local_eval_canary(registry: CollectorRegistry | None) -> None:
         return
 
     try:
-        payload = _get_flags_response_for_local_evaluation(team, include_cohorts=True)
+        payload = _get_flags_response_for_local_evaluation(team)
     except Exception as e:
         present_gauge.set(0)
         failure_counter.inc()

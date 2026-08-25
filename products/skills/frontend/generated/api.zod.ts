@@ -9,6 +9,22 @@
  */
 import * as zod from 'zod'
 
+export const communitySkillsInstallCreateBodyNewNameMax = 64
+
+export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
+    new_name: zod
+        .string()
+        .max(communitySkillsInstallCreateBodyNewNameMax)
+        .optional()
+        .describe("Name for the installed skill in your team. Defaults to the community skill's slug."),
+    variables: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills."
+        ),
+})
+
 export const llmSkillsCreateBodyNameMax = 64
 
 export const llmSkillsCreateBodyDescriptionMax = 4096
@@ -16,6 +32,8 @@ export const llmSkillsCreateBodyDescriptionMax = 4096
 export const llmSkillsCreateBodyLicenseMax = 255
 
 export const llmSkillsCreateBodyCompatibilityMax = 500
+
+export const llmSkillsCreateBodyOwnersMax = 25
 
 export const llmSkillsCreateBodyFilesItemPathMax = 500
 
@@ -48,6 +66,13 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
+        owners: zod
+            .array(zod.uuid())
+            .max(llmSkillsCreateBodyOwnersMax)
+            .optional()
+            .describe(
+                "User UUIDs to set as the skill's owners. Each must be a member of this project. Defaults to the creating user when omitted; pass an empty list to create with no owners."
+            ),
         files: zod
             .array(
                 zod.object({
@@ -68,7 +93,7 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Bundled files to include with the initial version (scripts, references, assets).'),
     })
-    .describe('Create serializer — accepts bundled files as write-only input on POST.')
+    .describe('Create serializer — accepts bundled files and owners as write-only input on POST.')
 
 export const LlmSkillsImportCreateBody = /* @__PURE__ */ zod.object({
     file: zod
@@ -106,6 +131,10 @@ export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeDefault = `text/p
 export const llmSkillsNamePartialUpdateBodyFilesItemContentTypeMax = 100
 
 export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
+
+export const llmSkillsNamePartialUpdateBodyOwnersMax = 25
+
+export const llmSkillsNamePartialUpdateBodyVersionDescriptionMax = 400
 
 export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
@@ -187,11 +216,25 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Per-file find\/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
         ),
+    owners: zod
+        .array(zod.uuid())
+        .max(llmSkillsNamePartialUpdateBodyOwnersMax)
+        .optional()
+        .describe(
+            "Replace the skill's owners with these user UUIDs (each a member of this project). Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the logical skill, so setting them is independent of the version being published — a body edit alone never changes ownership."
+        ),
     base_version: zod
         .number()
         .min(1)
         .optional()
-        .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
+        .describe(
+            'Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).'
+        ),
+    version_description: zod
+        .string()
+        .max(llmSkillsNamePartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
 export const llmSkillsNameDuplicateCreateBodyNewNameMax = 64
@@ -244,5 +287,39 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
+        ),
+})
+
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameMax = 64
+
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameRegExp = new RegExp('^[^\\u0000-\\u001f\\u007f]\*$')
+export const llmSkillsNamePublishCommunityCreateBodyTagsItemMax = 64
+
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax = 39
+
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp = new RegExp(
+    '^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$'
+)
+
+export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
+    display_name: zod
+        .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyDisplayNameMax)
+        .regex(llmSkillsNamePublishCommunityCreateBodyDisplayNameRegExp)
+        .optional()
+        .describe(
+            'Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.'
+        ),
+    tags: zod
+        .array(zod.string().max(llmSkillsNamePublishCommunityCreateBodyTagsItemMax))
+        .optional()
+        .describe("Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage']."),
+    author_handle: zod
+        .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax)
+        .regex(llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp)
+        .optional()
+        .describe(
+            "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account."
         ),
 })

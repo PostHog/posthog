@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -22,10 +22,11 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
+import { PlayerMetaExperimentTags } from './PlayerMetaExperimentTags'
 import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
-export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
+export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean; isWebUrl: boolean } {
     let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
     if (isObject(lastUrl)) {
         // regression protection, we saw a user whose site was sometimes sending the string-ified location object
@@ -38,22 +39,26 @@ export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isVa
     }
 
     if (!urlToUse || urlToUse.trim() === '') {
-        return { urlToUse: undefined, isValidUrl: false }
+        return { urlToUse: undefined, isValidUrl: false, isWebUrl: false }
     }
 
     let isValidUrl = false
+    let isWebUrl = false
     try {
-        new URL(urlToUse)
+        const parsed = new URL(urlToUse)
         isValidUrl = true
+        // Only http/https can be opened from an https page. A file:// or other scheme
+        // would render a dead link that ejects the user onto a 404, so treat it as plain text.
+        isWebUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:'
     } catch {
         // no valid url
     }
 
-    return { urlToUse, isValidUrl }
+    return { urlToUse, isValidUrl, isWebUrl }
 }
 
 function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
-    const { urlToUse, isValidUrl } = parseUrl(url)
+    const { urlToUse, isWebUrl } = parseUrl(url)
 
     if (!urlToUse) {
         return null
@@ -71,14 +76,14 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                         data-attr="player-meta-copy-url"
                     />
                 </span>
-                {isValidUrl ? (
+                {isWebUrl ? (
                     <Tooltip title={`Click to open url: ${urlToUse}`}>
                         <Link to={urlToUse} target="_blank" className="truncate">
                             {urlToUse}
                         </Link>
                     </Tooltip>
                 ) : (
-                    urlToUse
+                    <span className="truncate">{urlToUse}</span>
                 )}
             </span>
         </span>
@@ -114,7 +119,7 @@ export function PlayerMeta(): JSX.Element {
                     {!whitelabel ? (
                         <Tooltip title="Powered by PostHog" placement="right">
                             <Link to="https://posthog.com" className="flex items-center" target="blank">
-                                <Logo />
+                                <Logo size="md" />
                             </Link>
                         </Tooltip>
                     ) : null}
@@ -176,6 +181,7 @@ export function PlayerMeta(): JSX.Element {
                             )}
                         </>
                     )}
+                    <PlayerMetaExperimentTags />
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaLinks size={size} />
                     <PlayerPersonMeta />

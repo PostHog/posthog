@@ -65,6 +65,8 @@ def apply_graph_operations(
                 _fail(f"add_action: action id '{new_id}' already exists")
             actions.append(new_action)
             actions_by_id[new_id] = new_action
+            for edge in op.get("edges") or []:
+                edges.append(dict(edge))
 
         elif kind == "remove_action":
             target_id = op["id"]

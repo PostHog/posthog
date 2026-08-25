@@ -6,8 +6,6 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import MaxExperimentMetricResult
-
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import EventSource
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
@@ -18,10 +16,11 @@ from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 
 CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
     Use this tool to create A/B test experiments that measure the impact of changes.
@@ -33,8 +32,8 @@ CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
 
     # Prerequisites
     **IMPORTANT**: Before creating an experiment, you must first create a multivariate feature flag
-    using the `create_feature_flag` tool with at least two variants (control and test).
-    The first variant MUST be named "control".
+    using the `create_feature_flag` tool with 2 to 20 variants (conventionally control and test).
+    The baseline defaults to the variant named "control" when present, else the first variant.
 
     # Experiment Types
     - **product**: For backend/API changes, server-side experiments
@@ -66,9 +65,10 @@ class CreateExperimentToolArgs(BaseModel):
         Requirements:
         - The flag must already exist (create it first with create_feature_flag)
         - The flag must have multivariate variants defined
-        - The flag must have at least 2 variants
-        - The first variant MUST be named "control"
+        - The flag must have 2 to 20 variants
         - The flag cannot already be used by another experiment
+
+        The baseline defaults to the variant keyed "control" when present, else the first variant.
 
         Example: "pricing-page-experiment"
         """).strip()
@@ -129,21 +129,11 @@ class CreateExperimentTool(MaxTool):
             except FeatureFlag.DoesNotExist:
                 raise ValueError(f"Feature flag '{feature_flag_key}' does not exist")
 
-            multivariate = feature_flag.filters.get("multivariate")
-            if not multivariate or not multivariate.get("variants"):
+            eligibility_error = experiment_eligibility_error(feature_flag.variants)
+            if eligibility_error:
                 raise ValueError(
-                    f"Feature flag '{feature_flag_key}' must have multivariate variants to be used in an experiment. "
-                    f"Create the flag with variants first using the create_feature_flag tool."
-                )
-
-            variants = multivariate["variants"]
-            # Intentionally stricter than service validation for multi-variant flags:
-            # require control first for Max-created experiments.
-            # Single-variant flags are validated by the service with a clearer error.
-            if len(variants) >= 2 and variants[0].get("key") != "control":
-                raise ValueError(
-                    f"Feature flag '{feature_flag_key}' must have 'control' as the first variant. "
-                    f"Found '{variants[0].get('key')}' instead. Please update the feature flag variants."
+                    f"Feature flag '{feature_flag_key}' cannot back an experiment: {eligibility_error}. "
+                    f"Update the flag's variants, or create a new flag with the create_feature_flag tool."
                 )
 
             existing_experiment_with_flag = Experiment.objects.filter(feature_flag=feature_flag, deleted=False).first()
@@ -152,24 +142,14 @@ class CreateExperimentTool(MaxTool):
                     f"Feature flag '{feature_flag_key}' is already used by experiment '{existing_experiment_with_flag.name}'"
                 )
 
-            feature_flag_variants = [
-                {
-                    "key": variant["key"],
-                    "name": variant.get("name", variant["key"]),
-                    "rollout_percentage": variant["rollout_percentage"],
-                }
-                for variant in variants
-            ]
-
+            # The flag already exists with valid variants, so the experiment links to it as-is —
+            # no flag config to send. (create_experiment reuses the existing flag unchanged.)
             service = ExperimentService(team=self._team, user=self._user)
             return service.create_experiment(
                 name=name,
                 feature_flag_key=feature_flag_key,
                 description=description or "",
                 type=type,
-                parameters={
-                    "feature_flag_variants": feature_flag_variants,
-                },
                 running_time_calculation={
                     "minimum_detectable_effect": 30,
                 },
@@ -232,7 +212,7 @@ EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = dedent("""
 class ExperimentSummaryArgs(BaseModel):
     experiment_id: int | None = Field(
         default=None,
-        description="The ID of the experiment to summarize. Only required when results context is not already available (e.g. when the user asks about an experiment from chat).",
+        description="The ID of the experiment to summarize. Not needed when the user is viewing an experiment (taken from context).",
     )
 
 
@@ -257,16 +237,10 @@ class ExperimentSummaryTool(MaxTool):
 
             resolved_experiment_id = int(resolved_experiment_id)
 
-            # When frontend context has metrics data, use it directly
-            if (
-                context.get("primary_metrics_results") is not None
-                or context.get("secondary_metrics_results") is not None
-            ):
-                return await self._format_from_context(resolved_experiment_id, context)
-
-            # Otherwise, fetch data via the data service (agent-initiated call)
             return await self._fetch_and_format(resolved_experiment_id)
 
+        except MaxToolAccessDeniedError:
+            raise
         except Exception as e:
             capture_exception(
                 e,
@@ -278,51 +252,24 @@ class ExperimentSummaryTool(MaxTool):
             )
             return f"Failed to summarize experiment: {str(e)}", {"error": "summary_failed", "details": str(e)}
 
-    async def _format_from_context(self, experiment_id: int, context: dict) -> tuple[str, dict[str, Any]]:
-        """Format experiment data using pre-computed context from the frontend."""
+    async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
+        """Fetch experiment data from query runners and format it."""
         experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
         experiment = await experiment_context.aget_experiment()
         if experiment is None:
             return f"Experiment {experiment_id} not found", {"error": "not_found"}
 
-        try:
-            primary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("primary_metrics_results", [])]
-            secondary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("secondary_metrics_results", [])]
-        except Exception as e:
-            capture_exception(
-                e,
-                properties={
-                    "team_id": self._team.id,
-                    "user_id": self._user.id,
-                    "experiment_id": experiment_id,
-                },
-            )
-            return f"Invalid experiment context: {str(e)}", {"error": "invalid_context", "details": str(e)}
+        # Before the metric queries run, so a denied user costs no ClickHouse work
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
 
-        exposures = context.get("exposures")
-
-        formatted_data = await experiment_context.format_experiment_results_data(
-            experiment,
-            exposures=exposures,
-            primary_metrics_results=primary_metrics,
-            secondary_metrics_results=secondary_metrics,
-        )
-
-        return self._build_result(experiment, formatted_data, primary_metrics, secondary_metrics)
-
-    async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
-        """Fetch experiment data from query runners and format it."""
         data_service = ExperimentSummaryDataService(self._team, self._user)
 
         try:
-            summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)
+            summary_data = await data_service.fetch_experiment_data(experiment_id)
         except ValueError as e:
             return str(e), {"error": "not_found"}
 
-        experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
-        experiment = await experiment_context.aget_experiment()
-        if experiment is None:
-            return f"Experiment {experiment_id} not found", {"error": "not_found"}
+        summary_context = summary_data.context
 
         formatted_data = await experiment_context.format_experiment_results_data(
             experiment,
@@ -331,8 +278,13 @@ class ExperimentSummaryTool(MaxTool):
             secondary_metrics_results=summary_context.secondary_metrics_results,
         )
 
-        if pending:
+        if summary_data.pending_calculation:
             formatted_data += "\n\n**Note:** Some metrics are still being calculated. Results may be incomplete."
+
+        if summary_data.omitted_metric_count:
+            formatted_data += (
+                f"\n\n**Note:** {summary_data.omitted_metric_count} metrics were omitted from this summary."
+            )
 
         return self._build_result(
             experiment,
@@ -350,8 +302,7 @@ class ExperimentSummaryTool(MaxTool):
     ) -> tuple[str, dict[str, Any]]:
         """Build the final result tuple with artifact metadata."""
         stats_method = get_experiment_stats_method(experiment)
-        multivariate = experiment.feature_flag.filters.get("multivariate", {})
-        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+        variants = [v.get("key") for v in experiment.feature_flag.variants if v.get("key")]
 
         return formatted_data, {
             "experiment_id": experiment.id,
@@ -448,6 +399,8 @@ class SessionReplaySummaryTool(MaxTool):
 
             experiment = await get_experiment()
 
+            await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+
             if experiment.is_draft:
                 output = SessionReplaySummaryOutput(
                     experiment_id=experiment_id,
@@ -457,10 +410,7 @@ class SessionReplaySummaryTool(MaxTool):
                 return "❌ Experiment has not started yet. No session replays available.", output.model_dump()
 
             # Get variants from feature flag
-            feature_flag = experiment.feature_flag
-            multivariate = feature_flag.filters.get("multivariate", {})
-            variants = multivariate.get("variants", [])
-            variant_keys = [v["key"] for v in variants]
+            variant_keys = [v["key"] for v in experiment.feature_flag.variants]
 
             if not variant_keys:
                 output = SessionReplaySummaryOutput(
@@ -486,9 +436,11 @@ class SessionReplaySummaryTool(MaxTool):
                         with tags_context(
                             product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id
                         ):
-                            recordings, has_more, _, _ = list_recordings_from_query(query=q, user=None, team=self._team)
-                            # If has_more, there are 100+ recordings
-                            return len(recordings) if not has_more else 100
+                            listing_result = list_recordings_from_query(query=q, user=None, team=self._team)
+                            # If more recordings are available, there are 100+ recordings
+                            return (
+                                len(listing_result.recordings) if not listing_result.more_recordings_available else 100
+                            )
 
                     count = await count_recordings(query)
                     recording_counts[variant_key] = count
@@ -552,6 +504,8 @@ class SessionReplaySummaryTool(MaxTool):
 
             return user_message, output.model_dump()
 
+        except MaxToolAccessDeniedError:
+            raise
         except ValueError as e:
             return f"❌ {str(e)}", {"error": "validation_error", "details": str(e)}
         except Exception as e:

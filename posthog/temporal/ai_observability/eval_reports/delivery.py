@@ -6,13 +6,20 @@ email HTML body and Slack Block Kit payloads from that shape.
 """
 
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import quote, urlencode
 
 import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
-from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
+from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
+    METRICS_UNAVAILABLE_MESSAGE,
+    Citation,
+    EvalReportContent,
+    EvalReportMetrics,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +40,23 @@ _EMAIL_TH_STYLE = (
     'style="border: 1px solid #ddd; padding: 8px 12px; background-color: #f5f5f5; text-align: left; font-weight: 600;"'
 )
 _EMAIL_TD_STYLE = 'style="border: 1px solid #ddd; padding: 8px 12px;"'
+
+_OUTCOME_LABELS = {
+    "boolean": (("pass", "Pass"), ("fail", "Fail"), ("na", "N/A")),
+    "sentiment": (("positive", "Positive"), ("neutral", "Neutral"), ("negative", "Negative")),
+}
+
+type CitationMap = dict[str, CitationLink]
+_SAFE_CITATION_LABEL_RE = re.compile(r"^[A-Za-z0-9._~-]{1,8}$")
+
+
+@dataclass(frozen=True, kw_only=True)
+class CitationLink:
+    """Where a cited ID should take the reader, and what to call it if the ID doesn't render."""
+
+    trace_id: str
+    generation_id: str | None
+    session_id: str | None
 
 
 def _inline_email_styles(html: str) -> str:
@@ -56,47 +80,82 @@ def _format_period_for_display(iso_str: str) -> str:
     return dt.strftime("%b %d, %Y %H:%M UTC")
 
 
-def _build_citation_map(citations: list) -> dict[str, str]:
-    """Build a generation_id → trace_id lookup from structured citations."""
-    return {c.generation_id: c.trace_id for c in citations if c.generation_id and c.trace_id}
+def _build_citation_map(citations: list[Citation]) -> CitationMap:
+    """Map each cited ID to the unit the reader should land on."""
+    citation_map: CitationMap = {}
+    for citation in citations:
+        if citation.session_id:
+            citation_map[citation.session_id] = CitationLink(
+                trace_id=citation.trace_id, generation_id=None, session_id=citation.session_id
+            )
+        elif citation.generation_id and citation.trace_id:
+            citation_map[citation.generation_id] = CitationLink(
+                trace_id=citation.trace_id, generation_id=citation.generation_id, session_id=None
+            )
+        elif citation.trace_id:
+            citation_map[citation.trace_id] = CitationLink(
+                trace_id=citation.trace_id, generation_id=None, session_id=None
+            )
+    return citation_map
 
 
-def _make_trace_link(project_id: int, generation_id: str, trace_id: str) -> str:
-    """Build the trace URL for a cited generation."""
+def _make_citation_link(project_id: int, link: CitationLink) -> str:
+    """Build the URL for a cited unit: its session, or its trace optionally focused on a generation."""
     from posthog.utils import absolute_uri
 
-    return absolute_uri(f"/project/{project_id}/ai-observability/traces/{trace_id}?event={generation_id}")
+    # One encoded layer each, matching what the app's own URL builders emit: the session scene
+    # reads the ID straight off the decoded pathname, while the trace scene decodes once more.
+    if link.session_id:
+        return absolute_uri(f"/project/{project_id}/ai-observability/sessions/{quote(link.session_id, safe='')}")
+
+    encoded_trace_id = quote(quote(link.trace_id, safe=""), safe="")
+    path = f"/project/{project_id}/ai-observability/traces/{encoded_trace_id}"
+    if link.generation_id:
+        path = f"{path}?{urlencode({'event': link.generation_id})}"
+    return absolute_uri(path)
 
 
-def _linkify_citations(text: str, project_id: int, citation_map: dict[str, str]) -> str:
-    """Replace cited generation IDs with clickable markdown links.
+def _citation_link_label(cited_id: str, link: CitationLink) -> str:
+    """Keep arbitrary IDs from breaking the generated Markdown link label."""
+    preview = cited_id[:8]
+    if _SAFE_CITATION_LABEL_RE.fullmatch(preview):
+        return f"{preview}..."
+    if link.session_id:
+        return "session"
+    return "generation" if link.generation_id else "trace"
+
+
+def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) -> str:
+    """Replace cited generation or trace IDs with clickable markdown links.
 
     Uses the structured citation map (from add_citation calls) rather than
     scanning for UUID patterns. Only IDs the agent explicitly cited get linked.
     Handles common LLM formatting wrappers (backticks, angle brackets).
 
     Two-phase approach avoids double-replacement: first swap every occurrence
-    of each gen_id to a unique placeholder, then replace placeholders with the
-    actual markdown links. This prevents gen_ids inside URLs from being matched.
+    of each cited ID to a unique placeholder, then replace placeholders with the
+    actual markdown links. This prevents cited IDs inside URLs from being matched.
     """
     if not citation_map:
         return text
 
-    # Phase 1: replace all occurrences of each gen_id with a placeholder.
+    # Phase 1: replace all occurrences of each cited ID with a placeholder.
     placeholders: dict[str, str] = {}
-    for i, gen_id in enumerate(citation_map):
+    for i, cited_id in enumerate(citation_map):
         placeholder = f"\x00CITE{i}\x00"
-        placeholders[placeholder] = gen_id
+        placeholders[placeholder] = cited_id
 
-        for wrapper in [f"`` `{gen_id}` ``", f"`{gen_id}`", f"<{gen_id}>"]:
+        for wrapper in [f"`` `{cited_id}` ``", f"`{cited_id}`", f"<{cited_id}>"]:
             text = text.replace(wrapper, placeholder)
-        text = text.replace(gen_id, placeholder)
+        if citation_map[cited_id].generation_id:
+            text = text.replace(cited_id, placeholder)
 
     # Phase 2: replace placeholders with markdown links.
-    for placeholder, gen_id in placeholders.items():
-        trace_id = citation_map[gen_id]
-        link = _make_trace_link(project_id, gen_id, trace_id)
-        text = text.replace(placeholder, f"[{gen_id[:8]}...]({link})")
+    for placeholder, cited_id in placeholders.items():
+        link = citation_map[cited_id]
+        url = _make_citation_link(project_id, link)
+        label = _citation_link_label(cited_id, link)
+        text = text.replace(placeholder, f"[{label}]({url})")
 
     return text
 
@@ -123,65 +182,70 @@ def _format_pass_rate(rate: float | None) -> str:
     return f"{rate:.2f}%"
 
 
-def _render_metrics_block_html(metrics: EvalReportMetrics) -> str:
-    """Render the metrics block as HTML (table + period-over-period row).
+def _format_outcome_value(metrics: EvalReportMetrics, outcome: str) -> str:
+    count = metrics.result_counts[outcome]
+    if metrics.output_type == "boolean":
+        return str(count)
+
+    rate = metrics.result_rates.get(outcome)
+    value = str(count) if rate is None else f"{count} ({_format_pass_rate(rate)})"
+
+    previous_rate = (metrics.previous_result_rates or {}).get(outcome)
+    if rate is None or previous_rate is None:
+        return value
+
+    diff = rate - previous_rate
+    arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "•")
+    return f"{value} {arrow} {abs(diff):.2f}pp"
+
+
+def _format_boolean_pass_rate_value(metrics: EvalReportMetrics) -> str:
+    value = _format_pass_rate(metrics.pass_rate)
+    if metrics.previous_pass_rate is None:
+        return value
+
+    diff = metrics.pass_rate - metrics.previous_pass_rate
+    arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "•")
+    return f"{value} ({arrow} {abs(diff):.2f}pp vs previous)"
+
+
+def _render_metrics_block_html(
+    metrics: EvalReportMetrics | None,
+    *,
+    period_start: str = "",
+    period_end: str = "",
+) -> str:
+    """Render trusted outcome counts and rates as an HTML table.
 
     Lives at the top of the email body so the reader sees the trusted numbers
     before reading the agent's analysis.
     """
+    if metrics is None:
+        period = f"{_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
+        notice = _inline_email_styles(f"<p><strong>{METRICS_UNAVAILABLE_MESSAGE}</strong></p>")
+        return f'<p class="muted"><strong>Period</strong>: {period}</p>\n{notice}\n'
     period = f"{_format_period_for_display(metrics.period_start)} → {_format_period_for_display(metrics.period_end)}"
-    delta = ""
-    if metrics.previous_pass_rate is not None:
-        diff = metrics.pass_rate - metrics.previous_pass_rate
-        arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "—")
-        delta = f" ({arrow} {abs(diff):.2f}pp vs previous)"
-
-    table = (
-        "<table>"
-        "<tr><th>Total runs</th><th>Pass</th><th>Fail</th><th>N/A</th><th>Pass rate</th></tr>"
-        f"<tr>"
-        f"<td>{metrics.total_runs}</td>"
-        f"<td>{metrics.pass_count}</td>"
-        f"<td>{metrics.fail_count}</td>"
-        f"<td>{metrics.na_count}</td>"
-        f"<td><strong>{_format_pass_rate(metrics.pass_rate)}</strong>{delta}</td>"
-        f"</tr>"
-        "</table>"
-    )
+    outcome_labels = _OUTCOME_LABELS[metrics.output_type]
+    headers = "".join(f"<th>{label}</th>" for _, label in outcome_labels)
+    values = "".join(f"<td>{_format_outcome_value(metrics, outcome)}</td>" for outcome, _ in outcome_labels)
+    if metrics.output_type == "boolean":
+        headers += "<th>Pass rate</th>"
+        values += f"<td><strong>{_format_boolean_pass_rate_value(metrics)}</strong></td>"
+    table = f"<table><tr><th>Total runs</th>{headers}</tr><tr><td>{metrics.total_runs}</td>{values}</tr></table>"
     table = _inline_email_styles(table)
     return f'<p class="muted"><strong>Period</strong>: {period}</p>\n{table}\n'
 
 
-def _build_pass_rate_bar(pass_rate: float, width: int = 30) -> str:
-    """Build an ASCII bar representing the pass rate percentage."""
-    filled = round(pass_rate / 100 * width)
-    return "█" * filled + "·" * (width - filled)
-
-
-def _render_metrics_slack_blocks(metrics: EvalReportMetrics) -> list[dict]:
-    """Render the metrics block as a Slack code block with ASCII dashboard style."""
-    W = 36  # inner width between │ pipes
-
-    delta = ""
-    if metrics.previous_pass_rate is not None:
-        diff = metrics.pass_rate - metrics.previous_pass_rate
-        arrow = "▲" if diff > 0 else ("▼" if diff < 0 else "—")
-        delta = f"  {arrow} {abs(diff):.2f}pp"
-
-    bar = _build_pass_rate_bar(metrics.pass_rate)
-    rate = _format_pass_rate(metrics.pass_rate)
-    runs_label = f"{metrics.total_runs} runs"
-
-    # Line with rate left-aligned and runs right-aligned
-    rate_str = f"  {rate}{delta}"
-    rate_line = f"{rate_str}{runs_label:>{W - len(rate_str)}}"
-
-    counts = f"  pass {metrics.pass_count} · fail {metrics.fail_count} · n/a {metrics.na_count}"
-
-    top = f"┌─ pass rate {'─' * (W - 12)}┐"
-    bot = f"└{'─' * W}┘"
-
-    code_block = f"{top}\n│{f'  {bar}':<{W}}│\n│{rate_line:<{W}}│\n│{counts:<{W}}│\n{bot}"
+def _render_metrics_slack_blocks(metrics: EvalReportMetrics | None) -> list[dict]:
+    """Render the metrics block as a compact, output-type-neutral Slack dashboard."""
+    if metrics is None:
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": METRICS_UNAVAILABLE_MESSAGE}}]
+    outcome_lines = [
+        f"{label}: {_format_outcome_value(metrics, outcome)}" for outcome, label in _OUTCOME_LABELS[metrics.output_type]
+    ]
+    if metrics.output_type == "boolean":
+        outcome_lines.append(f"Pass rate: {_format_boolean_pass_rate_value(metrics)}")
+    code_block = "\n".join([f"Total runs: {metrics.total_runs}", *outcome_lines])
 
     blocks: list[dict] = [
         {
@@ -192,7 +256,7 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics) -> list[dict]:
     return blocks
 
 
-def _render_section_html(title: str, content: str, project_id: int, citation_map: dict[str, str]) -> str:
+def _render_section_html(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as HTML with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
     content_with_links = _linkify_citations(content, project_id, citation_map)
@@ -201,7 +265,7 @@ def _render_section_html(title: str, content: str, project_id: int, citation_map
     return f"<h2>{title}</h2>\n{html_content}\n"
 
 
-def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: dict[str, str]) -> str:
+def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
     content = _strip_redundant_leading_heading(content, title)
     content = _linkify_citations(content, project_id, citation_map)
@@ -227,7 +291,7 @@ def deliver_email_report(
     errors: list[str] = []
 
     # Metrics block first, then each section
-    body_parts = [_render_metrics_block_html(content.metrics)]
+    body_parts = [_render_metrics_block_html(content.metrics, period_start=period_start, period_end=period_end)]
     for section in content.sections:
         body_parts.append(_render_section_html(section.title, section.content, project_id, citation_map))
     body_html = "\n".join(body_parts)
@@ -431,7 +495,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         increment_delivery("slack", "failed")
 
     if not had_any_target:
-        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.PENDING
+        # Report generated successfully, but no delivery target is configured, so there is nothing to send.
+        report_run.delivery_status = EvaluationReportRun.DeliveryStatus.GENERATED
     elif all_failed:
         report_run.delivery_status = EvaluationReportRun.DeliveryStatus.FAILED
     elif all_errors:

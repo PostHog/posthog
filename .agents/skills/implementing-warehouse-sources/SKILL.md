@@ -11,13 +11,13 @@ Use this skill when building or updating Data warehouse sources in `products/war
 
 Before coding, read:
 
-- `products/warehouse_sources/backend/temporal/data_imports/sources/source.template` (use the top-of-file TODOs as a starting reference, but verify target files against the current source implementations — the template can drift, e.g. it currently still points at the old `posthog/warehouse/types.py` path instead of `products/warehouse_sources/backend/types.py`)
+- `products/warehouse_sources/backend/temporal/data_imports/sources/source.template` (the top-of-file TODOs are the bootstrap checklist; still verify target files against current source implementations, since the template can drift)
 - `products/warehouse_sources/backend/temporal/data_imports/sources/README.md`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
-- 1 API source with `settings.py` + transport logic (e.g. klaviyo, github). For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
+- **`chargebee/` — the canonical reference for a new REST source.** It uses the shared `rest_source` framework (declarative `RESTAPIConfig` + `rest_api_resource`, framework auth + paginators, tracked+retrying transport) and is resumable — proof the framework covers the dominant "paginate a list endpoint and yield, resumably" shape. Read it first, alongside "Prefer the shared REST framework" below. Read `klaviyo/` or `github/` only as a _bespoke-transport_ fallback: they hand-roll their client for edge cases (custom query-string encoding, multi-level fan-out, JSON:API reshaping) that most sources don't have — don't copy that boilerplate into a source that doesn't need it. For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
 - For webhook-capable sources, read `products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py` as the reference implementation.
 
 ## Picking the right base class
@@ -47,6 +47,30 @@ Rule of thumb:
 
 Databases and file-transfer sources (SFTP, S3) stay on `SimpleSource` unless there's a clear reason otherwise.
 
+## Prefer the shared REST framework
+
+Most REST sources should be built on the shared `rest_source` framework
+(`common/rest_source/`), not a hand-rolled client. It already provides — so you write **none** of it:
+
+- **Tracked, retrying transport** — `RESTClient` defaults to `make_tracked_session()` and retries
+  `429` + transient `5xx` honoring `Retry-After`. No `tenacity`, no `RetryableError`, no fetch loop.
+- **Paginators** (`rest_source/paginators.py`, chosen by string/dict in the config, not hand-written):
+  `single_page`, `header_link`, `json_response` (next-URL in body), `cursor`, `offset`, `page_number`.
+- **Auth** (`rest_source/auth.py`): `bearer`, `api_key` (header/query/cookie), `http_basic`, `oauth2`
+  (customer-owned client-credentials/refresh). Each redacts its own secrets — no `_get_headers` builder.
+- **Incremental params, `data_selector`, response actions, resume** (`resume_hook` /
+  `initial_paginator_state`), and **parent/child fan-out** (`fanout.build_dependent_resource`).
+
+`chargebee/` is the canonical example (declarative endpoints + framework auth + resume). `zendesk/`
+shows multi-endpoint + `data_selector`; `attio/` shows cursor pagination.
+
+**When hand-rolling is justified** (read `klaviyo/` then): the API needs query strings the framework
+can't produce (literal brackets/operators, e.g. `filter=greater-than(...)`, `page[size]`);
+multi-level (2+ deep) fan-out; or per-item reshaping the `data_selector` can't express (e.g.
+flattening JSON:API `attributes` into the row root). Single-level fan-out and per-item maps are
+supported declaratively — don't hand-roll for those. If you must hand-roll, still ride
+`make_tracked_session()` and do **not** add a second status-code retry layer (see "Retry and throttling").
+
 ## End-to-end workflow for a new API source
 
 Follow this order. Each step maps to TODOs in `source.template`.
@@ -55,7 +79,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    - Airbyte: <https://airbyte.com/connectors> (connector pages often link to source code — useful reference)
    - Fivetran: <https://www.fivetran.com/connectors>
    - Stitch: <https://www.stitchdata.com/docs/integrations/>
-     Find the official API docs or OpenAPI spec. Make sure it's the current version, not a deprecated one.
+     Find the official API docs or OpenAPI spec, and **work out the vendor's latest generally-available API version before you write any request code** — that is the version the source must be built against. Check the vendor's changelog, versioning, or deprecation page, not just whichever page ranked first; docs sites routinely default to an older version, and Airbyte/Fivetran connectors are often years behind. See "Vendor API version metadata" for what counts as latest and what to do when the newest channel isn't GA.
 2. **Bootstrap the source.** Copy the template and wire up the enum/type references:
 
    ```sh
@@ -65,21 +89,21 @@ Follow this order. Each step maps to TODOs in `source.template`.
 
    Then update the two hand-edited files (the template still lists `posthog/schema.py` too, but that file is regenerated by `pnpm run schema:build` in step 12 — don't maintain it by hand):
    - `ExternalDataSourceType` at `products/warehouse_sources/backend/types.py` — follow the existing convention in that file: `ALL_CAPS` with **no underscores** between words (e.g. `ACTIVECAMPAIGN`, `APPLESEARCHADS`), value is `PascalCase`
-   - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` (`lower-kebab-case`)
+   - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` — **PascalCase, identical to the `ExternalDataSourceType` value** (e.g. `'ActiveCampaign'`, `'GoogleAds'`, `'CustomerIO'`). NOT kebab-case. (The only kebab-case identifier in the flow is the optional `featureFlag="dwh-{source_name}"`.)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
-4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below).
+4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata".
 5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
-6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py`. **Do not edit that file by hand.** Every time you change `get_source_config.fields`, re-run the generator.
+6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py` (one generated module per source; the package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
-10. **Add icon.** Place at `frontend/public/services/{source}.svg` (prefer SVG). If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Keep file size reasonable.
+10. **Add icon.** Place at `frontend/public/services/{source}.png` — **PNG is the repo convention** (~800 png vs ~58 svg, and `source.template` defaults to `.png`). SVG is accepted but not the norm; set `iconPath` to match whichever extension you commit. If the logo isn't already committed, fetch from [Logo.dev](https://docs.logo.dev/introduction) — **ask the user for the Logo.dev API key**; do not hardcode one. Logo.dev's image API returns PNG (not SVG). Keep file size reasonable.
 11. **Run migrations.** `DEBUG=1 python manage.py makemigrations && DEBUG=1 ./bin/migrate` (only needed if a new enum value triggers a Django migration).
 12. **Rebuild schema types**: `pnpm run schema:build`. This updates `posthog/schema.py` from `schema-general.ts` and makes the source appear in frontend dropdowns. Re-run whenever `schema-general.ts` changes.
 13. **Release status — a finished source has no `unreleasedSource` flag.** The default for the deliverable this skill produces is **no `unreleasedSource`** — a completed, working source ships visible and connectable. You don't need anyone's sign-off to ship it released; that's just the finished state. The scaffolded stub ships with `unreleasedSource=True` pre-set, so deleting that line is part of finishing the source — go ahead and remove it. (Why it matters: `unreleasedSource=True` **hides the connector from users entirely** — the frontend filters out every source where it's truthy; see `DataWarehouseQueryVariant.tsx`, `InlineSourceSetup.tsx`, and the "coming soon / Notify me" path in `nonHogFunctionTemplatesLogic.tsx`.)
 
-    Keeping `unreleasedSource=True` is the exception that needs a reason: only do it when the source is genuinely incomplete and must not be reachable yet (e.g. you're landing it across several PRs and it can't sync). The moment it syncs end-to-end and its tests pass, it's done — the flag comes out.
+    **Deleting that line is mandatory, and it is not gated on anything you can't do in your environment.** In particular, "I couldn't curl the live API" or "I couldn't verify against a real account" is NOT a reason to keep the flag — that is exactly what `releaseStatus=ReleaseStatus.ALPHA` is for (a soft "new, lightly tested" label on a _visible_ source). The only time `unreleasedSource=True` legitimately stays is when the source physically cannot sync yet because it is being landed across several PRs and the implementing code isn't all there. A source with working `get_schemas` / `source_for_pipeline` and passing tests is finished — the flag comes out. **Never write a test that asserts `unreleasedSource is True`** — that locks the bug in and is what kept 166 finished sources hidden until they had to be released in bulk.
 
     So a newly finished, tested source ships with:
     - **no `unreleasedSource`** (visible and connectable),
@@ -105,6 +129,21 @@ For API-backed sources, use this split:
 - `{source}.py`: API client/auth, paginator, request params, row normalization, and `SourceResponse`.
 
 This keeps endpoint behavior declarative and easy to extend.
+
+### Source behaviour goes in the source, never in the API layer
+
+The `warehouse_sources` presentation layer (`products/warehouse_sources/backend/presentation/views/external_data_source.py`, `external_data_schema.py`) must stay source-agnostic.
+Do **not** add `if source_type == ExternalDataSourceType.X` / `source.is_direct_<engine>` branches there — a CI guard (`.github/scripts/check-dwh-source-agnostic.py`) blocks new ones.
+
+When a source needs behaviour the API must invoke, expose it on the source instead:
+
+- **A boolean/value the API reads** → add a flag on `_BaseSource` with a safe default (like `supports_column_selection`, `connection_host_fields`, `has_managed_hogql_schema`), and let the API branch on the flag.
+- **Methods only some sources have** (CDC, xmin, webhooks, custom manifests) → a capability mixin the source opts into; the API dispatches with `isinstance(source, <Capability>)`.
+- **Direct-query engine behaviour** (how a SQL engine resolves a table location, builds its `DataWarehouseTable`, maps columns) is keyed on the engine, not the source type — dispatch on `source.direct_engine` through the engine adapter/registry (`posthog/hogql/direct_sql/` for query concerns, the `data_warehouse` engine registry for materialization), never `source_type`.
+
+Keep source-domain semantics (how to talk to the engine, how it names things, whether filters push down) on the source; the warehouse-domain work it drives (`DataWarehouseTable` rows, managed viewsets, hog functions) stays in `data_warehouse`, keyed off what the source or adapter returns.
+Source capabilities never import `data_warehouse` types.
+See `products/data_warehouse/backend/presentation/README.md`.
 
 For REST sources that mix top-level and fan-out endpoints, keep endpoint metadata in `settings.py` and route in `{source}.py` with this priority:
 
@@ -223,6 +262,87 @@ enum. Adding a **new** category means editing that array and rebuilding — don'
 alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
 the name already obviously matches; don't add noise.
 
+## Self-driving Inbox candidacy (issues / tickets / conversations)
+
+Some sources are also candidates for the **Self-driving Inbox** — the feature that watches a synced
+table of _actionable records_ and emits findings into the PostHog Desktop Inbox. Shipped today: GitHub,
+Linear, Zendesk, pganalyze, and Jira.
+
+The signal is the **table you sync**, not the vendor: a source is an inbox candidate when one of its
+tables is a stream of records a human (or agent) triages one by one — an `issues`, `tickets`, or
+`conversations` table. These live under the support/helpdesk (`CUSTOMER_SUPPORT`), issue-tracker and
+monitoring (`ENGINEERING___MONITORING`), and some project-tool (`PRODUCTIVITY`) categories. Analytics,
+billing, ad-platform, CRM, and raw database sources are **not** inbox candidates — they sync facts to
+query, not a work queue to act on. If the source you're building has no such table, there's nothing to
+do here.
+
+Wiring a source into the inbox is a **separate, additive piece of work** with its own skill —
+`/adding-inbox-sources` — and it changes nothing in this skill's deliverable. It only becomes possible
+once the data-warehouse source exists (which is exactly what this skill produces), so build and ship the
+source first. That skill touches three surfaces: a server-side "signals scout" emitter plus a registry
+entry and `SignalSourceProduct` enum in this repo (`products/signals/backend/`), the inbox UI in the
+separate `posthog/code` repo, and the `npx @posthog/wizard self-driving` onboarding flow in
+`PostHog/context-mill`. Read `/adding-inbox-sources` before starting — none of that plumbing belongs in
+the source's own `products/warehouse_sources/` code.
+
+## Vendor API version metadata
+
+Every source declares three class attributes (on the source class body, alongside `lists_tables_without_credentials`)
+describing the vendor's API version.
+The framework (`common/base.py`) records the version each `ExternalDataSource` runs against so old pins keep working
+and deprecations can be surfaced;
+`sources/tests/test_source_versions.py` enforces the invariants below across every registered source, so a new
+source that gets these wrong fails CI.
+
+Two cases:
+
+- **The vendor exposes a real, pinnable API version** — a URL path segment (`/v3/`, `/2/`), a required version
+  header value (a dated `2022-11-28`), a dated query/version param, or a named release. Declare all three:
+
+  ```python
+  class MySource(SimpleSource[MySourceConfig]):
+      supported_versions = ("v3",)          # opaque vendor labels — never parsed or ordered
+      default_version = "v3"                 # stamped onto newly created sources; must be in supported_versions
+      api_docs_url = "https://vendor.example/docs/api"   # API reference or changelog page (https, not the marketing site)
+  ```
+
+  **Build the source against the vendor's latest generally-available version, and pin that.** A new source starts
+  on one version and every customer who connects it lands there, so shipping on an older version means shipping a
+  migration someone has to run later. Two rules, and they must agree:
+
+  1. Write the request code against the newest GA version the vendor offers.
+  2. Declare **the version that code actually calls** (the base URL path, a version header, or a version constant
+     in `settings.py` / `{source}.py`). Never declare a version the code doesn't send — that pin is a lie the
+     framework can't detect, and it makes the deprecation warnings and the upgrade path wrong for every customer.
+
+  If you can't reach the newest version — it's preview/beta/unstable/RC, it's gated behind an application or a
+  paid tier, or its response shapes aren't implemented yet — build against the newest GA version you can actually
+  call, pin that, and say why in a comment on the class. "Latest" means latest stable: don't pin Shopify's
+  `unstable`, a vendor's `-rc` channel, or a version whose docs are still marked preview.
+
+  Examples already in the tree: Anthropic `("2023-06-01",)` (dated `anthropic-version` header),
+  ActiveCampaign `("v3",)` (`/api/3` path segment), Alguna `("2026-04-01",)` (dated version header).
+  A source that later gains a second version declares them oldest→newest — GitHub `("2022-11-28", "2026-03-10")`,
+  HubSpot `("v3", "2026-03")` — but that's the `/warehouse-source-new-version` skill's job, not this one.
+
+- **The vendor has no meaningful API versioning** — set only `api_docs_url`; leave `supported_versions` /
+  `default_version` at the framework default (`("v1",)`, the `UNVERSIONED_API_VERSION` sentinel). A bare `/v1/`
+  that has never changed and isn't a documented version choice is this case.
+
+Rules:
+
+- `default_version` must equal the single entry in `supported_versions`, and `api_docs_url` must be `https://`.
+- Use the vendor's exact version string; never invent one.
+- **Never ship a new source on a version the vendor has already deprecated or given a sunset date.** A brand-new
+  source with a `deprecated_versions` entry covering its only version is a bug — it means the source was written
+  against the wrong version. `test_source_versions.py` fails the build if `default_version` is deprecated.
+- Prefer an `api_docs_url` that points at the vendor's versioning/changelog page over a generic API landing page —
+  it's where the next version gets announced, and it's what the next person checks before repinning.
+- Don't hardcode a fallback version in the transport/request layer — resolve it from the source class
+  (`self.resolve_api_version(inputs.api_version)`), which already falls back to `default_version`.
+- Adding support for a **new** vendor version later, or **deprecating** an old one, is the
+  `/warehouse-source-new-version` skill — not this one.
+
 ## Source fields (the form the user fills in)
 
 Defined in `get_source_config.fields`. All field types live in `posthog/schema.py` and are unioned as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`.
@@ -246,9 +366,9 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
-**Don't import or instantiate `Batcher` at the source layer.** The pipeline already runs one (`pipelines/pipeline/pipeline.py`) at the same 5000-row / 200 MiB thresholds. Yielding raw `dict` / `list[dict]` from your generator is the canonical path — reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g., a ClickHouse adapter). Source-level batching results in double-buffering with no behavioral win.
+**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline_v2/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
 
-For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/utils.py`.
+For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/core/arrow_utils.py`.
 
 **URL construction:** use `urllib.parse.urlencode` for query strings. Don't use `requests.Request(...).prepare().url` — `PreparedRequest.url` is typed `Optional[str]` and the typical workaround (`prepared.url or f"..."`) carries an unreachable fallback. `urlencode` is shorter, dependency-free, and produces identical output for ASCII-safe params.
 
@@ -329,6 +449,11 @@ log line and OTel metric, and participates in opt-in sample capture.
 
 - For raw `requests` usage: `make_tracked_session(headers=..., retry=...)` returns a `requests.Session`. Use
   `session.get/post/...` instead of the module-level `requests.get/...` shortcuts.
+- **Redact secrets from the captured samples.** Pass `redact_values=(api_key, token, ...)` to
+  `make_tracked_session(...)` so the tracked transport masks those literal values in logged URLs, headers,
+  and sampled bodies — important for keys that ride in a query param or an odd header name. `rest_source`
+  auth classes do this automatically (each implements `secret_values()`); only raw-session sources need to
+  pass `redact_values` themselves.
 - For sources that already go through `rest_source.RESTClient`: it defaults to a tracked session
   automatically; no change needed.
 - For vendor SDKs that accept a session/HTTP-client hook (Stripe `RequestsClient(session=...)`,
@@ -381,6 +506,25 @@ each, also alphabetical) so adding or removing a source only touches its own lin
 concurrent PRs — don't collapse it back into a comma-separated paragraph. If you add a partially-tracked
 source, also append a short "Notes on partially-tracked sources" entry explaining what blocks tracking
 (e.g. a vendor SDK with no session/interceptor seam).
+
+## Base-class capability flags & API versioning
+
+`common/base.py` exposes class-level flags most API sources leave at their defaults, but which matter
+when they apply:
+
+- `supports_column_selection` (default `False`; `SQLSource` sets `True`) — whether the source honors
+  `enabled_columns` via SELECT projection.
+- `supports_row_filters` (default `False`) — must be `True` for a source to apply saved `row_filters`;
+  otherwise filters are ignored.
+- `has_managed_hogql_schema` (default `False`; `True` for revenue-analytics sources like Stripe,
+  Paddle, Zendesk) — a fixed field set powers a managed HogQL schema, which disables column selection.
+  A new billing/revenue source that ignores this can break revenue analytics.
+- `cleanup_cdc_resources_on_deletion` — best-effort teardown hook for sources that provision CDC
+  resources; override only if your source creates such resources.
+
+For vendor **API versioning** (`supported_versions`, `default_version`, `api_docs_url`,
+`deprecated_versions`, `resolve_api_version()`), use the dedicated **`warehouse-source-new-version`**
+skill — don't hand-roll version handling.
 
 ## Required coding conventions
 
@@ -447,11 +591,20 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 
 ## Retry and throttling strategy
 
-- Use `tenacity` instead of manual retry loops.
-- Retry transport failures and retryable status codes (`429`, transient `5xx`).
-- Prefer server-provided rate-limit reset headers on `429`; fall back to exponential backoff.
-- Bound and make deterministic (`stop_after_attempt`). Preserve clear terminal behavior.
+- **`make_tracked_session()` and `rest_source.RESTClient` already retry `429` + transient `5xx` at the transport layer**, honoring `Retry-After`. Do NOT wrap a second `tenacity` `@retry` around your fetch for status codes — it compounds (e.g. 3 transport attempts × 5 tenacity attempts) and is the single most-copied mistake across existing sources. If you use the framework or the tracked session, status-code retries are already handled; write none.
+- Only add `tenacity` for a condition the transport does **not** cover — e.g. an app-level "still processing" body that isn't a retryable HTTP status. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
+- Prefer server-provided rate-limit reset headers on `429` — the transport already honors `Retry-After`. Keep any custom retry bounded and deterministic (`stop_after_attempt`), with clear terminal behavior.
 - Keep timeout/retry settings near the top of the module for easy tuning.
+
+The backoff above is the right control when the **customer owns the credential** — their own PAT / API key / OAuth token on their own third-party account, which is nearly every source.
+PostHog can't overspend a budget it doesn't own, so honoring `429` / `Retry-After` at the source is enough.
+
+**The exception is a credential PostHog owns and shares across processes** — today that's the PostHog GitHub App installation token (many PostHog subsystems draw from one per-installation budget at once).
+There, reactive backoff isn't enough: without coordination, concurrent PostHog callers collectively blow past the shared limit before any `429` comes back.
+Those calls must route through [`posthog/egress/`](../../../posthog/egress/README.md) — a Redis-backed shared budget plus telemetry, gated by construction — never hand-rolled `requests`.
+The [GitHub source](../../../products/warehouse_sources/backend/temporal/data_imports/sources/github/github.py) is the reference: it keys the limiter on the **GitHub App installation id** (the budget owner in GitHub's own id space, not a PostHog DB row), and the customer-PAT path skips the limiter token-blind.
+Raw calls to `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule, so a GitHub-shaped source lands on the egress path by construction.
+Deciding question is never "is this a warehouse source?" — it's **"who owns the token, and could concurrent PostHog processes trample each other on it?"**
 
 ## Fan-out endpoints
 
@@ -469,9 +622,44 @@ Fan-out = iterate a parent resource, then query child endpoints per parent.
 
 **Custom iterator only when fan-out is 2+ levels deep.** Reuse the same pagination/retry helpers as elsewhere.
 
+### Reading the fan-out parent from the warehouse (`parent_source="warehouse"`)
+
+> [!IMPORTANT]
+> **Not generally available — do not opt new sources in.** The flag is limited to dogfood rollouts and the only wired caller is Sentry's `issue_tag_values` custom iterator, gated on an incremental watermark.
+> This section is here because the shared fan-out builder carries the machinery either way, so anyone changing fan-out internals needs to know the constraints. Treat the caveats below (windowed parents, ordered parents, non-REST callers) as unproven outside Sentry, and ask the data warehouse team before opting another source in.
+
+By default a fan-out child re-fetches its parent endpoint on every sync — syncing `issue_hashes` re-pulls all of `issues` even when the `issues` schema already synced.
+A child endpoint opts into warehouse parent reuse with `parent_source="warehouse"` on its `DependentEndpointConfig`:
+the child then streams parent rows from the parent schema's already-synced Delta table (`iter_parent_pages_from_warehouse` in `common/rest_source/warehouse_parent.py`) instead of hitting the parent API.
+Reference implementation: Sentry's `issue_tag_values` custom iterator calling the reader directly, warehouse-mode only when an incremental watermark bounds the scan.
+
+Requirements and behavior:
+
+- **The parent must be a selectable schema of the same source** — it has to produce its own Delta table.
+- **Soft dependency — the child falls back to the parent API.** Declare the parents by overriding `get_required_parent_schemas` on the source (wire it to `required_parents_from_endpoint_configs(ENDPOINTS, schema_name)`; add explicit entries for custom-iterator endpoints). That override is the only declaration: nothing surfaces the relationship through the API, so don't add a schema-payload field for it while the feature is unvalidated.
+  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so enabling the flag can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
+  Never enable a parent as a side effect of enabling a child: parent syncs count toward the customer's billed rows.
+- **Feature-flagged.** The whole path is gated by the `warehouse-fanout-parent-reuse` flag (`is_fanout_warehouse_reuse_enabled`); with the flag off, opted-in endpoints silently keep the legacy parent-API path, so rollback is a flag flip.
+- **Strictly streaming — never materialize the parent table.** The reader scans one projected batch at a time with column projection pushed down to the parquet read. Do not add `to_table`, global sorts, or seen-set dedupe to it — parents can be arbitrarily large, and the whole pipeline exists to avoid full-dataset memory. If a caller's semantics depend on parent order (the API returned sorted rows), rework them into per-row filters over the unordered stream (see Sentry's `issue_tag_values` cutoff handling) instead of sorting.
+- **The usable sync types are an allow-list, not a deny-list.** Only merge and full refresh hold one row per key; append accumulates a row per sync and CDC keeps change history, so streaming either would fan the child out once per duplicate, and dedupe would need unbounded state. A new sync type has to opt in deliberately in `_parent_unusable_reason`.
+- **Values carry Delta physical types, not the API's JSON types.** A timestamp comes back as a datetime rather than an ISO string, a nested object as a dict. Because the API fallback engages per run, projecting such a field through `include_from_parent` makes the child's column type flip between runs and trips the merge's type-drift guards. Only project fields whose physical type matches what the API returned (an id string is safe), or normalize in the caller.
+- **Stale parents 404.** The warehouse snapshot can contain parents deleted upstream since the parent's last sync; the builder adds a `404 → ignore` response action on the child (custom iterators must skip 404s themselves — see Sentry's `_skip_rows_on_stale_issue_404`).
+- **Freshness**: children fan out over the parent's last synced snapshot. Parents created after the parent's last sync appear once the parent re-syncs — same staleness class as independent schedules.
+- **Column names**: the reader takes API field names (e.g. `lastSeen`), maps them to the snake_case physical Delta columns, and re-keys rows back to API names. Request only the columns the fan-out needs (`resolve_field` + `include_from_parent`).
+- **The warehouse read must reproduce the API path's effective row set, and if it can't, the parent is disqualified.** The vendor's list endpoint usually bounds what it returns server-side, while an incremental parent table accumulates every row ever seen — an unbounded scan fans out over parents the API path never would, multiplying child rows, billed volume, and run time on aged snapshots. Classify the parent into one of three cases before opting it in:
+  - The parent API genuinely returns the full collection → no filter needed; ideal candidate.
+  - The bound is knowable and expressible → set `parent_row_filter` on the `DependentEndpointConfig` (`ParentRowFilter(field=..., not_older_than=..., not_before=...)`); the predicate is pushed into the parquet read, keeps NULL rows, adapts to string or timestamp physical columns, and an unfilterable table falls back to the API path via eager resolve validation. A per-run watermark (`not_before`) is the safest bound, because it is self-consistent with what the child already processed.
+  - The bound depends on state you cannot know → **do not opt the parent in.** The classic shape is a listing clamped by the customer's plan (event retention, seat tier, feature entitlements): per-account, applied silently server-side, exposed by no API, and overriding any explicit range you send. No snapshot filter can reproduce a bound like that.
+    The effective bound is usually invisible in our code, so classify empirically: run the listing against a real account with and without explicit bounds, compare counts, and check whether items outside the suspected bound still serve their child endpoints.
+- **Windowed parents must stay windowed.** If the source currently bounds its parent walk by the child watermark (e.g. Github's `_fan_out_get_rows`), a full warehouse read would _increase_ child fan-out — filter the warehouse read to the same window instead.
+- **Non-REST sources** (e.g. Stripe's SDK loop) can call `iter_parent_pages_from_warehouse` directly; project any fields their skip-checks inspect (e.g. customer `balance`). Resolve the table with `resolve_parent_table_ref(..., required_columns=[...])` eagerly in `source_for_pipeline` (sync context) — it does an ORM read, and the pipeline's iterator executor threads are the wrong place for ad-hoc DB connections. It also pins the parent's Delta version, so a parent that re-syncs mid-fan-out can't shift the rows underneath the child; pass the returned ref to the reader instead of re-deriving a URI.
+- **Catch `WarehouseParentTableNotFoundError` around that resolve call and take the API path.** A schema row can claim a completed sync while its table is unreadable (purged, renamed, or missing the fan-out columns), and the reader is a generator, so anything it validated lazily would raise deep inside the pipeline where no fallback is left. That is why `required_columns` is validated eagerly during resolution. When falling back, also turn off any behavior that only makes sense for a warehouse snapshot (the child's stale-parent `404 → ignore`, and resume checkpoints the warehouse scan skips), so the run matches the feature-off path exactly.
+
 ## OAuth configuration
 
-Before implementing OAuth, **check if the integration already exists** — search `posthog/models/integration.py` loosely for the service name before concluding it's new.
+Before implementing OAuth, **check if the integration already exists** — search the `posthog/models/integration/` package loosely for the service name before concluding it's new.
+The kinds live in `model.py` and the OAuth wiring in `oauth.py`; a provider only gets its own module when it carries business logic beyond the OAuth config, as Slack, GitHub, and Stripe do.
+`__init__.py` only re-exports the public surface, so keep importing from `posthog.models.integration` but make edits in the defining module.
 
 If new:
 
@@ -482,12 +670,21 @@ If new:
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration kind**. In `posthog/models/integration.py`:
-   - Add to `IntegrationKind` enum.
-   - Add to `OauthIntegration.supported_kinds`.
-   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`.
-3. **Redirect URI**: `https://localhost:8010/integrations/your-kind/callback` in the external service.
-4. List any new env vars in the final handoff so they can be set in all environments.
+2. **Integration kind**.
+   - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
+   - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
+   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
+     Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
+     fail-closed message, so code and charts can ship before the secret values exist.
+   - If the provider's token response has **no account identifier** (e.g. Resend), decode the
+     access-token JWT and set `id_path` / `name_path` from a claim (`sub`), mirroring the reddit/bing
+     branches in `integration_from_oauth_response`.
+3. **Register the client + deploy the credentials.** Registering the OAuth client with the provider,
+   the redirect URIs (US/EU/dev/localhost), the **charts** PR (wiring the env vars into both
+   `posthog-django-shared-secrets` for the web app and the worker's `secret_env_app_specific` store),
+   and writing the values into AWS Secrets Manager via the `PostHog/secrets` UI or CLI — plus which of these
+   an agent can vs. must not automate — are all in
+   [references/oauth-app-deployment.md](references/oauth-app-deployment.md).
 
 ## Non-retryable errors
 
@@ -539,7 +736,7 @@ preserved (omitted) secret is reused — exfiltrating the credential. `host` and
 already handled separately, so only sources whose connection target lives in a differently named field (e.g.
 Okta's `okta_domain`) need to override this. The default is `[]` (no extra fields).
 
-Pair this with `_is_host_safe` (see `## Outbound HTTP must go through the tracked transport`) at both
+Pair this with `_is_host_safe` (`common/mixins.py`) at both
 source-create and sync time to block hosts resolving to internal/private IPs.
 
 ## Mixins
@@ -552,50 +749,74 @@ From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mi
 
 ## Icons
 
-- Prefer SVG over PNG. Keep file size reasonable.
-- Place in `frontend/public/services/` and reference as `/static/services/{name}.svg` in `iconPath`.
+- PNG is the repo convention (`source.template` defaults to `.png`; ~800 png vs ~58 svg). SVG is accepted but not the norm. Keep file size reasonable.
+- Place in `frontend/public/services/` and reference as `/static/services/{name}.png` (or `.svg`) in `iconPath` — match the extension you commit.
 - If the source logo isn't already in the project, pull via [Logo.dev](https://docs.logo.dev/introduction). **Ask the user for the API key** — do not hardcode one. If the user hasn't provided one, surface that as a blocker rather than committing a placeholder.
 
 ## Testing expectations
 
-Add at least two test modules:
+**Never write a test whose assertion restates a declaration.** A test that reads back `source_type`,
+the labels in `get_source_config`, the endpoint list in `settings.py`, or the kwargs a one-line
+`source_for_pipeline` forwards, passes because both halves of the diff were typed together. It cannot
+fail for any reason except someone editing both, so it catches nothing. That pattern was swept out of
+the source tests once already; don't reintroduce it.
 
-- `tests/test_<source>_source.py` (source-class level):
-  - `source_type`
-  - `get_source_config` fields and labels
-  - `get_schemas` outputs
-  - `validate_credentials` success/failure
-  - `source_for_pipeline` argument plumbing
-  - for resumable sources: `get_resumable_source_manager` returns a manager bound to the right data class
-  - for webhook sources: `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior, `webhook_resource_map` correctness, `webhook_template` presence
-- `tests/test_<source>.py` (transport level):
-  - paginator behavior from response headers/body
-  - resource generation for incremental vs non-incremental
-  - endpoint-specific primary key mapping
-  - credential validation status mapping
-  - mapper/filter helpers if present
-  - fan-out endpoint row format assertions (dict shape + parent identifiers)
-  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise parent-field injection and rename behavior
-  - expected return schema checks for each declared endpoint in `settings.py`
-  - for resumable sources: resume-from-saved-state path (manager returns state, transport uses it as starting point); state is saved after each batch
-  - for incremental cursor pagination: the paginator stops once a page predates the watermark, and keeps walking when no watermark is set (first sync)
+Before each test, answer: _what could break at runtime that this catches?_ If the answer restates the
+source file, don't write it. See `/writing-tests` for the general gate.
 
-Prefer behavior tests over config-shape tests. Avoid brittle assertions on internal config dict structure unless they protect a known regression that cannot be asserted via output behavior.
+The line is whether the thing under test can vary at runtime, not which method it sits on:
 
-Use parameterized tests for status codes and edge cases. Lean toward over-covering.
+- `get_schemas` that is one `build_endpoint_schemas(...)` call needs no test — the helper's filter and
+  sync-mode behavior is covered in `common/test_source_schema.py`. A `get_schemas` that lists a remote
+  directory, resolves per-version endpoints, or builds qualified names needs tests for each of those.
+- `validate_credentials` that forwards to the transport helper needs no test at the source-class level.
+  One that maps a probe result to a message, rejects an unknown schema, or accepts a missing scope at
+  create time needs one per branch.
+- `source_for_pipeline` that forwards its config needs no test. One that raises on an unknown schema,
+  picks between transports, or resolves anything from schema metadata needs one per branch. The
+  `db_incremental_field_last_value if inputs.should_use_incremental_field else None` ternary is not a
+  branch worth its own source-level test — cover it with the transport's full-refresh test below,
+  which asserts the request actually goes out without a watermark.
+- Any `raise`, any curated error message a user reads, and any value derived rather than declared —
+  test it. A source whose `SourceResponse.name` comes from a storage key rather than the schema name
+  is a naming branch, and getting it wrong writes data where nothing reads it.
+
+Two test modules:
+
+- `tests/test_<source>_source.py` — the source class's own decisions, per the branches above, plus
+  for webhook sources `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior and
+  `webhook_resource_map` correctness.
+- `tests/test_<source>.py` — the transport, where most bugs live:
+  - paginator behavior from response headers and body, including the terminal page
+  - incremental vs full-refresh request shaping, and that a full refresh omits the watermark
+  - credential validation status mapping: each status the API returns to the message users read
+  - retry classification: which statuses are retryable and which are terminal
+  - mapper and normalization helpers, fan-out row shaping, parent-field injection
+  - for resumable sources: resuming from saved state, and state saved after each batch
+  - for incremental cursor pagination: stopping once a page predates the watermark, and walking on
+    when no watermark is set
+
+When an error pattern comes from a real API response, keep the verbatim string in the test. That
+wording is field knowledge — it records what the vendor actually emits, which the pattern in
+`get_non_retryable_errors` alone does not tell a reader.
+
+Parameterize status codes and edge cases rather than copying test bodies. Cover the paths that can
+break; do not pad the count.
 
 ## Implementation checklist
 
 ```text
 Bootstrapping:
 - [ ] Enum added to products/warehouse_sources/backend/types.py (ALL_CAPS, no underscores between words)
-- [ ] Entry added to frontend/src/queries/schema/schema-general.ts (kebab-case) — `pnpm run schema:build` regenerates posthog/schema.py from this; don't hand-edit posthog/schema.py
+- [ ] Entry added to frontend/src/queries/schema/schema-general.ts (PascalCase, matching the ExternalDataSourceType value — NOT kebab-case) — `pnpm run schema:build` regenerates posthog/schema.py from this; don't hand-edit posthog/schema.py
 - [ ] Source imported in products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py + __all__
 - [ ] Class inherits from SimpleSource / ResumableSource / WebhookSource (or combo) — see "Picking the right base class"
 
 Source implementation:
 - [ ] Set category on get_source_config (required — DataWarehouseSourceCategory; groups the source in the wizard catalog)
 - [ ] Add keywords if the source has a common acronym / alternate spelling (optional, lowercase)
+- [ ] Set api_docs_url (https, vendor API docs/changelog); add supported_versions + default_version if the vendor
+      exposes a real version token — pin what the code actually calls (see "Vendor API version metadata")
 - [ ] Define source fields in get_source_config
 - [ ] Implement validate_credentials
 - [ ] Implement get_schemas
@@ -611,26 +832,30 @@ Source implementation:
 - [ ] (Fixed-schema sources, static get_schemas only) Set lists_tables_without_credentials = True so public docs render the table catalog
 
 Tooling & assets:
-- [ ] Icon in frontend/public/services/ (SVG preferred — ask user for Logo.dev key if needed)
+- [ ] Icon in frontend/public/services/ (PNG is the convention; ask user for Logo.dev key if needed)
 - [ ] Run `pnpm run generate:source-configs`
 - [ ] Swap generic Config for generated {Source}SourceConfig in source.py
 - [ ] Run `pnpm run schema:build`
 - [ ] Django migrations run if enum value requires it
 
-Release status (default: a finished source has NO unreleasedSource flag — it hides the source from users):
-- [ ] No unreleasedSource on the finished source — delete the line the scaffolded stub ships with
-      (keep it ONLY as an exception, when the source is genuinely incomplete / landed across multiple PRs)
+Release status (a finished source has NO unreleasedSource flag — it hides the source from users entirely):
+- [ ] REQUIRED: delete `unreleasedSource=True` from the finished source (the scaffolded stub ships with it).
+      Not being able to curl the live API is NOT a reason to keep it — use releaseStatus=ALPHA.
+      Keep it ONLY when the code genuinely can't sync yet (landed across multiple PRs).
+- [ ] No test asserts `unreleasedSource is True` (that anti-pattern locks the source hidden)
 - [ ] When set, releaseStatus uses the `ReleaseStatus` enum, never a string literal
 - [ ] releaseStatus=ReleaseStatus.ALPHA for a new source not yet extensively tested
       (ReleaseStatus.BETA later; ReleaseStatus.GA or omit for GA)
 - [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:
-- [ ] Source tests (test_<source>_source.py)
-- [ ] Transport tests (test_<source>.py)
+- [ ] Source tests (test_<source>_source.py) — branches only, no declaration restatements
+- [ ] Transport tests (test_<source>.py) — paginators, error mapping, request shaping
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff
+- [ ] (Only if the source syncs an issues/tickets/conversations table) Note it as a Self-driving Inbox
+      candidate — that's a separate follow-up via /adding-inbox-sources, not part of shipping the source
 ```
 
 ## Validation and generation workflow

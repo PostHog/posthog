@@ -12,13 +12,16 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
     DEFAULT_EXPORT_LOOKBACK_DAYS,
+    EXPORT_API_PATH_SEGMENT,
+    MIXPANEL_API_VERSION_V1,
     MIXPANEL_ENDPOINTS,
     REGION_HOSTS,
+    RegionHosts,
 )
 
 # Rows buffered before yielding a batch. The pipeline batches again downstream, but
@@ -96,16 +99,23 @@ class MixpanelResumeConfig:
     page: Optional[int] = None
 
 
-def _hosts(region: str) -> tuple[str, str]:
+def _hosts(region: str) -> RegionHosts:
     return REGION_HOSTS.get(region, REGION_HOSTS["us"])
 
 
 def _query_base(region: str) -> str:
-    return _hosts(region)[0]
+    return _hosts(region).query_base
 
 
 def _export_base(region: str) -> str:
-    return _hosts(region)[1]
+    return _hosts(region).export_base
+
+
+def _export_url(region: str, api_version: str) -> str:
+    # A pin is honored verbatim, so an unknown/future label can reach here; fall back to
+    # Mixpanel's only raw-export path (`2.0`) rather than raising on the lookup.
+    segment = EXPORT_API_PATH_SEGMENT.get(api_version, "2.0")
+    return f"{_export_base(region)}/api/{segment}/export"
 
 
 def _flatten_event(event: dict[str, Any]) -> dict[str, Any]:
@@ -183,8 +193,24 @@ def validate_credentials(
         if schema_name is None:
             return True, None
         return False, "The service account does not have access to this resource in the selected project."
+    if response.status_code == 402:
+        return (
+            False,
+            "Mixpanel denied the request (402 Payment Required). Raw data access usually needs a Mixpanel "
+            "plan that includes the data export API, and the account must be in good standing. Check your "
+            "Mixpanel plan and billing, then try again.",
+        )
+    if response.status_code == 400:
+        return (
+            False,
+            "Mixpanel rejected the request (400). This usually means the project ID isn't valid for the "
+            "selected region. Check your project ID and region, then try again.",
+        )
 
-    return False, f"Mixpanel returned an unexpected status ({response.status_code}) while validating credentials."
+    return (
+        False,
+        "Could not validate your Mixpanel credentials. Check the region, username, secret, and project ID, then try again.",
+    )
 
 
 def _check_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> requests.Response:
@@ -299,6 +325,7 @@ def _iter_export(
     manager: ResumableSourceManager[MixpanelResumeConfig],
     start_date: date,
     end_date: date,
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     """Stream the raw event export one UTC day at a time.
 
@@ -306,7 +333,7 @@ def _iter_export(
     incremental granularity and our resume granularity. We save state pointing at the
     *next* day only after a day's batches have been yielded, so a crash re-fetches the
     in-flight day (merge dedupes on `$insert_id`)."""
-    url = f"{_export_base(region)}/api/2.0/export"
+    url = _export_url(region, api_version)
 
     resume = manager.load_state() if manager.can_resume() else None
     resumed_from = _to_date(resume.from_date) if resume and resume.from_date else None
@@ -404,6 +431,7 @@ def get_rows(
     manager: ResumableSourceManager[MixpanelResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = MIXPANEL_API_VERSION_V1,
 ) -> Iterator[list[dict[str, Any]]]:
     if endpoint == "export":
         last_value_date = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
@@ -417,7 +445,15 @@ def get_rows(
             )
             start_date = end_date
         yield from _iter_export(
-            region, username, secret, project_id, logger, manager, start_date=start_date, end_date=end_date
+            region,
+            username,
+            secret,
+            project_id,
+            logger,
+            manager,
+            start_date=start_date,
+            end_date=end_date,
+            api_version=api_version,
         )
     elif endpoint == "engage":
         yield from _iter_engage(region, username, secret, project_id, logger, manager)
@@ -439,6 +475,7 @@ def mixpanel_source(
     manager: ResumableSourceManager[MixpanelResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    api_version: str = MIXPANEL_API_VERSION_V1,
 ) -> SourceResponse:
     endpoint_config = MIXPANEL_ENDPOINTS[endpoint]
 
@@ -454,6 +491,7 @@ def mixpanel_source(
             manager=manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            api_version=api_version,
         ),
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,

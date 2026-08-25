@@ -11,11 +11,9 @@ import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFi
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
-import {
-    DEFAULT_UNIVERSAL_GROUP_FILTER,
-    universalFiltersLogic,
-} from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'

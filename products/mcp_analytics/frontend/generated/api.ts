@@ -9,12 +9,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MCPActivityOverviewApi,
     MCPAnalyticsSubmissionApi,
     MCPFeedbackCreateApi,
     MCPIntentClusterSnapshotApi,
+    MCPIntentDigestApi,
     MCPMissingCapabilityCreateApi,
     MCPSessionIntentApi,
     McpAnalyticsFeedbackListParams,
+    McpAnalyticsIntentClustersRetrieveParams,
     McpAnalyticsMissingCapabilitiesListParams,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsListParams,
@@ -74,8 +77,23 @@ export const mcpAnalyticsFeedbackCreate = async (
     })
 }
 
-export const getMcpAnalyticsIntentClustersRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_analytics/intent_clusters/`
+export const getMcpAnalyticsIntentClustersRetrieveUrl = (
+    projectId: string,
+    params?: McpAnalyticsIntentClustersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_analytics/intent_clusters/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/intent_clusters/`
 }
 
 /**
@@ -83,9 +101,10 @@ export const getMcpAnalyticsIntentClustersRetrieveUrl = (projectId: string) => {
  */
 export const mcpAnalyticsIntentClustersRetrieve = async (
     projectId: string,
+    params?: McpAnalyticsIntentClustersRetrieveParams,
     options?: RequestInit
 ): Promise<MCPIntentClusterSnapshotApi[]> => {
-    return apiMutator<MCPIntentClusterSnapshotApi[]>(getMcpAnalyticsIntentClustersRetrieveUrl(projectId), {
+    return apiMutator<MCPIntentClusterSnapshotApi[]>(getMcpAnalyticsIntentClustersRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -261,5 +280,39 @@ export const mcpAnalyticsSessionsToolCalls = async (
     return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsSessionsActivityOverviewUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_analytics/sessions/activity_overview/`
+}
+
+/**
+ * Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, computed in one request. Powers the dashboard's activity view; always computed fresh so polling callers watch data arrive.
+ */
+export const mcpAnalyticsSessionsActivityOverview = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPActivityOverviewApi> => {
+    return apiMutator<MCPActivityOverviewApi>(getMcpAnalyticsSessionsActivityOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsSessionsIntentDigestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_analytics/sessions/intent_digest/`
+}
+
+/**
+ * Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions: a one-sentence summary plus semantic themes, each sized and attributed to tools from the intents themselves. Cached by intent corpus and by recency, so repeated calls are cheap and a busy server regenerates at a bounded rate. Powers the dashboard's activity tab.
+ */
+export const mcpAnalyticsSessionsIntentDigest = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPIntentDigestApi> => {
+    return apiMutator<MCPIntentDigestApi>(getMcpAnalyticsSessionsIntentDigestUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

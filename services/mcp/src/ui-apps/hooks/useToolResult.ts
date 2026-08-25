@@ -44,7 +44,7 @@ import {
     identifyUser,
     initPostHog,
 } from '../analytics/posthog'
-import { extractAnalytics } from '../types'
+import { APP_DATA_META_KEY, extractAnalytics } from '../types'
 
 export interface UseToolResultOptions {
     /** App name shown to the host */
@@ -82,12 +82,20 @@ export interface UseToolResultReturn<T> {
 }
 
 /**
- * Parse tool result content, preferring structuredContent over text parsing.
+ * Parse tool result content, preferring structuredContent over the `_meta`
+ * fallback. Never falls back to text content.
  */
-function parseToolResultContent<T>(structuredContent: unknown): T | null {
-    // Always use structuredContent, never attempt to use text content
+function parseToolResultContent<T>(structuredContent: unknown, meta?: unknown): T | null {
+    // Prefer structuredContent when the host forwards it.
     if (structuredContent !== undefined && structuredContent !== null) {
         return structuredContent as T
+    }
+
+    // Coding-agent hosts suppress `structuredContent` so the model reads the
+    // compact text table; the app's data then rides on `_meta` instead.
+    const appData = (meta as Record<string, unknown> | undefined)?.[APP_DATA_META_KEY]
+    if (appData !== undefined && appData !== null) {
+        return appData as T
     }
 
     return null
@@ -186,7 +194,8 @@ export function useToolResult<T = unknown>({
             // Register tool result handler
             appInstance.ontoolresult = (params) => {
                 try {
-                    const parsed = parseToolResultContent<T>(params.structuredContent)
+                    const meta = (params as { _meta?: Record<string, unknown> })._meta
+                    const parsed = parseToolResultContent<T>(params.structuredContent, meta)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)

@@ -29,6 +29,7 @@ from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.ai_observability.backend.summarization.budget import text_repr_budget
 from products.ai_observability.backend.summarization.llm.call import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
 from products.ai_observability.backend.summarization.utils import get_summary_cache_key
@@ -40,7 +41,7 @@ from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_R
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.posthog_ai.backend.models.assistant import AgentArtifact
-from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
@@ -193,7 +194,7 @@ class ReadActivityLog(BaseModel):
         default=None,
         description=(
             "Filter by resource scope. Available scopes: "
-            "Action, AlertConfiguration, Annotation, BatchExport, BatchImport, Cohort, Comment, "
+            "Action, AlertConfiguration, Annotation, BatchExport, BatchImport, Billing, Cohort, Comment, "
             "Dashboard, DataManagement, EarlyAccessFeature, EventDefinition, Experiment, "
             "ExternalDataSchema, ExternalDataSource, FeatureFlag, HogFlow, HogFunction, "
             "Insight, Notebook, Organization, OrganizationDomain, OrganizationMembership, "
@@ -755,6 +756,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         dashboard_ctx = DashboardContext(
             team=self._team,
             insights_data=insights_data,
+            user=self._user,
             name=dashboard_name,
             description=dashboard.description,
             dashboard_id=dashboard_id,
@@ -770,6 +772,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     async def _read_error_tracking_issue(self, issue_id: str) -> str:
         context = ErrorTrackingIssueContext(
             team=self._team,
+            user=self._user,
             issue_id=issue_id,
         )
         return await context.execute_and_format()
@@ -777,6 +780,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     async def _read_survey(self, survey_id: str) -> str:
         context = SurveyContext(
             team=self._team,
+            user=self._user,
             survey_id=survey_id,
         )
         survey = await context.aget_survey()
@@ -795,6 +799,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             case VisualizationArtifactContent():
                 context = InsightContext(
                     team=self._team,
+                    user=self._user,
                     query=content.query,
                     name=content.name,
                     description=content.description,
@@ -921,7 +926,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         trace_query = TraceQuery(traceId=trace_id)
 
         utc_now = timezone.now().astimezone(UTC)
-        executor = AssistantQueryExecutor(self._team, utc_now)
+        executor = AssistantQueryExecutor(self._team, utc_now, user=self._user)
         query_results = await executor.aexecute_query(trace_query)
 
         results = query_results.get("results", [])
@@ -935,7 +940,11 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         text_repr, _was_sampled = format_trace_text_repr(
             trace_dict,
             hierarchy,
-            options={"include_markers": False, "include_line_numbers": True},
+            options={
+                "include_markers": False,
+                "include_line_numbers": True,
+                "max_length": text_repr_budget(),
+            },
         )
 
         if len(text_repr) <= self.TRACE_SUMMARIZATION_THRESHOLD:

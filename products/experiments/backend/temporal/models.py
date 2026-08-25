@@ -1,22 +1,44 @@
 import dataclasses
+from typing import Final, Literal
 
 # Shared by the workflow definition, the schedule, and the management command.
 CANARY_WORKFLOW_NAME = "experiment-precompute-canary"
 
-OUTCOME_PASS = "pass"
-OUTCOME_DIVERGENCE = "divergence"
-OUTCOME_PATH_FLIP = "path_flip"
-OUTCOME_ERROR = "error"
-OUTCOME_SKIPPED = "skipped"
-ALL_OUTCOMES = (OUTCOME_PASS, OUTCOME_DIVERGENCE, OUTCOME_PATH_FLIP, OUTCOME_ERROR, OUTCOME_SKIPPED)
+CanaryOutcome = Literal["pass", "divergence", "path_flip", "error", "skipped"]
+
+OUTCOME_PASS: Final = "pass"
+OUTCOME_DIVERGENCE: Final = "divergence"
+OUTCOME_PATH_FLIP: Final = "path_flip"
+OUTCOME_ERROR: Final = "error"
+OUTCOME_SKIPPED: Final = "skipped"
+ALL_OUTCOMES: tuple[CanaryOutcome, ...] = (
+    OUTCOME_PASS,
+    OUTCOME_DIVERGENCE,
+    OUTCOME_PATH_FLIP,
+    OUTCOME_ERROR,
+    OUTCOME_SKIPPED,
+)
 
 # Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
 MAX_CANARY_DETAIL_LENGTH = 1000
 
-# Max attempts per metric before it's marked failed. The workflow's requeue loop owns retries (the activity
-# runs with maximum_attempts=1), so this caps how many times a transient failure is requeued. Kept low because
-# each extra attempt adds backoff (5s, 10s, 20s, ...) to the tail of a fully-failing run.
-MAX_METRIC_ATTEMPTS = 3
+# Max attempts per metric before it's marked failed on the recalculation workflow.
+MAX_METRIC_ATTEMPTS = 8
+
+# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the cluster's
+# at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's 5s
+# exponential schedule.
+CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
+
+RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
+RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
+RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
+
+# classify_experiment_query_error classes that are deterministic for a fixed query and data window: retrying
+# burns a full ClickHouse query per attempt without changing the outcome, so the activity fails non-retryable
+# and persists immediately. timeout is deliberately absent — the class conflates TIMEOUT_EXCEEDED with
+# SOCKET_TIMEOUT (a transient network blip), and recalc timeouts are rare enough to keep the retry budget.
+NON_RETRYABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit", "validation_error"})
 
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). The activity has no heartbeat, so
 # this is the real per-attempt limit — when it fires, Temporal kills the attempt from the outside and nothing
@@ -31,12 +53,17 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # also stops the orphaned query from burning ClickHouse for the full default 600s.
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
 
+RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
+
 
 @dataclasses.dataclass
 class ExperimentMetricsRecalculationWorkflowInputs:
     """Input to the batch metrics recalculation workflow."""
 
     recalculation_id: str  # UUID as string
+    # Task-queue fairness key for the calc activities (the org id, matching the app_per_org limiter scope).
+    # None falls back to default dispatch order.
+    fairness_key: str | None = None
 
 
 @dataclasses.dataclass
@@ -80,8 +107,15 @@ class ExperimentPrecomputeCanaryInputs:
     experiment_id: int | None = None
     metric_uuids: list[str] | None = None
     funnel_quota: int = 12
-    mean_quota: int = 6
+    # Bake-in level for the new mean metric-events precompute path: ~40% of sampled means are
+    # CUPED/breakdown/DW-ineligible and exercise nothing new, so 20 nominal ≈ 12 effective.
+    # Drop back toward ~10 once the mean table has a few clean weeks of canary history.
+    mean_quota: int = 20
     ratio_quota: int = 4
+    # Bake-in level for the retention metric-events precompute path. Most retention metrics are
+    # eligible (breakdowns and data warehouse sources are rare on them), so nominal stays close
+    # to effective. Drop toward ~5 once retention has a few clean weeks of canary history.
+    retention_quota: int = 15
     per_experiment_cap: int = 3
     time_budget_seconds: int = 5400
     triggered_manually: bool = False
@@ -114,12 +148,12 @@ class CanaryRunSnapshot:
     variants: dict[str, CanaryVariantStats]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CanaryMetricResult:
     """Verdict for one metric: outcome plus everything needed to investigate without re-running."""
 
     target: CanaryMetricTarget
-    outcome: str  # "pass" | "divergence" | "path_flip" | "error" | "skipped"
+    outcome: CanaryOutcome
     stability_deviation: float | None = None  # max relative deviation, run a vs b
     correctness_deviation: float | None = None  # max relative deviation, run b vs c
     runs: list[CanaryRunSnapshot] = dataclasses.field(default_factory=list)

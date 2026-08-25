@@ -41,9 +41,11 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 export function SceneTitlePanelButton({
     maxToolProps,
     buttonClassName = 'size-[33px]',
+    maxButtonLabel,
 }: {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
+    maxButtonLabel?: string
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -66,7 +68,7 @@ export function SceneTitlePanelButton({
         <>
             {!sceneMenuBarEnabled && (
                 <ButtonPrimitive
-                    className={buttonClassName}
+                    className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
@@ -92,7 +94,7 @@ export function SceneTitlePanelButton({
                     }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
-                    iconOnly
+                    iconOnly={!maxButtonLabel}
                     data-attr="open-context-panel-ai-button"
                 >
                     <div className="relative">
@@ -101,6 +103,7 @@ export function SceneTitlePanelButton({
                             <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
                         )}
                     </div>
+                    {maxButtonLabel}
                 </ButtonPrimitive>
             )}
             {/* Size to mimic lemon button small */}
@@ -167,6 +170,10 @@ type SceneMainTitleProps = {
      */
     forceEdit?: boolean
     /**
+     * If true, the description is always rendered and the show/hide toggle is omitted
+     */
+    descriptionAlwaysVisible?: boolean
+    /**
      * The number of milliseconds to debounce the name and description changes
      * useful for renaming resources that update too fast
      * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
@@ -216,6 +223,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Optional label for the PostHog AI button. */
+    maxButtonLabel?: string
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
@@ -231,6 +240,7 @@ export function SceneTitleSection({
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
+    descriptionAlwaysVisible = false,
     renameDebounceMs,
     saveOnBlur = false,
     noBorder = false,
@@ -241,6 +251,7 @@ export function SceneTitleSection({
     onGenerateMetadata,
     isGeneratingMetadata,
     maxToolProps,
+    maxButtonLabel,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -352,7 +363,7 @@ export function SceneTitleSection({
                                     suffix={
                                         <>
                                             {nameSuffix}
-                                            {hasDescription ? (
+                                            {hasDescription && !descriptionAlwaysVisible ? (
                                                 <ButtonPrimitive
                                                     className={cn(
                                                         'size-[var(--button-height-sm)] shrink-0',
@@ -382,18 +393,21 @@ export function SceneTitleSection({
                     {effectiveActions && (
                         <div
                             className={cn(
-                                'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
+                                // relative z-30 keeps the corner actions above the focus-elevated name/description
+                                // editors (z-20) so focusing an edit field can never overlap and swallow their clicks,
+                                // notably on mobile where this container reflows into the corner via order-first.
+                                'relative z-30 flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
                                 'gap-1 self-start @max-2xl:self-end flex-wrap'
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
                         </div>
                     )}
                 </div>
                 {/* Border is handled by the outer container's border-b */}
             </div>
-            {hasDescription && (showDescription || forceEdit) && (
+            {hasDescription && (descriptionAlwaysVisible || showDescription || forceEdit) && (
                 <div className={cn('[&_svg]:size-6', noPadding ? cn('pl-4 pr-2', className) : '-mt-4')}>
                     <SceneDescription
                         description={effectiveDescription}
@@ -440,9 +454,17 @@ export function SceneName({
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [prevInitialName, setPrevInitialName] = useState(initialName)
+    // Mirror of the value currently held in the local field. Lets us tell a genuine
+    // external update (loading a resource, an AI-generated name) apart from an echo of
+    // the user's own edit arriving back through the form, so the render-phase
+    // reconciliation below can't overwrite a keystroke that hasn't round-tripped yet.
+    const latestNameRef = useRef(initialName)
     if (initialName !== prevInitialName) {
         setPrevInitialName(initialName)
-        setName(initialName)
+        if (initialName !== latestNameRef.current) {
+            setName(initialName)
+            latestNameRef.current = initialName
+        }
     }
 
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -481,6 +503,10 @@ export function SceneName({
         }
         if (saveOnBlur && !isGeneratingMetadata && name !== initialName) {
             debouncedOnBlurSave(name || '')
+        } else if (!saveOnBlur) {
+            // Commit any pending debounced change synchronously so a submit or
+            // validation that immediately follows blur reads the value the user sees.
+            debouncedOnChange.flush()
         }
         if (!forceEdit) {
             setIsEditing(false)
@@ -500,6 +526,7 @@ export function SceneName({
                             value={name || ''}
                             readOnly={isGeneratingMetadata}
                             onChange={(e) => {
+                                latestNameRef.current = e.target.value
                                 setName(e.target.value)
                                 if (forceEdit && !saveOnBlur) {
                                     onChange?.(e.target.value)
@@ -565,7 +592,7 @@ export function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-50'
+                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-20'
                             )}
                             onClick={() => {
                                 if (!isGeneratingMetadata) {
@@ -593,7 +620,7 @@ export function SceneName({
 
     if (isLoading) {
         return (
-            <div className="w-full flex-1 focus-within:z-50">
+            <div className="w-full flex-1 focus-within:z-20">
                 <WrappingLoadingSkeleton fullWidth>{Element}</WrappingLoadingSkeleton>
             </div>
         )
@@ -641,9 +668,14 @@ function SceneDescription({
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
+    // See SceneName: keep external updates from clobbering an in-flight local edit.
+    const latestDescriptionRef = useRef(initialDescription)
     if (initialDescription !== prevInitialDescription) {
         setPrevInitialDescription(initialDescription)
-        setDescription(initialDescription)
+        if (initialDescription !== latestDescriptionRef.current) {
+            setDescription(initialDescription)
+            latestDescriptionRef.current = initialDescription
+        }
     }
 
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -678,6 +710,8 @@ function SceneDescription({
     const handleBlur = (): void => {
         if (saveOnBlur && !isGeneratingMetadata && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
+        } else if (!saveOnBlur) {
+            debouncedOnDescriptionChange.flush()
         }
         if (!forceEdit) {
             setIsEditing(false)
@@ -695,6 +729,7 @@ function SceneDescription({
                         maxLength={maxLength}
                         readOnly={isGeneratingMetadata}
                         onChange={(e) => {
+                            latestDescriptionRef.current = e.target.value
                             setDescription(e.target.value)
                             if (forceEdit && !saveOnBlur) {
                                 onChange?.(e.target.value)
@@ -737,7 +772,7 @@ function SceneDescription({
                                 }
                             }}
                             disabled={isGeneratingMetadata}
-                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
+                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-20"
                             autoHeight
                             size="base"
                         >
@@ -785,7 +820,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description relative focus-within:z-50">
+        <div className="scene-description relative focus-within:z-20">
             <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
         </div>
     )

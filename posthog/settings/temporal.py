@@ -36,6 +36,10 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
     "TEMPORAL_COMBINED_METRICS_SERVER_ENABLED", True, type_cast=str_to_bool
 )
 
+# PostHog project where Temporal worker logs are ingested, used to build logs links
+# in Temporal UI workflow details. Set to 0 to disable the links.
+TEMPORAL_LOGS_PROJECT_ID: int = get_from_env("TEMPORAL_LOGS_PROJECT_ID", 1, type_cast=int)
+
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
@@ -45,7 +49,34 @@ SANDBOX_PROVIDER: str | None = get_from_env(
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
+# The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
+# base URL is what selects it: no product slug on the path, attribution as one
+# X-PostHog-Properties blob. SANDBOX_AI_GATEWAY_PRODUCTS limits the switch to named
+# ai_product values so one product migrates without moving every other sandbox caller.
+# Both must be set; clearing either rolls back to the Python gateway.
+SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
+SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
+# Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
+# gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
+# on the Python gateway, so the routing allowlist above is inert without it.
+SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
+# Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
+# runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
+# TTL 0 (the default) derives TASKS_MAX_RUN_DURATION_SECONDS + 1h so a capped run
+# never outlives its token; a positive value overrides.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "5")
+# Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
+
+# OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
+# Full ingest URLs (e.g. https://us.i.posthog.com/i/v1/logs and .../i/v1/traces)
+# plus the project API key of the telemetry project. Telemetry stays off unless
+# URL + token are set; the traces URL additionally enables APM spans.
+SANDBOX_AGENT_OTEL_LOGS_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_URL", None, optional=True)
+SANDBOX_AGENT_OTEL_LOGS_TOKEN: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_TOKEN", None, optional=True)
+SANDBOX_AGENT_OTEL_TRACES_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_TRACES_URL", None, optional=True)
 
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard
 # uses when it runs inside a task sandbox (the "run the wizard in the cloud" onboarding path).
@@ -63,11 +94,47 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
+# Force-enables process_task continue_as_new regardless of the tasks-continue-as-new flag
+# (for local E2E / emergency on). The flag is the normal cloud toggle. continue_as_new bounds
+# replay cost so long runs don't trip the 2s workflow-task deadlock detector on eviction.
+TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
+    "TASKS_CONTINUE_AS_NEW_ENABLED",
+    False,
+    type_cast=str_to_bool,
+)
+
+TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
+    "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
+    False,
+    type_cast=str_to_bool,
+)
+
+# Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
+TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
+    "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
+)
+
 # Override the process_task workflow's inactivity timeout (default 2 hours).
 # Set this to e.g. 30 for local testing of the shutdown / resume flow. When
 # set, the CI-follow-up floor is also bypassed so the timer actually fires
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
+
+# Hard wall-clock cap on a process_task run, measured from the start of the
+# continue_as_new chain and never reset by heartbeats, so it bounds total run time even
+# while a wedged agent keeps heartbeating. Interactive sessions are exempt at the call
+# site. Set low (e.g. 60) for local testing; 0 or negative disables the cap entirely,
+# matching TASKS_INACTIVITY_TIMEOUT_SECONDS above.
+TASKS_MAX_RUN_DURATION_SECONDS: int = get_from_env("TASKS_MAX_RUN_DURATION_SECONDS", 3 * 60 * 60, type_cast=int)
+
+# Wall-clock cap for *interactive* signals-origin runs (Inbox "Create PR" / "Discuss", scout
+# chat), which are exempt from TASKS_MAX_RUN_DURATION_SECONDS above. Their inference is unbilled,
+# so without this their only time bound is the heartbeat-reset inactivity timer. Defaults to the
+# sandbox TTL: it never ends a conversation the sandbox wouldn't have ended anyway, but it does
+# bound snapshot-resume chains and wedged-but-heartbeating agents. 0 or negative disables.
+TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS: int = get_from_env(
+    "TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS", 6 * 60 * 60, type_cast=int
+)
 
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
@@ -75,6 +142,23 @@ TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_S
 TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
     "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
 )
+
+# Mirror persisted task-run logs into the PostHog Logs product (dogfooding).
+# Entries appended to a run's S3 JSONL log are also emitted as structured stdout log lines;
+# the per-cluster OTel collector already ships container stdout into the region's internal
+# PostHog project's Logs, so no transport or credentials are needed here. Only runs whose
+# task origin_product is in this list are mirrored. Set it empty to disable.
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
+    os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout,user_created")
+)
+
+# Direct OTLP delivery for the mirror above. The token pins the destination: scout runs
+# execute for customer teams, but their mirrored logs must only ever land in (and bill)
+# PostHog's own internal logs project — so this is the internal project's API key, never
+# derived from the run's team. Point locally at the dev logs ingest to see mirrored runs
+# in /logs. Unset disables the direct leg (stdout emission for the collector remains).
+TASK_RUN_LOGS_MIRROR_OTLP_URL: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_URL", None, optional=True)
+TASK_RUN_LOGS_MIRROR_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_MIRROR_OTLP_TOKEN", None, optional=True)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
@@ -112,14 +196,28 @@ BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
 SYNC_BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("no-sandbox-python-django")
 GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queue")
+# Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
+# "signup-enrichment-task-queue" to route unauthenticated signup enrichment to a dedicated,
+# separately-scalable worker once one is deployed.
+SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("SIGNUP_ENRICHMENT_TASK_QUEUE", "general-purpose-task-queue")
+)
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
+TASKS_DISPATCHER_BATCH_SIZE = get_from_env("TASKS_DISPATCHER_BATCH_SIZE", 50, type_cast=int)
+TASKS_DISPATCHER_CONCURRENCY = get_from_env("TASKS_DISPATCHER_CONCURRENCY", 20, type_cast=int)
+TASKS_DISPATCHER_LEASE_SECONDS = get_from_env("TASKS_DISPATCHER_LEASE_SECONDS", 60, type_cast=int)
+TASKS_DISPATCHER_POLL_INTERVAL_SECONDS = get_from_env("TASKS_DISPATCHER_POLL_INTERVAL_SECONDS", 1.0, type_cast=float)
+TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS = get_from_env("TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS", 10, type_cast=int)
+TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
+    "TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS", 6 * 60 * 60, type_cast=int
+)
+STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
-MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
@@ -132,10 +230,19 @@ SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
-MCPA_TASK_QUEUE = _set_temporal_task_queue("mcp-analytics-task-queue")
+# Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
+# "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
+# worker once one is deployed.
+MCPA_TASK_QUEUE = _set_temporal_task_queue(os.getenv("MCPA_TASK_QUEUE", "general-purpose-task-queue"))
 ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue")
+ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+# Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
+# share pods with the latency-sensitive alerting workers.
+LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-volume-tick-task-queue")
+)
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
 # Error tracking

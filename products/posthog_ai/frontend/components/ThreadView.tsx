@@ -7,6 +7,7 @@ import { runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ThreadItem } from '../types/streamTypes'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
+import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
@@ -34,6 +35,7 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
     error: 42,
     status: 42,
     compact_boundary: 42,
+    conversation_cleared: 42,
     task_notification: 26,
     progress: 42,
     debug: 30,
@@ -55,6 +57,8 @@ interface ThreadViewProps {
      * non-scout runs.
      */
     showContextUsage?: boolean
+    /** Renders per-turn UI (e.g. feedback actions) at each completed turn's end. */
+    renderTurnTrailer?: (trailer: TurnTrailer) => JSX.Element | null
     className?: string
     listClassName?: string
     rowClassName?: string
@@ -74,6 +78,7 @@ interface ThreadViewProps {
 export function ThreadView({
     virtualized = true,
     showContextUsage = false,
+    renderTurnTrailer,
     className,
     listClassName,
     rowClassName,
@@ -88,14 +93,20 @@ export function ThreadView({
         currentRunStatus,
         contextUsage,
         runConnectionState,
+        logBootstrapLoading,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
-    // meaningful turn, response below — rather than the absolute bottom; a fresh send (the key changing)
-    // pins it to the top of the viewport with space reserved below for the streaming response.
+    // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
+    // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
     const anchorItemKey = useMemo(
         () => threadItems.findLast((item) => item.type === 'human_message')?.id ?? null,
         [threadItems]
+    )
+    // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
+    const turnTrailers = useMemo(
+        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
+        [threadItems, renderTurnTrailer]
     )
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
@@ -156,19 +167,38 @@ export function ThreadView({
     )
 
     const renderItem = useCallback(
-        (item: ThreadItem, index: number): JSX.Element => (
-            <VirtualizedThread.Row className={rowClassName}>
-                <ThreadRow
-                    item={item}
-                    isLast={index === threadItems.length - 1}
-                    isThinking={isThinking}
-                    toolInvocations={toolInvocations}
-                    turnComplete={turnComplete}
-                    turnCancelled={turnCancelled}
-                />
-            </VirtualizedThread.Row>
-        ),
-        [threadItems.length, isThinking, toolInvocations, turnComplete, turnCancelled, rowClassName]
+        (item: ThreadItem, index: number): JSX.Element => {
+            if (item.type === 'turn_separator' && renderTurnTrailer) {
+                const trailer = turnTrailers?.get(item.id)
+                return (
+                    <VirtualizedThread.Row className={rowClassName}>
+                        {trailer ? renderTurnTrailer(trailer) : null}
+                    </VirtualizedThread.Row>
+                )
+            }
+            return (
+                <VirtualizedThread.Row className={rowClassName}>
+                    <ThreadRow
+                        item={item}
+                        isLast={index === threadItems.length - 1}
+                        isThinking={isThinking}
+                        toolInvocations={toolInvocations}
+                        turnComplete={turnComplete}
+                        turnCancelled={turnCancelled}
+                    />
+                </VirtualizedThread.Row>
+            )
+        },
+        [
+            threadItems.length,
+            isThinking,
+            toolInvocations,
+            turnComplete,
+            turnCancelled,
+            rowClassName,
+            renderTurnTrailer,
+            turnTrailers,
+        ]
     )
 
     return (
@@ -177,9 +207,15 @@ export function ThreadView({
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
             anchorItemKey={anchorItemKey}
+            // The history replay folds in over several commits (debug rows land before the human turns);
+            // the opening scroll must wait for the full log or it opens at the bottom of a partial thread.
+            itemsLoading={logBootstrapLoading}
             header={header}
             footer={footer}
             stickToBottom
+            // Provisioning counts too: the optimistic "spinning up" window is part of the turn, so the
+            // thread is already pinned when the first streamed rows land.
+            turnActive={streamPhase !== 'idle'}
             virtualized={virtualized}
             className={className}
             listClassName={listClassName}

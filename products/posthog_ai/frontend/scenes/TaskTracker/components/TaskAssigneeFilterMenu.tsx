@@ -15,7 +15,7 @@ import { tasksLogic } from '../../../logics/tasksLogic'
 import { TaskAssigneeFilter } from '../../../types/taskTypes'
 
 export function TaskAssigneeFilterMenu(): JSX.Element {
-    const { assigneeFilter } = useValues(tasksLogic)
+    const { assigneeFilter, isStaffUser } = useValues(tasksLogic)
     const { setAssigneeFilter } = useActions(tasksLogic)
 
     return (
@@ -34,7 +34,11 @@ export function TaskAssigneeFilterMenu(): JSX.Element {
                     onValueChange={(value) => setAssigneeFilter(value as TaskAssigneeFilter)}
                 >
                     <DropdownMenuRadioItem value="for_you">For you</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="my_scouts">My scouts</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="team_scouts">Team scouts</DropdownMenuRadioItem>
+                    {isStaffUser && (
+                        <DropdownMenuRadioItem value="all_team">All team tasks (staff)</DropdownMenuRadioItem>
+                    )}
                 </DropdownMenuRadioGroup>
             </DropdownMenuContent>
         </DropdownMenu>

@@ -11,6 +11,8 @@ describe('isDashboardFilterEmpty', () => {
         ['only explicitDate false', { explicitDate: false }],
         ['null date fields + explicitDate false', { date_from: null, date_to: null, explicitDate: false }],
         ['empty properties array', { properties: [] }],
+        ['filterTestAccounts null', { filterTestAccounts: null }],
+        ['ignoreDashboardFilters false', { ignoreDashboardFilters: false }],
     ]
 
     test.each(emptyCases)('returns true for %s', (_, filter) => {
@@ -34,6 +36,10 @@ describe('isDashboardFilterEmpty', () => {
             },
         ],
         ['breakdown_filter set', { breakdown_filter: { breakdown: 'browser' } }],
+        ['interval set', { interval: 'week' }],
+        ['filterTestAccounts forced on', { filterTestAccounts: true }],
+        ['filterTestAccounts forced off', { filterTestAccounts: false }],
+        ['ignoreDashboardFilters set', { ignoreDashboardFilters: true }],
     ]
 
     test.each(nonEmptyCases)('returns false for %s', (_, filter) => {

@@ -12,6 +12,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
+import featureFlagGetDefinitionByKey from '@/tools/featureFlags/getDefinitionByKey'
 import { GENERATED_TOOLS } from '@/tools/generated/feature_flags'
 import { GENERATED_TOOLS as PERSONS_GENERATED_TOOLS } from '@/tools/generated/persons'
 import type { Context } from '@/tools/types'
@@ -204,6 +205,43 @@ describe('Feature flags', { concurrent: false }, () => {
             expect(flagData.id).toBe(createdFlag.id)
             expect(flagData.key).toBe(createdFlag.key)
             expect(flagData._posthogUrl).toContain('/feature_flags/')
+        })
+    })
+
+    describe('feature-flag-get-definition-by-key tool', () => {
+        const getByKeyTool = featureFlagGetDefinitionByKey()
+        const createTool = GENERATED_TOOLS['create-feature-flag']!()
+
+        it('should get a feature flag by its exact key', async () => {
+            const uniqueKey = generateUniqueKey('by-key-test')
+            const createResult = await createTool.handler(context, {
+                name: 'By-key test flag',
+                key: uniqueKey,
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100 }],
+                },
+                active: true,
+            })
+            const createdFlag = parseToolResponse(createResult)
+            createdResources.featureFlags.push(createdFlag.id)
+
+            const result = await getByKeyTool.handler(context, { key: uniqueKey })
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBe(createdFlag.id)
+            expect(flagData.key).toBe(uniqueKey)
+            expect(flagData._posthogUrl).toContain('/feature_flags/')
+            expect(flagData.found).toBe(true)
+        })
+
+        it('should return a non-error found:false result for a flag that does not exist', async () => {
+            const missingKey = generateUniqueKey('does-not-exist')
+
+            const result = await getByKeyTool.handler(context, { key: missingKey })
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.found).toBe(false)
+            expect(flagData.key).toBe(missingKey)
         })
     })
 

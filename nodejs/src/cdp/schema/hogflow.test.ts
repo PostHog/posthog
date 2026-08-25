@@ -39,6 +39,22 @@ describe('hogflow schema', () => {
         })
     })
 
+    describe('output_variable legacy string normalization', () => {
+        it.each([
+            ['bare string', 'greeting', { key: 'greeting' }],
+            ['string in a list', ['greeting', { key: 'other' }], [{ key: 'greeting' }, { key: 'other' }]],
+            ['canonical object', { key: 'greeting', result_path: 'r' }, { key: 'greeting', result_path: 'r' }],
+        ])('parses %s to the canonical shape', (_name, stored, expected) => {
+            const parsed = HogFlowActionSchema.parse({
+                ...commonActionFields,
+                type: 'delay',
+                config: { delay_duration: '5m' },
+                output_variable: stored,
+            })
+            expect(parsed.output_variable).toEqual(expected)
+        })
+    })
+
     describe('conversion events', () => {
         const baseHogFlow = {
             id: 'flow-1',

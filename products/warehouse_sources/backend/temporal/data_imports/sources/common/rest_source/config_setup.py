@@ -1,11 +1,11 @@
 import string
-import logging
 import graphlib  # type: ignore[import,unused-ignore]
 import warnings
 from collections.abc import Callable
 from copy import copy
 from typing import Any, NamedTuple, Optional, cast
 
+import structlog
 from requests import Response
 
 from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, OAuth2Auth
@@ -21,6 +21,7 @@ from .paginators import (
     SinglePagePaginator,
     single_entity_path,
 )
+from .rest_client import RESTClientRetryableError
 from .typing import (
     AuthConfig,
     AuthType,
@@ -35,7 +36,7 @@ from .typing import (
 )
 from .utils import exclude_keys
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 PAGINATOR_MAP: dict[PaginatorType, type[BasePaginator] | None] = {
     "json_response": JSONResponsePaginator,
@@ -211,10 +212,10 @@ def make_parent_key_name(resource_name: str, field_name: str) -> str:
 def build_resource_dependency_graph(
     resource_defaults: EndpointResourceBase,
     resource_list: list[str | EndpointResource],
-) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
+) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[list[ResolvedParam]]]]:
     dependency_graph: graphlib.TopologicalSorter[str] = graphlib.TopologicalSorter()
     endpoint_resource_map: dict[str, EndpointResource] = {}
-    resolved_param_map: dict[str, Optional[ResolvedParam]] = {}
+    resolved_param_map: dict[str, Optional[list[ResolvedParam]]] = {}
 
     for resource_kwargs in resource_list:
         if isinstance(resource_kwargs, dict):
@@ -235,17 +236,23 @@ def build_resource_dependency_graph(
     for resource_name, endpoint_resource in endpoint_resource_map.items():
         assert isinstance(endpoint_resource["endpoint"], dict)
         resolved_params = _find_resolved_params(endpoint_resource["endpoint"])
-        if len(resolved_params) > 1:
-            raise ValueError(f"Multiple resolved params for resource {resource_name}: {resolved_params}")
-        elif len(resolved_params) == 1:
-            resolved_param = resolved_params[0]
-            predecessor = resolved_param.resolve_config["resource"]
+        if len(resolved_params) >= 1:
+            # Multiple resolved params are allowed when they all bind fields of the SAME parent
+            # row (e.g. /docs/{doc_id}/tables/{table_id}/rows where the tables rows carry doc_id
+            # via include_from_parent). Different parent resources per param are not supported.
+            parents = {p.resolve_config["resource"] for p in resolved_params}
+            if len(parents) > 1:
+                raise ValueError(
+                    f"Resolved params for resource {resource_name} must all reference the same "
+                    f"parent resource, got {sorted(parents)}"
+                )
+            predecessor = next(iter(parents))
             if predecessor not in endpoint_resource_map:
                 raise ValueError(
-                    f"A transformer resource {resource_name} refers to non existing parent resource {predecessor} on {resolved_param}"
+                    f"A transformer resource {resource_name} refers to non existing parent resource {predecessor} on {resolved_params[0]}"
                 )
             dependency_graph.add(resource_name, predecessor)
-            resolved_param_map[resource_name] = resolved_param
+            resolved_param_map[resource_name] = resolved_params
         else:
             dependency_graph.add(resource_name)
             resolved_param_map[resource_name] = None
@@ -330,37 +337,85 @@ def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
     ]
 
 
-def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[str]:
+_UNPARSED = object()
+
+
+def _json_field_value(body: object, path: str) -> object:
+    current = body
+    for key in path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[ResponseAction]:
     content = response.text
+    # Parsed at most once per response, and only when an action actually matches on the body.
+    parsed_body: object = _UNPARSED
 
     for action in actions:
-        status_code = action.get("status_code")
-        content_substr = action.get("content")
-        action_type = action.get("action")
-        if action_type is None:
+        if action.get("action") is None:
             continue
 
-        if status_code is not None and content_substr is not None:
-            if response.status_code == status_code and content_substr in content:
-                return action_type
-        elif status_code is not None:
-            if response.status_code == status_code:
-                return action_type
-        elif content_substr is not None:
-            if content_substr in content:
-                return action_type
+        criteria: list[bool] = []
+
+        status_code = action.get("status_code")
+        if status_code is not None:
+            criteria.append(response.status_code == status_code)
+
+        content_substr = action.get("content")
+        if content_substr is not None:
+            criteria.append(content_substr in content)
+
+        json_field = action.get("json_field")
+        if json_field is not None:
+            if parsed_body is _UNPARSED:
+                try:
+                    parsed_body = response.json()
+                except ValueError:
+                    parsed_body = None
+            criteria.append(_json_field_value(parsed_body, json_field) in (action.get("json_values") or []))
+
+        # An action with no criteria at all would otherwise match every response.
+        if criteria and all(criteria):
+            return action
 
     return None
 
 
 def _create_response_actions_hook(
     response_actions: list[ResponseAction],
+    resource_name: str | None = None,
 ) -> Callable[[Response, Any, Any], None]:
     def response_actions_hook(response: Response, *args: Any, **kwargs: Any) -> None:
-        action_type = _handle_response_actions(response, response_actions)
+        matched = _handle_response_actions(response, response_actions)
+        action_type = matched.get("action") if matched else None
+
         if action_type == "ignore":
-            logger.info(f"Ignoring response with code {response.status_code} and content '{response.json()}'.")
+            # Carries the resource so ignores are countable per schema.
+            # Use response.text, not response.json(): an ignored response (e.g. a 404) often has an
+            # empty or non-JSON body, and parsing it here would raise before the ignore takes effect.
+            logger.info(
+                "data_imports.response_action_ignored",
+                resource=resource_name,
+                status_code=response.status_code,
+                content=response.text[:500],
+            )
             raise IgnoreResponseException
+
+        # Re-issue the request. This is how a source classifies an HTTP-200 body-level error
+        # envelope (e.g. an in-body rate-limit signal) or a non-5xx status as retryable, since the
+        # client's own retry check only fires on 429/5xx status codes.
+        if action_type == "retry":
+            raise RESTClientRetryableError(
+                (matched and matched.get("message")) or f"Retryable response (HTTP {response.status_code})"
+            )
+
+        # Fail loud with a permanent, non-retryable error — for a success-status body error envelope
+        # that should surface an actionable message rather than silently syncing 0 rows.
+        if action_type == "raise":
+            raise ValueError((matched and matched.get("message")) or f"Error response (HTTP {response.status_code})")
 
         if not action_type and response.status_code >= 400:
             response.raise_for_status()
@@ -370,28 +425,34 @@ def _create_response_actions_hook(
 
 def create_response_hooks(
     response_actions: Optional[list[ResponseAction]],
+    resource_name: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     if response_actions:
-        return {"response": [_create_response_actions_hook(response_actions)]}
+        return {"response": [_create_response_actions_hook(response_actions, resource_name)]}
     return None
 
 
 def process_parent_data_item(
     path: str,
     item: dict[str, Any],
-    resolved_param: ResolvedParam,
+    resolved_param: ResolvedParam | list[ResolvedParam],
     include_from_parent: list[str],
 ) -> tuple[str, dict[str, Any]]:
-    parent_resource_name = resolved_param.resolve_config["resource"]
+    # Accept one or many resolved params — all bound from fields of the same parent row
+    # (multi-param paths like /docs/{doc_id}/tables/{table_id}/rows).
+    resolved_params = resolved_param if isinstance(resolved_param, list) else [resolved_param]
+    parent_resource_name = resolved_params[0].resolve_config["resource"]
 
-    field_values = find_values(resolved_param.field_path, item)
-
-    if not field_values:
-        field_path = resolved_param.resolve_config["field"]
-        raise ValueError(
-            f"Transformer expects a field '{field_path}' to be present in the incoming data from resource {parent_resource_name} in order to bind it to path param {resolved_param.param_name}. Available parent fields are {', '.join(item.keys())}"
-        )
-    bound_path = path.format(**{resolved_param.param_name: field_values[0]})
+    bindings: dict[str, Any] = {}
+    for rp in resolved_params:
+        field_values = find_values(rp.field_path, item)
+        if not field_values:
+            field_path = rp.resolve_config["field"]
+            raise ValueError(
+                f"Transformer expects a field '{field_path}' to be present in the incoming data from resource {parent_resource_name} in order to bind it to path param {rp.param_name}. Available parent fields are {', '.join(item.keys())}"
+            )
+        bindings[rp.param_name] = field_values[0]
+    bound_path = path.format(**bindings)
 
     parent_record: dict[str, Any] = {}
     if include_from_parent:

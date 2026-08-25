@@ -6,6 +6,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { PlayerSidebarExperimentsSection } from './PlayerSidebarExperimentsSection'
 import { PlayerSidebarOverviewGrid } from './PlayerSidebarOverviewGrid'
 import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
 
@@ -27,7 +28,7 @@ export function ResolutionView(): JSX.Element {
                 </>
             }
         >
-            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
+            <span className="text-secondary text-xs flex flex-row items-center gap-x-1 tabular-nums">
                 <span>{resolutionDisplay}</span>
                 <span>({scaleDisplay})</span>
             </span>
@@ -48,6 +49,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
                 <ResolutionView />
             </div>
             <PlayerSidebarOverviewGrid />
+            <PlayerSidebarExperimentsSection />
             <PlayerSidebarOverviewOtherWatchers />
         </div>
     )

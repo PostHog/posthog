@@ -1,5 +1,6 @@
 import json
 import uuid
+import datetime
 from typing import Any
 
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -19,13 +20,21 @@ from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
 )
-from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.constants import AvailableFeature
+from posthog.direct_query_cancellation import (
+    build_direct_query_cancellation_token,
+    is_direct_query_cancellation_requested,
+)
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.shared_link_user import SharedLinkUser
 
 
 def build_query(sql):
@@ -62,6 +71,25 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
+    def test_process_query_task_on_failure_marks_status_errored(self):
+        from posthog.tasks.tasks import process_query_task
+
+        self.manager.store_query_status(self.query_status)
+
+        process_query_task.on_failure(
+            exc=ClickHouseAtCapacity(),
+            task_id="celery-task-id",
+            args=(self.team_id, None, self.query_id),
+            kwargs={},
+            einfo=None,
+        )
+
+        result = self.manager.get_query_status()
+        self.assertTrue(result.complete)
+        self.assertTrue(result.error)
+        self.assertEqual(result.error_message, ClickHouseAtCapacity.default_detail)
+        self.assertIsNotNone(result.end_time)
+
     def test_store_clickhouse_query_progress(self):
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}
         self.manager._store_clickhouse_query_progress_dict(query_status)
@@ -73,6 +101,22 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager._store_clickhouse_query_progress_dict(query_status)
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
+
+    @patch("posthog.clickhouse.cancel.cancel_query_on_cluster")
+    @patch("posthog.clickhouse.client.execute_async.celery.app.control.revoke")
+    def test_cancel_query_signals_a_running_direct_query(
+        self, revoke: MagicMock, cancel_query_on_cluster: MagicMock
+    ) -> None:
+        task_id = str(uuid.uuid4())
+        self.query_status.task_id = task_id
+        self.manager.store_query_status(self.query_status)
+
+        client.cancel_query(self.team_id, self.query_id)
+
+        cancellation_token = build_direct_query_cancellation_token(self.query_id, task_id)
+        self.assertTrue(is_direct_query_cancellation_requested(self.team_id, cancellation_token))
+        revoke.assert_called_once_with(task_id)
+        cancel_query_on_cluster.assert_called_once_with(self.team_id, self.query_id)
 
     def test_update_clickhouse_query_progresses(self):
         self.manager.store_query_status(self.query_status)
@@ -104,6 +148,35 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertEqual(self.manager.get_query_status(show_progress=True), self.query_status)
 
 
+class TestAsyncTaskChain(SimpleTestCase):
+    @patch("posthog.clickhouse.client.async_task_chain.uuid.uuid4")
+    @patch("posthog.clickhouse.client.async_task_chain.chain")
+    def test_persists_each_task_identity_before_dispatch(self, chain_mock: MagicMock, uuid4_mock: MagicMock) -> None:
+        task_ids = [
+            uuid.UUID("11111111-1111-4111-8111-111111111111"),
+            uuid.UUID("22222222-2222-4222-8222-222222222222"),
+        ]
+        uuid4_mock.side_effect = task_ids
+        signatures = [MagicMock(), MagicMock()]
+        managers = [MagicMock(), MagicMock()]
+        statuses = [QueryStatus(id="query-1", team_id=1), QueryStatus(id="query-2", team_id=1)]
+        queued_tasks = list(zip(signatures, managers, statuses, strict=True))
+
+        def assert_ready_for_dispatch() -> None:
+            for task_id, signature, manager, status in zip(task_ids, signatures, managers, statuses, strict=True):
+                self.assertEqual(status.task_id, str(task_id))
+                self.assertIn("chained", status.labels or [])
+                signature.set.assert_called_once_with(task_id=str(task_id))
+                manager.store_query_status.assert_called_once_with(status)
+
+        chain_mock.return_value.apply_async.side_effect = assert_ready_for_dispatch
+        with patch("posthog.clickhouse.client.async_task_chain.get_task_chain", return_value=queued_tasks):
+            execute_task_chain()
+
+        chain_mock.assert_called_once_with(*signatures)
+        chain_mock.return_value.apply_async.assert_called_once_with()
+
+
 class TestExecuteProcessQuery(TestCase):
     def setUp(self):
         self.user = User.objects.create(email="test@posthog.com")
@@ -119,8 +192,15 @@ class TestExecuteProcessQuery(TestCase):
     @patch("posthog.api.services.query.process_query_dict")
     def test_execute_process_query(self, mock_process_query_dict, mock_redis_client):
         mock_redis = MagicMock()
+        task_id = uuid.uuid4()
         mock_redis.get.return_value = json.dumps(
-            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+            {
+                "id": self.query_id,
+                "team_id": self.team.id,
+                "complete": False,
+                "error": False,
+                "task_id": str(task_id),
+            }
         ).encode()
         mock_redis_client.return_value = mock_redis
 
@@ -130,6 +210,7 @@ class TestExecuteProcessQuery(TestCase):
 
         mock_redis_client.assert_called_once()
         mock_process_query_dict.assert_called_once()
+        self.assertEqual(get_query_tags().celery_task_id, task_id)
 
         # Assert that Redis set method was called with the correct arguments
         self.assertEqual(mock_redis.set.call_count, 2)  # Once on pickup, once on completion
@@ -160,6 +241,49 @@ class TestExecuteProcessQuery(TestCase):
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
         self.assertEqual(mock_capture_exception.called, should_capture)
+
+    @parameterized.expand(
+        [
+            ("live", {}, True, True),
+            ("disabled", {"enabled": False}, True, False),
+            ("expired", {"expires_at": datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)}, True, False),
+            ("org_disallows_public_sharing", {}, False, False),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_shared_link_run_rebuilds_the_viewer_while_the_share_is_live(
+        self, _name, overrides, org_allows_sharing, expect_viewer, mock_process_query_dict, mock_redis_client
+    ):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.return_value = []
+        sharing_configuration = SharingConfiguration.objects.create(team=self.team, **{"enabled": True, **overrides})
+        if not org_allows_sharing:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "Organization security settings"}
+            ]
+            self.organization.allow_publicly_shared_resources = False
+            self.organization.save()
+
+        execute_process_query(
+            self.team.id,
+            None,
+            self.query_id,
+            self.query_json,
+            self.limit_context,
+            sharing_configuration_id=sharing_configuration.id,
+        )
+
+        user = mock_process_query_dict.call_args.kwargs["user"]
+        if expect_viewer:
+            assert isinstance(user, SharedLinkUser)
+            assert user.sharing_configuration.id == sharing_configuration.id
+        else:
+            assert user is None
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
@@ -224,14 +348,27 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         assert result.error_message
         self.assertRegex(result.error_message, "trailing tokens after expression")
 
+    def test_async_query_user_safe_error_carries_error_code(self):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=ClickHouseQueryMemoryLimitExceeded()):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertTrue(result.complete)
+        assert result.error_message
+        self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
 
-        with patch(
-            "posthog.api.services.query.process_query_dict", side_effect=CHQueryErrorTooManySimultaneousQueries("bla")
-        ):
+        with patch("posthog.api.services.query.process_query_dict", side_effect=ClickHouseAtCapacity()):
             self.assertRaises(
-                CHQueryErrorTooManySimultaneousQueries,
+                ClickHouseAtCapacity,
                 client.enqueue_process_query_task,
                 **{"team": self.team, "user_id": self.user.id, "query_json": query, "_test_only_bypass_celery": True},
             )
@@ -244,8 +381,11 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             except Exception:
                 pass
 
+        # Transient capacity errors leave the status re-runnable (not complete, not errored)
+        # so the Celery retry doesn't short-circuit on the `if query_status.complete` guard.
         result = client.get_query_status(self.team.id, query_id)
-        self.assertTrue(result.error)
+        self.assertFalse(result.error)
+        self.assertFalse(result.complete)
         assert result.error_message is None
         self.assertIsNotNone(result.start_time)
         self.assertIsNotNone(result.pickup_time)

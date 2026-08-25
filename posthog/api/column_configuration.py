@@ -1,11 +1,14 @@
 from typing import Any
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
+from django.http import Http404
 
+import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.response import Response
 
@@ -14,7 +17,10 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import log_activity_from_viewset
 from posthog.exceptions import Conflict
+from posthog.exceptions_capture import capture_exception
 from posthog.models import ColumnConfiguration
+
+logger = structlog.get_logger(__name__)
 
 
 class ColumnConfigurationSerializer(serializers.ModelSerializer):
@@ -67,7 +73,9 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: ColumnConfiguration):
         values = super().to_representation(instance)
-        values["filters"] = self.validate_filters(values["filters"])
+        # Legacy rows can carry a null `filters` column; `.get` keeps serialization from
+        # KeyError-ing if the field is ever dropped from the output, and normalizes null to [].
+        values["filters"] = self.validate_filters(values.get("filters"))
         return values
 
 
@@ -80,11 +88,39 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         # Always visibility-scope (own private + team shared) so a request without a
         # context_key — or an object lookup by id — can't reach another user's private view.
-        queryset = queryset.filter(Q(visibility="private", created_by=self.request.user) | Q(visibility="shared"))
+        visibility_filter = Q(visibility="shared")
+        user = self.request.user
+        # Only add the private clause for a real, persisted user. Filtering `created_by`
+        # against an unauthenticated/unsaved user raises ValueError, which would otherwise
+        # surface as an opaque 500 on the list path.
+        if getattr(user, "is_authenticated", False) and getattr(user, "pk", None) is not None:
+            visibility_filter |= Q(visibility="private", created_by=user)
+        queryset = queryset.filter(visibility_filter)
         context_key = self.request.GET.get("context_key")
         if context_key:
             queryset = queryset.filter(context_key=context_key)
         return queryset.order_by("visibility", "-created_at")
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # DRF renders known API errors (NotFound, PermissionDenied, Conflict, …) as clean
+        # 4xx responses. Anything else becomes an opaque 500 with an empty body — and the
+        # frontend capture carries no server stack trace. Report unexpected failures with
+        # request context so this endpoint stops being a black box.
+        if not isinstance(exc, (APIException, Http404, DjangoPermissionDenied)):
+            # Gathering context must never itself raise and mask the real failure.
+            try:
+                context = {
+                    "endpoint": "column_configurations",
+                    "action": getattr(self, "action", None),
+                    "team_id": getattr(self, "team_id", None),
+                    "user_id": getattr(self.request.user, "pk", None),
+                    "context_key": self.request.GET.get("context_key"),
+                }
+            except Exception:
+                context = {"endpoint": "column_configurations"}
+            capture_exception(exc, additional_properties=context)
+            logger.exception("column_configuration_request_failed", **context)
+        return super().handle_exception(exc)
 
     def safely_get_object(self, queryset: QuerySet) -> Any:
         try:

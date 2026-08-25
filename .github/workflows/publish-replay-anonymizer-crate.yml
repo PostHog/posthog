@@ -1,0 +1,165 @@
+name: Publish posthog-replay-anonymizer to crates.io
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - rust/replay-anonymizer/**
+            - .github/workflows/publish-replay-anonymizer-crate.yml
+    pull_request:
+        paths:
+            - rust/replay-anonymizer/**
+            - .github/workflows/publish-replay-anonymizer-crate.yml
+
+env:
+    CARGO_TERM_COLOR: always
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    check-version-bump:
+        name: Check version was bumped
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.event_name == 'pull_request'
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Check if crate code changed
+              id: changed-files
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              with:
+                  files_yaml: |
+                      crate:
+                      - rust/replay-anonymizer/**
+
+            - name: Compare crate version against crates.io
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  CRATE_CHANGED: ${{ steps.changed-files.outputs.crate_any_changed }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+              run: |
+                  if [[ "$CRATE_CHANGED" != 'true' ]]; then
+                      echo "Only the workflow changed; no version bump needed."
+                      exit 0
+                  fi
+                  version=$(grep -m1 '^version' rust/replay-anonymizer/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+                  # 200 = version already on crates.io, 404 = will publish on merge. Retry transient registry errors.
+                  for attempt in 1 2 3; do
+                      http_code=$(curl -o /dev/null -sSL -w '%{http_code}' -A 'PostHog CI (https://github.com/PostHog/posthog)' "https://crates.io/api/v1/crates/posthog-replay-anonymizer/$version") || http_code='000'
+                      if [[ "$http_code" == '200' || "$http_code" == '404' ]]; then
+                          break
+                      fi
+                      sleep 2
+                  done
+                  if [[ "$IS_FORK" == 'true' ]]; then
+                      # The fork token can't post the reminder comment; surface via annotation instead.
+                      if [[ "$http_code" == '200' ]]; then
+                          echo "::warning::posthog-replay-anonymizer changed but its version stayed at $version, which is already on crates.io. Bump version in rust/replay-anonymizer/Cargo.toml."
+                      fi
+                      exit 0
+                  fi
+                  if [[ "$http_code" == '200' ]]; then
+                      message_body="It looks like the code of \`posthog-replay-anonymizer\` changed in this PR, but its version stayed the same at $version, which is already on crates.io. 👀"
+                      message_body+=$'\n'"Bump \`version\` in \`rust/replay-anonymizer/Cargo.toml\` before merging — the crate publishes automatically on merge to master."
+                      BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs replay-anonymizer-crate warn "version bump needed"
+                  elif [[ "$http_code" == '404' ]]; then
+                      GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs replay-anonymizer-crate --clear "v$version will publish on merge"
+                  else
+                      # Refresh the sticky section rather than leaving a stale warn from an earlier push.
+                      message_body="Could not reach crates.io (HTTP $http_code) to check whether \`posthog-replay-anonymizer\` $version is already published. Push again or re-run this check to re-verify."
+                      BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs replay-anonymizer-crate info "could not verify v$version against crates.io"
+                  fi
+
+    publish:
+        name: Publish to crates.io
+        # Not on a Depot runner: this job holds CARGO_REGISTRY_TOKEN and Depot injects the shared
+        # sccache WebDAV credentials ambiently, which a malicious dependency build script could read.
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        if: github.event_name == 'push' && github.repository == 'PostHog/posthog'
+        permissions:
+            contents: read
+            id-token: write
+        defaults:
+            run:
+                working-directory: rust
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+
+            - name: Check if crate code changed in this push
+              id: changed-files
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              with:
+                  files_yaml: |
+                      crate:
+                      - rust/replay-anonymizer/**
+
+            - name: Check whether this version is already on crates.io
+              id: version
+              shell: bash
+              env:
+                  CRATE_CHANGED: ${{ steps.changed-files.outputs.crate_any_changed }}
+              run: |
+                  version=$(grep -m1 '^version' replay-anonymizer/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+                  for attempt in 1 2 3; do
+                      http_code=$(curl -o /dev/null -sSL -w '%{http_code}' -A 'PostHog CI (https://github.com/PostHog/posthog)' "https://crates.io/api/v1/crates/posthog-replay-anonymizer/$version") || http_code='000'
+                      if [[ "$http_code" == '200' || "$http_code" == '404' ]]; then
+                          break
+                      fi
+                      sleep 2
+                  done
+                  if [[ "$http_code" == '200' ]]; then
+                      if [[ "$CRATE_CHANGED" == 'true' ]]; then
+                          # Fail loudly rather than silently shipping nothing: these crate changes
+                          # won't reach crates.io until a follow-up PR bumps the version.
+                          echo "::error::posthog-replay-anonymizer changed in this push but $version is already on crates.io. Bump version in rust/replay-anonymizer/Cargo.toml in a follow-up PR."
+                          exit 1
+                      fi
+                      echo "posthog-replay-anonymizer $version is already on crates.io; nothing to publish."
+                      echo "publish-needed=false" >> $GITHUB_OUTPUT
+                  elif [[ "$http_code" == '404' ]]; then
+                      echo "Publishing posthog-replay-anonymizer v$version"
+                      echo "publish-needed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "::error::No definitive answer from crates.io (HTTP $http_code) for posthog-replay-anonymizer $version after 3 attempts. Re-run this job once crates.io recovers."
+                      exit 1
+                  fi
+
+            - name: Install rust
+              if: steps.version.outputs.publish-needed == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            # No sccache here: cargo publish runs dependency build scripts with CARGO_REGISTRY_TOKEN
+            # present, so it must not read the fork-writable shared compiler cache. rust-cache is
+            # GitHub's own cache (fork-isolated, master-write-only below), so it stays.
+            - name: Cache Rust dependencies
+              if: steps.version.outputs.publish-needed == 'true'
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-nodejs'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Authenticate with crates.io
+              if: steps.version.outputs.publish-needed == 'true'
+              id: auth
+              uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+
+            - name: Publish to crates.io
+              if: steps.version.outputs.publish-needed == 'true'
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+              run: cargo publish -p posthog-replay-anonymizer

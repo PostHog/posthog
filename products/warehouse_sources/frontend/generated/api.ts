@@ -10,23 +10,30 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DatabaseSchemaRequestApi,
+    DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataSchemaApi,
+    ExternalDataSchemasCancelCreate200,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
+    ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
+    ExternalDataSourceCreateResponseApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectLinkRetrieveParams,
-    ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
+    ExternalDataSourcesOauthAccountsRetrieveParams,
+    ExternalDataSourcesRepairCdcCreate200,
+    ExternalDataSourcesResumeCdcCreate200,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
+    IntegrationAccountsResponseApi,
     PaginatedExternalDataSchemaListApi,
-    PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
+    PaginatedWarehouseColumnStatisticsListApi,
     PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
@@ -37,6 +44,8 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    WarehouseColumnStatisticsApi,
+    WarehouseColumnStatisticsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -80,23 +89,6 @@ export const externalDataSchemasList = async (
     return apiMutator<PaginatedExternalDataSchemaListApi>(getExternalDataSchemasListUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getExternalDataSchemasCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_schemas/`
-}
-
-export const externalDataSchemasCreate = async (
-    projectId: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
-    options?: RequestInit
-): Promise<ExternalDataSchemaApi> => {
-    return apiMutator<ExternalDataSchemaApi>(getExternalDataSchemasCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -173,14 +165,11 @@ export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: str
 export const externalDataSchemasCancelCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
+): Promise<ExternalDataSchemasCancelCreate200> => {
+    return apiMutator<ExternalDataSchemasCancelCreate200>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -256,14 +245,11 @@ export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: str
 export const externalDataSchemasReloadCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -274,14 +260,11 @@ export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: str
 export const externalDataSchemasResyncCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasResyncCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -326,8 +309,8 @@ export const externalDataSourcesCreate = async (
     projectId: string,
     externalDataSourceCreateApi: ExternalDataSourceCreateApi,
     options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesCreateUrl(projectId), {
+): Promise<ExternalDataSourceCreateResponseApi> => {
+    return apiMutator<ExternalDataSourceCreateResponseApi>(getExternalDataSourcesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -669,6 +652,59 @@ export const externalDataSourcesReloadCreate = async (
     })
 }
 
+export const getExternalDataSourcesRepairCdcCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/repair_cdc/`
+}
+
+/**
+ * Repair CDC on a source whose replication resources were lost.
+ *
+ * Only proceeds on evidence of breakage (a persisted broken marker, or a live probe
+ * showing the slot/publication missing) — repairing a healthy source would drop its
+ * slot and force a full re-sync. Cancels running CDC jobs, recreates the engine-side
+ * slot/publication against the stored CDC config, resets every active CDC schema to
+ * snapshot mode for a full re-sync (changes since the old slot died are
+ * unrecoverable), clears the broken markers, and resumes the paused schedules.
+ * Idempotent: safe to retry after a partial failure. Concurrent repairs of the same
+ * source are rejected with a 409.
+ */
+export const externalDataSourcesRepairCdcCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExternalDataSourcesRepairCdcCreate200> => {
+    return apiMutator<ExternalDataSourcesRepairCdcCreate200>(getExternalDataSourcesRepairCdcCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getExternalDataSourcesResumeCdcCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/resume_cdc/`
+}
+
+/**
+ * Resume a CDC source whose extraction schedule was paused by a non-retryable
+ * failure that left the replication slot intact (bad credentials, SSL/host errors).
+ *
+ * Once the user has fixed the root cause, this re-probes the source DB — confirming
+ * the connection now succeeds and the slot/publication still exist — then unpauses the
+ * extraction schedule so streaming resumes from where it left off. No re-snapshot, so
+ * it's the cheap counterpart to Repair CDC. If the slot/publication are actually gone
+ * (``cdc_broken``, or a live probe showing them missing), resume is refused — only
+ * Repair CDC can recreate them, at the cost of a full re-sync.
+ */
+export const externalDataSourcesResumeCdcCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExternalDataSourcesResumeCdcCreate200> => {
+    return apiMutator<ExternalDataSourcesResumeCdcCreate200>(getExternalDataSourcesResumeCdcCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/revenue_analytics_config/`
 }
@@ -816,23 +852,8 @@ export const externalDataSourcesConnectLinkRetrieve = async (
     })
 }
 
-export const getExternalDataSourcesConnectionsListUrl = (
-    projectId: string,
-    params?: ExternalDataSourcesConnectionsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/connections/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/connections/`
+export const getExternalDataSourcesConnectionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/connections/`
 }
 
 /**
@@ -840,16 +861,12 @@ export const getExternalDataSourcesConnectionsListUrl = (
  */
 export const externalDataSourcesConnectionsList = async (
     projectId: string,
-    params?: ExternalDataSourcesConnectionsListParams,
     options?: RequestInit
-): Promise<PaginatedExternalDataSourceConnectionOptionListApi> => {
-    return apiMutator<PaginatedExternalDataSourceConnectionOptionListApi>(
-        getExternalDataSourcesConnectionsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<ExternalDataSourceConnectionOptionApi[]> => {
+    return apiMutator<ExternalDataSourceConnectionOptionApi[]>(getExternalDataSourcesConnectionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string) => {
@@ -870,6 +887,27 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(databaseSchemaRequestApi),
     })
+}
+
+export const getExternalDataSourcesDirectConnectionOptionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/direct_connection_options/`
+}
+
+/**
+ * Source types the user can add as a direct connection, driven by the direct-SQL capability
+ * surface so the picker never drifts from the engines we actually support.
+ */
+export const externalDataSourcesDirectConnectionOptionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DirectConnectionSourceOptionApi[]> => {
+    return apiMutator<DirectConnectionSourceOptionApi[]>(
+        getExternalDataSourcesDirectConnectionOptionsListUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSourcesDraftCustomManifestCreateUrl = (projectId: string) => {
@@ -897,6 +935,44 @@ export const externalDataSourcesDraftCustomManifestCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(draftCustomManifestRequestApi),
     })
+}
+
+export const getExternalDataSourcesOauthAccountsRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataSourcesOauthAccountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/oauth_accounts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/oauth_accounts/`
+}
+
+/**
+ * List the accounts/properties a connected OAuth integration exposes, in the shared
+ * IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
+ * this endpoint just routes by source type, applies the optional search filter, and serializes.
+ */
+export const externalDataSourcesOauthAccountsRetrieve = async (
+    projectId: string,
+    params: ExternalDataSourcesOauthAccountsRetrieveParams,
+    options?: RequestInit
+): Promise<IntegrationAccountsResponseApi> => {
+    return apiMutator<IntegrationAccountsResponseApi>(
+        getExternalDataSourcesOauthAccountsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSourcesPreviewResourceCreateUrl = (projectId: string) => {
@@ -1019,12 +1095,13 @@ export const getExternalDataSourcesStoredCredentialsListUrl = (
 }
 
 /**
- * List credentials stored via the source connect page that haven't been consumed yet.
+ * List credentials the requesting user stored via the source connect page that haven't been consumed yet.
  *
  * Returns metadata only (id, source type, timestamps) — never the secrets themselves. Stored
- * credentials are temporary: they disappear once consumed by `setup` or when they expire.
- * Newest first, so after a user confirms they've finished the connect page, the first entry
- * for the source type is the one to pass to `setup`.
+ * credentials are scoped to their creator: only the user who filled the connect page can list
+ * or consume them. They are temporary too: they disappear once consumed by `setup` or when
+ * they expire. Newest first, so after a user confirms they've finished the connect page, the
+ * first entry for the source type is the one to pass to `setup`.
  */
 export const externalDataSourcesStoredCredentialsList = async (
     projectId: string,
@@ -1065,6 +1142,68 @@ export const externalDataSourcesWizardRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseColumnStatisticsListUrl = (
+    projectId: string,
+    params?: WarehouseColumnStatisticsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_column_statistics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_column_statistics/`
+}
+
+/**
+ * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
+ *
+ * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
+ * better queries. They are system-owned and read-only here. List can be filtered to one table with
+ * `?table_id=<uuid>`.
+ */
+export const warehouseColumnStatisticsList = async (
+    projectId: string,
+    params?: WarehouseColumnStatisticsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseColumnStatisticsListApi> => {
+    return apiMutator<PaginatedWarehouseColumnStatisticsListApi>(
+        getWarehouseColumnStatisticsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseColumnStatisticsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_statistics/${id}/`
+}
+
+/**
+ * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
+ *
+ * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
+ * better queries. They are system-owned and read-only here. List can be filtered to one table with
+ * `?table_id=<uuid>`.
+ */
+export const warehouseColumnStatisticsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseColumnStatisticsApi> => {
+    return apiMutator<WarehouseColumnStatisticsApi>(getWarehouseColumnStatisticsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

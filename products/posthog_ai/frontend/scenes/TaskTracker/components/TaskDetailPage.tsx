@@ -7,6 +7,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
@@ -21,7 +22,8 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskNotFound, taskError, runs, selectedRun, isTaskPending, isHeaderLoading } = useValues(sceneLogic)
+    const { task, taskNotFound, taskError, runs, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
+        useValues(sceneLogic)
     const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeCreation } = useValues(taskTrackerSceneLogic)
@@ -53,7 +55,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                     onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
                     className="hidden lg:inline-flex"
                 >
-                    Open in PostHog Code
+                    Open in PostHog Desktop
                 </LemonButton>
                 {prUrl && (
                     <LemonButton
@@ -65,8 +67,15 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                         View PR
                     </LemonButton>
                 )}
-                {!isLatestRunInProgress && !isLatestRunCompleted && (
-                    <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
+                {!isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted && (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconPlay />}
+                        onClick={runTask}
+                        loading={runTaskInFlight}
+                        disabledReason={runTaskInFlight ? 'Starting the run' : undefined}
+                    >
                         {runButtonText}
                     </LemonButton>
                 )}

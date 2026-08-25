@@ -24,6 +24,13 @@
  */
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 
+/** Leading element of `useGroupList`'s `remoteKey` — the cached-first-page / full remote fetch.
+ *  Owned here beside the cache so key producers and invalidation predicates share one source. */
+export const TAXONOMIC_LIST_KEY_FAMILY = 'taxonomic-list'
+/** Leading element of `useGroupList`'s `serverSearchKey` — the server-side search fallback for
+ *  `clientFilterFirstPage` groups whose dataset exceeds one page. */
+export const TAXONOMIC_LIST_SEARCH_KEY_FAMILY = 'taxonomic-list-search'
+
 export interface UseTaxonomicResourceOptions {
     /** Disable execution. Defaults to true. */
     enabled?: boolean

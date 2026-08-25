@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM lifecycle_op\n            WHERE completed_at IS NOT NULL\n              AND completed_at < now() - make_interval(secs => $1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3139ffa959123d9cbbf2d4858669b6de8a9df7a59cf0826fc2c1557f95982f48"
+}

@@ -14,7 +14,7 @@ import {
     TeamId,
 } from '~/types'
 
-import { InternalPersonWithDistinctId } from './person-repository'
+import { InternalPersonWithDistinctId, LifecycleMarkPerson } from './person-repository'
 
 export interface RawPostgresPersonRepository {
     fetchPerson(
@@ -57,6 +57,23 @@ export interface RawPostgresPersonRepository {
 
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<PersonMessage[]>
 
+    /** Batched deletePerson for folded merges; all persons must belong to one team. */
+    deletePersons(persons: InternalPerson[], tx?: TransactionClient): Promise<PersonMessage[]>
+
+    /** See PersonRepository.claimLifecycleMarks. */
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        tx?: TransactionClient
+    ): Promise<void>
+
+    /** See PersonRepository.releaseLifecycleMarks. */
+    releaseLifecycleMarks(opId: string, teamId: number, tx?: TransactionClient): Promise<void>
+
+    /** See PersonRepository.isPersonLive. */
+    isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
+
     addDistinctId(
         person: InternalPerson,
         distinctId: string,
@@ -71,15 +88,34 @@ export interface RawPostgresPersonRepository {
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult>
 
+    /** Batched unlimited moveDistinctIds for folded merges; zero moved rows for a source is not a failure. */
+    moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        tx?: TransactionClient
+    ): Promise<MoveDistinctIdsResult>
+
+    /** Distinct-id counts per person id (single team), for the folded-merge limit pre-check. */
+    countDistinctIdsForPersons(
+        teamId: number,
+        personIds: string[],
+        tx?: TransactionClient
+    ): Promise<Map<string, number>>
+
     fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]>
-    addPersonlessDistinctId(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
-    addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string, tx?: TransactionClient): Promise<boolean>
 
     personPropertiesSize(personId: string, teamId: number): Promise<number>
 
     updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
+        targetPersonID: InternalPerson['id'],
+        tx?: TransactionClient
+    ): Promise<void>
+
+    updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
         targetPersonID: InternalPerson['id'],
         tx?: TransactionClient
     ): Promise<void>

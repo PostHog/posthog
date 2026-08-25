@@ -6,7 +6,6 @@ import { useCallback, useRef, useState } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { alertsToThresholdGoalLines, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -28,15 +27,19 @@ import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
+import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
-import { LineGraph } from './Components/Charts/LineGraph'
 import { PieChart } from './Components/Charts/PieChart'
+import { SqlChart } from './Components/Charts/SqlChart'
+import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
+import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -258,7 +261,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <LineGraph
+            <SqlChart
                 className="p-3"
                 xData={_xData}
                 yData={_yData}
@@ -278,9 +281,20 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = (
             <PieChart
                 className="p-3"
-                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
                 xData={_xData}
                 yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
+        // Both axes are continuous, so a scatter reads the x column's own values rather than the
+        // breakdown path's categorical labels (which dedupe x — fatal for a point cloud).
+        component = (
+            <SqlScatterGraph
+                className="p-3"
+                xData={xData}
+                yData={yData}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
@@ -364,6 +378,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 {!props.embedded && <VariablesForInsight />}
 
                 <div className="flex flex-1 flex-row gap-4">
+                    {/* The gear above toggles this panel (Series/Display tabs) — same layout the
+                        SQL editor's OutputPane builds around its own visualization fork. */}
+                    {!readOnly && showResultControls && isChartSettingsPanelOpen && (
+                        <>
+                            <SideBar />
+                            <LemonDivider vertical className="h-full" />
+                        </>
+                    )}
                     <div className="w-full h-full flex-1 overflow-auto">{component}</div>
                 </div>
             </div>

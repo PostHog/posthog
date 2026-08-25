@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
 import {
     ActivityLogItem,
@@ -10,6 +10,7 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { isObject } from 'lib/utils/guards'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType } from '~/types'
@@ -17,12 +18,14 @@ import { HogFunctionTypeType } from '~/types'
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import type { DiffProps } from './Diff'
 
+const STAGED_CHANGES = 'changed the staged changes'
+
 const nameOrLinkToHogFunction = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name?.trim() ? name : 'Untitled hog function'
     return id ? <Link to={urls.hogFunction(id)}>{displayName}</Link> : displayName
 }
 
-const LazyDiff = lazy(() => import('./Diff').then((m) => ({ default: m.Diff })))
+const LazyDiff = lazyWithRetry(() => import('./Diff').then((m) => ({ default: m.Diff })))
 
 /** Lazy so the activity describer registry (imported app-wide) doesn't pull monaco into its chunk. */
 export function Diff(props: DiffProps): JSX.Element {
@@ -102,6 +105,24 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         }
     }
 
+    const draftActivities: Record<string, string> = {
+        draft_updated: 'staged changes for review on',
+        published: 'published the staged changes to',
+        draft_discarded: 'discarded the staged changes on',
+        revision_restored: 'staged an earlier version for review on',
+    }
+    if (logItem.activity in draftActivities) {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
+                    {draftActivities[logItem.activity]} the {objectNoun}:{' '}
+                    {nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated') {
         const changes: { inline: string | JSX.Element; inlist: string | JSX.Element }[] = []
         for (const change of logItem.detail.changes ?? []) {
@@ -111,6 +132,16 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                         inline: 'updated encrypted inputs for',
                         inlist: 'updated encrypted inputs',
                     })
+                    break
+                }
+                // Both are masked server-side, so there is nothing to diff — say the staged config
+                // changed and let the reader open it in the builder. A staged edit usually touches
+                // both fields, so collapse them into one entry.
+                case 'draft':
+                case 'draft_encrypted_inputs': {
+                    if (!changes.some((c) => c.inlist === STAGED_CHANGES)) {
+                        changes.push({ inline: `${STAGED_CHANGES} on`, inlist: STAGED_CHANGES })
+                    }
                     break
                 }
                 case 'inputs': {

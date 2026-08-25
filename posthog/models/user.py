@@ -15,7 +15,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
+from posthog.helpers.email_utils import STRIPPED_EMAIL_EXPRESSION, EmailLookupHandler, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -38,6 +38,7 @@ class Notifications(TypedDict, total=False):
         str, Any
     ]  # Maps team_id (str) to enabled status (True = included). None/missing = not configured (auto-select on first digest).
     discussions_mentioned: bool
+    task_comments_slack_dm: bool  # Slack DM for task comment mentions, replies, and owned items
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
     data_pipeline_error_threshold: (
@@ -45,6 +46,8 @@ class Notifications(TypedDict, total=False):
     )
     project_api_key_exposed: bool
     materialized_view_sync_failed: bool
+    materialized_view_sync_failed_daily: bool  # One digest a day covering every failing view
+    materialized_view_sync_failed_immediate: bool  # One email each time a view starts failing
     web_analytics_weekly_digest: bool
     web_analytics_weekly_digest_project_enabled: dict[str, bool]
     organization_member_join_email_disabled: dict[
@@ -63,11 +66,14 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
     "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default
+    "task_comments_slack_dm": True,
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
+    "materialized_view_sync_failed_daily": True,  # Digest is the default delivery once failures are turned on
+    "materialized_view_sync_failed_immediate": False,
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
@@ -85,6 +91,7 @@ ROLE_CHOICES = (
     ("leadership", "Leadership"),
     ("marketing", "Marketing"),
     ("sales", "Sales / Success"),
+    ("student", "Student"),
     ("other", "Other"),
 )
 
@@ -111,6 +118,7 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
+        extra_fields.setdefault("ui_configuration", default_ui_configuration_for_new_users())
         user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
@@ -186,6 +194,22 @@ def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
+# New users start with a slimmer sidebar. Existing users keep ui_configuration NULL, which the
+# frontend resolves as "everything shown" (their pre-customization experience). Absent keys also
+# mean "shown", so this only lists the elements hidden by default for new accounts. The shape must
+# stay valid against the UserUIConfiguration schema (see frontend/src/queries/schema/schema-general.ts).
+def default_ui_configuration_for_new_users() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "sidebar": {
+            "items": {
+                "files": {"visible": False},
+                "starred": {"visible": False},
+            },
+        },
+    }
+
+
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
@@ -202,6 +226,7 @@ class OnboardingSkippedReason(models.TextChoices):
     DELEGATED = "delegated", "Delegated to teammate"
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
+    PROVISIONED = "provisioned", "Account provisioned by a partner"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -260,6 +285,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
+    # No field default on purpose: existing rows must stay NULL so long-time users keep seeing
+    # everything. New accounts get default_ui_configuration_for_new_users() via UserManager.create_user.
+    ui_configuration = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Per-user UI customization (currently sidebar element visibility), shaped like the "
+        "UserUIConfiguration schema. NULL means the user has no customization and every element shows.",
+    )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
     ONBOARDING_SKIPPED_REASONS = OnboardingSkippedReason.choices
@@ -298,6 +331,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     # DEPRECATED - Replaced by toolbar OAuth flow. Kept for schema compatibility only;
     # we never drop columns to avoid failures during rolling deploys.
     temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
+
+    class Meta:
+        verbose_name = _("user")
+        verbose_name_plural = _("users")
+        indexes = [
+            models.Index(STRIPPED_EMAIL_EXPRESSION, name="user_stripped_alias_idx"),
+        ]
 
     # Remove unused attributes from `AbstractUser`
     username = cast(Any, None)
@@ -535,6 +575,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                     },
                 )
 
+        # After role assignment, so role-granted project access is included. Covers joins
+        # that don't go through an invite (e.g. domain/SSO auto-join).
+        from posthog.models.file_system.user_product_list import (  # noqa: PLC0415 - avoids a circular import
+            add_default_products_for_accessible_teams,
+        )
+
+        add_default_products_for_accessible_teams(self, organization)
+
         return membership
 
     @property
@@ -632,3 +680,27 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
         from posthog.session.activity import revoke_other_sessions  # noqa: PLC0415 — avoids a circular import
 
         revoke_other_sessions(instance, keep_session_key=None)
+
+
+@receiver(pre_save, sender=User)
+def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
+    """Pause every loop owned by a user when they are deactivated (is_active True->False).
+
+    Loops execute as their owner for GitHub authorship and MCP identity (see
+    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
+    security response and must not leave a loop still scheduled, or a sandbox still running,
+    under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
+    Temporal schedule is an irreversible external side effect.
+    """
+    if instance._state.adding or instance.is_active:
+        return
+    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    if not was_active:
+        return
+
+    from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
+        pause_loops_for_deactivated_user,
+    )
+
+    user_id = instance.pk
+    transaction.on_commit(lambda: pause_loops_for_deactivated_user(user_id))

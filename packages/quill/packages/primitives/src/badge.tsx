@@ -16,6 +16,7 @@ const badgeVariants = cva(
                 destructive: 'quill-badge--variant-destructive',
                 warning: 'quill-badge--variant-warning',
                 success: 'quill-badge--variant-success',
+                completed: 'quill-badge--variant-completed',
             },
         },
         defaultVariants: {

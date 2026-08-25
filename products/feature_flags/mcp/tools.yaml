@@ -14,7 +14,7 @@ ui_apps:
     feature-flag-list:
         type: list
         detail_tool: feature-flag-get-definition
-        detail_args: '{ flagId: item.id }'
+        detail_args: '{ id: item.id }'
         item_name_field: key
         click_prop: onFlagClick
     feature-flag-testing:
@@ -32,8 +32,14 @@ tools:
             idempotent: false
         enrich_url: '{id}'
         title: Create feature flag
-        description: |
-            Create a feature flag in the current project.
+        description: >
+            Create a feature flag in the current project. Call when the user asks to add a flag, gate a feature behind a
+            flag, set up a percentage rollout, or deliver a remote config value. Release conditions, rollout
+            percentages, multivariate variants, and payloads all go in the structured `filters` param (`filters.groups`
+            for release conditions, `filters.multivariate.variants` for variants, `filters.payloads` for JSON-encoded
+            payloads). For an A/B test, create an experiment instead — experiments manage their own flag. Use
+            `update-feature-flag` to change an existing flag, and `feature-flag-get-all` first to check whether the key
+            is already taken.
         include_params:
             - key
             - name
@@ -129,8 +135,10 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         title: Get feature flag definition
-        description: |
-            Get a feature flag by ID.
+        description: >
+            Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its
+            numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use
+            `feature-flag-get-all` to search by key or name and find the ID.
         param_overrides:
             id:
                 cast: string-int
@@ -211,7 +219,13 @@ tools:
         description: >
             Copy a feature flag from one project to other projects within the same organization. Provide the flag key,
             source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule.
-            Returns lists of successful and failed copies.
+            Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too;
+            existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left
+            untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of
+            successful and failed copies.
+    feature-flags-copy-flags-dependency-requirements-create:
+        operation: feature_flags_copy_flags_dependency_requirements_create
+        enabled: false
     feature-flags-create-static-cohort-for-flag-create:
         operation: feature_flags_create_static_cohort_for_flag_create
         enabled: false
@@ -250,7 +264,9 @@ tools:
         description: >
             Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups
             to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match,
-            no_condition_match, disabled).
+            no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly
+            recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a
+            very large payload.
     feature-flags-matching-ids-retrieve:
         operation: feature_flags_matching_ids_retrieve
         enabled: false
@@ -266,12 +282,41 @@ tools:
         list: true
         title: Get my evaluated feature flags
         description: >
-            List all feature flags in the current project along with their evaluated value for the authenticated user
-            (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple
-            flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON
-            object to evaluate group-based flags.
+            List feature flags in the current project along with their evaluated value for the authenticated user (the
+            API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags,
+            variant key string for multivariate flags, false if disabled). Pass `flag_keys` to scope the response to
+            specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry
+            for every flag and can produce a very large payload. Optionally pass `groups` as a JSON object to evaluate
+            group-based flags.
     feature-flags-remote-config-retrieve:
         operation: feature_flags_remote_config_retrieve
+        enabled: false
+    feature-flags-staff-cache-clear-create:
+        operation: feature_flags_staff_cache_clear_create
+        enabled: false
+    feature-flags-staff-cache-entry-retrieve:
+        operation: feature_flags_staff_cache_entry_retrieve
+        enabled: false
+    feature-flags-staff-cache-list:
+        operation: feature_flags_staff_cache_list
+        enabled: false
+    feature-flags-staff-cache-rebuild-create:
+        operation: feature_flags_staff_cache_rebuild_create
+        enabled: false
+    feature-flags-staff-cache-warm-run-cancel-create:
+        operation: feature_flags_staff_cache_warm_run_cancel_create
+        enabled: false
+    feature-flags-staff-cache-warm-run-retrieve:
+        operation: feature_flags_staff_cache_warm_run_retrieve
+        enabled: false
+    feature-flags-staff-team-config-list:
+        operation: feature_flags_staff_team_config_list
+        enabled: false
+    feature-flags-staff-team-config-set-create:
+        operation: feature_flags_staff_team_config_set_create
+        enabled: false
+    feature-flags-staff-teams-list:
+        operation: feature_flags_staff_teams_list
         enabled: false
     feature-flags-status-retrieve:
         operation: feature_flags_status_retrieve
@@ -303,9 +348,12 @@ tools:
             idempotent: true
         title: Test feature flag evaluation
         description: >
-            Test how a feature flag evaluates for a specific user at an optional point in time. Provides detailed
-            reasoning about why the flag matched or didn't match, including condition analysis and person properties
-            used in evaluation.
+            Simulate how one feature flag (by numeric ID) would evaluate for a specific user, optionally at a past point
+            in time (`timestamp` reconstructs flag conditions and person properties as they existed then). Provide
+            `distinct_id` or `person_id` (mutually exclusive) and optionally `groups`. Returns the evaluated value with
+            detailed reasoning: which condition matched and the person properties used. Use this to debug or dry-run a
+            single flag; use `feature-flags-evaluation-reasons-retrieve` to see live evaluations across many flags for a
+            user, and `feature-flags-user-blast-radius-create` to size a release condition before applying it.
         param_overrides:
             id:
                 cast: string-int
@@ -438,8 +486,13 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         title: Update feature flag
-        description: |
-            Update a feature flag by ID in the current project.
+        description: >
+            Update a feature flag by numeric ID (partial update — only the fields you include are changed). Call when
+            the user asks to enable or disable a flag, change its rollout percentage or release conditions, edit
+            variants or payloads, or update its description. Rollout conditions, variants, and payloads live in the
+            structured `filters` param, and sending `filters` replaces the whole object — read the flag first with
+            `feature-flag-get-definition` and merge your change. To apply a change at a future time instead, use
+            `scheduled-changes-create`. Use `feature-flag-get-all` to find the numeric ID from a key.
         include_params:
             - key
             - name

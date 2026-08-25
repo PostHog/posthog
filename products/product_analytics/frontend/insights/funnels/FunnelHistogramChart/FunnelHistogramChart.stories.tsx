@@ -2,6 +2,11 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import funnelTimeToConvertFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
@@ -66,4 +71,15 @@ export const Default: Story = {
 
 export const Compare: Story = {
     render: () => renderFunnelHistogramChart(funnelTimeToConvertCompareFixture),
+}
+
+// Full insight scene in edit mode — the time-to-convert editor
+export const EditScene: Story = createInsightStory(funnelTimeToConvertFixture as any, 'edit')
+EditScene.decorators = [insightSceneMswDecorator]
+EditScene.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=funnel-histogram] canvas[role="img"]',
+    },
 }

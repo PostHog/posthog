@@ -147,6 +147,60 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(runner.calculate().results), 2)
 
+    def _create_internal_and_external_persons(self) -> None:
+        for index in range(3):
+            _create_person(
+                properties={"email": f"employee{index}@posthog.com"},
+                team=self.team,
+                distinct_ids=[f"internal-{index}"],
+                is_identified=True,
+            )
+        for index in range(2):
+            _create_person(
+                properties={"email": f"customer{index}@example.com"},
+                team=self.team,
+                distinct_ids=[f"external-{index}"],
+                is_identified=True,
+            )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            # Person-scoped filter applied: the 3 internal persons are excluded, leaving 2.
+            (
+                "person_filter_on_excludes_internal",
+                True,
+                [{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
+                2,
+            ),
+            # Flag off: the filter is not applied, so all 5 persons are returned.
+            (
+                "person_filter_off_keeps_all",
+                False,
+                [{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
+                5,
+            ),
+            # Event-scoped filters have no meaning on a persons query. They must be skipped, not raise.
+            (
+                "event_scoped_filter_is_ignored",
+                True,
+                [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}],
+                5,
+            ),
+            # No configured filters means the flag is a no-op.
+            ("empty_test_account_filters_is_noop", True, [], 5),
+        ]
+    )
+    def test_filter_test_accounts_applies_only_person_scoped_filters(
+        self, _name: str, filter_test_accounts: bool, test_account_filters: list, expected_count: int
+    ) -> None:
+        self._create_internal_and_external_persons()
+        self.team.test_account_filters = test_account_filters
+        self.team.save()
+
+        runner = self._create_runner(ActorsQuery(filterTestAccounts=filter_test_accounts))
+        self.assertEqual(len(runner.calculate().results), expected_count)
+
     def test_persons_query_search_email(self):
         self.random_uuid = self._create_random_persons()
         self._create_random_persons()

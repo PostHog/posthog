@@ -1,11 +1,7 @@
-// Side-effect: registers Max's product-specific tool renderers (insight/dashboard/recordings/etc.) into
-// the shared toolRegistry. Imported here so they're registered whenever the Max thread renders.
-import './messages/adapters/registerMaxToolRenderers'
-
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     IconChevronRight,
@@ -25,6 +21,7 @@ import {
     IconX,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonButtonPropsBase,
     LemonCheckbox,
@@ -66,19 +63,31 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { PendingApproval, Region } from '~/types'
+import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 
-import { getThinkingMessageFromResponse, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import {
+    AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
+    getThinkingMessageFromResponse,
+    messageRatingsLogic,
+    runStreamLogic,
+    useAttachedContext,
+    useForegroundStream,
+} from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
     ContextUsageBar,
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
+    RecordingsWidget,
+    ReplayVisionScanWidget,
     ResourcesBar,
     ThreadView,
+    TurnFeedbackActions,
+    type TurnTrailer,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
+import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
@@ -86,15 +95,13 @@ import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
-import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
 import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { ThreadMessage, maxLogic } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
-import { RecordingsWidget, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
+import { isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
@@ -122,12 +129,43 @@ function isErrorMessage(message: ThreadMessage): boolean {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
+    const { panelId } = useValues(maxLogic)
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
+    const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
+
+    // Register the sandbox stream rendered in the side panel as the foreground stream (tool apply-back
+    // reacts only to it). Only the side-panel instance qualifies — the full-page /ai scene (any other
+    // panelId) never registers. Cleared on unmount / conversation change via the streamKey dependency.
+    const rendersSandboxThread = isSandboxRuntime || isConvertedConversation
+    useForegroundStream(panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread ? sandboxConversationKey : null)
+
+    // While the side panel shows a sandbox thread, tell the agent its tool calls are applied back into
+    // whatever the user has open (the prompt-side half of the apply-back the foreground stream enables).
+    useAttachedContext([AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM], {
+        active: panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread,
+    })
 
     const containerClassName = cn(
         '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
         className
     )
+
+    const renderTurnTrailer = useCallback(
+        (trailer: TurnTrailer): JSX.Element | null =>
+            sandboxConversationKey ? (
+                <TurnFeedbackActions
+                    sessionId={sandboxConversationKey}
+                    turnIndex={trailer.turnIndex}
+                    isLastTurn={trailer.isLastTurn}
+                    turnText={trailer.turnText}
+                />
+            ) : null,
+        [sandboxConversationKey]
+    )
+
+    if (isPiTask) {
+        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
+    }
 
     // Born-sandbox conversation (no legacy history): render only the sandbox thread.
     if (isSandboxRuntime && !isConvertedConversation) {
@@ -142,7 +180,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
-                    <ThreadView virtualized={false} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
                 </BindLogic>
             </div>
         )
@@ -162,7 +200,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <ThreadView virtualized={false} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
                 </BindLogic>
             </div>
         )
@@ -184,18 +222,20 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
  */
 function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element | null {
     const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, canCreateTicket } = useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
+    // Gated on eligibility so the create-ticket affordance never renders for orgs the support
+    // panel would turn away — e.g. from an old conversation that contains a past /ticket summary.
     const ticketPromptData = useMemo(
-        () => getTicketPromptData(threadGrouped, streamingActive),
-        [threadGrouped, streamingActive]
+        () => (canCreateTicket ? getTicketPromptData(threadGrouped, streamingActive) : { needed: false }),
+        [threadGrouped, streamingActive, canCreateTicket]
     )
 
     const ticketSummaryData = useMemo(
-        () => getTicketSummaryData(threadGrouped, streamingActive),
-        [threadGrouped, streamingActive]
+        () => (canCreateTicket ? getTicketSummaryData(threadGrouped, streamingActive) : null),
+        [threadGrouped, streamingActive, canCreateTicket]
     )
 
     return (conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
@@ -446,6 +486,11 @@ function MessageContainer({
         <div
             className={cn(
                 'relative flex',
+                // Off-screen messages (insight cards especially) otherwise participate in every
+                // style recalc / layout / paint the composer triggers while typing, which makes
+                // keystroke latency grow with thread length. `auto 100px` is only the pre-first-render
+                // estimate; after a message renders once, the browser remembers its real size.
+                '[content-visibility:auto] [contain-intrinsic-size:auto_100px]',
                 groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
                 className
             )}
@@ -1014,6 +1059,7 @@ interface ToolCallsAnswerProps {
 }
 
 function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
+    const { onAcceptSessionFilters } = useValues(maxLogic)
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -1040,7 +1086,7 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                     {regularToolCalls.map((toolCall) => {
                         const definition = getToolDefinitionFromToolCall(toolCall)
                         const [description, widgetDef] = getToolCallDescriptionAndWidgetDef(toolCall, registeredToolMap)
-                        const widget = renderToolCallWidget(widgetDef, toolCall.id)
+                        const widget = renderToolCallWidget(widgetDef, toolCall.id, onAcceptSessionFilters)
                         return (
                             <LangGraphActivity
                                 key={toolCall.id}
@@ -1299,8 +1345,8 @@ function SuccessActions({
     content?: string | null
 }): JSX.Element {
     const { traceId: logicTraceId } = useValues(maxThreadLogic)
-    const { ratingForTraceId } = useValues(maxMessageRatingsLogic)
-    const { setRatingForTraceId } = useActions(maxMessageRatingsLogic)
+    const { ratingForKey } = useValues(messageRatingsLogic)
+    const { setRating } = useActions(messageRatingsLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
     const { isDev, preflight } = useValues(preflightLogic)
@@ -1309,7 +1355,7 @@ function SuccessActions({
     // Use the context trace_id if available (for reloaded conversations), otherwise fall back to logic's traceId
     const traceId = contextTraceId || logicTraceId
 
-    const rating = ratingForTraceId(traceId)
+    const rating = ratingForKey(traceId)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
 
@@ -1317,7 +1363,7 @@ function SuccessActions({
         if (rating || !traceId) {
             return // Already rated
         }
-        setRatingForTraceId({ traceId, rating: newRating })
+        setRating({ key: traceId, rating: newRating })
         posthog.captureTraceMetric(traceId, 'quality', newRating)
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')
@@ -1423,12 +1469,29 @@ function SuccessActions({
     )
 }
 
-function renderToolCallWidget(widgetDef: ToolCallWidgetDef | null, toolCallId: string): JSX.Element | null {
+function renderToolCallWidget(
+    widgetDef: ToolCallWidgetDef | null,
+    toolCallId: string,
+    onAcceptSessionFilters?: ((filters: RecordingUniversalFilters) => void) | null
+): JSX.Element | null {
     switch (widgetDef?.widget) {
         case 'recordings':
-            return <RecordingsWidget toolCallId={toolCallId} filters={widgetDef.args} embedded />
-        case 'session_summarization':
-            return <SessionSummarizationProgress updates={widgetDef.args.updates} />
+            return (
+                <RecordingsWidget
+                    toolCallId={toolCallId}
+                    filters={widgetDef.args}
+                    embedded
+                    onAcceptFilters={onAcceptSessionFilters}
+                />
+            )
+        case 'replay_vision_scan':
+            return (
+                <ReplayVisionScanWidget
+                    scanId={widgetDef.args.scanId}
+                    sessionIds={widgetDef.args.sessionIds}
+                    skipped={widgetDef.args.skipped}
+                />
+            )
         default:
             return null
     }

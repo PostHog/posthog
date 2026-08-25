@@ -3,6 +3,14 @@
 Diagnose by walking the chain:
 SDK call → exposure event captured → ingested → matches the configured exposure criteria → counted.
 
+**Which exposure event?** When `exposure_criteria` doesn't name a custom event, the experiment counts
+exposures on its default event — read `resolved_exposure_event` from `experiment-get`
+(`$feature_flag_called`, or `$experiment_exposure` for newer experiments). `$experiment_exposure` is
+duplicated at ingestion from `$feature_flag_called` and carries the same properties, so the SDK-side
+diagnostics below apply to both: an SDK that never fires `$feature_flag_called` produces neither
+event. In the SQL below, substitute the experiment's resolved event name where `$feature_flag_called`
+appears as the exposure filter.
+
 ## Contents
 
 - Quick triage decision tree
@@ -304,8 +312,11 @@ Ask explicitly. The "empty experiment" shape often resolves to a feature flag st
 branch that hasn't merged, or a page that calls the flag not being live yet.
 
 **Exposures were healthy then stopped** (the experiment ran for weeks/months, then the daily
-exposure count plateaued and never moved again). A different shape — capture and config are
-both fine; the application stopped calling the flag.
+exposure count plateaued and never moved again). Before investigating, check the experiment's
+status from Step 1: `exposure_frozen` means someone deliberately froze exposure — the plateau is
+the intended behavior (enrollment closed, metrics still flowing), not a bug. Likewise `paused`
+explains a hard stop. Otherwise, this is a different shape — capture and config are both fine;
+the application stopped calling the flag.
 
 _Verify directly:_
 

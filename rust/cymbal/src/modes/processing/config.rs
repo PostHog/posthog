@@ -73,6 +73,25 @@ pub struct ProcessingConfig {
     #[envconfig(default = "600")]
     pub issue_cache_ttl_seconds: u64,
 
+    // Sized generously on purpose: entries are ~100 bytes, and versioned fingerprinting
+    // probes this cache once per registered fingerprint version per event, so the working
+    // set is several multiples of the distinct-issue count at current event volume.
+    #[envconfig(default = "100000")]
+    pub issue_cache_capacity: u64,
+
+    // Event-level release resolution runs once per exception event. A release row is immutable
+    // once the CLI creates it, so a positive hit never goes stale; the TTL exists to let a
+    // negative result (app metadata that matches no release yet) expire after a dSYM upload
+    // creates the release, without re-querying Postgres on every event in the meantime.
+    #[envconfig(default = "300")]
+    pub release_cache_ttl_seconds: u64,
+
+    // An entry-count bound is a real memory bound: cached records clamp metadata to
+    // MAX_RELEASE_METADATA_BYTES at fetch, so a full cache tops out around
+    // max_entries * 8 KiB per lookup kind.
+    #[envconfig(default = "10000")]
+    pub release_cache_max_entries: u64,
+
     // Maximum number of in-flight futures for a single `Batch::apply_func` call.
     // This is a per-call-site limit, not a global pipeline-wide concurrency cap.
     #[envconfig(default = "64")]
@@ -100,6 +119,12 @@ pub struct ProcessingConfig {
     pub max_assignment_rule_cache_size: u64,
 
     #[envconfig(default = "300")]
+    pub severity_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    pub max_severity_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
     pub grouping_rule_cache_ttl_secs: u64,
 
     #[envconfig(default = "100000")]
@@ -122,6 +147,18 @@ pub struct ProcessingConfig {
 
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_EVENT_PROPERTIES_TTL_SECONDS",
+        default = "172800"
+    )]
+    pub event_properties_ttl_seconds: u64,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_EVENT_PROPERTIES_MAX_BYTES",
+        default = "1048576"
+    )]
+    pub event_properties_max_bytes: usize,
 
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,
@@ -164,18 +201,8 @@ pub struct ProcessingConfig {
     pub spike_alert_enabled_team_ids: String,
 
     // ----------------------------------------------------------------------
-    // Remote resolution (cymbal.resolution.v1) — Batch 3 client integration.
-    //
-    // When `remote_resolution_enabled` is true, cymbal routes exception-level
-    // symbol resolution through the configured `cymbal-resolution` service
-    // pool instead of running the local resolver inline. There is no silent
-    // local fallback: if the pool can't satisfy the request, the stage
-    // surfaces the failure to its caller. Local mode (the default) is
-    // unchanged.
+    // Remote resolution (cymbal.resolution.v1).
     // ----------------------------------------------------------------------
-    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ENABLED", default = "false")]
-    pub remote_resolution_enabled: bool,
-
     /// Hostname of the cymbal-resolution service. Resolved via DNS, then each
     /// returned address gets its own gRPC channel in the endpoint pool.
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_HOST", default = "")]
@@ -243,15 +270,6 @@ pub struct ProcessingConfig {
         default = "30000"
     )]
     pub remote_resolution_overload_ejection_decay_ms: u64,
-
-    /// Deterministic event-level rollout sample for remote resolution.
-    /// Defaults to `0.0` so flipping `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`
-    /// alone does not start sending traffic — the rollout has to be ramped
-    /// explicitly. Values outside 0.0..=1.0 are clamped by
-    /// `RemoteResolutionConfig`, matching the defensive normalization used
-    /// by adjacent duration knobs.
-    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
-    pub remote_resolution_sample_rate: f64,
 
     /// Flattens remote resolution routing across the rendezvous-ranked candidate
     /// list. `0.0` sends all traffic to the top-ranked endpoint, `1.0` is

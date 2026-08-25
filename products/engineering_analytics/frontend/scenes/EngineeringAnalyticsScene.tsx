@@ -16,6 +16,7 @@ import {
     VIEW_DESCRIPTIONS,
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
+import { EngineeringAnalyticsTeams } from './EngineeringAnalyticsTeams'
 import { EngineeringAnalyticsTestHealth } from './EngineeringAnalyticsTestHealth'
 import { EngineeringAnalyticsWorkflows } from './EngineeringAnalyticsWorkflows'
 import { RepoOverviewScene } from './RepoOverviewScene'
@@ -56,6 +57,13 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             'data-attr': 'engineering-analytics-workflows-tab',
         },
         {
+            key: 'teams',
+            label: 'Teams',
+            content: <EngineeringAnalyticsTeams />,
+            link: combineUrl(urls.engineeringAnalyticsTeams(), linkParams).url,
+            'data-attr': 'engineering-analytics-teams-tab',
+        },
+        {
             key: 'test-health',
             label: 'Test health',
             content: <EngineeringAnalyticsTestHealth />,
@@ -66,7 +74,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection
                     name="Engineering analytics"
                     description={VIEW_DESCRIPTIONS[activeView]}

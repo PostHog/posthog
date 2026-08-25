@@ -62,12 +62,11 @@ posthog:query-error-tracking-issue-events
 {
   "issueId": "<issue_id>",
   "limit": 1,
-  "verbosity": "stack"
+  "include": ["exception", "stacktrace", "environment", "navigation", "correlation"]
 }
 ```
 
-Use `verbosity: "raw"` only if the truncated stack hides the answer. The tool
-defaults to `onlyAppFrames: true`, which strips vendor frames; flip to `false`
+The tool defaults to `onlyAppFrames: true`, which strips vendor frames; flip to `false`
 when the bug appears to live in a third-party library — or when the response
 comes back with `stacktrace.type: "resolved"` but no frames at all (common for
 minified bundles where every frame looks vendor-y to the resolver, e.g. React
@@ -141,8 +140,7 @@ LIMIT 20
 ```
 
 The `(issue_id = ... OR properties.$exception_issue_id = ...)` pattern
-mirrors the canonical `build_issue_where` clause from
-`products/error_tracking/backend/api/query_utils.py`. `issue_id` is the
+covers both ways an event links to its issue. `issue_id` is the
 resolved virtual field on `events` (it follows fingerprint overrides so
 merged/split issues route correctly); `properties.$exception_issue_id` is
 the raw event property captured at ingestion. Filtering on only the property
@@ -167,14 +165,19 @@ If the user suspects an experiment or rollout, check whether affected users had
 a flag enabled when the error fired.
 
 To enumerate which flags were evaluated on affected users, parse the
-`$active_feature_flags` property — it is materialized as a JSON-encoded string in
-ClickHouse, so `arrayJoin(properties.$active_feature_flags)` directly will fail;
-`JSONExtract` is the working pattern:
+`$active_feature_flags` property — it is materialized as a `Nullable(String)`
+JSON-encoded column in ClickHouse, so `arrayJoin(properties.$active_feature_flags)`
+directly will fail. `JSONExtract` is the working pattern, but you must coerce the
+argument to a non-nullable String first: ClickHouse refuses to return a nested
+`Array(String)` from `JSONExtract` when the input is `Nullable`, and this type
+error is raised at query planning, so the `notEmpty(...)` guard in the WHERE
+clause does not prevent it. Wrap the argument in `ifNull(..., '[]')` (or
+`assumeNotNull(...)`):
 
 ```sql
 posthog:execute-sql
 SELECT
-    arrayJoin(JSONExtract(toString(properties.$active_feature_flags), 'Array(String)')) AS flag,
+    arrayJoin(JSONExtract(ifNull(toString(properties.$active_feature_flags), '[]'), 'Array(String)')) AS flag,
     count() AS occurrences,
     uniq(person_id) AS users
 FROM events
@@ -347,7 +350,7 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 
 - The canonical join key from events to an issue is the resolved `issue_id`
   virtual field, with `properties.$exception_issue_id` as fallback — see Step 3
-  for the reason and the `build_issue_where` pattern.
+  for the reason.
 - For a "what version introduced this?" breakdown, prefer `$app_version` (the
   user's deployed app version, auto-captured on iOS / React Native and
   manually set on web / server) or `$exception_releases` when populated. Avoid
@@ -362,3 +365,10 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 - If `query-error-tracking-issue` returns an `external_issues` array, the issue
   is already linked to a Linear / Jira / GitHub ticket. Mention the link in the
   synthesis so the user doesn't open a duplicate.
+
+## Related skills
+
+- **`triaging-error-issues`** — step back from one issue to ranking which open issues deserve attention
+- **`finding-replay-for-issue`** — watch session recordings linked to this issue's exceptions
+- **`grouping-noisy-errors`** — when the issue is polluted by wrongly-grouped fingerprints, or its events are sprayed across duplicates
+- **`authoring-error-tracking-alerts`** — get notified when this kind of issue is created, reopens, or spikes

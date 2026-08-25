@@ -2,6 +2,7 @@ import json
 import asyncio
 import threading
 from collections.abc import Sequence
+from uuid import NAMESPACE_URL, uuid5
 
 from unittest.mock import patch
 
@@ -80,7 +81,10 @@ class TestTaskRunEventIngest(TestCase):
         return f"/api/projects/{project_id}/tasks/{task.id}/runs/{run.id}/event_stream/"
 
     def _create_token(self, run: TaskRun | None = None) -> str:
-        return create_sandbox_event_ingest_token(run or self.task_run)
+        token_run = run or self.task_run
+        token_run.state = {**(token_run.state or {}), "sandbox_id": f"sandbox-{token_run.id}"}
+        token_run.save(update_fields=["state", "updated_at"])
+        return create_sandbox_event_ingest_token(token_run)
 
     def _call_ingest(
         self,
@@ -189,6 +193,113 @@ class TestTaskRunEventIngest(TestCase):
         self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_rtk_savings_capture_uses_authenticated_ids_and_idempotent_event_uuid(self) -> None:
+        token = self._create_token()
+        event = {
+            "seq": 1,
+            "event": {
+                "type": "notification",
+                "notification": {
+                    "method": "_posthog/rtk_savings",
+                    "params": {
+                        "task_id": "spoofed-task",
+                        "run_id": "spoofed-run",
+                        "team_id": 999,
+                        "counter_id": "spoofed-counter",
+                        "runtime_adapter": "claude",
+                        "model": "claude-sonnet-4-5",
+                        "cumulative_commands": 4,
+                        "cumulative_input_tokens": 1000,
+                        "cumulative_output_tokens": 350,
+                        "cumulative_tokens_saved": 650,
+                    },
+                },
+            },
+        }
+
+        with patch("products.tasks.backend.logic.stream.event_ingest._capture_rtk_savings") as capture_rtk_savings:
+            first_status, _ = self._call_ingest(token, [event])
+            duplicate_status, duplicate_body = self._call_ingest(token, [event])
+
+        self.assertEqual(first_status, 200)
+        self.assertEqual(duplicate_status, 200)
+        self.assertEqual(duplicate_body["duplicate"], 1)
+        capture_rtk_savings.assert_called_once_with(
+            self.team.id,
+            str(uuid5(NAMESPACE_URL, f"posthog-task-rtk-savings:{self.task_run.id}:1")),
+            {
+                "team_id": self.team.id,
+                "task_id": str(self.task.id),
+                "run_id": str(self.task_run.id),
+                "counter_id": str(self.task_run.id),
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "cumulative_commands": 4,
+                "cumulative_input_tokens": 1000,
+                "cumulative_output_tokens": 350,
+                "cumulative_tokens_saved": 650,
+            },
+        )
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_rtk_savings_capture_failure_can_be_retried(self) -> None:
+        token = self._create_token()
+        event = {
+            "seq": 1,
+            "event": {
+                "type": "notification",
+                "notification": {
+                    "method": "_posthog/rtk_savings",
+                    "params": {
+                        "cumulative_commands": 4,
+                        "cumulative_input_tokens": 1000,
+                        "cumulative_output_tokens": 350,
+                        "cumulative_tokens_saved": 650,
+                    },
+                },
+            },
+        }
+
+        with patch(
+            "products.tasks.backend.logic.stream.event_ingest._capture_rtk_savings",
+            side_effect=[RuntimeError("capture failed"), None],
+        ) as capture_rtk_savings:
+            failed_status, _ = self._call_ingest(token, [event])
+            retry_status, retry_body = self._call_ingest(token, [event])
+
+        self.assertEqual(failed_status, 503)
+        self.assertEqual(retry_status, 200)
+        self.assertEqual(retry_body["duplicate"], 1)
+        self.assertEqual(capture_rtk_savings.call_count, 2)
+        self.assertEqual(self._read_notification_methods(), ["_posthog/rtk_savings"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_rtk_savings_capture_rejects_fractional_counters(self) -> None:
+        token = self._create_token()
+        event = {
+            "seq": 1,
+            "event": {
+                "type": "notification",
+                "notification": {
+                    "method": "_posthog/rtk_savings",
+                    "params": {
+                        "cumulative_commands": 1.5,
+                        "cumulative_input_tokens": 1000,
+                        "cumulative_output_tokens": 350,
+                        "cumulative_tokens_saved": 650,
+                    },
+                },
+            },
+        }
+
+        with patch("products.tasks.backend.logic.stream.event_ingest._capture_rtk_savings") as capture_rtk_savings:
+            status, body = self._call_ingest(token, [event])
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 1)
+        capture_rtk_savings.assert_not_called()
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_current_project_path_ingests_with_token_scoped_task_run(self) -> None:
         token = self._create_token()
 
@@ -202,26 +313,17 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["accepted"], 1)
         self.assertEqual(self._read_notification_methods(), ["session/update"])
 
-    @parameterized.expand([(True,), (False,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_turn_complete_ingest_notifies_interactive_run_awaiting_input_only_with_flag(
-        self, flag_enabled: bool
-    ) -> None:
+    def test_turn_complete_ingest_notifies_interactive_run(self) -> None:
         self.task.created_by = User.objects.create_user("ingest-push@posthog.com", None, "Ingest")
         self.task.save(update_fields=["created_by"])
         self.task_run.state = {"mode": "interactive"}
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
 
-        with (
-            patch(
-                "products.tasks.backend.logic.stream.event_ingest.notify_task_run_awaiting_input"
-            ) as notify_awaiting_input,
-            patch(
-                "products.tasks.backend.logic.stream.event_ingest.posthoganalytics.feature_enabled",
-                return_value=flag_enabled,
-            ),
-        ):
+        with patch(
+            "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
+        ) as notify_turn_completed:
             status, body = self._call_ingest(
                 token,
                 [
@@ -237,11 +339,8 @@ class TestTaskRunEventIngest(TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 1)
-        if flag_enabled:
-            notify_awaiting_input.assert_called_once()
-            self.assertEqual(notify_awaiting_input.call_args.args[0].id, self.task_run.id)
-        else:
-            notify_awaiting_input.assert_not_called()
+        notify_turn_completed.assert_called_once()
+        self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:

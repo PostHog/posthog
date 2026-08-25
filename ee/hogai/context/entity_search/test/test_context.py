@@ -20,7 +20,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.facade.models import Insight, InsightViewed
 from products.surveys.backend.models import Survey
 
 from ee.hogai.context import AssistantContextManager
@@ -56,6 +56,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
             ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
+            ("alert_configuration", "test_alert_id", "/project/{team_id}/alerts?alert_id=test_alert_id"),
             ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
         ]
     )

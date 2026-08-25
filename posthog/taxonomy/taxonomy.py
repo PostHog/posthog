@@ -226,6 +226,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception": {
             "label": "Exception",
             "description": "An unexpected error or unhandled exception in your application.",
+            "primary_property": "$exception_types",
         },
         "$web_vitals": {
             "label": "Web vitals",
@@ -234,10 +235,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_generation": {
             "label": "AI generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+            "primary_property": "$ai_model",
         },
         "$ai_evaluation": {
             "label": "AI evaluation (LLM)",
             "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
+            "primary_property": "$ai_evaluation_name",
         },
         "$ai_tag": {
             "label": "AI tag (LLM)",
@@ -246,6 +249,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_metric": {
             "label": "AI metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
+            "primary_property": "$ai_metric_name",
         },
         "$ai_feedback": {
             "label": "AI feedback (LLM)",
@@ -254,10 +258,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_trace": {
             "label": "AI trace (LLM)",
             "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.",
+            "primary_property": "$ai_span_name",
         },
         "$ai_span": {
             "label": "AI span (LLM)",
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).",
+            "primary_property": "$ai_span_name",
         },
         "$ai_embedding": {
             "label": "AI embedding (LLM)",
@@ -267,6 +273,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "CSP violation",
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
             "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
+            "primary_property": "$csp_violated_directive",
         },
         "Application opened": {
             "label": "Application opened",
@@ -291,12 +298,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "Deep link opened": {
             "label": "Deep link opened",
             "description": "When a user opens the mobile app via a deep link.",
+            "primary_property": "url",
         },
         # Canonical @posthog/mcp SDK events, and the only MCP events to build on. They cover all
         # traffic since 2026-06-16; the legacy non-`$` names below are frozen (older history only).
         "$mcp_tool_call": {
             "label": "MCP tool call",
             "description": "Fires every time an MCP server tool is invoked via @posthog/mcp. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent. Canonical replacement for the legacy `mcp_tool_call`.",
+            "primary_property": "$mcp_tool_name",
         },
         "$mcp_tools_list": {
             "label": "MCP tools listed",
@@ -313,6 +322,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$mcp_resource_read": {
             "label": "MCP resource read",
             "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
+            "primary_property": "$mcp_resource_name",
         },
         "$mcp_prompts_list": {
             "label": "MCP prompts listed",
@@ -321,10 +331,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$mcp_prompt_get": {
             "label": "MCP prompt fetched",
             "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
+            "primary_property": "$mcp_resource_name",
         },
         "$mcp_custom": {
             "label": "MCP custom event",
             "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
+        },
+        "$mcp_auth_failed": {
+            "label": "MCP auth failed",
+            "description": "Fires when an MCP request is refused before a session is established, because the credential was rejected or lacked a required scope. Emitted by PostHog's own MCP server rather than the SDK, so it is absent for customer-instrumented servers. Carries `$mcp_auth_failure_reason`, `$mcp_auth_method`, and the client identity, so connectors stuck re-authorizing are visible instead of appearing as an absence of traffic. Not a tool-call failure: it never sets `$mcp_is_error`.",
+            "primary_property": "$mcp_auth_failure_reason",
         },
         "$mcp_missing_capability": {
             "label": "MCP missing capability",
@@ -444,6 +460,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",
         },
+        "$conversation_private_message_sent": {
+            "label": "Conversation private message sent",
+            "description": "Fires when a team member sends a private note in a support conversation.",
+        },
         "$conversation_message_received": {
             "label": "Conversation message received",
             "description": "Fires when a message is received in a support conversation.",
@@ -463,6 +483,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$conversation_ticket_priority_changed": {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
+        },
+        "$slack_message_received": {
+            "label": "Slack message received",
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
         },
     },
     "elements": {
@@ -668,16 +692,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "initialization time",
             "description": "The iso formatted timestamp of SDK initialization.",
             "type": "String",
-            "used_for_debug": True,
-        },
-        "$transformations_skipped": {
-            "label": "Transformations skipped",
-            "description": "Array of transformations skipped during ingestion.",
-            "used_for_debug": True,
-        },
-        "$transformations_succeeded": {
-            "label": "Transformations succeeded",
-            "description": "Array of transformations that succeeded during ingestion.",
             "used_for_debug": True,
         },
         "$config_defaults": {
@@ -1002,6 +1016,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exception_values": {"label": "Exception message", "description": "The description of the exception."},
         "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
+        "$exception_steps": {
+            "label": "Exception steps",
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "system": True,
+        },
         "$exception_list": {
             "label": "Exception list",
             "description": "List of one or more associated exceptions.",
@@ -1012,74 +1031,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Exception categorized by severity.",
             "examples": ["error"],
         },
-        "$exception_type": {
-            "label": "Exception type",
-            "description": "Exception categorized into types.",
-            "examples": ["Error"],
-        },
-        "$exception_message": {
-            "label": "Exception message",
-            "description": "The message detected on the error.",
-        },
         "$exception_fingerprint": {
             "label": "Exception fingerprint",
             "description": "A fingerprint used to group issues, can be set clientside.",
         },
+        "$exception_fingerprint_version": {
+            "label": "Exception fingerprint version",
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "system": True,
+        },
         "$exception_fingerprint_record": {
             "label": "Exception fingerprint record",
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
-        },
-        "$exception_proposed_fingerprint": {
-            "label": "Exception proposed fingerprint",
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
         },
         "$exception_issue_id": {
             "label": "Exception issue ID",
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
         },
         "$exception_source": {
-            "label": "Exception source",
-            "description": "The source of the exception.",
-            "examples": ["JS file"],
-        },
-        "$exception_lineno": {
-            "label": "Exception source line number",
-            "description": "Which line in the exception source that caused the exception.",
-        },
-        "$exception_colno": {
-            "label": "Exception source column number",
-            "description": "Which column of the line in the exception source that caused the exception.",
-        },
-        "$exception_DOMException_code": {
-            "label": "DOMException code",
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-        },
-        "$exception_is_synthetic": {
-            "label": "Exception is synthetic",
-            "description": "Whether this was detected as a synthetic exception.",
+            "label": "Exception capture source",
+            "description": "The SDK integration or runtime hook that captured the exception.",
+            "examples": ["panic", "rails", "php_exception_handler"],
         },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",
         },
-        "$exception_personURL": {
-            "label": "Exception person URL",
-            "description": "The PostHog person that experienced the exception.",
-        },
         "$cymbal_errors": {
             "label": "Exception processing errors",
             "description": "Errors encountered while trying to process exceptions.",
             "system": True,
-        },
-        "$exception_capture_endpoint": {
-            "label": "Exception capture endpoint",
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
-        },
-        "$exception_capture_endpoint_suffix": {
-            "label": "Exception capture endpoint suffix",
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
         },
         "$exception_capture_enabled_server_side": {
             "label": "Exception capture enabled server side",
@@ -1739,6 +1720,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": ["1234"],
         },
+        "$feature_flag_has_experiment": {
+            "label": "Feature flag has experiment",
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": ["true", "false"],
+        },
         "$feature_flag_bootstrapped_response": {
             "label": "Feature flag bootstrapped response",
             "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
@@ -2213,6 +2199,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
+        "$ai_blob_count": {
+            "label": "AI binary payload count (LLM)",
+            "description": "Number of large binary payloads (images, audio, documents, or other base64 content) in this call.",
+            "examples": [2],
+            "type": "Numeric",
+        },
+        "$ai_blob_bytes": {
+            "label": "AI binary payload size (LLM)",
+            "description": "Total decoded size in bytes of the large binary payloads in this call.",
+            "examples": [245760],
+            "type": "Numeric",
+        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -2234,6 +2232,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI cache creation input tokens (LLM)",
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
+        },
+        "$ai_cache_creation_5m_input_tokens": {
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [23],
+            "type": "Numeric",
+        },
+        "$ai_cache_creation_1h_input_tokens": {
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [23],
+            "type": "Numeric",
         },
         "$ai_cache_reporting_exclusive": {
             "label": "AI cache reporting exclusive (LLM)",
@@ -2467,8 +2477,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_target_type": {
             "label": "AI Target Type (LLM)",
-            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
-            "examples": ["generation_uuid", "trace_id"],
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`, `trace_id` resolves against the `$ai_trace_id` property, and `session_id` resolves against the `$ai_session_id` property.",
+            "examples": ["generation_uuid", "trace_id", "session_id"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
@@ -2579,6 +2589,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI framework (LLM)",
             "description": "The AI framework used to produce this event.",
             "examples": ["langchain", "llamaindex", "openai"],
+        },
+        "$ai_git_branch": {
+            "label": "AI git branch",
+            "description": "The git branch checked out when the AI generation ran.",
+            "examples": ["feat/my-feature"],
+        },
+        "$ai_git_repo": {
+            "label": "AI git repository",
+            "description": "The repository that AI interacted with, as owner/name.",
+            "examples": ["PostHog/posthog"],
         },
         "$ai_lib": {
             "label": "AI library (LLM)",
@@ -2719,9 +2739,40 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "Numeric",
             "examples": [429, 500, 403],
         },
+        "$mcp_error_code": {
+            "label": "MCP error code",
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
+        },
+        "$mcp_error_field": {
+            "label": "MCP error field",
+            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "examples": ["actions__N__inputs__email", "query"],
+        },
+        "$mcp_auth_method": {
+            "label": "MCP auth method",
+            "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection — for example when a user works around a broken OAuth flow by switching to a personal API key.",
+            "examples": ["oauth", "personal_api_key"],
+        },
+        "$mcp_auth_failure_reason": {
+            "label": "MCP auth failure reason",
+            "description": "Why an MCP request was refused, on $mcp_auth_failed: insufficient_scope (the credential is valid but the API denied the call), inactive_oauth_token, invalid_api_key, or unknown. insufficient_scope also carries $mcp_missing_scope when the API named a scope.",
+            "examples": ["insufficient_scope", "invalid_api_key", "inactive_oauth_token"],
+        },
+        "$mcp_auth_status": {
+            "label": "MCP auth status",
+            "description": "HTTP status returned to the client when an MCP request was refused (401 for a rejected credential, 403 for a denied scope). Distinct from $mcp_error_status, which is the upstream status of a failed tool call. Only set on $mcp_auth_failed.",
+            "type": "Numeric",
+            "examples": [401, 403],
+        },
+        "$mcp_missing_scope": {
+            "label": "MCP missing scope",
+            "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
+            "examples": ["insight:read", "query:read"],
+        },
         "$mcp_error_message": {
             "label": "MCP error message",
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
         },
         "$mcp_server_name": {
             "label": "MCP server name",
@@ -2813,7 +2864,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_consumer": {
             "label": "MCP consumer",
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": ["posthog-code", "slack"],
         },
         "$mcp_mode": {
@@ -2918,6 +2969,33 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "is_error": {
             "label": "Is error (unprefixed)",
             "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
+        },
+        "source": {
+            "label": "Source",
+            "description": (
+                "Which PostHog surface the work came from. The surface values are 'web' (the app in a "
+                "browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog "
+                "mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and "
+                "'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so "
+                "'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server "
+                "instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop "
+                "request can still show as 'mcp' on those. "
+                "'posthog_code' covers the headless coding agents: the cloud agent and the local agent. "
+                "'self_driving' is Signals: scouts, report implementations, and scout chat. "
+                "'wizard' is the setup agent and 'terraform' is the Terraform provider. "
+                "Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and "
+                "'subscription'. "
+                "Two unrelated properties share this name, so filter to a specific event before breaking "
+                "down by it. The app also uses 'source' for which control fired an event, with values "
+                "like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for "
+                "something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' "
+                "on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' "
+                "or 'custom' on 'mcp_store server installed'. Two "
+                "surface values also collide with older control names: on 'switched site mode', "
+                "'desktop' means the device-mode control rather than the app, and on the AI report "
+                "events, 'slack' means the delivery channel."
+            ),
+            "examples": ["web", "posthog_ai", "mcp", "desktop", "api"],
         },
         "mcp_runtime": {
             "label": "MCP runtime",
@@ -3028,7 +3106,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_is_bot": {
             "label": "Is bot",
-            "description": "Whether the event was generated by a bot, crawler, or automation tool.",
+            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent or from operator-published bot IP ranges.",
             "type": "Boolean",
             "virtual": True,
         },
@@ -3158,6 +3236,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [0.00000375],
             "type": "Numeric",
         },
+        "$ai_cache_write_1h_token_price": {
+            "label": "AI 1-hour cache write token price (LLM)",
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [0.000006],
+            "type": "Numeric",
+        },
         "$ai_request_price": {
             "label": "AI request price (LLM)",
             "description": "The flat per-request price charged by the LLM provider, independent of token usage.",
@@ -3266,9 +3350,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The description of the error tracking issue this exception belongs to.",
             "type": "String",
         },
-        "$exception_releases": {
-            "label": "Exception releases",
-            "description": "The releases in which this exception has been observed.",
+        "$exception_release": {
+            "label": "Exception release",
+            "description": "The release associated with this exception event.",
             "type": "String",
         },
         "$debug_images": {
@@ -3338,12 +3422,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The revenue associated with an event, in your account's base currency.",
             "examples": [9.99],
             "type": "Numeric",
-        },
-        "$transformations_failed": {
-            "label": "Transformations failed",
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "type": "String",
-            "ignored_in_assistant": True,
         },
         "$override_feature_flag_payloads": {
             "label": "Override feature flag payloads",
@@ -3644,6 +3722,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
+        "severity": {"label": "Issue severity", "description": "The severity level assigned to an issue."},
         "first_seen": {
             "label": "Issue first seen",
             "description": "The first time the issue was seen.",
@@ -3836,6 +3915,16 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
         ),
         "ignored_in_assistant": True,
     }
+
+
+# The @posthog/mcp SDK captures a known property schema on its events. Mirror those properties
+# into their own group so MCP-scoped pickers can surface the expected schema as a dedicated
+# taxonomic filter category (the way autocapture separates element properties).
+# Keep this below every block that mutates "event_properties", or late additions would
+# silently miss the mirror.
+CORE_FILTER_DEFINITIONS_BY_GROUP["mcp_properties"] = {
+    key: value for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items() if key.startswith("$mcp_")
+}
 
 
 PROPERTY_NAME_ALIASES = {

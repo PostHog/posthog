@@ -424,7 +424,20 @@ export const GenerationEvent = (): JSX.Element => {
                             </td>
                             <td>
                                 <p>
-                                    <em>(Optional)</em> Price per cached token write
+                                    <em>(Optional)</em> Price per cached token write. For custom Anthropic pricing, this
+                                    applies to both cache TTLs unless <code>$ai_cache_write_1h_token_price</code> is
+                                    set.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cache_write_1h_token_price</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Price per token written to Anthropic's 1-hour cache. Takes
+                                    precedence over <code>$ai_cache_write_token_price</code> for 1-hour writes.
                                 </p>
                             </td>
                         </tr>
@@ -501,6 +514,30 @@ export const GenerationEvent = (): JSX.Element => {
                             <td>
                                 <p>
                                     <em>(Optional)</em> Number of tokens written to cache (Anthropic-specific)
+                                    <br />
+                                    When both TTL-specific counts are present, PostHog uses them instead of this
+                                    aggregate. The aggregate should equal their sum; if either count is missing, PostHog
+                                    uses the aggregate.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cache_creation_5m_input_tokens</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Number of tokens written to Anthropic's 5-minute cache
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cache_creation_1h_input_tokens</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Number of tokens written to Anthropic's 1-hour cache
                                 </p>
                             </td>
                         </tr>

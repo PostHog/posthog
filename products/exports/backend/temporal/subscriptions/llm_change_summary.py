@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.security.llm_prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
     INSIGHT_NAME_MAX_LEN,
@@ -27,8 +28,7 @@ from posthog.security.llm_prompt_sanitization import (
 )
 from posthog.utils import get_instance_region
 
-from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
-from products.product_analytics.backend.api.insight_suggestions import get_query_specific_instructions
+from products.product_analytics.backend.facade.api import get_query_specific_instructions
 
 logger = structlog.get_logger(__name__)
 
@@ -89,6 +89,8 @@ Focus on:
 - Trends or patterns worth attention
 - The specific step or segment driving the pattern, if identifiable
 
+Values are already formatted in the units shown (e.g. "4d 4h", "$1,200", "37%"). Quote them exactly as given; do not recompute, reunit, or reformat them.
+
 The most recent data point in a trend often covers an incomplete time period (e.g. today's count so far vs yesterday's full-day count). Do not treat a low final data point as a decline unless the trend across earlier complete periods also shows a decline.
 
 Keep it brief and actionable."""
@@ -105,6 +107,8 @@ Focus on:
 - Changes of 10% or more in key metrics
 - New trends or reversals in direction
 - The specific step or segment driving the change, if identifiable
+
+Values are already formatted in the units shown (e.g. "4d 4h", "$1,200", "37%"). Quote them exactly as given; do not recompute, reunit, or reformat them. When describing a change as "from X to Y", X must be the previous value and Y the current value, so the direction matches the numbers (a fall means X is larger than Y).
 
 The most recent data point in a trend often covers an incomplete time period (e.g. today's count so far vs yesterday's full-day count). Do not treat a low final data point as a decline unless the trend across earlier complete periods also shows a decline.
 
@@ -358,7 +362,7 @@ def _attach_images_to_user_message(
 def _get_openai_client() -> OpenAI:
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+    return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
 
 
 def generate_change_summary(

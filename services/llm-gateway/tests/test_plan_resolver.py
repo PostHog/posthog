@@ -4,9 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from llm_gateway.services.plan_resolver import (
+    PlanInfo,
     PlanResolver,
     get_billing_period_number,
     is_pro_plan,
+    resolve_plan_info,
 )
 
 
@@ -88,6 +90,7 @@ class TestPlanResolver:
             mock_settings.return_value.plan_cache_ttl = 300
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key is None
+        assert result.seat_missing is False
 
     async def test_returns_cached_plan(self, resolver_with_redis: PlanResolver) -> None:
         import json
@@ -106,6 +109,8 @@ class TestPlanResolver:
         resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
         result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key is None
+        # Entries cached before seat_missing existed must fail loose.
+        assert result.seat_missing is False
 
     async def test_cached_old_seat_returns_plan(self, resolver_with_redis: PlanResolver) -> None:
         import json
@@ -195,6 +200,26 @@ class TestPlanResolver:
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
 
         assert result.plan_key is None
+        assert result.seat_missing is True
+
+    async def test_404_seat_missing_round_trips_through_cache(self, resolver_with_redis: PlanResolver) -> None:
+        import json
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
+
+        with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
+            mock_settings.return_value.plan_cache_ttl = 300
+            await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+
+        assert resolver_with_redis._redis is not None
+        cached_payload = resolver_with_redis._redis.set.call_args.args[1]  # type: ignore[attr-defined]
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached_payload.encode())  # type: ignore[method-assign]
+        cached_result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        assert json.loads(cached_payload)["seat_missing"] is True
+        assert cached_result.seat_missing is True
 
     async def test_api_error_returns_none_plan(self, resolver: PlanResolver) -> None:
         resolver._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
@@ -205,6 +230,7 @@ class TestPlanResolver:
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
 
         assert result.plan_key is None
+        assert result.seat_missing is False
 
     async def test_empty_auth_header_skips_fetch(self, resolver: PlanResolver) -> None:
         result = await resolver.get_plan(user_id=1, auth_header="")
@@ -252,3 +278,45 @@ class TestPlanResolver:
         assert result.plan_key is None
         assert resolver_with_redis._redis is not None
         resolver_with_redis._redis.set.assert_not_called()  # type: ignore[attr-defined]
+
+
+class TestResolvePlanInfoCredentialForwarding:
+    """Credential forwarding must mirror extract_token: either header
+    authenticates, so either header must reach plan resolution — otherwise
+    x-api-key callers resolve no plan, silently disabling every
+    plan-conditioned control (free vs pro cost caps, the seat-scoped
+    credit-bucket exemption)."""
+
+    def _make_request(self, headers: dict[str, str]) -> MagicMock:
+        from starlette.datastructures import Headers
+
+        request = MagicMock()
+        request.headers = Headers(headers)
+        resolver = MagicMock()
+        resolver.get_plan = AsyncMock(
+            return_value=PlanInfo(plan_key="posthog-code-pro-200-20260301", seat_created_at=None)
+        )
+        request.app.state.plan_resolver = resolver
+        return request
+
+    @pytest.mark.asyncio
+    async def test_forwards_authorization_header(self) -> None:
+        request = self._make_request({"Authorization": "Bearer phx_test"})
+        result = await resolve_plan_info(request, user_id=1, product="posthog_code")
+        assert result.plan_key == "posthog-code-pro-200-20260301"
+        assert request.app.state.plan_resolver.get_plan.await_args.kwargs["auth_header"] == "Bearer phx_test"
+
+    @pytest.mark.asyncio
+    async def test_forwards_x_api_key_as_bearer(self) -> None:
+        request = self._make_request({"x-api-key": " phx_test "})
+        result = await resolve_plan_info(request, user_id=1, product="posthog_code")
+        assert result.plan_key == "posthog-code-pro-200-20260301"
+        assert request.app.state.plan_resolver.get_plan.await_args.kwargs["auth_header"] == "Bearer phx_test"
+
+    @pytest.mark.asyncio
+    async def test_x_api_key_takes_precedence_over_authorization(self) -> None:
+        # Matches extract_token — the token that authenticated the request is
+        # the one whose plan gets resolved.
+        request = self._make_request({"x-api-key": "phx_from_api_key", "Authorization": "Bearer phx_from_auth"})
+        await resolve_plan_info(request, user_id=1, product="posthog_code")
+        assert request.app.state.plan_resolver.get_plan.await_args.kwargs["auth_header"] == "Bearer phx_from_api_key"

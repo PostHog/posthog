@@ -15,6 +15,8 @@
 // live in the rrule itself via BYHOUR/BYMINUTE (dateutil honors those over the dtstart
 // time component).
 
+import { shortTimeZone } from 'lib/utils/timezones'
+
 export interface CadenceState {
     /** Days of week the action runs on. 0=Mon … 6=Sun. Must contain at least one; all seven = daily. */
     weekdays: number[]
@@ -95,11 +97,16 @@ export function parseRruleToCadence(rrule: string | undefined | null): CadenceSt
     return { weekdays: weekdays.length > 0 ? weekdays : [...ALL_WEEKDAYS], hour, minute }
 }
 
-export function humanizeCadence(state: CadenceState): string {
-    const time = `${pad2(state.hour)}:${pad2(state.minute)}`
+// The run time of day is a wall-clock time in `timezone` (defaults to the team's tz on the
+// backend), not the viewer's. Without the zone, "08:00" reads as ambiguous against the
+// next-run stat, which a TZLabel renders in the viewer's own timezone. Pass the action's
+// timezone so the label states which zone it means.
+export function humanizeCadence(state: CadenceState, timezone?: string | null): string {
     if (state.weekdays.length === 0) {
         return 'Pick at least one day'
     }
+    const tz = timezone ? shortTimeZone(timezone) : null
+    const time = `${pad2(state.hour)}:${pad2(state.minute)}${tz ? ` ${tz}` : ''}`
     if (state.weekdays.length === 7) {
         return `Daily at ${time}`
     }

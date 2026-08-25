@@ -1,8 +1,6 @@
 import os
 import json
-import time
 from contextlib import suppress
-from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -161,7 +159,7 @@ PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 # through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
 # connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
 # sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
-# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
+# PRODUCT_DB_<PRODUCT>_SSL_MODE); unset for local dev/test (plain Postgres).
 def _apply_product_db_ssl_options(db: str, options: dict) -> None:
     ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
     ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
@@ -318,6 +316,14 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# The cluster the native-JSON events tables are rolled out on. Named here so the deletion
+# registry can say where a storage table lives; whether a given deployment can reach it is
+# decided by probing the hosts, not by comparing this against the handle's cluster.
+CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
+# CI uses this to run the test suite against both schemas. Production reads use the instance settings.
+CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
+)
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
@@ -406,23 +412,6 @@ except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
 
-def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
-    if team_id is None:
-        return False
-    return team_id in _get_web_analytics_events_prefilter_teams(round(time.time() / 120))
-
-
-@lru_cache(maxsize=1)
-def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        value = get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
-        return value if isinstance(value, list) else []
-    except Exception:
-        return []
-
-
 # Set of teams querying the data before we switched to new limits
 API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None
 with suppress(Exception):
@@ -434,6 +423,12 @@ API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
+
+# Fleet-wide, unlike ClickHouse's per-node max_concurrent_queries_for_user, so keep it at or below
+# that user's per-node value for the bound to mean anything.
+CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES: int = get_from_env(
+    "CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES", 8, type_cast=int
+)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -494,12 +489,23 @@ if get_from_env("POSTHOG_REPLAY_VISION_REDIS_HOST", ""):
         os.getenv("POSTHOG_REPLAY_VISION_REDIS_PORT", "6379"),
     )
 
+# The LLM gateway caches per-team quota state in its own Redis (llm_gateway/services/quota_resolver.py).
+# The central-Redis default only suits single-Redis setups; cloud must point this at the gateway's instance.
+LLM_GATEWAY_REDIS_URL = os.getenv("LLM_GATEWAY_REDIS_URL", REDIS_URL)
+
 if not REDIS_URL:
     raise ImproperlyConfigured(
         "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
         "If upgrading from PostHog 1.0.10 or earlier, see here: "
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
+
+# Socket timeouts for the central Redis clients (posthog/redis.py). The connect timeout is kept
+# small so a dead node fails fast. The read timeout must comfortably exceed the largest server-side
+# blocking window on the central client, which is a 15s XREAD BLOCK (notebooks collab_stream);
+# 20s leaves margin so blocking stream reads never spuriously time out.
+REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 3.0, type_cast=float)
+REDIS_SOCKET_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_TIMEOUT_SECONDS", 20.0, type_cast=float)
 
 # Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
 # The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
@@ -542,6 +548,32 @@ INTERNAL_API_SECRET = get_from_env(
 # Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
 INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
 
+# Scoped JWT keys for the workflows timing-reschedule sweep (Django mints, the plugin server's
+# reschedule_parked route verifies) — a per-purpose secret so this caller never touches
+# INTERNAL_API_SECRET. Comma-separated, newest first: the first key signs, the plugin server
+# verifies against all. Empty outside dev/test, so the sweep fails closed until provisioned.
+# The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
+)
+
+# Scoped JWT keys for the workflows cancel routes (invocations/cancel and batch_jobs/:id/cancel).
+# Web mints, the plugin server's cancel routes verify. A dedicated key per the scoped-JWT rule
+# (one key per caller/callee surface), so cancel from the web tier never carries the reschedule
+# sweep's key, and a leak of one can't forge the other. Comma-separated, newest first: the first
+# key signs, the plugin server verifies against all. Empty outside dev/test, so the cancel routes
+# fail closed until provisioned. The dev/test value must match the plugin server's default
+# (nodejs/src/cdp/config.ts).
+WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
+# must match the plugin server's minting default so local workflows work with no setup.
+TASKS_CREATE_JWT_SECRETS = get_list(
+    get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
+)
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
@@ -554,7 +586,7 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
-# published where the gateway reads it — zero config for the agent-platform e2e
+# published where the gateway reads it — zero config for the gateway e2e
 # (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
 AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 
@@ -588,6 +620,9 @@ FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
 LLM_PROMPTS_CACHE_TTL = int(os.getenv("LLM_PROMPTS_CACHE_TTL", str(60 * 60 * 24)))  # 1 day
 LLM_PROMPTS_CACHE_MISS_TTL = int(os.getenv("LLM_PROMPTS_CACHE_MISS_TTL", str(60 * 5)))  # 5 minutes
+# Label entries resolve a mutable pointer, so they get a short TTL as a hard bound on
+# staleness when a cache fill races an invalidation (signals stay the fast path).
+LLM_PROMPTS_LABEL_CACHE_TTL = int(os.getenv("LLM_PROMPTS_LABEL_CACHE_TTL", str(60)))  # 1 minute
 
 CACHES = {
     "default": {
@@ -649,6 +684,7 @@ if TASKS_REDIS_URL:
     }
 
 QUERY_CACHE_REDIS_CLUSTER_URL: str | None = os.getenv("QUERY_CACHE_REDIS_CLUSTER_URL", None)
+ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL: str | None = os.getenv("ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL", None)
 
 if QUERY_CACHE_REDIS_CLUSTER_URL:
     CACHES["query_cache"] = {
@@ -661,13 +697,19 @@ if QUERY_CACHE_REDIS_CLUSTER_URL:
         },
         "KEY_PREFIX": "posthog",
     }
+else:
+    CACHES["query_cache"] = CACHES["default"]
 
 if TEST:
     CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    CACHES["query_cache"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
-MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", False, type_cast=str_to_bool)
+# Default on in TEST: the schema-introspection query behind materialized-column lookups otherwise runs
+# hundreds of times per suite, and the test cache backend is process-local (LocMem) with all column
+# mutations invalidating the key (see ee/clickhouse/materialized_columns/columns.py).
+MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", TEST, type_cast=str_to_bool)
 
 # Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.
 PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0, type_cast=int)

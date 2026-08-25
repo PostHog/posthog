@@ -1,6 +1,14 @@
 from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
     support_persist_knowledge_gap_activity,
 )
+from products.conversations.backend.temporal.channel_summary.coordinator import (
+    ChannelSummaryCoordinatorWorkflow,
+    summary_collect_due_channels_activity,
+)
+from products.conversations.backend.temporal.channel_summary.summarize import (
+    AccountChannelSummaryWorkflow,
+    summarize_channel_period_activity,
+)
 from products.conversations.backend.temporal.coordinator import (
     SupportReplyCoordinatorWorkflow,
     support_collect_eligible_tickets_activity,
@@ -18,10 +26,24 @@ from products.conversations.backend.temporal.pipeline import (
     support_safety_filter_activity,
     support_validate_activity,
 )
+from products.conversations.backend.temporal.zendesk_import.activities import (
+    zendesk_import_batch_activity,
+    zendesk_import_enumerate_tickets_activity,
+    zendesk_import_update_job_progress_activity,
+    zendesk_import_update_job_status_activity,
+)
+from products.conversations.backend.temporal.zendesk_import.workflows import (
+    ZendeskImportBatchWorkflow,
+    ZendeskImportCoordinatorWorkflow,
+)
 
 WORKFLOWS = [
     SupportReplyWorkflow,
     SupportReplyCoordinatorWorkflow,
+    ChannelSummaryCoordinatorWorkflow,
+    AccountChannelSummaryWorkflow,
+    ZendeskImportCoordinatorWorkflow,
+    ZendeskImportBatchWorkflow,
 ]
 
 ACTIVITIES = [
@@ -37,4 +59,10 @@ ACTIVITIES = [
     support_persist_knowledge_gap_activity,
     support_record_triage_activity,
     support_collect_eligible_tickets_activity,
+    summary_collect_due_channels_activity,
+    summarize_channel_period_activity,
+    zendesk_import_enumerate_tickets_activity,
+    zendesk_import_batch_activity,
+    zendesk_import_update_job_status_activity,
+    zendesk_import_update_job_progress_activity,
 ]

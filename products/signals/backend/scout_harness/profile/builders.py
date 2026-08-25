@@ -7,7 +7,8 @@ the tools layer dumps it into the `SignalProjectProfile.payload` jsonb column.
 
 Sections fall into three layers. **Capability / configured (sticky)** — `project_context`,
 `products_in_use`, `product_intents`, `integrations`, `external_data_sources`,
-`signal_source_configs`, `emit_eligibility` (whether findings can reach the inbox at all).
+`signal_source_configs`, `emit_eligibility` (whether findings can reach the inbox at all),
+`scout_fleet` (which other scouts are configured on this team, and whether they're live).
 Answers "what's turned on." **Aggregated recency** —
 `recent_activity` (per-scope counts off the activity log, cross-cutting orientation
 across every entity type). **Per-entity recent inventory** — `recent_dashboards`,
@@ -29,7 +30,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -58,10 +59,12 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
-from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
 from products.signals.backend.scout_harness.profile.schema import Inventory
+from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -70,7 +73,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v8"
+INVENTORY_SOURCE_VERSION = "v12"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -107,6 +110,12 @@ RECENT_ACTIVITY_LIMIT = 20
 REVIEWER_CORRECTIONS_WINDOW_DAYS = 90
 REVIEWER_CORRECTIONS_LIMIT = 20
 
+# How far back `_scout_fleet` looks for each scout's most recent emitting run. 30 days covers
+# several cycles of the default 24-hour cadence, so a scout that emits occasionally still reads
+# as active rather than silent. The roster is bounded by the team's scout count (a few dozen at
+# most), so it needs no result cap of its own.
+SCOUT_FLEET_EMITTED_LOOKBACK_DAYS = 30
+
 
 def build_inventory(team: Team) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
@@ -129,6 +138,7 @@ def build_inventory(team: Team) -> Inventory:
             "external_data_sources": _external_data_sources(team),
             "signal_source_configs": _signal_source_configs(team),
             "emit_eligibility": _emit_eligibility(team),
+            "scout_fleet": _scout_fleet(team),
             "existing_inbox_reports": _existing_inbox_reports(team),
             "recent_activity": _recent_activity(team),
             "recent_reviewer_corrections": _recent_reviewer_corrections(team),
@@ -217,12 +227,30 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     """Connected warehouse sources (Stripe, Postgres, BigQuery, etc.).
 
     Excludes soft-deleted rows. `status` and `prefix` give the agent enough context to
-    spot a stuck or recently-added source without exposing credentials.
+    spot a recently-added source without exposing credentials. `last_run_at` and
+    `latest_error` are what let a scout tell a healthy source apart from one stuck in
+    `Running`: source-level `status` conflates "sync in progress" with "never succeeded",
+    so a source that has never completed a sync reads as `Running` just like a healthy one.
+    `last_run_at` is the timestamp of the most recent completed sync job (null = never
+    synced); `latest_error` surfaces the newest schema-level error, if any. Both mirror the
+    semantics of the `external-data-sources-list` API so a scout can spot a dead source from
+    the profile alone without a follow-up list call.
     """
+    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
+    # recently updated so a scout sees the freshest failure, matching the list API's intent.
+    latest_error = Subquery(
+        ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
+        .order_by("-updated_at")
+        .values("latest_error")[:1]
+    )
     rows = (
         ExternalDataSource.objects.filter(team=team, deleted=False)
+        .annotate(
+            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJob.Status.COMPLETED)),
+            latest_error=latest_error,
+        )
         .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at")
+        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
     )
     return [
         {
@@ -230,6 +258,8 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
             "status": row["status"],
             "prefix": row["prefix"] or "",
             "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            "last_run_at": row["last_run_at"].isoformat() if row.get("last_run_at") else None,
+            "latest_error": row.get("latest_error"),
         }
         for row in rows
     ]
@@ -281,6 +311,81 @@ def _emit_eligibility(team: Team) -> dict[str, Any]:
         "source_enabled": source_enabled,
         "can_emit": can_emit,
         "remediation": remediation_for_skip(blocking_reason),
+    }
+
+
+def _scout_fleet(team: Team) -> dict[str, Any]:
+    """The other scouts configured on this team, split by whether they actually run.
+
+    The split is on dispatchability, not on `SignalScoutConfig.enabled` alone. The coordinator
+    dispatches only configs whose skill is in `live_scout_skill_names` (latest, non-deleted,
+    not held back by the `signals-scout` flag's denylist), so an enabled config whose skill was
+    deleted, superseded, or withheld never runs. Reporting it as enabled would tell a reading
+    scout that a surface has active coverage when nothing is watching it, which is the exact
+    hole the prompt's fleet-seams guidance asks scouts not to defer into. `not_running_reason`
+    keeps the two causes distinguishable without a third bucket. Held-back scouts are the one
+    case dropped rather than classified, so this payload can't disclose them (see below).
+
+    Queries: the config rows (schedule + emit posture, authoritative), the live skill names, the
+    flag payload for the holdback denylist, and one grouped pass over recent run rows for the
+    last time each scout produced output. `last_run_at` comes off the config because the
+    coordinator stamps it at dispatch, so it stays correct for a scout whose runs have aged out
+    of the run-history window.
+    """
+    emitted_since = timezone.now() - timedelta(days=SCOUT_FLEET_EMITTED_LOOKBACK_DAYS)
+    touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
+        ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
+    )
+    # `for_team` rather than a plain `objects.filter(team=...)`: both models are fail-closed
+    # team-scoped, and this builder also runs outside request context (the profile-refresh
+    # Temporal path), where the scoped manager has no ambient team to resolve.
+    last_emitted_by_skill = {
+        row["skill_name"]: row["last_emitted_at"]
+        for row in SignalScoutRun.objects.for_team(team.id)
+        .filter(created_at__gte=emitted_since)
+        .filter(Q(emitted_count__gt=0) | touched_a_report)
+        .values("skill_name")
+        .annotate(last_emitted_at=Max("created_at"))
+    }
+    # Held-back scouts are excluded outright rather than classified, matching
+    # `SignalScoutConfigViewSet.list`: this payload is readable with `signal_scout:read`, so
+    # listing a withheld row (even as not-running) would disclose the name and rollout status of
+    # an unreleased scout to the very team it is withheld from.
+    withheld = withheld_skills_for_team(team.id)
+    live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld)
+    enabled: list[dict[str, Any]] = []
+    disabled: list[dict[str, Any]] = []
+    for config in SignalScoutConfig.objects.for_team(team.id).exclude(skill_name__in=withheld).order_by("skill_name"):
+        last_emitted_at = last_emitted_by_skill.get(config.skill_name)
+        # `status` says who switched an off scout off: `turned_off` is a human's (or a seed
+        # posture's) decision, `auto_paused` is the system's own verdict. Conflating them
+        # would tell the fleet an operator chose something no operator chose. A skill that
+        # can't dispatch is the residual case where the scout was left on.
+        not_running_reason = None
+        pause_reason = None
+        if not config.enabled:
+            if config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM:
+                not_running_reason = "auto_paused"
+                pause_reason = config.pause_reason
+            else:
+                not_running_reason = "turned_off"
+        elif config.skill_name not in live_skills:
+            not_running_reason = "skill_unavailable"
+        entry = {
+            "skill_name": config.skill_name,
+            "run_interval_minutes": config.run_interval_minutes,
+            "run_cron_schedule": config.run_cron_schedule,
+            "emit": config.emit,
+            "last_run_at": config.last_run_at.isoformat() if config.last_run_at else None,
+            "last_emitted_at": last_emitted_at.isoformat() if last_emitted_at else None,
+            "not_running_reason": not_running_reason,
+            "pause_reason": pause_reason,
+        }
+        (disabled if not_running_reason else enabled).append(entry)
+    return {
+        "enabled": enabled,
+        "disabled": disabled,
+        "emitted_lookback_days": SCOUT_FLEET_EMITTED_LOOKBACK_DAYS,
     }
 
 
@@ -389,8 +494,13 @@ def _recent_feature_flags(team: Team) -> dict[str, Any]:
     answers "could a user be hitting this code path?" — which is the question worth
     distinguishing from "does this flag exist?" Sort by `updated_at`, which captures
     both creation and rollout-percentage changes.
+
+    Excludes archived flags to match the live roster: the `feature-flag-get-all`
+    (list) endpoint hides archived flags by default, so counting them here would let
+    a scout read a stale inventory that disagrees with the current roster after a flag
+    is archived. (Soft-deleted flags are already excluded via `deleted=False`.)
     """
-    qs = FeatureFlag.objects.filter(team=team, deleted=False)
+    qs = FeatureFlag.objects.filter(team=team, deleted=False, archived=False)
     total = qs.count()
     active = qs.filter(active=True).count()
     recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values("id", "key", "name", "active", "updated_at")
@@ -615,11 +725,11 @@ def _business_knowledge(team: Team) -> dict[str, Any]:
     """Business knowledge orientation — total + ready count, aggregate doc/chunk volume,
     plus the 5 most recently updated sources.
 
-    Tells the scout whether the team has a curated knowledge base worth searching via
-    `business-knowledge-documents-search`. The profile does NOT evaluate the
-    `product-business-knowledge` feature flag — it reads only authoritative tables so
-    cached profiles stay valid across flag flips; the base prompt conditions on "tool
-    present AND ready_count > 0" instead.
+    Inventory for a scout that already knows the knowledge base exists: which sources are there,
+    how much is searchable, what changed recently. The profile does NOT evaluate the
+    `product-business-knowledge` feature flag — it reads only authoritative tables so cached
+    profiles stay valid across flag flips. Whether the run is told about the base at all is the
+    prompt's call, gated per run on flag + a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
     """
     qs = KnowledgeSource.objects.for_team(team.id)
     total = qs.count()
@@ -660,8 +770,8 @@ def _recent_activity(team: Team) -> dict[str, Any]:
     Cuts across every entity type the activity log knows about — surveys, feature flags,
     experiments, dashboards, insights, cohorts, notebooks, actions, etc. — so the agent
     gets one place to look for "where has this team been working lately?" without per-
-    entity readers. The MCP tools `activity-log-list` / `advanced-activity-logs-list`
-    do the drill-down once the agent decides a scope is worth investigating.
+    entity readers. The MCP tool `advanced-activity-logs-list`
+    does the drill-down once the agent decides a scope is worth investigating.
 
     `edits` is total log entries in the window (write velocity). `users` is distinct
     user count, so a single power-user looping is distinguishable from broad team
@@ -743,17 +853,27 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
 def _top_events(team: Team) -> list[dict[str, Any]] | None:
     """Top events by count over the lookback window, with reach + burst signals.
 
-    For each of the top 50 events in the last 7 days:
-      - `count` — total occurrences in the window
+    Every count here is over a rolling `TOP_EVENTS_LOOKBACK_DAYS`-day window, *not*
+    lifetime. Each row carries `window_days` so that's un-missable: a capture gap can
+    collapse a real, high-volume project's in-window counts to near-zero, and without
+    the window on the payload a scout keying a "no data worth watching" close-out on
+    `top_events` thinness can't tell a project that just went dark from one that never
+    had traffic. When the counts look thin, rule out a capture gap (compare to a
+    trailing baseline via a direct `execute-sql`) before concluding low-volume.
+
+    For each of the top 50 events in the window:
+      - `window_days` — the rolling window every count/timestamp below is measured over.
+      - `count` — total occurrences in the window (windowed, not lifetime).
       - `distinct_users` — `uniq(person_id)`; reach. Distinguishes a high-count event
         from one power user vs from many users.
-      - `recent_24h_count` — count in the last 24h. Compare to `count / 7` to spot
-        bursts: ratio well above 1/7 means the event is concentrated in the last day.
+      - `recent_24h_count` — count in the last 24h. Compare to `count / window_days` to
+        spot bursts: a ratio well above `1 / window_days` means the event is
+        concentrated in the last day.
       - `recent_24h_users` — `uniq(person_id)` over the last 24h. A burst across many
         users is qualitatively different from one user looping.
-      - `first_seen` / `last_seen` — both *within the window*. Recent `first_seen`
-        suggests a new event type or fresh burst; near-window-edge `first_seen` just
-        means it's been around at least that long (the window can't tell you the
+      - `first_seen_in_window` / `last_seen_in_window` — both *within the window*. Recent
+        `first_seen_in_window` suggests a new event type or fresh burst; near-window-edge
+        just means it's been around at least that long (the window can't tell you the
         true first-ever timestamp).
 
     Returns `None` rather than `[]` if the query fails or times out, so the agent can
@@ -796,13 +916,14 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
     rows = response.results or []
     return [
         {
+            "window_days": TOP_EVENTS_LOOKBACK_DAYS,
             "event": row[0],
             "count": int(row[1]),
             "distinct_users": int(row[2]),
             "recent_24h_count": int(row[3]),
             "recent_24h_users": int(row[4]),
-            "first_seen": row[5].isoformat() if row[5] else None,
-            "last_seen": row[6].isoformat() if row[6] else None,
+            "first_seen_in_window": row[5].isoformat() if row[5] else None,
+            "last_seen_in_window": row[6].isoformat() if row[6] else None,
         }
         for row in rows
     ]

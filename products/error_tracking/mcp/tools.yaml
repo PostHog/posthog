@@ -146,17 +146,26 @@ tools:
     error-tracking-external-references-destroy:
         operation: error_tracking_external_references_destroy
         enabled: false
+    error-tracking-external-references-link-issue-create:
+        operation: error_tracking_external_references_link_issue_create
+        enabled: false
     error-tracking-external-references-list:
         operation: error_tracking_external_references_list
         enabled: false
     error-tracking-external-references-retrieve:
         operation: error_tracking_external_references_retrieve
         enabled: false
+    error-tracking-external-references-search-issues-retrieve:
+        operation: error_tracking_external_references_search_issues_retrieve
+        enabled: false
     error-tracking-fingerprints-destroy:
         operation: error_tracking_fingerprints_destroy
         enabled: false
     error-tracking-fingerprints-list:
         operation: error_tracking_fingerprints_list
+        enabled: false
+    error-tracking-fingerprints-resolve-retrieve:
+        operation: error_tracking_fingerprints_resolve_retrieve
         enabled: false
     error-tracking-fingerprints-retrieve:
         operation: error_tracking_fingerprints_retrieve
@@ -401,6 +410,27 @@ tools:
             `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped
             at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with
             the user before reducing it.
+    error-tracking-severity-rules-create:
+        operation: error_tracking_severity_rules_create
+        enabled: false
+    error-tracking-severity-rules-destroy:
+        operation: error_tracking_severity_rules_destroy
+        enabled: false
+    error-tracking-severity-rules-list:
+        operation: error_tracking_severity_rules_list
+        enabled: false
+    error-tracking-severity-rules-partial-update:
+        operation: error_tracking_severity_rules_partial_update
+        enabled: false
+    error-tracking-severity-rules-reorder-partial-update:
+        operation: error_tracking_severity_rules_reorder_partial_update
+        enabled: false
+    error-tracking-severity-rules-retrieve:
+        operation: error_tracking_severity_rules_retrieve
+        enabled: false
+    error-tracking-severity-rules-update:
+        operation: error_tracking_severity_rules_update
+        enabled: false
     error-tracking-spike-detection-config-list:
         operation: error_tracking_spike_detection_config_list
         enabled: false
@@ -583,7 +613,7 @@ tools:
         enrich_url: '{params.issueId}'
         title: Query error tracking issue events
         description_file: ./prompts/query-error-tracking-issue-events.md
-        system_prompt_hint: Error event samples, stack traces, and session IDs (error-tracking category)
+        system_prompt_hint: Error event samples, stack traces, code variables, and session IDs (error-tracking category)
         ui_app: error-details
     query-error-tracking-issues-list:
         operation: error_tracking_query_issues_list_create
@@ -606,6 +636,7 @@ tools:
                 - name
                 - description
                 - status
+                - severity
                 - first_seen
                 - last_seen
                 - library

@@ -1,10 +1,12 @@
 """Resolves which provider, model and key an eval or tagger run should use.
 
 `model_configuration` is optional on both `Evaluation` and `Tagger`. A null value is not
-"unconfigured" — it means "defer to the team's active key, falling back to PostHog trial
-credits". `model_spec()` turns the (possibly null) serialized config into a `ModelSpec`
-whose `resolve()` produces a concrete `ResolvedModel`, so judge and tagger share one
-definition of what null means instead of each re-deriving it.
+"unconfigured" — it means "defer to the team's active key". `model_spec()` turns the (possibly
+null) serialized config into a `ModelSpec` whose `resolve()` produces a concrete `ResolvedModel`,
+so judge and tagger share one definition of what null means instead of each re-deriving it.
+
+Evaluations and taggers require the team's own provider key: a keyless resolution (no pinned key
+and no team active key) raises `provider_key_required`.
 
 Lives in the temporal layer because `resolve()` raises Temporal `ApplicationError`s whose
 `error_type` details the workflows pattern-match on (disable, key-state updates, emails).
@@ -17,14 +19,11 @@ from django.utils import timezone
 
 from temporalio.exceptions import ApplicationError
 
-from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, TRIAL_MODEL_IDS
+from posthog.temporal.common.utils import retry_on_db_connection_drop
+
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-
-# Provider PostHog funds when a team brought no key of its own. Its default model must stay
-# on the trial allowlist so the trial-quota path can never bill a model PostHog isn't paying for.
-TRIAL_DEFAULT_PROVIDER = "openai"
-assert DEFAULT_MODEL_BY_PROVIDER[TRIAL_DEFAULT_PROVIDER] in TRIAL_MODEL_IDS
 
 
 @dataclass(frozen=True)
@@ -54,27 +53,20 @@ class ExplicitModelSpec:
         if self.provider_key_id:
             return ResolvedModel(self.provider, self.model, _resolve_key_by_id(team_id, self.provider_key_id))
 
-        if self.model not in TRIAL_MODEL_IDS:
-            raise ApplicationError(
-                f"Model '{self.model}' is not available on the trial plan. "
-                "Please add your own API key to use this model.",
-                {"error_type": "model_not_allowed", "model": self.model},
-                non_retryable=True,
-            )
-        _assert_trial_quota(_eval_config(team_id))
-        return ResolvedModel(self.provider, self.model, None)
+        fallback = active_key_fallback(_eval_config(team_id), self.provider)
+        if fallback is None:
+            raise _provider_key_required()
+        return ResolvedModel(self.provider, self.model, _ensure_usable(fallback))
 
 
 @dataclass(frozen=True)
 class DefaultModelSpec:
-    """Null config: defer to the team's active BYOK key, else PostHog trial credits."""
+    """Null config: defer to the team's active BYOK key."""
 
     def resolve(self, team_id: int) -> ResolvedModel:
-        config = _eval_config(team_id)
-        key = config.active_provider_key
+        key = _active_key(_eval_config(team_id))
         if key is None:
-            _assert_trial_quota(config)
-            return ResolvedModel(TRIAL_DEFAULT_PROVIDER, DEFAULT_MODEL_BY_PROVIDER[TRIAL_DEFAULT_PROVIDER], None)
+            raise _provider_key_required()
 
         model = DEFAULT_MODEL_BY_PROVIDER.get(key.provider)
         if model is None:
@@ -96,23 +88,40 @@ def model_spec(model_configuration: dict[str, Any] | None) -> ModelSpec:
     return DefaultModelSpec()
 
 
+def active_key_fallback(config: EvaluationConfig, provider: str) -> LLMProviderKey | None:
+    """The BYOK key a config with no pinned key resolves to, or None when there is no usable active key."""
+    key = _active_key(config)
+    return key if key is not None and key.provider == provider else None
+
+
 def _eval_config(team_id: int) -> EvaluationConfig:
-    config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-    return config
+    def _get_or_create() -> EvaluationConfig:
+        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
+        return config
+
+    return retry_on_db_connection_drop(_get_or_create)
 
 
-def _assert_trial_quota(config: EvaluationConfig) -> None:
-    if config.trial_evals_used >= config.trial_eval_limit:
-        raise ApplicationError(
-            f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-            {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
-            non_retryable=True,
-        )
+def _active_key(config: EvaluationConfig) -> LLMProviderKey | None:
+    """The team's active BYOK key, or None when the config has none.
+
+    Dereferencing the FK is a second query, and Django caches the relation only once it resolves,
+    so a retry after a failed dereference genuinely re-reads instead of replaying stale state.
+    """
+    return retry_on_db_connection_drop(lambda: config.active_provider_key)
+
+
+def _provider_key_required() -> ApplicationError:
+    return ApplicationError(
+        "Add a provider API key to run this evaluation.",
+        {"error_type": "provider_key_required"},
+        non_retryable=True,
+    )
 
 
 def _resolve_key_by_id(team_id: int, key_id: str) -> LLMProviderKey:
     try:
-        key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
+        key = retry_on_db_connection_drop(lambda: LLMProviderKey.objects.get(id=key_id, team_id=team_id))
     except LLMProviderKey.DoesNotExist:
         raise ApplicationError(
             "Provider key not found.",
@@ -122,13 +131,39 @@ def _resolve_key_by_id(team_id: int, key_id: str) -> LLMProviderKey:
     return _ensure_usable(key)
 
 
+# A key that was never validated is not the same thing as one the provider rejected: the state
+# decides whether the user should validate, re-validate, or replace it. Annotated as `dict[str, str]`
+# because the enum members would otherwise infer `State` keys and the lookup on the stored string
+# would not typecheck.
+_UNUSABLE_KEY_MESSAGES: dict[str, str] = {
+    LLMProviderKey.State.UNKNOWN: (
+        "This API key has not been validated yet. Validate it in AI observability settings, "
+        "then re-enable this evaluation."
+    ),
+    LLMProviderKey.State.INVALID: (
+        "This API key was rejected by the provider. Re-validate it, or replace it, then re-enable this evaluation."
+    ),
+    LLMProviderKey.State.ERROR: (
+        "This API key last failed with a provider error. Check its status in AI observability "
+        "settings, then re-validate it."
+    ),
+}
+
+
 def _ensure_usable(key: LLMProviderKey) -> LLMProviderKey:
     if key.state != LLMProviderKey.State.OK:
+        # A state added later still has to produce a message rather than a KeyError.
+        message = _UNUSABLE_KEY_MESSAGES.get(
+            key.state,
+            "This API key cannot be used. Re-validate it, or replace it, then re-enable this evaluation.",
+        )
         raise ApplicationError(
-            f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
+            message,
             {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
             non_retryable=True,
         )
+    # Retrying this write is safe because the timestamp is fixed before it, so a second attempt
+    # persists the same value rather than drifting it forward.
     key.last_used_at = timezone.now()
-    key.save(update_fields=["last_used_at"])
+    retry_on_db_connection_drop(lambda: key.save(update_fields=["last_used_at"]))
     return key

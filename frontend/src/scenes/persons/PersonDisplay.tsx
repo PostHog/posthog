@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import React, { useMemo, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
@@ -33,6 +34,7 @@ export interface PersonDisplayProps {
     isCentered?: boolean
     children?: React.ReactChild
     withCopyButton?: boolean
+    withCopyEmailButton?: boolean
     withComposeTicketButton?: boolean
     placement?: 'top' | 'bottom' | 'left' | 'right'
     inline?: boolean
@@ -86,6 +88,7 @@ export function PersonDisplay({
     href = asLink(person),
     children,
     withCopyButton,
+    withCopyEmailButton,
     withComposeTicketButton,
     placement,
     inline,
@@ -123,6 +126,25 @@ export function PersonDisplay({
                 />
             )}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
+            {withCopyEmailButton && personEmail && (
+                <span
+                    className="ml-1 shrink-0"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        setVisible(false)
+                    }}
+                >
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        icon={<IconCopy />}
+                        tooltip="Copy email"
+                        onClick={() => void copyToClipboard(personEmail, 'email')}
+                        data-attr="copy-person-email-button"
+                    />
+                </span>
+            )}
             {showComposeButton && personDistinctId && (
                 <span
                     className="ml-1 shrink-0"

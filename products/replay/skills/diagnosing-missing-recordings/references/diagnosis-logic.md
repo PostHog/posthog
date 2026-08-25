@@ -3,6 +3,11 @@
 This describes the priority-ordered logic for interpreting diagnostic signals.
 Evaluate conditions top-to-bottom - the first match is the verdict.
 
+## Contents
+
+- Decision tree
+- Verdict descriptions
+
 ## Decision tree
 
 ```text

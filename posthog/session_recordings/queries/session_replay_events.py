@@ -1,5 +1,6 @@
 import re
 import json
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -10,9 +11,10 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
-from posthog.session_recordings.models.metadata import RecordingMetadata
+from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, RecordingMetadata
 
 DEFAULT_EVENT_FIELDS = [
     "event",
@@ -32,6 +34,34 @@ _UUIDV7_SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]
 SESSION_ID_CLOCK_SKEW_SLACK = timedelta(days=3)
 
 _EARLIEST_PLAUSIBLE_SESSION_START = datetime(2020, 1, 1, tzinfo=pytz.UTC)
+
+
+@dataclass(frozen=True)
+class SessionEventsPage:
+    """One page of a recording's analytics events."""
+
+    columns: list | None
+    rows: list | None
+    has_more: bool
+
+
+@dataclass(frozen=True)
+class SessionTimestamps:
+    """One session's recording time bounds within the retention period."""
+
+    session_id: str
+    min_timestamp: datetime
+    max_timestamp: datetime
+    expiry_time: datetime
+
+
+@dataclass(frozen=True)
+class SessionsWithTimestamps:
+    """Sessions present in both replay and events tables, with the whole batch's time bounds."""
+
+    session_ids: set[str]
+    min_timestamp: Optional[datetime]
+    max_timestamp: Optional[datetime]
 
 
 def uuidv7_session_lower_bound(session_id: str, now: datetime | None = None) -> datetime | None:
@@ -193,8 +223,7 @@ class SessionReplayEvents:
 
         # Query ClickHouse for uncached session IDs
         found_sessions = self._find_with_timestamps(uncached_session_ids, team)
-        # Build a mapping from session_id to expiry_time (tuple is: session_id, min_ts, max_ts, expiry_time)
-        session_expiry_map = {session_id: expiry_time for session_id, _, _, expiry_time in found_sessions}
+        session_expiry_map = {found.session_id: found.expiry_time for found in found_sessions}
 
         now = datetime.now(pytz.timezone("UTC"))
 
@@ -255,43 +284,41 @@ class SessionReplayEvents:
         )
         return bool(result and result[0][0] > 0)
 
-    def sessions_found_with_timestamps(
-        self, session_ids: list[str], team: Team
-    ) -> tuple[set[str], Optional[datetime], Optional[datetime]]:
+    def sessions_found_with_timestamps(self, session_ids: list[str], team: Team) -> SessionsWithTimestamps:
         """
         Check if sessions exist in both session_replay_events and events tables.
-        Returns a tuple of (sessions_found, min_timestamp, max_timestamp).
         Timestamps are for the entire list of sessions, not per session.
         Sessions must exist in both tables to be included in the result.
         """
         if not session_ids:
-            return set(), None, None
+            return SessionsWithTimestamps(session_ids=set(), min_timestamp=None, max_timestamp=None)
         # Check sessions within TTL in session_replay_events
         found_sessions = self._find_with_timestamps(session_ids, team)
         if not found_sessions:
-            return set(), None, None
+            return SessionsWithTimestamps(session_ids=set(), min_timestamp=None, max_timestamp=None)
         # Calculate min/max timestamps for the entire list of sessions
-        replay_session_ids = [session_id for session_id, _, _, _ in found_sessions]
-        min_timestamp = min(ts for _, ts, _, _ in found_sessions)
-        max_timestamp = max(ts for _, _, ts, _ in found_sessions)
+        replay_session_ids = [found.session_id for found in found_sessions]
+        min_timestamp = min(found.min_timestamp for found in found_sessions)
+        max_timestamp = max(found.max_timestamp for found in found_sessions)
         # Check which sessions also have events in the events table
         sessions_with_events = self._find_sessions_in_events(replay_session_ids, min_timestamp, max_timestamp, team)
         if not sessions_with_events:
-            return set(), None, None
+            return SessionsWithTimestamps(session_ids=set(), min_timestamp=None, max_timestamp=None)
         # Filter to only sessions that exist in both tables
-        session_ids_found = {session_id for session_id, _, _, _ in found_sessions if session_id in sessions_with_events}
+        session_ids_found = {found.session_id for found in found_sessions if found.session_id in sessions_with_events}
         if not session_ids_found:
-            return set(), None, None
+            return SessionsWithTimestamps(session_ids=set(), min_timestamp=None, max_timestamp=None)
         # Recalculate timestamps for filtered sessions only
-        min_timestamp = min(ts for session_id, ts, _, _ in found_sessions if session_id in session_ids_found)
-        max_timestamp = max(ts for session_id, _, ts, _ in found_sessions if session_id in session_ids_found)
-        return session_ids_found, min_timestamp, max_timestamp
+        min_timestamp = min(found.min_timestamp for found in found_sessions if found.session_id in session_ids_found)
+        max_timestamp = max(found.max_timestamp for found in found_sessions if found.session_id in session_ids_found)
+        return SessionsWithTimestamps(
+            session_ids=session_ids_found, min_timestamp=min_timestamp, max_timestamp=max_timestamp
+        )
 
     @staticmethod
-    def _find_with_timestamps(session_ids: list[str], team: Team) -> list[tuple[str, datetime, datetime, datetime]]:
+    def _find_with_timestamps(session_ids: list[str], team: Team) -> list[SessionTimestamps]:
         """
         Check which session IDs exist in session_replay_events within retention period.
-        Returns a list of tuples of (session_id, min_timestamp, max_timestamp, expiry_time).
         Timestamps are per session, not for the entire list of sessions.
         """
         now = datetime.now(pytz.timezone("UTC"))
@@ -306,7 +333,7 @@ class SessionReplayEvents:
             # The bound is a perf optimization, not a correctness gate: ids the
             # bounded scan missed (clock skewed past the slack) get one unbounded
             # retry before being reported as not-found.
-            found_ids = {session_id for session_id, _, _, _ in sessions_found}
+            found_ids = {found.session_id for found in sessions_found}
             missing = [session_id for session_id in session_ids if session_id not in found_ids]
             if missing:
                 sessions_found += SessionReplayEvents._find_with_timestamps_from(missing, team, now, None)
@@ -315,7 +342,7 @@ class SessionReplayEvents:
     @staticmethod
     def _find_with_timestamps_from(
         session_ids: list[str], team: Team, now: datetime, date_from: Optional[datetime]
-    ) -> list[tuple[str, datetime, datetime, datetime]]:
+    ) -> list[SessionTimestamps]:
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         optional_lower_bound_clause = "AND min_first_timestamp >= {date_from}" if date_from else ""
@@ -349,10 +376,11 @@ class SessionReplayEvents:
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return []
-        sessions_found: list[tuple[str, datetime, datetime, datetime]] = [
-            (row[0], row[1], row[2], row[4]) for row in result.results
+        # Query columns: session_id, min_timestamp, max_timestamp, retention_period_days, expiry_time.
+        return [
+            SessionTimestamps(session_id=row[0], min_timestamp=row[1], max_timestamp=row[2], expiry_time=row[4])
+            for row in result.results
         ]
-        return sessions_found
 
     @staticmethod
     def _find_sessions_in_events(
@@ -415,7 +443,8 @@ class SessionReplayEvents:
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
-                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
+                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
+                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ongoing_window_minutes} MINUTE as ongoing
             FROM
                 session_replay_events
             PREWHERE
@@ -435,6 +464,7 @@ class SessionReplayEvents:
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
             ),
             optional_format_clause=(f"FORMAT {format}" if format else ""),
+            ongoing_window_minutes=ONGOING_SESSION_WINDOW_MINUTES,
         )
         return query
 
@@ -466,6 +496,7 @@ class SessionReplayEvents:
             retention_period_days=replay[18],
             expiry_time=replay[19],
             recording_ttl=replay[20],
+            ongoing=bool(replay[21]),
         )
 
     def get_metadata(
@@ -473,18 +504,19 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         recording_start_time: Optional[datetime] = None,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ) -> Optional[RecordingMetadata]:
         if recording_start_time is not None:
-            return self._get_metadata_from(session_id, team, recording_start_time)
+            return self._get_metadata_from(session_id, team, recording_start_time, ch_user=ch_user)
 
         # Most callers don't know the recording's start time (it is only persisted
         # for pinned recordings); derive a lower bound from the session id instead.
         # Unlike a real start time it carries clock-skew slack, so on a miss fall
         # back to the unbounded scan rather than reporting not-found.
         derived_lower_bound = uuidv7_session_lower_bound(session_id)
-        metadata = self._get_metadata_from(session_id, team, derived_lower_bound)
+        metadata = self._get_metadata_from(session_id, team, derived_lower_bound, ch_user=ch_user)
         if metadata is None and derived_lower_bound is not None:
-            metadata = self._get_metadata_from(session_id, team, None)
+            metadata = self._get_metadata_from(session_id, team, None, ch_user=ch_user)
         return metadata
 
     def _get_metadata_from(
@@ -492,6 +524,7 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         lower_bound: Optional[datetime],
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query(lower_bound)
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
@@ -503,6 +536,7 @@ class SessionReplayEvents:
                 "recording_start_time": lower_bound,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
+            ch_user=ch_user,
         )
         recording_metadata = self.build_recording_metadata(session_id, replay_response)
         return recording_metadata
@@ -551,7 +585,8 @@ class SessionReplayEvents:
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
-                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
+                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
+                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ONGOING_SESSION_WINDOW_MINUTES} MINUTE as ongoing
             FROM
                 session_replay_events
             PREWHERE
@@ -647,8 +682,9 @@ class SessionReplayEvents:
         extra_fields: list[str] | None = None,
         limit: int | None = None,
         page: int = 0,
-    ) -> tuple[list | None, list | None, bool]:
-        """Return `(columns, rows, has_more)`. When `limit` is set, fetches one extra row internally to detect whether more pages exist."""
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    ) -> SessionEventsPage:
+        """Return one page of events. When `limit` is set, fetches one extra row internally to detect whether more pages exist."""
         from posthog.schema import HogQLQueryResponse
 
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -665,11 +701,12 @@ class SessionReplayEvents:
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
+            ch_user=ch_user,
         ).calculate()
         columns, rows = result.columns, result.results
         if limit is not None and limit > 0 and rows is not None and len(rows) > limit:
-            return columns, rows[:limit], True
-        return columns, rows, False
+            return SessionEventsPage(columns=columns, rows=rows[:limit], has_more=True)
+        return SessionEventsPage(columns=columns, rows=rows, has_more=False)
 
     @staticmethod
     def get_sessions_from_distinct_id_query(

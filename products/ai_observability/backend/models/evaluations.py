@@ -1,6 +1,7 @@
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -31,8 +32,7 @@ class EvaluationStatus(models.TextChoices):
 
 
 class EvaluationStatusReason(models.TextChoices):
-    TRIAL_LIMIT_REACHED = "trial_limit_reached", "Trial evaluation limit reached"
-    MODEL_NOT_ALLOWED = "model_not_allowed", "Model not available on the trial plan"
+    PROVIDER_KEY_REQUIRED = "provider_key_required", "No provider API key configured"
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
     NO_DEFAULT_MODEL = "no_default_model", "No default model available for the selected provider"
     PROVIDER_KEY_INVALID = "provider_key_invalid", "Provider API key is invalid"
@@ -43,6 +43,11 @@ class EvaluationStatusReason(models.TextChoices):
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
+def evaluation_status_reason_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(EvaluationStatusReason.choices)
+
+
 class EvaluationQuerySet(models.QuerySet):
     def using_provider_keys(self) -> "EvaluationQuerySet":
         return self.filter(evaluation_type=EvaluationType.LLM_JUDGE)
@@ -51,6 +56,7 @@ class EvaluationQuerySet(models.QuerySet):
 class EvaluationTarget(models.TextChoices):
     GENERATION = "generation", "Generation"
     TRACE = "trace", "Trace"
+    SESSION = "session", "Session"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
@@ -61,6 +67,10 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["team", "enabled"]),
             models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
+            models.Index(
+                fields=["team", "directory", "-created_at", "id"],
+                name="llma_eval_team_dir_created_idx",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -76,12 +86,21 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
+    directory = models.ForeignKey(
+        "ai_observability.EvaluationDirectory",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="evaluations",
+        db_index=False,
+        db_constraint=False,
+    )
 
     # Lifecycle state. `status` is authoritative; `enabled` is a boolean projection kept in sync by save() for
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.
     enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
-    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
+    status_reason = models.CharField(max_length=50, choices=evaluation_status_reason_choices, null=True, blank=True)
     status_reason_detail = models.TextField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType)
@@ -268,6 +287,10 @@ def evaluation_saved(sender, instance, created, **kwargs):
 
     if instance.deleted:
         EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False).update(deleted=True, enabled=False)
+    elif instance.status == EvaluationStatus.PAUSED:
+        # A user pause should persist on the report too. Error states are only filtered from delivery
+        # temporarily so the report can resume when the evaluation recovers.
+        EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False, enabled=True).update(enabled=False)
 
     # Defer publishing to workers until the surrounding transaction commits — otherwise
     # workers can fire before the row is visible, especially now that perform_create wraps

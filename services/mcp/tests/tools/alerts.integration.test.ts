@@ -95,7 +95,20 @@ describe('Alerts', { concurrent: false }, () => {
             expect(typeof data.count).toBe('number')
             expect(Array.isArray(data.results)).toBe(true)
             expect(typeof data._posthogUrl).toBe('string')
-            expect(data._posthogUrl).toContain('/insights')
+            expect(data._posthogUrl).toContain('/alerts')
+        })
+
+        it('should return a per-alert _posthogUrl on each result', async () => {
+            const created = await createTool.handler(context, makeAlertParams())
+            const createdAlert = parseToolResponse(created)
+            createdAlertIds.push(createdAlert.id)
+
+            const result = await listTool.handler(context, { search: createdAlert.name })
+            const data = parseToolResponse(result)
+
+            const found = data.results.find((a: { id: string }) => a.id === createdAlert.id)
+            expect(found).toBeTruthy()
+            expect(found._posthogUrl).toContain(`/alerts?alert_type=insights&alert_id=${createdAlert.id}`)
         })
 
         it('should respect the limit parameter', async () => {
@@ -190,6 +203,7 @@ describe('Alerts', { concurrent: false }, () => {
             expect(alert.id).toBe(createdAlert.id)
             expect(alert.name).toBe(createdAlert.name)
             expect(alert.threshold).toBeTruthy()
+            expect(alert._posthogUrl).toContain(`/alerts?alert_type=insights&alert_id=${createdAlert.id}`)
         })
 
         it('should throw for a non-existent UUID', async () => {

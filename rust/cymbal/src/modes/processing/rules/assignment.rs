@@ -12,7 +12,7 @@ use crate::metric_consts::{
 };
 
 use crate::teams::TeamManager;
-use crate::{error::UnhandledError, issue_resolution::Issue, types::OutputErrProps};
+use crate::{error::UnhandledError, issue_resolution::Issue, types::ProcessedExceptionProperties};
 
 #[derive(Debug, Clone)]
 pub struct NewAssignment {
@@ -218,7 +218,7 @@ pub async fn try_assignment_rules(
     con: &mut PgConnection,
     team_manager: &TeamManager,
     issue: Issue,
-    exception_properties: &OutputErrProps,
+    exception_properties: &ProcessedExceptionProperties,
 ) -> Result<Option<NewAssignment>, UnhandledError> {
     let timing = common_metrics::timing_guard(ASSIGNMENT_RULES_PROCESSING_TIME, &[]);
 

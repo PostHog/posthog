@@ -1,0 +1,18 @@
+{{- if and .Values.persistence.enabled (not (gt (int .Values.shards) 1)) }}
+# Sharded installs get per-pod queues via the StatefulSet's claim templates;
+# this standalone claim serves the single-instance Deployment.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: {{ include "posthog-metrics-agent.fullname" . }}-queue
+    labels:
+        {{- include "posthog-metrics-agent.labels" . | nindent 8 }}
+spec:
+    accessModes: [ReadWriteOnce]
+    resources:
+        requests:
+            storage: {{ .Values.persistence.size }}
+    {{- with .Values.persistence.storageClass }}
+    storageClassName: {{ . }}
+    {{- end }}
+{{- end }}

@@ -1,6 +1,12 @@
-export const PAGE_SIZE = 100
+export const PAGE_SIZE = 25
 export const NODE_WIDTH = 180
 export const NODE_HEIGHT = 120
+
+// Above this node count, ELK's NETWORK_SIMPLEX node placement (which scales
+// super-linearly and runs on the main thread) becomes the dominant cost of
+// showing the graph. We switch to the much cheaper BRANDES_KOEPF placement for
+// large graphs; smaller graphs keep NETWORK_SIMPLEX for its tighter layout.
+export const LARGE_GRAPH_NODE_THRESHOLD = 150
 
 export const TOP_HANDLE_POSITION = {
     x: NODE_WIDTH / 2,

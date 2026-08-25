@@ -3,7 +3,7 @@ import { api } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
 
-import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
+import { processAllSnapshots, SnapshotSourceType, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
 import { dayjs } from 'lib/dayjs'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -14,12 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
-import {
-    RecordingSnapshot,
-    SessionRecordingSnapshotSource,
-    SessionRecordingSnapshotSourceResponse,
-    SnapshotSourceType,
-} from '~/types'
+import { RecordingSnapshot, SessionRecordingSnapshotSource, SessionRecordingSnapshotSourceResponse } from '~/types'
 
 import { sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'

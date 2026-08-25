@@ -2,6 +2,15 @@ import traceback
 
 from temporalio.exceptions import ApplicationError, FailureError
 
+
+class NonReportableError(Exception):
+    """Marker for an expected, handled condition that must still fail the activity but should not
+    be reported to error tracking. The activity interceptor re-raises these without capturing them,
+    the same way it skips cancellations and egress backpressure. Subclass it for a failure that is
+    always caused by the customer's config or the upstream API (never a PostHog defect) and that
+    retrying can't resolve, so a tracked exception would only be noise."""
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000
@@ -22,6 +31,14 @@ def unwrap_temporal_cause(exc: BaseException) -> ApplicationError | None:
     while isinstance(current, FailureError) and not isinstance(current, ApplicationError):
         current = current.cause
     return current if isinstance(current, ApplicationError) else None
+
+
+def resolve_failure_type(exc: BaseException) -> str:
+    """Temporal rebuilds a remote failure as a bare ApplicationError with the real class name on `.type`."""
+    failure_type = getattr(exc, "type", None)
+    if isinstance(failure_type, str) and failure_type:
+        return failure_type
+    return type(exc).__name__
 
 
 def resolve_exception_class(exc: BaseException) -> str:

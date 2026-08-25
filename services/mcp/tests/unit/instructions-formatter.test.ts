@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
-import type { QueryToolInfo } from '@/lib/instructions'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 
 const realisticGroupTypes: GroupType[] = [
@@ -34,7 +35,6 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
     renderUiEnabled: true,
 }
 
@@ -82,15 +82,12 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('{metadata}')
         })
 
-        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
+        it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
-            const withFeedback = formatter.buildToolsInstructions(fullCtx)
-            expect(withFeedback).toContain('### Sharing feedback on PostHog')
-
-            for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
-                const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
-                expect(result).not.toContain('### Sharing feedback on PostHog')
-            }
+            expect(formatter.buildToolsInstructions(fullCtx)).toContain('### Sharing feedback on PostHog')
+            expect(formatter.buildToolsInstructions({ guidelines: 'rules' })).toContain(
+                '### Sharing feedback on PostHog'
+            )
         })
     })
 
@@ -101,17 +98,21 @@ describe('InstructionsFormatter', () => {
             // query-* tools surface as the single `query` domain, not a separate catalog line
             expect(result).toContain('dashboard|execute-sql|feature-flag|query')
             expect(result).not.toContain('query-*:')
-            expect(result).toContain('Defined group types: organization')
-            expect(result).toContain("The user's name is Jane Doe")
+            // Env context is not here — it rides the exec command description, which has no
+            // truncation cap, leaving this payload's whole budget to the domain index.
+            expect(result).not.toContain('Defined group types: organization')
+            expect(result).not.toContain("The user's name is Jane Doe")
             expect(result).not.toMatch(
                 /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
             )
         })
 
-        // Claude Code caps MCP `instructions` at 2048 chars — stay under the budget with
-        // a realistic-ish tool count so this asserts something meaningful. 60 domains +
-        // 12 query tools ≈ today's v2 deployment.
-        it('stays under the 2048-character budget at realistic tool counts', () => {
+        // Synthetic fixture: 60 uniform `domain-N-get` names collapse to short domains and
+        // cost ~1/3 of what the live catalog does, which is how a 2,923-char payload shipped
+        // past a passing 2048 assertion. Kept for the placeholder wiring it exercises; the
+        // assertion that actually guards the cap runs the real catalog, in
+        // `instructions-formatter-snapshot.test.ts`.
+        it('stays under the character budget at synthetic tool counts', () => {
             const manyTools = Array.from({ length: 60 }, (_, i) => ({
                 name: `domain-${i}-get`,
                 category: `Category ${i % 6}`,
@@ -129,7 +130,21 @@ describe('InstructionsFormatter', () => {
                 tools: manyTools,
                 queryTools: manyQueryTools,
             })
-            expect(result.length).toBeLessThanOrEqual(2048)
+            expect(result.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+        })
+
+        // The domain index names PostHog resources, not callable tools, so without this
+        // line the payload never states what can actually be called. `render-ui` is only
+        // mounted on MCP Apps hosts — naming it elsewhere advertises a tool that isn't there.
+        it('names the callable tools, gating render-ui on the host mounting it', () => {
+            const formatter = new InstructionsFormatter()
+            const withUi = formatter.buildExecInstructions({ ...fullCtx, renderUiEnabled: true })
+            const withoutUi = formatter.buildExecInstructions({ ...fullCtx, renderUiEnabled: false })
+
+            expect(withUi).toContain('exec – run any PostHog command')
+            expect(withUi).toContain('render-ui – show a tool result as an interactive app.')
+            expect(withoutUi).toContain('exec – run any PostHog command')
+            expect(withoutUi).not.toContain('render-ui')
         })
 
         it('does not bleed the full command reference into the compact instructions', () => {
@@ -146,7 +161,7 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription()
             expect(result).toContain('Using the `posthog` tool')
-            expect(result).toContain('MANDATORY — HARD REQUIREMENTS')
+            expect(result).toContain('Run `info <tool_name>` once if its schema is not in context.')
             expect(result).not.toContain('### Basic functionality')
             expect(result).not.toContain('### Examples')
         })
@@ -169,12 +184,14 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('Using the `posthog` tool')
         })
 
-        it('embeds env-context, tool-domain list, and query-tool catalog when stripEnvContext is false', () => {
+        it('embeds env-context and query-tool catalog when stripEnvContext is false', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Defined group types: organization')
-            expect(result).toContain('- dashboard')
+            // Tool domains are temporarily omitted from the command reference while
+            // probing claude.ai's per-tool size cap; discovery rides on `search`.
+            expect(result).not.toContain('dashboard|execute-sql')
             expect(result).toContain('- `query-trends` — time series')
         })
 
@@ -185,22 +202,29 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('Defined group types: organization')
             // The query catalog stays on the exec command reference even when env is stripped.
             expect(result).toContain('- `query-trends` — time series')
-            // The bullet for the `dashboard` domain would clash with in-prose mentions,
-            // so anchor on the list-prefix newline pattern to avoid false positives.
-            expect(result).not.toContain('\n- dashboard\n')
+            expect(result).not.toContain('dashboard|execute-sql')
         })
 
-        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
+        it('keeps the env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecCommandReference(fullCtx, {
+                stripEnvContext: true,
+                keepEnvContext: true,
+            })
+            // Project metadata and group types survive for clients (Claude
+            // web/desktop) that ignore the `instructions` payload, so they still
+            // reach the model via the command reference. Tool domains are
+            // temporarily omitted (size-cap probe).
+            expect(result).not.toContain('dashboard|execute-sql')
+            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Defined group types: organization')
+        })
+
+        it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {
                 const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
                 expect(withFeedback).toContain('### Sharing feedback on PostHog')
-
-                const withoutFeedback = formatter.buildExecCommandReference(
-                    { ...fullCtx, featureFlags: { 'mcp-feedback-tool': false } },
-                    { stripEnvContext }
-                )
-                expect(withoutFeedback).not.toContain('### Sharing feedback on PostHog')
             }
         })
 
@@ -221,12 +245,193 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('Claude web/desktop exec guidance', () => {
+        it('keeps routine guidance inline and advertises optional topics', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx)
+
+            expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
+            expect(result).toContain('learn <topic...> - load one or more learning topics')
+            expect(result).toContain('Topics are cumulative.')
+            expect(result).toContain('User: create pageviews visualization')
+            expect(result).toContain(
+                "Assistant: This needs analytics and visualization guidance, so I'll load both first."
+            )
+            expect(result).toContain('posthog:exec({"command":"learn analytics visualizations"})')
+            expect(result).toContain('User: How many weekly active users do we have?')
+            expect(result).toContain('render-ui({ "tool_name": "query-trends", "tool_input": {...} })')
+            expect(result.indexOf('render-ui({ "tool_name": "query-trends"')).toBeGreaterThan(
+                result.indexOf('posthog:exec({"command":"call query-trends {...}"})')
+            )
+            expect(result).toContain('- analytics:')
+            expect(result).toContain('- visualizations:')
+            expect(result).toContain('- urls:')
+            expect(result).toContain('- feedback:')
+            expect(result).toContain('SCHEMA DRILL-DOWN RULE')
+            expect(result).toContain('**Data discovery:**')
+            expect(result).toContain('**CORRECT usage pattern:**')
+            expect(result.indexOf('User: create pageviews visualization')).toBeGreaterThan(
+                result.indexOf('**CORRECT usage pattern:**')
+            )
+            expect(result).toContain('### Basic functionality')
+            expect(result).toContain('### Tool search')
+            expect(result).toContain(buildToolDomainsCompact(realisticTools))
+            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Defined group types: organization')
+            expect(result).not.toContain('### Retrieving data')
+            expect(result).not.toContain('### Examples')
+            expect(result).not.toContain('### Rendering visualizations')
+            expect(result).not.toContain('### URL patterns')
+            expect(result).not.toContain('### Sharing feedback on PostHog')
+            expect(result).not.toContain('- `query-trends` — time series')
+            expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
+        })
+
+        it('builds optional learning topics from their full guidance', () => {
+            const formatter = new InstructionsFormatter()
+            const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
+            const analytics = entries.find((entry) => entry.id === 'analytics')
+
+            expect(entries.map(({ id, kind }) => ({ id, kind }))).toEqual([
+                { id: 'analytics', kind: 'guide' },
+                { id: 'visualizations', kind: 'guide' },
+                { id: 'urls', kind: 'guide' },
+                { id: 'feedback', kind: 'guide' },
+            ])
+            expect(analytics?.content).toContain('### Retrieving data')
+            expect(analytics?.content).toContain('### Examples')
+            expect(analytics?.content).toContain('- `query-trends` — time series')
+            expect(entries.find((entry) => entry.id === 'visualizations')?.content).toContain(
+                '### Rendering visualizations'
+            )
+            expect(entries.find((entry) => entry.id === 'urls')?.content).toContain('### URL patterns')
+            expect(entries.find((entry) => entry.id === 'feedback')?.content).toContain(
+                '### Sharing feedback on PostHog'
+            )
+        })
+
+        it('only advertises visualizations when rendering is available', () => {
+            const formatter = new InstructionsFormatter()
+            const ctx = {
+                ...fullCtx,
+                renderUiEnabled: false,
+            }
+
+            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
+                'analytics',
+                'urls',
+                'feedback',
+            ])
+            const result = formatter.buildClaudeExecCommandReference(ctx)
+            expect(result).toContain('- analytics:')
+            expect(result).not.toContain('- visualizations:')
+            expect(result).toContain('- urls:')
+            expect(result).toContain('- feedback:')
+        })
+    })
+
+    describe('metric discovery gating (data catalog flag)', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+            mustPrecede: string[]
+        }[] = [
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
+                mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
+            },
+            {
+                name: 'analytics learn topic content',
+                render: (formatter, ctx) =>
+                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
+            },
+            {
+                name: 'buildExecCommandReference',
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+                mustPrecede: ['SCHEMA DRILL-DOWN RULE', '### Retrieving data'],
+            },
+        ]
+
+        it.each(surfaces)(
+            '$name puts gated metric routing before generic analytics guidance',
+            ({ render, mustPrecede }) => {
+                const formatter = new InstructionsFormatter()
+                const flagOn = render(formatter, { ...fullCtx, dataCatalogEnabled: true })
+                const metricRoutingPosition = flagOn.indexOf('#### Metric discovery (semantic layer)')
+                expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
+                expect(flagOn).toContain('system.information_schema.metrics')
+                expect(flagOn).toContain('data-catalog-metric-run')
+                for (const genericGuidance of mustPrecede) {
+                    expect(metricRoutingPosition).toBeLessThan(flagOn.indexOf(genericGuidance))
+                }
+
+                // Flag-off must be byte-identical to a context without the field, so orgs
+                // without the catalog are never steered at a table that doesn't exist.
+                const flagOff = render(formatter, { ...fullCtx, dataCatalogEnabled: false })
+                expect(flagOff).not.toContain('#### Metric discovery')
+                expect(flagOff).toBe(render(formatter, fullCtx))
+            }
+        )
+
+        it('advertises governed metrics in the analytics topic description only when the catalog exists', () => {
+            const formatter = new InstructionsFormatter()
+            const analyticsDescription = (ctx: InstructionsContext): string =>
+                formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.description
+            expect(analyticsDescription({ ...fullCtx, dataCatalogEnabled: true })).toContain('governed metrics')
+            expect(analyticsDescription(fullCtx)).toBe('Query or analyze PostHog data, metrics, and events.')
+        })
+    })
+
+    describe('analysis artifact guidance', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+        }[] = [
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                name: 'analytics learn topic content',
+                render: (formatter, ctx) =>
+                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+            },
+            {
+                name: 'buildExecCommandReference',
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+            },
+        ]
+
+        it.each(surfaces)('$name routes deep dives to notebooks and tracking to dashboards', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const result = render(formatter, fullCtx)
+            expect(result).toContain('### Where an analysis lands')
+            expect(result).toContain('**Notebook**')
+            expect(result).toContain('**Dashboard**')
+        })
+
+        // The Python guidance names `notebooks-add-cell`, so it must stay out of prompts
+        // for clients that aren't advertised the cell tools.
+        it.each(surfaces)('$name gates the Python section on the notebook cell tools', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const cellsOn = render(formatter, { ...fullCtx, notebookCellsEnabled: true })
+            expect(cellsOn).toContain('### Python in an analysis')
+            expect(cellsOn).toContain("cell_type: 'python'")
+
+            const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
+            expect(cellsOff).not.toContain('### Python in an analysis')
+            expect(cellsOff).toBe(render(formatter, fullCtx))
+        })
+    })
+
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
-    // `instructions` field, env-context moves out of the `command` description and into
-    // `instructions`: tool domains (including the `query` domain), user preferences
-    // (timezone/name via `{metadata}`), and defined group types. The query-tool catalog
-    // stays on the `command` description. Codex (no `instructions` support) keeps today's
-    // behavior: empty `instructions`, everything inlined in the `command` description.
+    // `instructions` field, that payload carries exactly one thing — the tool-domain index
+    // (including the `query` domain) — because clients hard-truncate it. Everything else,
+    // env-context and the query-tool catalog included, stays on the `command` description,
+    // which has no cap. Codex (no `instructions` support) keeps today's behavior: empty
+    // `instructions`, everything inlined in the `command` description.
     describe('exec mode wiring', () => {
         it.each([
             { name: 'supportsInstructions=true (Claude Code etc.)', supportsInstructions: true },
@@ -236,6 +441,7 @@ describe('InstructionsFormatter', () => {
             const instructions = supportsInstructions ? formatter.buildExecInstructions(fullCtx) : ''
             const commandReference = formatter.buildExecCommandReference(fullCtx, {
                 stripEnvContext: supportsInstructions,
+                keepEnvContext: true,
             })
 
             expect(commandReference).toContain('SCHEMA DRILL-DOWN RULE')
@@ -247,16 +453,16 @@ describe('InstructionsFormatter', () => {
                 // queries surface in instructions only as the `query` tool domain
                 expect(instructions).toContain('dashboard|execute-sql|feature-flag|query')
                 expect(instructions).not.toContain('- `query-trends` — time series')
-                expect(instructions).toContain("The user's name is Jane Doe")
-                expect(instructions).toContain('Defined group types: organization')
-                expect(commandReference).not.toContain("The user's name is Jane Doe")
-                expect(commandReference).not.toContain('Defined group types: organization')
-                expect(commandReference).not.toContain('\n- dashboard\n')
+                expect(instructions).not.toContain("The user's name is Jane Doe")
+                expect(instructions).not.toContain('Defined group types: organization')
+                expect(commandReference).toContain("The user's name is Jane Doe")
+                expect(commandReference).toContain('Defined group types: organization')
+                expect(commandReference).not.toContain('dashboard|execute-sql')
             } else {
                 expect(instructions).toBe('')
                 expect(commandReference).toContain('- `query-trends` — time series')
                 expect(commandReference).toContain("The user's name is Jane Doe")
-                expect(commandReference).toContain('- dashboard')
+                expect(commandReference).not.toContain('dashboard|execute-sql')
                 expect(commandReference).toContain('Defined group types: organization')
             }
         })

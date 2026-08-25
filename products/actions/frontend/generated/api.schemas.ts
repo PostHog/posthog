@@ -30,10 +30,12 @@
  * * `log` - log
  * * `log_attribute` - log_attribute
  * * `log_resource_attribute` - log_resource_attribute
+ * * `metric_attribute` - metric_attribute
  * * `span` - span
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  * * `revenue_analytics` - revenue_analytics
+ * * `account_custom_property` - account_custom_property
  * * `flag` - flag
  * * `workflow_variable` - workflow_variable
  */
@@ -62,10 +64,12 @@ export const PropertyFilterTypeEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    MetricAttribute: 'metric_attribute',
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
+    AccountCustomProperty: 'account_custom_property',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const
@@ -75,6 +79,10 @@ export const PropertyFilterTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  */
@@ -85,6 +93,10 @@ export const StringMatchOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
 } as const
@@ -119,10 +131,12 @@ export interface StringPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
      * * `revenue_analytics` - revenue_analytics
+     * * `account_custom_property` - account_custom_property
      * * `flag` - flag
      * * `workflow_variable` - workflow_variable */
     type?: PropertyFilterTypeEnumApi
@@ -134,6 +148,10 @@ export interface StringPropertyFilterApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex */
     operator?: StringMatchOperatorEnumApi
@@ -189,10 +207,12 @@ export interface NumericPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
      * * `revenue_analytics` - revenue_analytics
+     * * `account_custom_property` - account_custom_property
      * * `flag` - flag
      * * `workflow_variable` - workflow_variable */
     type?: PropertyFilterTypeEnumApi
@@ -255,10 +275,12 @@ export interface ArrayPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
      * * `revenue_analytics` - revenue_analytics
+     * * `account_custom_property` - account_custom_property
      * * `flag` - flag
      * * `workflow_variable` - workflow_variable */
     type?: PropertyFilterTypeEnumApi
@@ -316,10 +338,12 @@ export interface DatePropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
      * * `revenue_analytics` - revenue_analytics
+     * * `account_custom_property` - account_custom_property
      * * `flag` - flag
      * * `workflow_variable` - workflow_variable */
     type?: PropertyFilterTypeEnumApi
@@ -374,10 +398,12 @@ export interface ExistencePropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
      * * `revenue_analytics` - revenue_analytics
+     * * `account_custom_property` - account_custom_property
      * * `flag` - flag
      * * `workflow_variable` - workflow_variable */
     type?: PropertyFilterTypeEnumApi
@@ -474,6 +500,7 @@ export interface ActionStepJSONApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -486,6 +513,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -647,9 +675,9 @@ export interface ActionReferenceApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -666,7 +694,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -687,6 +715,10 @@ export interface BulkUpdateTagsResponseApi {
 }
 
 export type ActionsListParams = {
+    /**
+     * Comma-separated list of creator user ids. Returns only actions created by these users.
+     */
+    created_by?: string
     format?: ActionsListFormat
     /**
      * Maximum number of actions to return. Omit to return all.
@@ -697,9 +729,17 @@ export type ActionsListParams = {
      */
     offset?: number
     /**
+     * Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.
+     */
+    ordering?: string
+    /**
      * Case-insensitive substring match on the action name.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. ["billing","beta"]. Returns actions having any of these tags.
+     */
+    tags?: string
 }
 
 export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]

@@ -69,6 +69,10 @@ export function BatchExportConfiguration(): JSX.Element {
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
+                        <div className="flex flex-col gap-y-1 mb-2">
+                            <h3 className="mb-0">Schedule</h3>
+                            <p className="text-secondary text-xs mb-0">Controls when this batch export runs</p>
+                        </div>
                         <LemonField
                             label="Status"
                             name="paused"
@@ -119,31 +123,6 @@ export function BatchExportConfiguration(): JSX.Element {
 
                         {showTimezoneAndOffsetSelector && (
                             <>
-                                <div className="flex gap-2 min-h-16">
-                                    <LemonField
-                                        name="timezone"
-                                        label="Timezone"
-                                        className="flex-1"
-                                        info={`Timezone used for determining ${configuration.interval} boundaries for batch export runs`}
-                                    >
-                                        {({ value, onChange }) => {
-                                            const currentTimezone = value || teamTimezone || 'UTC'
-                                            return (
-                                                <LemonInputSelect
-                                                    mode="single"
-                                                    placeholder="Select a time zone"
-                                                    value={[currentTimezone]}
-                                                    onChange={(newValue) => {
-                                                        onChange(newValue[0] || teamTimezone || 'UTC')
-                                                    }}
-                                                    options={timezoneOptions || []}
-                                                    popoverClassName="z-[1000]"
-                                                    virtualized
-                                                />
-                                            )
-                                        }}
-                                    </LemonField>
-                                </div>
                                 {configuration.interval === 'day' && (
                                     <div className="flex gap-2 min-h-16">
                                         <LemonField
@@ -205,10 +184,39 @@ export function BatchExportConfiguration(): JSX.Element {
                                         </LemonField>
                                     </div>
                                 )}
+                                <div className="flex gap-2 min-h-16">
+                                    <LemonField
+                                        name="timezone"
+                                        label="Timezone"
+                                        className="flex-1"
+                                        info={`Timezone used for determining ${configuration.interval} boundaries when scheduling batch export runs. This does not change the timezone of the exported data.`}
+                                    >
+                                        {({ value, onChange }) => {
+                                            const currentTimezone = value || teamTimezone || 'UTC'
+                                            return (
+                                                <LemonInputSelect
+                                                    mode="single"
+                                                    placeholder="Select a time zone"
+                                                    value={[currentTimezone]}
+                                                    onChange={(newValue) => {
+                                                        onChange(newValue[0] || teamTimezone || 'UTC')
+                                                    }}
+                                                    options={timezoneOptions || []}
+                                                    popoverClassName="z-[1000]"
+                                                    virtualized
+                                                />
+                                            )
+                                        }}
+                                    </LemonField>
+                                </div>
                             </>
                         )}
                     </div>
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
+                        <div className="flex flex-col gap-y-1 mb-2">
+                            <h3 className="mb-0">Data</h3>
+                            <p className="text-secondary text-xs mb-0">Controls which data is exported</p>
+                        </div>
                         <div className="flex gap-2 min-h-16">
                             <LemonField
                                 name="model"

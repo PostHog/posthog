@@ -2,12 +2,15 @@ import {
     APIInstallation,
     AndroidInstallation,
     AngularInstallation,
+    ConvexErrorTrackingInstallation,
     DotNetInstallation,
     ElixirInstallation,
     FlutterInstallation,
     GoInstallation,
     IOSInstallation,
     HonoInstallation,
+    JavaErrorTrackingInstallation,
+    KMPErrorTrackingInstallation,
     WebInstallation,
     NextJSInstallation,
     NodeJSInstallation,
@@ -17,15 +20,18 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    RobloxInstallation,
     RubyInstallation,
     RubyOnRailsInstallation,
+    RustInstallation,
     SvelteInstallation,
+    UnityInstallation,
 } from '@posthog/shared-onboarding/error-tracking'
 import { PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
 
 import { JS_WEB_SNIPPETS as BASE_JS_WEB_SNIPPETS } from 'scenes/onboarding/shared/jsWebSnippets'
 
-import { SDKInstructionsMap, SDKKey } from '~/types'
+import { SDKDocsLinkOverrides, SDKInstructionsMap, SDKKey } from '~/types'
 
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
@@ -35,6 +41,10 @@ const JS_WEB_SNIPPETS = {
 
 const PYTHON_SNIPPETS = {
     PythonEventCapture,
+}
+
+export const ErrorTrackingSDKDocsLinkOverrides: SDKDocsLinkOverrides = {
+    [SDKKey.CONVEX]: 'https://posthog.com/docs/libraries/convex',
 }
 
 const ErrorTrackingAngularInstructionsWrapper = withOnboardingDocsWrapper({
@@ -125,6 +135,24 @@ const ErrorTrackingReactNativeInstructionsWrapper = withOnboardingDocsWrapper({
 const ErrorTrackingAPIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: APIInstallation,
 })
+const ErrorTrackingRustInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RustInstallation,
+})
+const ErrorTrackingUnityInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: UnityInstallation,
+})
+const ErrorTrackingRobloxInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RobloxInstallation,
+})
+const ErrorTrackingJavaInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: JavaErrorTrackingInstallation,
+})
+const ErrorTrackingKMPInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: KMPErrorTrackingInstallation,
+})
+const ErrorTrackingConvexInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ConvexErrorTrackingInstallation,
+})
 export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANGULAR]: ErrorTrackingAngularInstructionsWrapper,
     [SDKKey.JS_WEB]: ErrorTrackingWebInstructionsWrapper,
@@ -149,4 +177,10 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REACT_NATIVE]: ErrorTrackingReactNativeInstructionsWrapper,
     [SDKKey.IOS]: ErrorTrackingIOSInstructionsWrapper,
     [SDKKey.API]: ErrorTrackingAPIInstructionsWrapper,
+    [SDKKey.RUST]: ErrorTrackingRustInstructionsWrapper,
+    [SDKKey.UNITY]: ErrorTrackingUnityInstructionsWrapper,
+    [SDKKey.ROBLOX]: ErrorTrackingRobloxInstructionsWrapper,
+    [SDKKey.JAVA]: ErrorTrackingJavaInstructionsWrapper,
+    [SDKKey.KMP]: ErrorTrackingKMPInstructionsWrapper,
+    [SDKKey.CONVEX]: ErrorTrackingConvexInstructionsWrapper,
 }

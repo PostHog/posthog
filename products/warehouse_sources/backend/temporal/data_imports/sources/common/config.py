@@ -1,3 +1,4 @@
+import json
 import types
 import typing
 import reprlib
@@ -72,7 +73,7 @@ class ConfigProtocol(_Dataclass, typing.Protocol):
     """
 
     @classmethod
-    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
+    def from_dict(cls: type[_T], d: dict[str, typing.Any] | str) -> _T: ...
 
     @classmethod
     def validate_dict(cls: type[_T], d: dict[str, typing.Any]) -> tuple[bool, list[str]]: ...
@@ -105,7 +106,7 @@ class Config(ConfigProtocol):
     """
 
     @classmethod
-    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T:
+    def from_dict(cls: type[_T], d: dict[str, typing.Any] | str) -> _T:
         raise NotImplementedError
 
     @classmethod
@@ -119,6 +120,42 @@ class Config(ConfigProtocol):
 def _noop_convert(x: typing.Any) -> typing.Any:
     """No-op function used as a default converter."""
     return x
+
+
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+# A stored config value that still carries it never got decrypted upstream.
+_ENCRYPTED_SECRET_PREFIX = "gAAAAA"
+
+
+class UndecryptedConfigError(ValueError):
+    """Raised when a config value reaches conversion still Fernet-encrypted.
+
+    Upstream decryption of the stored job inputs failed (e.g. the key that wrote them is no
+    longer in the keychain), so the raw token would otherwise crash the field converter with an
+    opaque, secret-leaking error such as ``invalid literal for int() with base 10: 'gAAAAA...'``.
+    """
+
+
+class ConfigValueError(ValueError):
+    """Raised when a config field's value can't be converted to its declared type.
+
+    A converter (e.g. ``int``) failing on user-supplied input would otherwise crash with an
+    opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
+    We name the field but never its value, so nothing a user typed reaches logs or error tracking.
+    """
+
+
+def _convert_value(
+    convert: typing.Callable[[typing.Any], typing.Any], value: typing.Any, field_name: str
+) -> typing.Any:
+    if isinstance(value, str) and value.startswith(_ENCRYPTED_SECRET_PREFIX):
+        raise UndecryptedConfigError(
+            f"Config field '{field_name}' is still encrypted; the stored credentials could not be decrypted"
+        )
+    try:
+        return convert(value)
+    except (ValueError, TypeError) as e:
+        raise ConfigValueError(f"Config field '{field_name}' has a value that could not be parsed") from e
 
 
 @dataclasses.dataclass
@@ -184,6 +221,21 @@ def validate_config(
                         is_valid, nested_errors = validate_config(config_type, d, field_prefixes)
                         if not is_valid:
                             errors.extend(nested_errors)
+
+        elif field_meta and field_meta.converter != _noop_convert:
+            # Scalar field with a converter: presence is checked above, but a value that can't be
+            # converted to the declared type (e.g. `port: "lakjsd"`) would otherwise slip through and
+            # crash later in `to_config`. Run the converter now so it surfaces as a validation error.
+            if field_flat_key in d:
+                field_key = field_flat_key
+            elif field_nested_key in d:
+                field_key = field_nested_key
+            else:
+                field_key = field.name
+            try:
+                _convert_value(field_meta.converter, d[field_key], field.name)
+            except (ValueError, TypeError):
+                errors.append(f"Field '{field.name}' has an invalid value")
 
     return len(errors) == 0, errors
 
@@ -258,7 +310,7 @@ def to_config(
                     except KeyError:
                         continue
                     else:
-                        inputs[field.name] = convert(value)
+                        inputs[field.name] = _convert_value(convert, value, field.name)
                         break
 
                 field_type_meta: MetaConfig | None = _try_get_meta(config_type)
@@ -302,9 +354,25 @@ def to_config(
             except KeyError:
                 continue
             else:
-                inputs[field.name] = convert(value)
+                inputs[field.name] = _convert_value(convert, value, field.name)
 
-    return config_cls(**inputs)
+    try:
+        return config_cls(**inputs)
+    except TypeError as e:
+        # Stored job inputs that don't supply a required (no-default) field make
+        # `config_cls(**inputs)` raise the opaque builtin
+        # `TypeError: X.__init__() missing 1 required positional argument: 'y'`, which is
+        # impossible to triage from error tracking. Re-raise naming the missing field(s) — only
+        # the field names, never their values, so no secret leaks. Kept a TypeError so the
+        # union-config recursion above still catches it and tries the remaining arms.
+        missing = [
+            f.name
+            for f in fields
+            if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING and f.name not in inputs
+        ]
+        if not missing:
+            raise
+        raise TypeError(f"Cannot build '{config_cls.__name__}': missing required field(s) {missing}") from e
 
 
 def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
@@ -582,12 +650,20 @@ def config(
     """
 
     def wrap(cls: type[_T]) -> type[_T]:
-        def from_dict(cls, d: dict[str, typing.Any]):
+        def from_dict(cls, d: dict[str, typing.Any] | str):
+            if isinstance(d, str):
+                # Stored config (an `EncryptedJSONField`) can come back double-encoded: a JSON
+                # string holding the mapping rather than the mapping itself. Recover by decoding
+                # it once so the sync proceeds instead of crashing.
+                try:
+                    d = json.loads(d)
+                except json.JSONDecodeError:
+                    pass
+
             if not isinstance(d, dict):
-                # Stored config (e.g. an `EncryptedJSONField`) can occasionally come back as a
-                # non-mapping (a double-encoded string). Fail with an actionable message instead
-                # of the opaque `TypeError: string indices must be integers` raised when `to_config`
-                # tries to index into it.
+                # Anything still not a mapping (a non-object JSON value, bytes, ...) can't build a
+                # config. Fail with an actionable message instead of the opaque
+                # `TypeError: string indices must be integers` raised when `to_config` indexes it.
                 raise TypeError(f"Cannot build '{cls.__name__}' from {type(d).__name__}; expected a mapping")
 
             if prefix:
@@ -654,6 +730,37 @@ def str_to_optional_int(s: str | int | float | None) -> int | None:
         return None
     else:
         return int(s)
+
+
+def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
+    """A converter to return an optional list of strings from a list, a JSON-array string,
+    or a comma-separated string. Empty inputs normalize to None."""
+    if s is None:
+        return None
+    if isinstance(s, list):
+        values = [str(item).strip() for item in s]
+    elif isinstance(s, str):
+        stripped = s.strip()
+        if stripped == "":
+            return None
+        if stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                values = [str(item).strip() for item in parsed]
+            else:
+                values = [stripped]
+        else:
+            values = [item.strip() for item in stripped.split(",")]
+    else:
+        # A non-str/list value (e.g. a dict submitted for a multi-select field) has no list
+        # interpretation. Raise so `_convert_value` surfaces it as a clean validation error
+        # instead of an unhandled `AttributeError` from calling `.strip()` on it.
+        raise TypeError(f"expected a string, list, or None, got {type(s).__name__}")
+    values = [value for value in values if value]
+    return values or None
 
 
 _DefaultType = typing.TypeVar("_DefaultType")

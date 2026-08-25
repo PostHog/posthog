@@ -11,14 +11,11 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
     NON_JSON_RESPONSE_ERROR,
     ElasticsearchAuth,
@@ -27,7 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     list_indices,
     validate_credentials as validate_elasticsearch_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ElasticsearchSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticsearch import (
+    ElasticsearchSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -135,6 +134,7 @@ Enter the full cluster URL (e.g. `https://my-deployment.es.us-east-1.aws.found.i
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every non-system index is a schema. Generic Elasticsearch has no
         # knowable timestamp field per index, so syncs are full refresh.
@@ -154,7 +154,11 @@ Enter the full cluster URL (e.g. `https://my-deployment.es.us-east-1.aws.found.i
         ]
 
     def validate_credentials(
-        self, config: ElasticsearchSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ElasticsearchSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), team_id)

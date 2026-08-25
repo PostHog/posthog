@@ -1,9 +1,12 @@
+import { DataColorToken } from 'lib/colors'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type {
     CustomPropertyDefinitionApi,
     CustomPropertyDisplayTypeEnumApi,
+    CustomPropertyOptionApi,
     CustomPropertySourceApi,
+    CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 // The backend stores the granular display type directly, so the form value maps 1:1 to the API.
@@ -22,7 +25,29 @@ export const DISPLAY_TYPE_OPTIONS: DisplayTypeOption[] = [
     { value: 'date', label: 'Date', isNumeric: false },
     { value: 'datetime', label: 'Date & time', isNumeric: false },
     { value: 'boolean', label: 'True / false', isNumeric: false },
+    { value: 'select', label: 'Select', isNumeric: false },
 ]
+
+// Keep in sync with CUSTOM_PROPERTY_OPTION_COLORS in the backend's constants.py.
+export const OPTION_COLOR_TOKENS: DataColorToken[] = Array.from(
+    { length: 10 },
+    (_, index) => `preset-${index + 1}` as DataColorToken
+)
+
+// New options get a client-side id for a stable React key; the server mints the real id, so
+// these are stripped from the payload on save.
+export const NEW_OPTION_ID_PREFIX = 'new-'
+
+export function optionLabelError(options: CustomPropertyOptionApi[], index: number): string | undefined {
+    const label = options[index].label.trim()
+    if (!label) {
+        return 'Please enter a label.'
+    }
+    if (options.slice(0, index).some((option) => option.label.trim() === label)) {
+        return 'Duplicate option label.'
+    }
+    return undefined
+}
 
 export function labelForDisplayType(displayType: CustomPropertyDisplayTypeEnumApi): string {
     return DISPLAY_TYPE_OPTIONS.find((option) => option.value === displayType)?.label ?? displayType
@@ -89,4 +114,38 @@ export function sourceSyncStatus(source: CustomPropertySourceApi): SourceSyncSta
         return { level: 'pending', label: 'Awaiting first sync' }
     }
     return { level: 'synced', label: 'Synced' }
+}
+
+export interface RunOutcomeNote {
+    label: string
+    tooltip: string
+}
+
+// A completed run that updated nobody is normal, not a failure: a sync only stages rows the
+// warehouse import actually changed, and the snapshot diff then drops rows whose mapped values
+// already match what was last sent. Both look identical in the counts (all zeros), so name which
+// one happened rather than leaving a row of zeros to be read as a broken sync.
+export function runOutcomeNote(run: CustomPropertySyncRunApi, entityPlural: string): RunOutcomeNote | null {
+    if (run.status !== 'completed' || run.produced > 0) {
+        return null
+    }
+    if (run.rows_read === 0) {
+        return {
+            label: 'no new rows',
+            tooltip: `This sync imported no rows for the table, so there was nothing to map onto ${entityPlural}.`,
+        }
+    }
+    if (run.changed === 0) {
+        return {
+            label: 'no changes',
+            tooltip: `All ${humanFriendlyNumber(run.rows_read)} rows this sync read already hold the values last sent, so nothing needed updating.`,
+        }
+    }
+    if (run.existing === 0) {
+        return {
+            label: `no matching ${entityPlural}`,
+            tooltip: `${humanFriendlyNumber(run.changed)} rows changed, but none of their key column values matched an existing ${entityPlural === 'people' ? 'person' : 'group'}.`,
+        }
+    }
+    return null
 }

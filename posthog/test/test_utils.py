@@ -11,6 +11,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
@@ -32,6 +33,7 @@ from posthog.utils import (
     HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS,
     HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS,
     HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS,
+    DayRange,
     PotentialSecurityProblemException,
     _build_flag_provider,
     _read_preload_manifest,
@@ -42,6 +44,7 @@ from posthog.utils import (
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_compare_period_dates,
+    get_context_for_template,
     get_default_event_info,
     get_default_event_name,
     get_dogfood_flags_team_id,
@@ -59,6 +62,9 @@ from posthog.utils import (
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
+
+from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
+from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 
 
 class TestAbsoluteUrls(TestCase):
@@ -107,6 +113,13 @@ class TestAbsoluteUrls(TestCase):
                 "https://app.posthog.com",
                 "https://app.posthog.com/an.external.domain.com/something-outside-posthog",
             ),
+            # A relative path has no authority to judge, so reserved characters encoded in
+            # its query are ordinary data. absolute_uri builds most of our emailed links.
+            (
+                "/signup?email=someone%40example.com",
+                "https://app.posthog.com",
+                "https://app.posthog.com/signup?email=someone%40example.com",
+            ),
             ("/api/path", "", "/api/path"),  # current behavior whether correct or not
             (
                 "/api/path",
@@ -144,9 +157,14 @@ class TestAbsoluteUrls(TestCase):
             # passes, but HTTP clients/browsers route to attacker.example.
             ("raw_backslash", "https://attacker.example\\@app.posthog.com/path"),
             ("percent_encoded_backslash", "https://attacker.example%5C@app.posthog.com/path"),
+            # urljoin hands an absolute URL straight back, so the authority the caller
+            # embeds in a link or a redirect is the one supplied here.
+            ("percent_encoded_slash", "https://attacker.example%2F@app.posthog.com/path"),
+            ("percent_encoded_question_mark", "https://attacker.example%3F@app.posthog.com/path"),
+            ("percent_encoded_hash", "https://attacker.example%23@app.posthog.com/path"),
         ]
     )
-    def test_absolute_uri_rejects_backslash_authority_bypass(self, _name: str, url: str) -> None:
+    def test_absolute_uri_rejects_ambiguous_authority(self, _name: str, url: str) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
                 absolute_uri(url)
@@ -381,6 +399,32 @@ class TestRelativeDateParse(TestCase):
         self.assertEqual(
             relative_date_parse("-2mEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
             "2019-11-30",
+        )
+
+    @parameterized.expand(
+        [
+            ("minus_one", "-1q", "2019-10-31"),
+            ("minus_two", "-2q", "2019-07-31"),
+            ("current_start", "qStart", "2020-01-01"),
+            ("current_end", "qEnd", "2020-03-31"),
+            ("minus_one_start", "-1qStart", "2019-10-01"),
+            ("minus_two_start", "-2qStart", "2019-07-01"),
+            ("minus_one_end", "-1qEnd", "2019-12-31"),
+            ("minus_two_end", "-2qEnd", "2019-09-30"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_quarter(self, _name, input, expected_date):
+        self.assertEqual(
+            relative_date_parse(input, ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            expected_date,
+        )
+
+    @freeze_time("2020-01-31")
+    def test_quarter_human_friendly_comparison_periods_keeps_week_alignment(self):
+        self.assertEqual(
+            relative_date_parse("-1q", ZoneInfo("UTC"), human_friendly_comparison_periods=True).strftime("%Y-%m-%d"),
+            "2019-11-01",
         )
 
     @freeze_time("2020-01-31")
@@ -1060,7 +1104,7 @@ class TestSharingOverrideProtection(TestCase):
         ]
     )
     @patch(
-        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
         side_effect=lambda variables, _: variables,
     )
     def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
@@ -1081,7 +1125,7 @@ class TestSharingOverrideProtection(TestCase):
         assert result == {"var1": {"value": "safe"}}
 
     @patch(
-        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
         side_effect=lambda variables, _: variables,
     )
     def test_variables_override_allowed_for_normal_auth(self, _mock):
@@ -1124,6 +1168,39 @@ class TestSharingOverrideProtection(TestCase):
         result = tile_filters_override_requested_by_client(request, tile)
 
         assert result == {"breakdown": "region"}
+
+    # The path-based /shared/<token> page load resolves the token from the URL, so no authenticator
+    # runs and the successful_authenticator check is blind to it. is_shared must block overrides on
+    # its own — otherwise an anonymous viewer can vary these params to churn the query cache key.
+    def test_filters_override_blocked_for_shared_context_without_authenticator(self):
+        request = self._make_request(None, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+        dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
+
+        result = filters_override_requested_by_client(request, dashboard, is_shared=True)
+
+        assert result == {"date_from": "-30d"}
+
+    @patch(
+        "products.product_analytics.backend.facade.api.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
+    def test_variables_override_blocked_for_shared_context_without_authenticator(self, _mock):
+        request = self._make_request(
+            None, query_params={"variables_override": json.dumps({"injected": {"value": "evil"}})}
+        )
+        dashboard = type("Dashboard", (), {"variables": {"var1": {"value": "safe"}}})()
+
+        result = variables_override_requested_by_client(request, dashboard, variables=[], is_shared=True)
+
+        assert result == {"var1": {"value": "safe"}}
+
+    def test_tile_filters_override_blocked_for_shared_context_without_authenticator(self):
+        request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
+        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
+
+        result = tile_filters_override_requested_by_client(request, tile, is_shared=True)
+
+        assert result == {"breakdown": "country"}
 
 
 class TestTemplateContextHistogram(TestCase):
@@ -1272,6 +1349,7 @@ class TestBuildFlagProvider(TestCase):
         # create is the first one. Cascade deletes roll back with the test transaction.
         User.objects.all().delete()
         Organization.objects.all().delete()
+        flag_definitions_hypercache.clear_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY, kinds=["redis", "s3"])
 
     @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
@@ -1287,12 +1365,22 @@ class TestBuildFlagProvider(TestCase):
 
         assert _build_flag_provider()._resolve_team_id() == first_team.id
 
+    @parameterized.expand(
+        [
+            (None, 2),
+            ("US", 2),
+            ("EU", EU_CROSS_REGION_MIRROR_CACHE_KEY),
+        ]
+    )
     @patch.dict(os.environ, {}, clear=False)
-    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False)
-    def test_falls_back_to_team_2_off_self_capture(self):
+    def test_cloud_routes_by_region(self, cloud_deployment: str | None, expected_key: int | str) -> None:
+        # EU has no Postgres rows for PostHog's own team, so it must read the
+        # sentinel-keyed mirror that cross_region_flag_sync writes, not literal team
+        # id 2 -- which on EU belongs to a real, unrelated team. Every other region
+        # falls back to the canonical PostHog-internal team 2.
         os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
-
-        assert _build_flag_provider()._resolve_team_id() == 2
+        with override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT=cloud_deployment):
+            assert _build_flag_provider()._resolve_team_id() == expected_key
 
     @patch.dict(os.environ, {}, clear=False)
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=True)
@@ -1300,6 +1388,56 @@ class TestBuildFlagProvider(TestCase):
         os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
 
         assert _build_flag_provider()._resolve_team_id() == 2
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
+    def test_eu_region_provider_reads_back_payload_written_under_sentinel_key(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+        payload = {"flags": [{"key": "mirrored-flag"}], "group_type_mapping": {}, "cohorts": {}}
+        flag_definitions_hypercache.set_cache_value(EU_CROSS_REGION_MIRROR_CACHE_KEY, payload)
+
+        definitions = _build_flag_provider().get_flag_definitions()
+        assert definitions is not None
+        assert dict(definitions) == payload
+
+    @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
+    def test_explicit_env_team_id_wins_over_eu_region(self):
+        assert _build_flag_provider()._resolve_team_id() == 5
+
+
+class TestSelfCaptureBrowserFlagToken(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # The dogfood branch reads the whole teams table; clear ambient rows so the team we create
+        # is the first one. Cascade deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_uses_dogfood_flags_team_not_self_capture_team(self):
+        # js_posthog_api_key is the token posthog-js evaluates PostHog's own flags with, so it must
+        # be the dogfood-flags team (first team, where flags are synced) even when a more-recently
+        # active user's current_team points at another team that holds no internal flags. Sourcing
+        # it from the self-capture team instead made local flags load then vanish on reload.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        context = get_context_for_template("head.html", request)
+
+        assert context["js_posthog_api_key"] == first_team.api_token
+        assert first_team.api_token != recent_team.api_token
 
 
 VALID_PRELOAD_MANIFEST = {
@@ -1356,3 +1494,16 @@ class TestReadPreloadManifest(SimpleTestCase):
         path = self._write_manifest(content)
 
         assert _read_preload_manifest(path, include_authenticated_shell=True) == ("", (), "")
+
+
+class TestDayRange(SimpleTestCase):
+    START = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+
+    @parameterized.expand([("same_instant", timedelta(0)), ("full_day", timedelta(days=1))])
+    def test_accepts_ordered_bounds(self, _name: str, delta: timedelta) -> None:
+        day_range = DayRange(start=self.START, end=self.START + delta)
+        assert day_range.end - day_range.start == delta
+
+    def test_rejects_reversed_bounds(self) -> None:
+        with pytest.raises(ValueError, match="start"):
+            DayRange(start=self.START, end=self.START - timedelta(seconds=1))

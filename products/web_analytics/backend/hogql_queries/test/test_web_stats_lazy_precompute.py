@@ -23,10 +23,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import SESSION_ID_SET_FEATURE_FLAG_KEY
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import ORG_FEATURE_FLAG_KEY
 from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import _breakdown_having_expr
 
 # Low-cardinality breakdowns with a generic seed that have data and are cheap to
@@ -59,12 +62,13 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         sync_execute("SYSTEM STOP TTL MERGES sharded_web_stats_preaggregated")
 
     def _enable_lazy(self):
-        # Mock the org-level feature flag check to True. Outside this context
-        # manager the default `posthoganalytics.feature_enabled` returns False
-        # (no API key in tests), which models a flag-disabled org.
+        # Mock the precompute feature flag checks to True. Outside this context manager
+        # the default `posthoganalytics.feature_enabled` returns False (no API key in
+        # tests), which models a flag-disabled org. The patch target is the shared
+        # `posthoganalytics` module, so an unscoped True would enable other rollouts too.
         return patch(
             "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key in (ORG_FEATURE_FLAG_KEY, SESSION_ID_SET_FEATURE_FLAG_KEY),
         )
 
     def _props(self, **overrides) -> dict:
@@ -173,6 +177,13 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _run(self, query: WebStatsTableQuery):
+        # Serve-live-warm-behind: user-facing reads never insert inline, so warm
+        # eligible shapes first under a background trigger (inline inserts allowed
+        # there), then assert on the converged user-facing read. Fall-through
+        # shapes ignore the warm pass and take the live path as before.
+        if query.useWebAnalyticsPrecompute:
+            with tags_context(trigger="webAnalyticsEagerBaselineWarming"):
+                WebStatsTableQueryRunner(team=self.team, query=query).calculate()
         return WebStatsTableQueryRunner(team=self.team, query=query).calculate()
 
     @staticmethod
@@ -481,8 +492,10 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
+        # Direct user-facing calculate (no warm pass): warming triggers bypass the
+        # org flag by design, so the helper's warm pre-pass would create jobs here.
         self._seed()
-        self._run(self._build_query(opt_in_precompute=True))
+        WebStatsTableQueryRunner(team=self.team, query=self._build_query(opt_in_precompute=True)).calculate()
 
         assert self._job_count() == 0
 
@@ -710,3 +723,30 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Visitors are monotonically non-increasing on the returned page.
         visitors = [row[1][0] for row in lazy_metrics]
         assert visitors == sorted(visitors, reverse=True), f"first page not ordered by visitors desc: {visitors}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_stale_served_enqueues_background_revalidation(self):
+        # Without the `result.stale` hook this family would serve stale for the whole
+        # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+        from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import execute_lazy_precomputed_read
+
+        with (
+            tags_context(),
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute.ensure_web_stats_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
+            ),
+            patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.apply_async"
+            ) as delay,
+        ):
+            reset_query_tags()
+            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+            execute_lazy_precomputed_read(runner)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["kwargs"]["team_id"] == self.team.pk

@@ -5,15 +5,24 @@ All flag evaluation (decide, toolbar, local eval API, etc.) now goes through the
 flags service. This module provides a shared HTTP client and proxy function.
 """
 
+import time
 from typing import Any
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
+import requests
+
 from posthog.security.outbound_proxy import internal_requests_session
 
 # Reusable session for proxying to the flags service with connection pooling
 _FLAGS_SERVICE_SESSION = internal_requests_session()
+
+# Network blips worth a quick retry on non-SDK debug surfaces (opt-in via max_retries).
+# A refused connection or timeout usually clears on the next attempt; a bad response does not.
+# Public so callers (e.g. the evaluation_reasons endpoint) can catch exactly this set
+# themselves, rather than the broader RequestException that also covers HTTP errors.
+RETRYABLE_FLAGS_SERVICE_EXCEPTIONS = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
 
 # One page of batch evaluation covers up to ~10k persons evaluated sequentially in the
 # service, so this sits above the service's own per-request timeout (120s) rather than
@@ -36,6 +45,8 @@ def get_flags_from_service(
     internal_request_token: str | None = None,
     override_flags_definitions: dict[str, dict[str, Any]] | None = None,
     evaluation_runtime: str | None = None,
+    max_retries: int = 0,
+    retry_backoff_seconds: float = 0.1,
 ) -> dict[str, Any]:
     """
     Proxy a request to the Rust feature flags service /flags endpoint.
@@ -52,6 +63,11 @@ def get_flags_from_service(
         override_flags_definitions: Optional dict of flag key -> flag definition to override database flags (default: None)
         evaluation_runtime: Optional override for runtime filtering: "all" | "client" | "server".
             When None, the Rust service auto-detects from request headers (User-Agent, origin, sec-fetch-*).
+        max_retries: How many extra attempts to make on a transient connection error or timeout
+            (default 0, i.e. no retries). Only for non-SDK debug/UI surfaces — leave at 0 on the
+            latency-sensitive live evaluation path, since retries block the worker for up to
+            max_retries * (proxy_timeout + retry_backoff_seconds).
+        retry_backoff_seconds: Base delay between retries; grows linearly per attempt (default 0.1s).
 
     Returns:
         The full response from the flags service as a dict, typically containing:
@@ -108,15 +124,27 @@ def get_flags_from_service(
     if internal_request_token and internal_request_token.strip():
         headers["Authorization"] = f"Bearer {internal_request_token}"
 
-    response = _FLAGS_SERVICE_SESSION.post(
-        f"{flags_service_url}/flags",
-        params=params,
-        json=payload,
-        headers=headers,
-        timeout=proxy_timeout,
-    )
-    response.raise_for_status()
-    return response.json()
+    # Only connection errors / timeouts are retried; a non-2xx HTTP response raises
+    # HTTPError out of raise_for_status() and propagates immediately (retrying it is pointless).
+    # Clamp a negative max_retries to 0 rather than letting range() go empty and falling
+    # through to the "unreachable" branch below.
+    for attempt in range(max(max_retries, 0) + 1):
+        try:
+            response = _FLAGS_SERVICE_SESSION.post(
+                f"{flags_service_url}/flags",
+                params=params,
+                json=payload,
+                headers=headers,
+                timeout=proxy_timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS:
+            if attempt >= max_retries:
+                raise
+            time.sleep(retry_backoff_seconds * (attempt + 1))
+
+    raise RuntimeError("unreachable: retry loop exited without returning or raising")
 
 
 def batch_evaluate_flag_for_team(

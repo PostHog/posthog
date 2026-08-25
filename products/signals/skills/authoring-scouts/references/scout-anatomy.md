@@ -50,13 +50,14 @@ metadata:
 `allowed_tools` with `emit_report` / `edit_report` is what puts the scout on the report channel — **every scout needs it** (without it the scout falls back to a deprecated legacy signal-emitting channel and can't write reports).
 `compatibility` and `metadata` are optional but conventional — `compatibility` documents the scopes/tools the scout assumes; `metadata.scope` gives downstream tooling a short label.
 
-The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the scout's `description` on the config API (`signals-scout-config-list` / `-create` / `-update` responses) — it's how the fleet roster reads to agents and the UI without opening each scout's body.
+The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the scout's `description` on the config API (`scout-config-list` / `-create` / `-update` responses) — it's how the fleet roster reads to agents and the UI without opening each scout's body.
 Write it to stand alone in that listing, and keep it short: it's also loaded alongside every other scout's into a caller's AI plugin, where a wordy description wastes token budget and gets truncated.
 A sentence or two that names the surface and the shapes is the whole job.
 
 ## Body structure
 
 The canonical body is a workflow, not a script — it reads like how an experienced analyst would approach the surface, and trusts the agent to adapt.
+(One variant departs from it: a **recurring measurement / LLM-judge scout** on the structured-output channel replaces the discriminator + Decide sections with a rubric and a sample → judge → record loop — see that pattern in [`scout-patterns.md`](scout-patterns.md); orient and memory stay the same, and so does close-out — except its quick early-exit fires only on an empty eligible population, never at a steady baseline, since the scout samples and records every verdict (the unremarkable ones are the denominator) on any run with items to judge.)
 The fleet's specialists all share this shape:
 
 1. **Identity + discriminator (the most important lines).** One sentence on what the scout is, then **name the signal-vs-noise discriminator explicitly** and tell the agent to internalize it.
@@ -66,6 +67,7 @@ The fleet's specialists all share this shape:
 
 2. **Quick close-out.** A cheap early-exit so a quiet run costs almost nothing: if the watched event is absent from the profile's `top_events` or sitting at baseline (no fresh 24h activity), write one scratchpad entry and stop.
    This keeps idle scouts cheap.
+   `top_events` counts are windowed (each row carries `window_days`), not lifetime — a project whose ingestion recently went dark reads identically to one that never had traffic. Before closing out a busy-looking project as empty on `top_events` thinness alone, rule out a capture gap with a direct `execute-sql` over a longer window (e.g. 30d); only close out when the low volume holds there.
 
    ```text
    key:     not-in-use:<scope>:team{team_id}     # if the surface is absent entirely
@@ -74,10 +76,11 @@ The fleet's specialists all share this shape:
    ```
 
 3. **Orient.** Three cheap reads cold-start every run — bake them into the body:
-   - `signals-scout-scratchpad-search` (`text=<scope keyword>`) — durable steering from past runs; the `pattern:` / `noise:` / `addressed:` / `dedupe:` entries tell the scout what's normal and what's already covered.
-   - `signals-scout-runs-list` (last 7d) — what prior runs of this scout (and siblings) found and ruled out.
+   - `scout-scratchpad-search` (`text=<scope keyword>`) — durable steering from past runs; the `pattern:` / `noise:` / `addressed:` / `dedupe:` entries tell the scout what's normal and what's already covered.
+   - `scout-runs-list` (last 7d) — what prior runs of this scout found and ruled out.
      Pull `-runs-retrieve` only for a summary worth drilling into.
-   - `signals-scout-project-profile-get` — the deterministic snapshot; read the discriminator metrics off the relevant `top_events` row.
+     The fleet-wide read (siblings' runs, and following an interesting summary into the report it produced) is already in the harness prompt for every scout, so don't restate it in your body.
+   - `scout-project-profile-get` — the deterministic snapshot; read the discriminator metrics off the relevant `top_events` row.
 
 4. **Profile shape / discriminator table.** A small table mapping the discriminator's shapes to what they usually mean, so the agent triages fast.
    (See the error-tracking scout's `count`-vs-`distinct_users` table for the canonical example.)
@@ -101,7 +104,7 @@ The fleet's specialists all share this shape:
 9. **MCP tools.** List the direct (read-only) calls and the harness-level tools the scout uses, so the agent doesn't rediscover them each run.
 
 10. **Close out.** One paragraph: looked at what, filed/edited what, remembered what, ruled out what.
-    The harness saves this as the run summary; future runs read it via `signals-scout-runs-list`.
+    The harness saves this as the run summary; future runs read it via `scout-runs-list`.
     Tell it **not** to write a separate "run metadata" scratchpad entry — the summary already serves that role.
     "Looked but found nothing meaningful" is a real outcome.
 
@@ -154,9 +157,9 @@ Cycle between these moves; skip what's not useful.
 
 ### Get oriented
 
-- `signals-scout-scratchpad-search` (`text=<scope keyword>`) — durable steering.
-- `signals-scout-runs-list` (last 7d) — what prior runs found and ruled out.
-- `signals-scout-project-profile-get` — read the discriminator metrics off `top_events`.
+- `scout-scratchpad-search` (`text=<scope keyword>`) — durable steering.
+- `scout-runs-list` (last 7d) — what prior runs found and ruled out.
+- `scout-project-profile-get` — read the discriminator metrics off `top_events`.
 
 ### Profile shape
 
@@ -187,10 +190,10 @@ category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`.
 
 ### Decide
 
-- **Author** a report via `signals-scout-emit-report` above the bar (a well-formed
+- **Author** a report via `scout-emit-report` above the bar (a well-formed
   finding you'd own end-to-end, concrete entity ids + counts in evidence).
   Cross-check `inbox-reports-list` first — an existing report on the topic gets a
-  `signals-scout-edit-report` instead of a duplicate.
+  `scout-edit-report` instead of a duplicate.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.
 

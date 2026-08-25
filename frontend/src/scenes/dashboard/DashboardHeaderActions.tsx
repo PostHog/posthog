@@ -7,9 +7,11 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { LemonMenu, LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -17,24 +19,26 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
+
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
 export function getAddTileMenuItems({
     dashboardId,
     dashboardWidgetsEnabled,
-    showAddInsightToDashboardModal,
+    onAddInsight,
     push,
     setAddWidgetModalOpen,
     onBeforeSelect,
 }: {
     dashboardId: number
     dashboardWidgetsEnabled: boolean
-    showAddInsightToDashboardModal: () => void
+    onAddInsight: () => void
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
     onBeforeSelect?: () => void
-}): LemonMenuItem[] {
+}): LemonMenuItems {
     const withBeforeSelect =
         (onClick: () => void): (() => void) =>
         () => {
@@ -42,14 +46,14 @@ export function getAddTileMenuItems({
             onClick()
         }
 
-    return [
+    const contentItems: LemonMenuItem[] = [
         {
-            label: 'Insight',
-            onClick: withBeforeSelect(showAddInsightToDashboardModal),
+            label: 'Charts',
+            onClick: withBeforeSelect(onAddInsight),
             'data-attr': 'dashboard-add-insight',
         },
         {
-            label: 'Text card',
+            label: 'Add text',
             onClick: withBeforeSelect(() => push(urls.dashboardTextTile(dashboardId, 'new'))),
             'data-attr': 'dashboard-add-text-tile',
         },
@@ -73,13 +77,16 @@ export function getAddTileMenuItems({
                   'data-attr': 'dashboard-add-widget-preview',
               },
     ]
+
+    return [{ title: 'Content', items: contentItems }]
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion } = useActions(dashboardLogic)
-    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
+        useActions(dashboardLogic)
     const { push } = useActions(router)
+    const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
     if (!dashboard) {
         return null
@@ -114,12 +121,17 @@ export function DashboardAddTileButton(): JSX.Element | null {
                     items={getAddTileMenuItems({
                         dashboardId: dashboard.id,
                         dashboardWidgetsEnabled,
-                        showAddInsightToDashboardModal,
+                        onAddInsight: openAddInsightModal,
                         push,
                         setAddWidgetModalOpen,
                         // Adding from the header appends at the bottom; drop any stale inline-insertion target.
                         onBeforeSelect: () => setPendingInsertion(null),
                     })}
+                    onVisibilityChange={(visible) => {
+                        if (visible) {
+                            reportDashboardAddMenuOpened('header', dashboard.id)
+                        }
+                    }}
                 >
                     <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>
                         Add
@@ -210,11 +222,35 @@ export function DashboardEditSaveCancelButtons({
 }
 
 export function EditModeActions(): JSX.Element {
-    const { layoutEditMode } = useValues(dashboardLogic)
+    const { layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
+    const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
+    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     return (
         <>
+            <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
+            {dashboardCustomizationEnabled && (
+                <LemonMenu
+                    items={[{ label: () => <DashboardCustomizeMenu /> }]}
+                    closeOnClickInside={false}
+                    placement="bottom-end"
+                    visible={dashboardCustomizeMenuOpen}
+                    onVisibilityChange={setDashboardCustomizeMenuOpen}
+                >
+                    <LemonButton
+                        type="secondary"
+                        data-attr="dashboard-edit-layout-customize-dropdown"
+                        size="small"
+                        icon={<IconGridMasonry fontSize="16" />}
+                        disabledReason={
+                            tiles.length === 0 ? 'Add at least one tile to customize this dashboard' : undefined
+                        }
+                    >
+                        Customize
+                    </LemonButton>
+                </LemonMenu>
+            )}
             <DashboardAddTileButton />
         </>
     )
@@ -240,20 +276,31 @@ export function FullscreenModeActions(): JSX.Element {
 export function ViewModeActions(): JSX.Element {
     const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
     const { setDashboardMode } = useActions(dashboardLogic)
+    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
     const { push } = useActions(router)
     if (!dashboard) {
         return <></>
     }
 
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
+
     return (
         <>
+            <DashboardSubscribeButton />
             <LemonButton
                 type="secondary"
                 data-attr="dashboard-share-button"
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
-                disabledReason={tiles.length === 0 ? 'Add at least one tile before sharing this dashboard' : undefined}
+                disabledReason={
+                    tiles.length === 0
+                        ? 'Add at least one tile before sharing this dashboard'
+                        : (sharingDisabledReason ?? undefined)
+                }
             >
                 Share
             </LemonButton>
@@ -272,11 +319,31 @@ export function ViewModeActions(): JSX.Element {
                         onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
                         size="small"
                         icon={<IconGridMasonry fontSize="16" />}
-                        tooltip="Edit layout"
+                        tooltip="Customize dashboard"
                         tooltipPlacement="top"
-                        disabledReason={tiles.length === 0 ? 'Add at least one tile to edit layout' : undefined}
+                        disabledReason={
+                            tiles.length === 0 ? 'Add at least one tile to customize this dashboard' : undefined
+                        }
+                        sideAction={
+                            dashboardCustomizationEnabled
+                                ? {
+                                      'data-attr': 'dashboard-edit-layout-customize-dropdown',
+                                      disabledReason:
+                                          tiles.length === 0
+                                              ? 'Add at least one tile to customize this dashboard'
+                                              : undefined,
+                                      dropdown: {
+                                          closeOnClickInside: false,
+                                          placement: 'bottom-end',
+                                          overlay: (
+                                              <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />
+                                          ),
+                                      },
+                                  }
+                                : undefined
+                        }
                     >
-                        Edit layout
+                        Customize
                     </LemonButton>
                 </Shortcut>
             )}

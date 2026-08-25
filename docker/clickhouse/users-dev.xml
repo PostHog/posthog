@@ -221,6 +221,7 @@
             <access_management>0</access_management>
             <grants>
                 <query>GRANT SELECT ON default.*</query>
+                <query>GRANT SELECT ON posthog.*</query>
                 <query>GRANT SELECT ON posthog_test.*</query>
             </grants>
         </dict_reader>

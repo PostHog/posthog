@@ -3,8 +3,7 @@
 Two surfaces live here, both keyed on a SharingConfiguration access token:
 
 * ``start_call`` — called by the public interview page when the recipient clicks
-  Start. Returns the Vapi credentials and the personalized assistant overrides
-  (including merged ``agent_context``). Keeps that context off the initial HTML.
+  Start. Creates one Vapi web call server-side and returns only its join payload.
 * ``vapi_webhook`` — called by Vapi at end-of-call. Persists a UserInterview row
   attributed to the topic creator. Signature-verified; idempotent on ``call.id``.
 """
@@ -15,12 +14,14 @@ import json
 import string
 import hashlib
 from typing import Any
+from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils.timezone import now
 
+import requests
 import structlog
 import posthoganalytics
 from rest_framework import status
@@ -34,25 +35,28 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.constants import AvailableFeature
+from posthog.egress.vapi import vapi_request
 from posthog.event_usage import groups
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-from ..facade.api import derive_auto_classifications
-from ..models import UserInterview, UserInterviewTopic
+from ..facade.api import derive_auto_classifications, is_shared_interviewee_context, valid_distinct_id, valid_session_id
+from ..models import UserInterview, UserInterviewClassification, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
 
 
-class _MetricsEmittingIPThrottle(IPThrottle):
-    """`IPThrottle` subclass that emits `rate_limit_exceeded_total` on rejection.
+class _RateLimitMetricsMixin(SimpleRateThrottle):
+    """Mixin that emits `rate_limit_exceeded_total` whenever the throttle it's mixed into rejects
+    a request. Mixed *ahead* of the concrete throttle base (`IPThrottle` or `SimpleRateThrottle`)
+    so `super().allow_request()` runs the real throttle logic, then this records the rejection.
 
-    Kept here (not on the base `IPThrottle`) on purpose: tweaking the base would tighten
-    the signature of `allow_request` and cascade into unrelated products that subclass
-    `IPThrottle`. Keeping the metric emission product-local means user_interviews owns
-    its own alerting surface without touching other products' code.
+    Kept product-local (not folded into the base `IPThrottle`) on purpose: tweaking the base would
+    cascade into unrelated products that subclass it. One mixin serves both the IP-keyed and the
+    token/respondent-keyed throttles here — `IPThrottle` is itself a `SimpleRateThrottle`, so the MRO
+    resolves `super()` to whichever concrete base each throttle names.
     """
 
     def allow_request(self, request: Request, view: Any) -> bool:
@@ -65,17 +69,21 @@ class _MetricsEmittingIPThrottle(IPThrottle):
         return bool(allowed)
 
 
-class InterviewStartCallIPThrottle(_MetricsEmittingIPThrottle):
-    """Per-IP cap on `start_call`. The endpoint is `AllowAny`, so without this any caller
-    can spin DB queries on share-token lookups indefinitely. 60/min comfortably handles
-    legitimate interviewees clicking Start (one share token can't dial multiple times in
-    the same minute), and any single IP burst above that is almost certainly probing."""
+class InterviewStartCallIPThrottle(_RateLimitMetricsMixin, IPThrottle):
+    """Per-IP cap on `start_call`. The endpoint is `AllowAny`, so without this any caller can spin DB
+    queries on share-token lookups indefinitely. This cap's real job is bounding cross-token probing
+    from one IP — per-token abuse is bounded by the token burst (120/min) + sustained (600/hour)
+    buckets. It sits above the token burst on purpose: a shared link's headline use case is many
+    people behind one corporate NAT / mobile CGNAT egress IP opening the same link, so a tight per-IP
+    cap would 429 legitimate concurrent respondents who share an egress. 200/min clears the token
+    burst (so the token bucket, not the IP, governs a single link's concurrency) while still stopping
+    a single IP from probing many tokens."""
 
     scope = "user_interviews_start_call_ip"
-    rate = "60/minute"
+    rate = "200/minute"
 
 
-class VapiWebhookIPThrottle(_MetricsEmittingIPThrottle):
+class VapiWebhookIPThrottle(_RateLimitMetricsMixin, IPThrottle):
     """Per-IP cap on `vapi_webhook`. Vapi calls us a small handful of times per interview
     (status-update + end-of-call-report), but its egress is shared across all of our tenants,
     so the bucket has to be generous enough that a noisy concurrent interview hour doesn't
@@ -88,14 +96,17 @@ class VapiWebhookIPThrottle(_MetricsEmittingIPThrottle):
     rate = "1200/minute"
 
 
-class InterviewStartCallTokenThrottle(SimpleRateThrottle):
-    """Per-share-token cap on `start_call`. The access_token uniquely identifies one
-    interviewee invitation; a legitimate user clicks Start once. Anything above 10/min on
-    the same token is automation. Keying on the token (not IP) means an attacker rotating
-    IPs can't drive unbounded share-resolve DB lookups for a single guessed token."""
+class InterviewStartCallTokenThrottle(_RateLimitMetricsMixin):
+    """Sustained per-share-token ceiling on `start_call`. One token maps to either a single invited
+    person (personalised link) or many self-serve respondents (a shared topic link), so this is a
+    generous *sustained* bucket. On its own it would still let the whole hour's budget be spent in a
+    burst — the per-IP cap doesn't bind a caller spread across many IPs, and the respondent throttle
+    keys on a client-supplied respondent_key an attacker can rotate — so the companion
+    `InterviewStartCallTokenBurstThrottle` adds a short-window per-token cap. Keying on the token (not
+    IP) means an attacker rotating IPs still can't drain a guessed token faster than these two allow."""
 
     scope = "user_interviews_start_call_token"
-    rate = "10/minute"
+    rate = "600/hour"
 
     def get_cache_key(self, request: Request, view: Any) -> str | None:
         resolver_match = getattr(request, "resolver_match", None)
@@ -104,14 +115,36 @@ class InterviewStartCallTokenThrottle(SimpleRateThrottle):
             return None
         return self.cache_format % {"scope": self.scope, "ident": token}
 
-    def allow_request(self, request: Request, view: Any) -> bool:
-        from posthog.rate_limit import RATE_LIMIT_EXCEEDED_COUNTER, get_route_from_path
 
-        allowed = super().allow_request(request, view)
-        if not allowed:
-            route = get_route_from_path(getattr(request, "path", None))
-            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id="", scope=self.scope, path=route, route=route).inc()
-        return bool(allowed)
+class InterviewStartCallTokenBurstThrottle(InterviewStartCallTokenThrottle):
+    """Short-window per-share-token burst cap. Bounds the *instantaneous* rate a single token can be
+    driven at — regardless of how many IPs or rotated respondent_keys a caller uses — so the sustained
+    hourly budget can't be dumped in seconds. Recovers within the minute, and 120/min sits well above
+    the realistic concurrent-Start volume for a shared link at this stage, so legitimate respondents
+    aren't throttled. Reuses the parent's token-keyed cache key under its own scope."""
+
+    scope = "user_interviews_start_call_token_burst"
+    rate = "120/minute"
+
+
+class InterviewStartCallRespondentThrottle(_RateLimitMetricsMixin):
+    """Per-respondent burst on `start_call`, mirroring the support widget's `WidgetUserBurstThrottle`.
+    Keys on the client-generated `respondent_key` (a random per-browser id a shared-link visitor
+    sends) so one respondent hammering Start is bounded without penalising the next visitor sharing
+    the same token. Falls back to IP when no key is present (personalised links, which don't send one)
+    — so a personalised interviewee's effective per-IP ceiling is this 30/min (the lower of this and
+    the 200/min IP throttle), which is still far above one person clicking Start."""
+
+    scope = "user_interviews_start_call_respondent"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: Request, view: Any) -> str | None:
+        respondent_key = request.data.get("respondent_key") if isinstance(request.data, dict) else None
+        if respondent_key:
+            ident = hashlib.sha256(str(respondent_key).encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 # Vapi's HMAC-SHA256 hex digest is exactly 64 lowercase hex chars; reject other shapes
@@ -271,21 +304,150 @@ def _build_first_message(
     return rendered[:_FIRST_MESSAGE_MAX_CHARS]
 
 
+# Max lengths for the self-reported fields a shared-link respondent sends to start_call. These
+# are echoed into Vapi metadata and persisted on the UserInterview, so cap them defensively.
+_RESPONDENT_NAME_MAX_CHARS = 200
+_RESPONDENT_KEY_MAX_CHARS = 64
+
+# Every shared-link response is stored under an identifier carrying this prefix. It can NEVER equal a
+# personalised interviewee's identifier (an email or distinct_id), so an anonymous respondent can
+# neither be attributed to nor lock out a targeted invitee.
+SHARED_RESPONDENT_IDENTIFIER_PREFIX = "shared:"
+
+
+def _clean_field(value: Any, max_chars: int) -> str:
+    return str(value).strip()[:max_chars] if value else ""
+
+
+def _shared_interviewee_identifier(respondent_key: str) -> str:
+    """Namespaced, non-authoritative identity for a shared-link respondent.
+
+    Keyed on the stable per-browser ``respondent_key`` so a refreshed respondent keeps one identity;
+    falls back to a random id when no key was supplied so rows stay distinct. Deliberately independent
+    of any self-reported name or untrusted ``distinct_id`` — those never determine attribution."""
+    return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
+
+
+VAPI_WEB_CALL_URL = "https://api.vapi.ai/call/web"
+
+
+class VapiWebCallError(Exception):
+    def __init__(self, message: str, status_code: int = status.HTTP_502_BAD_GATEWAY) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _create_vapi_web_call(assistant_overrides: dict[str, Any]) -> dict[str, Any]:
+    try:
+        response = vapi_request(
+            "POST",
+            VAPI_WEB_CALL_URL,
+            api_token=settings.VAPI_PUBLIC_KEY,
+            source="user_interviews",
+            endpoint="/call/web",
+            timeout=(3.05, 15),
+            json={
+                "assistantId": settings.VAPI_ASSISTANT_ID,
+                "assistantOverrides": assistant_overrides,
+                "roomDeleteOnUserLeaveEnabled": True,
+            },
+        )
+    except requests.RequestException as error:
+        raise VapiWebCallError("Could not connect to Vapi.") from error
+
+    if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        raise VapiWebCallError("Vapi is temporarily rate limited.", status.HTTP_429_TOO_MANY_REQUESTS)
+    if not 200 <= response.status_code < 300:
+        raise VapiWebCallError(f"Vapi rejected web call creation with status {response.status_code}.")
+
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise VapiWebCallError("Vapi returned an invalid web call response.") from error
+    if not isinstance(payload, dict):
+        raise VapiWebCallError("Vapi returned an invalid web call response.")
+
+    transport = payload.get("transport")
+    transport_url = transport.get("callUrl") if isinstance(transport, dict) else None
+    web_call_url = payload.get("webCallUrl") or transport_url
+    if not isinstance(web_call_url, str) or not web_call_url:
+        raise VapiWebCallError("Vapi returned a web call without a join URL.")
+
+    web_call: dict[str, Any] = {"webCallUrl": web_call_url}
+    call_id = payload.get("id")
+    if isinstance(call_id, str):
+        web_call["id"] = call_id
+    artifact_plan = payload.get("artifactPlan")
+    if isinstance(artifact_plan, dict):
+        web_call["artifactPlan"] = {"videoRecordingEnabled": bool(artifact_plan.get("videoRecordingEnabled", False))}
+    return web_call
+
+
+def _collapse_abandoned_partials(*, team: Team, topic: UserInterviewTopic, respondent_key: str, keep_pk: Any) -> None:
+    """Delete the abandoned partial an accidental mid-call refresh leaves behind, when the same
+    respondent (same ``respondent_key``) comes back and finishes — so the topic shows one response
+    per respondent instead of a junk trail.
+
+    Deletes only rows that STILL auto-derive as ``abandoned`` from their own transcript, rather than
+    trusting the stored label. ``abandoned`` is user-mutable (writable via the update API and the MCP
+    tool), so a real response a curator manually re-tagged ``abandoned`` would otherwise be
+    permanently, unrecoverably deleted here. Re-deriving keeps this a cleanup of genuine AI-only
+    partials and never touches a row that contains real interviewee content.
+    """
+    candidates = (
+        UserInterview.objects.filter(
+            team=team,
+            topic=topic,
+            respondent_key=respondent_key,
+            classifications__contains=[UserInterviewClassification.ABANDONED],
+        )
+        .exclude(pk=keep_pk)
+        .only("id", "transcript")
+    )
+    stale_pks = [
+        c.pk for c in candidates if UserInterviewClassification.ABANDONED in derive_auto_classifications(c.transcript)
+    ]
+    if not stale_pks:
+        return
+    deleted_count, _ = UserInterview.objects.filter(
+        team=team,
+        topic=topic,
+        respondent_key=respondent_key,
+        pk__in=stale_pks,
+    ).delete()
+    logger.info(
+        "user_interviews_collapsed_abandoned_partials",
+        team_id=team.id,
+        topic_id=str(topic.id),
+        deleted_count=deleted_count,
+    )
+
+
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
-@throttle_classes([InterviewStartCallIPThrottle, InterviewStartCallTokenThrottle])
+@throttle_classes(
+    [
+        InterviewStartCallIPThrottle,
+        InterviewStartCallRespondentThrottle,
+        InterviewStartCallTokenBurstThrottle,
+        InterviewStartCallTokenThrottle,
+    ]
+)
 def start_call(request: Request, access_token: str) -> Response:
-    """Return the Vapi credentials + assistant overrides for a public interview share.
+    """Create a Vapi web call and return its join payload for a public interview share.
 
-    The personalized ``agent_context`` (which may include internal CRM notes about the
-    interviewee) is intentionally NOT embedded in the public interview page's HTML — it
-    is fetched from here only when the recipient clicks Start. This keeps casual
-    view-source / window.POSTHOG_EXPORTED_DATA inspection from leaking the agent prompt.
+    Handles both share types the token can resolve to:
+    * a personalised (per-invitee) share — greets the named invitee, merges their per-person
+      ``agent_context``;
+    * a non-personalised (shared) topic share — every visitor is a new anonymous respondent who
+      self-identifies with a name; ``distinct_id``/``session_id`` query params are carried through
+      as best-effort person/session linkage, and a client ``respondent_key`` lets a refreshed call
+      re-attach to the same respondent.
 
-    Note: anyone with the share token can still get this payload — by design, since
-    they also use it to actually start the call. The win is removing the leak from the
-    initial HTML and giving us a single, auditable, rate-limitable surface.
+    The ``agent_context`` (which may include internal CRM notes about a personalised invitee) and
+    reusable Vapi credentials stay server-side. The browser receives only a single call's join
+    payload after the existing start-call throttles have accepted the request.
     """
     from .views import _merge_agent_context, _parse_identifier
 
@@ -295,6 +457,17 @@ def start_call(request: Request, access_token: str) -> Response:
             {"error": "Vapi is not configured on this PostHog instance."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
+
+    body = request.data if isinstance(request.data, dict) else {}
+    # Honeypot: a hidden field real users never fill, but naive bots do. Present on the shared-link
+    # name form; reject silently-ish with a 400 so a bot can't spin up calls. Log it so a bot wave —
+    # or a false positive dropping a real respondent — is visible rather than a silent black hole.
+    if body.get("_hp"):
+        logger.warning(
+            "user_interviews_start_call_honeypot_tripped",
+            access_token_suffix=access_token[-6:] if access_token else None,
+        )
+        return Response({"error": "invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
     sharing_config = _resolve_share(access_token)
     if sharing_config is None or sharing_config.interviewee_context is None:
@@ -311,8 +484,39 @@ def start_call(request: Request, access_token: str) -> Response:
 
     ic = sharing_config.interviewee_context
     topic = ic.topic
-    user_name, _ = _parse_identifier(ic.interviewee_identifier)
-    agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
+    if is_shared_interviewee_context(ic.interviewee_identifier):
+        respondent_name = _clean_field(body.get("name"), _RESPONDENT_NAME_MAX_CHARS)
+        if not respondent_name:
+            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        respondent_key = _clean_field(body.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
+        user_name = respondent_name or "there"
+        agent_context = topic.agent_context or ""
+        # The response is stored under a namespaced identifier that can never collide with a targeted
+        # invitee's. The distinct_id from the URL is best-effort, UNTRUSTED linkage carried in its own
+        # metadata field — never folded into the identifier, so it can't forge attribution or lock a
+        # targeted person out.
+        metadata: dict[str, str] = {
+            "topic_id": str(topic.id),
+            "interviewee_identifier": _shared_interviewee_identifier(respondent_key),
+            "sharing_access_token": access_token,
+            "shared": "true",
+            "respondent_name": respondent_name,
+            "respondent_key": respondent_key,
+            "distinct_id": valid_distinct_id(body.get("distinct_id")),
+            # session_id isn't persisted in the DB — it rides on the lifecycle PostHog event (as
+            # $session_id, which associates the interview with the session recording). Validated
+            # here at the trust boundary; invalid values are dropped, not rejected.
+            "session_id": valid_session_id(body.get("session_id")),
+        }
+    else:
+        user_name, _ = _parse_identifier(ic.interviewee_identifier)
+        agent_context = _merge_agent_context(topic.agent_context or "", ic.agent_context or "")
+        metadata = {
+            "topic_id": str(topic.id),
+            "interviewee_identifier": ic.interviewee_identifier,
+            "sharing_access_token": access_token,
+        }
+
     first_message_template = _resolve_first_message_template(sharing_config.team)
     first_message = _build_first_message(
         first_message_template,
@@ -321,39 +525,38 @@ def start_call(request: Request, access_token: str) -> Response:
         team_id=sharing_config.team_id,
     )
 
+    assistant_overrides: dict[str, Any] = {
+        "firstMessage": first_message,
+        # Scope server messages to just the lifecycle hooks we act on. Default Vapi
+        # config sends ~10 message types that we'd otherwise ignore.
+        "serverMessages": ["status-update", "end-of-call-report"],
+        "variableValues": {
+            "userName": user_name,
+            "topic": topic.topic or "",
+            "agent_context": agent_context,
+            "questions": json.dumps(topic.questions or []),
+        },
+        "metadata": metadata,
+    }
+    try:
+        web_call = _create_vapi_web_call(assistant_overrides)
+    except VapiWebCallError as error:
+        logger.exception(
+            "user_interviews_vapi_web_call_creation_failed",
+            team_id=sharing_config.team_id,
+            topic_id=str(topic.id),
+            status_code=error.status_code,
+        )
+        return Response({"error": str(error)}, status=error.status_code)
+
     logger.info(
         "user_interviews_start_call_issued",
         team_id=sharing_config.team_id,
         topic_id=str(topic.id),
+        shared=is_shared_interviewee_context(ic.interviewee_identifier),
+        call_id=web_call.get("id"),
     )
-
-    return Response(
-        {
-            "public_key": settings.VAPI_PUBLIC_KEY,
-            "assistant_id": settings.VAPI_ASSISTANT_ID,
-            "assistant_overrides": {
-                "firstMessage": first_message,
-                # Scope server messages to just the lifecycle hooks we act on. Default Vapi
-                # config sends ~10 message types (speech-update, conversation-update, etc.)
-                # which we'd ignore anyway — and every ignored delivery still costs a
-                # webhook round-trip and a signature verification.
-                "serverMessages": ["status-update", "end-of-call-report"],
-                "variableValues": {
-                    "userName": user_name,
-                    "topic": topic.topic or "",
-                    "agent_context": agent_context,
-                    # `json.dumps` so the Vapi assistant prompt receives standard JSON
-                    # (`["q1", "q2"]`) rather than Python's repr (`['q1', 'q2']`).
-                    "questions": json.dumps(topic.questions or []),
-                },
-                "metadata": {
-                    "topic_id": str(topic.id),
-                    "interviewee_identifier": ic.interviewee_identifier,
-                    "sharing_access_token": access_token,
-                },
-            },
-        }
-    )
+    return Response({"web_call": web_call})
 
 
 @api_view(["POST"])
@@ -423,6 +626,9 @@ def vapi_webhook(request: Request) -> Response:
         or overrides_metadata.get("sharing_access_token")
         or overrides_metadata.get("access_token")
     )
+    # Shared-link respondent fields (set in start_call's metadata, echoed back by Vapi). Merge with
+    # top-level precedence, mirroring the access_token resolution above.
+    merged_metadata: dict[str, Any] = {**overrides_metadata, **top_metadata}
     call_id = call.get("id")
 
     if message_type == "status-update":
@@ -437,6 +643,7 @@ def vapi_webhook(request: Request) -> Response:
                     "user_interview_conversation_started",
                     sharing_config=sharing_config,
                     call_id=call_id,
+                    session_id=valid_session_id(merged_metadata.get("session_id")),
                 )
         logger.info(
             "user_interviews_vapi_webhook_status_update",
@@ -496,31 +703,64 @@ def vapi_webhook(request: Request) -> Response:
             )
             return Response({"status": "duplicate", "interview_id": str(existing.id)}, status=status.HTTP_200_OK)
 
-    topic = interviewee_context.topic
     recording_url = (message.get("recording") or {}).get("url", "") or message.get("recordingUrl", "") or ""
     transcript = message.get("transcript", "") or ""
+    classifications = derive_auto_classifications(transcript)
+    topic = interviewee_context.topic
+
+    if is_shared_interviewee_context(interviewee_context.interviewee_identifier):
+        respondent_name = _clean_field(merged_metadata.get("respondent_name"), _RESPONDENT_NAME_MAX_CHARS)
+        respondent_key = _clean_field(merged_metadata.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
+        # Recompute the identifier from respondent_key rather than trusting the echoed metadata, so it
+        # is always a namespaced shared marker and can never be steered onto a targeted invitee.
+        interviewee_identifier = _shared_interviewee_identifier(respondent_key)
+        interviewee_emails = []
+        # Best-effort, untrusted person linkage. Re-validated here (defense in depth) and stored in its
+        # own column — never as the interviewee_identifier, so it can't forge attribution.
+        distinct_id = valid_distinct_id(merged_metadata.get("distinct_id"))
+        # session_id isn't persisted — it rides on the lifecycle event below. Re-validated here
+        # (defense in depth) so only a well-formed UUIDv7 reaches the event.
+        session_id = valid_session_id(merged_metadata.get("session_id"))
+    else:
+        interviewee_identifier = interviewee_context.interviewee_identifier
+        interviewee_emails = [interviewee_identifier] if "@" in interviewee_identifier else []
+        respondent_name = respondent_key = ""
+        distinct_id = ""
+        session_id = ""
 
     with transaction.atomic():
         interview = UserInterview.objects.create(
             team=sharing_config.team,
             topic=topic,
-            interviewee_identifier=interviewee_context.interviewee_identifier,
-            interviewee_emails=[interviewee_context.interviewee_identifier]
-            if "@" in interviewee_context.interviewee_identifier
-            else [],
+            interviewee_identifier=interviewee_identifier,
+            interviewee_emails=interviewee_emails,
+            respondent_name=respondent_name,
+            respondent_key=respondent_key,
+            distinct_id=distinct_id,
             transcript=transcript,
             summary=message.get("summary", "") or "",
             recording_url=recording_url,
             call_metadata=call,
             created_by=topic.created_by,
-            classifications=derive_auto_classifications(transcript),
+            classifications=classifications,
         )
+        # Collapse the abandoned partial an accidental refresh leaves behind: when a shared-link
+        # respondent comes back (same respondent_key) and finishes, drop their earlier abandoned
+        # rows so the topic shows one response per respondent instead of a junk trail.
+        if respondent_key and UserInterviewClassification.ABANDONED not in classifications:
+            _collapse_abandoned_partials(
+                team=sharing_config.team,
+                topic=topic,
+                respondent_key=respondent_key,
+                keep_pk=interview.pk,
+            )
         transaction.on_commit(lambda: _emit_interview_embeddings(interview, topic))
 
     _capture_user_interview_event(
         "user_interview_conversation_ended",
         sharing_config=sharing_config,
         call_id=call_id,
+        session_id=session_id,
         extra_properties={
             "interview_id": str(interview.id),
             "had_transcript": bool(interview.transcript),
@@ -542,6 +782,7 @@ def _capture_user_interview_event(
     *,
     sharing_config: SharingConfiguration,
     call_id: str | None,
+    session_id: str = "",
     extra_properties: dict[str, Any] | None = None,
 ) -> None:
     """Fire a PostHog event for a user-interview lifecycle moment (conversation started/ended).
@@ -552,10 +793,14 @@ def _capture_user_interview_event(
     until we ack. Set `$insert_id` to `<event>:<call_id>` so PostHog dedupes the second
     delivery at ingest — funnels see one start and one end per call.
 
-    The `distinct_id` is intentionally an opaque per-interviewee-context UUID — *not* the
-    interviewee's email/distinct_id — so these feature-usage events never create person
-    profiles for the third-party interviewees themselves. The events report on the
-    user_interviews feature, not the people being interviewed."""
+    When a shared-link respondent supplied a valid session_id, it's attached as `$session_id` so
+    the event (and thus the interview) associates with that session recording — this is how the
+    session is linked without a dedicated DB column.
+
+    The `distinct_id` is intentionally an opaque per-share UUID — *not* the interviewee's
+    email/distinct_id — so these feature-usage events never create person profiles for the
+    third-party interviewees themselves. The events report on the user_interviews feature, not
+    the people being interviewed."""
     interviewee_context = sharing_config.interviewee_context
     if interviewee_context is None:
         return
@@ -564,6 +809,8 @@ def _capture_user_interview_event(
         "team_id": sharing_config.team_id,
         "call_id": call_id,
     }
+    if session_id:
+        properties["$session_id"] = session_id
     if call_id:
         properties["$insert_id"] = f"{event}:{call_id}"
     if extra_properties:

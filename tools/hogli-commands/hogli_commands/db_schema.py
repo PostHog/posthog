@@ -15,8 +15,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypeVar, cast
 
+import yaml
 import click
 import requests
+
+from hogli_commands.github_auth import github_headers, github_token
 
 ArtifactMode = Literal["off", "auto", "on"]
 
@@ -25,10 +28,13 @@ SCHEMA_ARTIFACT_NAME = "migrated-schema"
 SCHEMA_DUMP_NAME = "schema.sql.gz"
 LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
+MAX_ARTIFACT_PAGES = 10
 DEFAULT_BASE_BRANCH = "master"
 DIAGNOSTIC_CANDIDATE_LIMIT = 3
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+PRODUCT_DB_ROUTING_PATH = Path("products/db_routing.yaml")
+APP_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 T = TypeVar("T")
 
@@ -172,6 +178,50 @@ def _ensure_migration_defaults(target_db: str) -> None:
     )
 
 
+def _product_routed_app_labels() -> list[str]:
+    """App labels whose tables live in their own database, per products/db_routing.yaml."""
+    config_path = _resolve_repo_path(PRODUCT_DB_ROUTING_PATH)
+    if not config_path.is_file():
+        return []
+    config = yaml.safe_load(config_path.read_text()) or {}
+    labels = {str(route.get("app_label", "")).strip() for route in config.get("routes") or []}
+    return sorted(label for label in labels if APP_LABEL_RE.fullmatch(label))
+
+
+def _forget_product_app_migrations(target_db: str) -> None:
+    """Drop the dump's claim that product-routed apps are migrated in this database.
+
+    The dump is taken from a CI database that routes those apps elsewhere, so `migrate` skipped
+    every operation in their migrations there while Django recorded them as applied anyway (it
+    records whatever the router decides). Restored verbatim, that leaves a database asserting
+    stamphog and visual_review are migrated without a single one of their tables — and an
+    environment that configures no product database then applies their NEXT migration for real
+    and dies on the missing table. Clearing the rows lets each consumer replay them under its own
+    routing: a no-op where the app is routed away, real tables where it isn't.
+    """
+    app_labels = _product_routed_app_labels()
+    if not app_labels:
+        return
+    in_list = ", ".join(f"'{label}'" for label in app_labels)
+    _run(
+        [
+            *DOCKER_COMPOSE,
+            "exec",
+            "-T",
+            "db",
+            "psql",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-U",
+            "posthog",
+            target_db,
+            "-c",
+            f"DELETE FROM django_migrations WHERE app IN ({in_list});",
+        ]
+    )
+
+
 def restore_schema_dump(
     *,
     target_db: str,
@@ -191,6 +241,7 @@ def restore_schema_dump(
 
     try:
         _run_psql_with_gzip_input(resolved_schema_path, target_db)
+        _forget_product_app_migrations(target_db)
 
         if ensure_defaults:
             _ensure_migration_defaults(target_db)
@@ -205,44 +256,6 @@ def restore_schema_dump(
         raise
 
     click.echo(f"Restored {target_db} from {schema_path}")
-
-
-def _github_token() -> str | None:
-    for env_var in ("GH_TOKEN", "GITHUB_TOKEN"):
-        token = os.environ.get(env_var)
-        if token:
-            return token
-
-    gh_path = shutil.which("gh")
-    if gh_path is None:
-        return None
-
-    try:
-        result = subprocess.run(
-            [gh_path, "auth", "token"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    token = result.stdout.strip()
-    if result.returncode == 0 and token:
-        return token
-    return None
-
-
-def _github_headers(token: str | None) -> dict[str, str]:
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
 
 
 def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
@@ -298,16 +311,24 @@ def select_newest_compatible_artifact(
     return candidates[0] if candidates else None
 
 
-def fetch_schema_artifacts(*, token: str | None, session: requests.Session | None = None) -> list[SchemaArtifact]:
+def find_newest_compatible_artifact(
+    *,
+    token: str | None,
+    session: requests.Session | None = None,
+    base_branch: str = DEFAULT_BASE_BRANCH,
+    max_pages: int = MAX_ARTIFACT_PAGES,
+) -> SchemaArtifact | None:
+    # The listing is newest-first, so the first page holding a candidate holds the
+    # newest one and the walk stops there. max_pages caps the miss case at a fixed
+    # number of requests instead of paging through the whole retention window.
     http = session or requests.Session()
-    artifacts: list[SchemaArtifact] = []
-    page = 1
+    fetched: list[SchemaArtifact] = []
 
-    while True:
+    for page in range(1, max_pages + 1):
         response = http.get(
             f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/artifacts",
             params={"name": SCHEMA_ARTIFACT_NAME, "per_page": 100, "page": page},
-            headers=_github_headers(token),
+            headers=github_headers(token),
             timeout=30,
         )
         response.raise_for_status()
@@ -323,13 +344,17 @@ def fetch_schema_artifacts(*, token: str | None, session: requests.Session | Non
             if isinstance(raw_artifact, Mapping):
                 artifact = _artifact_from_api(raw_artifact)
                 if artifact is not None:
-                    artifacts.append(artifact)
+                    fetched.append(artifact)
+
+        selected = select_newest_compatible_artifact(fetched, base_branch=base_branch)
+        if selected is not None:
+            return selected
 
         if "next" not in response.links:
             break
-        page += 1
 
-    return artifacts
+    _emit_selection_diagnostics(fetched, base_branch=base_branch)
+    return None
 
 
 def download_schema_artifact(
@@ -345,7 +370,7 @@ def download_schema_artifact(
     http = session or requests.Session()
     response = http.get(
         artifact.archive_download_url,
-        headers=_github_headers(token),
+        headers=github_headers(token),
         stream=True,
         timeout=60,
     )
@@ -406,11 +431,9 @@ def download_latest_compatible_schema(
     base_branch: str = DEFAULT_BASE_BRANCH,
     session: requests.Session | None = None,
 ) -> SchemaArtifact:
-    token = _github_token()
-    artifacts = fetch_schema_artifacts(token=token, session=session)
-    artifact = select_newest_compatible_artifact(artifacts, base_branch=base_branch)
+    token = github_token()
+    artifact = find_newest_compatible_artifact(token=token, session=session, base_branch=base_branch)
     if artifact is None:
-        _emit_selection_diagnostics(artifacts, base_branch=base_branch)
         raise SchemaRestoreUnavailable(
             f"no compatible {SCHEMA_ARTIFACT_NAME} artifact found for base_branch={base_branch}"
         )

@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 from posthog.hogql.printer.postgres_functions import (
+    _handle_case_with_expression,
     _handle_e,
     _handle_empty,
     _handle_if,
@@ -225,6 +226,7 @@ MYSQL_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toString": _make_cast_handler("CHAR"),
     "toInt": _make_cast_handler("SIGNED"),
     "toIntOrZero": _make_cast_handler("SIGNED"),
+    "toIntOrDefault": _make_cast_handler("SIGNED"),
     "toFloat": _make_cast_handler("DOUBLE"),
     "toFloatOrZero": _make_cast_handler("DOUBLE"),
     # MySQL backend intentionally drops the default arg — the handler only uses args[0],
@@ -280,6 +282,7 @@ MYSQL_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "subtractQuarters": _make_date_add_handler("QUARTER", fn="DATE_SUB"),
     "subtractYears": _make_date_add_handler("YEAR", fn="DATE_SUB"),
     # Conditional
+    "_caseWithExpression": _handle_case_with_expression,
     "if": _handle_if,
     "multiIf": _handle_multi_if,
     # Null/empty

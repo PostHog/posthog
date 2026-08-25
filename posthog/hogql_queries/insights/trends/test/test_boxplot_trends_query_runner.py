@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 
 import pytest
@@ -12,10 +13,22 @@ from posthog.test.base import (
 
 from parameterized import parameterized
 
-from posthog.schema import BoxPlotDatum, ChartDisplayType, DateRange, EventsNode, TrendsFilter, TrendsQuery
+from posthog.schema import (
+    BoxPlotDatum,
+    ChartDisplayType,
+    DataWarehouseNode,
+    DateRange,
+    EventsNode,
+    TrendsFilter,
+    TrendsQuery,
+)
 
 from posthog.hogql_queries.insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
 from posthog.models.utils import uuid7
+
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
+
+TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.boxplot"
 
 
 @freeze_time("2024-01-01T00:00:00Z")
@@ -515,3 +528,81 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert datum.min > 0
         assert datum.max > 0
         assert datum.min <= datum.p25 <= datum.median <= datum.p75 <= datum.max
+
+
+# S3-backed table creation must happen with the real clock (frozen time breaks request signing),
+# so these tests freeze time around query execution only, unlike TestBoxPlotTrendsQueryRunner.
+class TestBoxPlotTrendsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest):
+    def teardown_method(self, method) -> None:
+        if getattr(self, "cleanUpDataWarehouse", None):
+            self.cleanUpDataWarehouse()
+
+    @staticmethod
+    def _boxplot_query(series: DataWarehouseNode) -> TrendsQuery:
+        return TrendsQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"),
+            interval="day",
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOX_PLOT),
+            series=[series],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_data_warehouse_series_returns_distribution(self):
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "boxplot_data.csv",
+            table_name="boxplot_table",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "revenue": {"clickhouse": "Float64", "hogql": "FloatDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        query = self._boxplot_query(
+            DataWarehouseNode(
+                id=table.name,
+                table_name=table.name,
+                id_field="id",
+                distinct_id_field="id",
+                timestamp_field="created",
+                math_property="revenue",
+                math_property_type="data_warehouse_properties",
+            )
+        )
+        with freeze_time("2024-01-01T00:00:00Z"):
+            response = BoxPlotTrendsQueryRunner(team=self.team, query=query).calculate()
+        data = [BoxPlotDatum(**d) for d in response.results]
+
+        assert len(data) == 3
+        by_day = {d.day: d for d in data}
+
+        datum = by_day["2023-12-02"]
+        assert datum.min == 10.0
+        assert datum.p25 == pytest.approx(20.0)
+        assert datum.median == pytest.approx(30.0)
+        assert datum.p75 == pytest.approx(40.0)
+        assert datum.max == 50.0
+        assert datum.mean == pytest.approx(30.0)
+        assert datum.series_label == f"{table.name} - revenue"
+
+        for zero_day in ["2023-12-01", "2023-12-03"]:
+            assert by_day[zero_day].min == 0.0
+            assert by_day[zero_day].max == 0.0
+
+    def test_data_warehouse_series_without_property_returns_error(self):
+        query = self._boxplot_query(
+            DataWarehouseNode(
+                id="some_table",
+                table_name="some_table",
+                id_field="id",
+                distinct_id_field="id",
+                timestamp_field="created",
+            )
+        )
+        with freeze_time("2024-01-01T00:00:00Z"):
+            response = BoxPlotTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        assert response.results == []
+        assert response.error == "A numeric property must be selected for box plot."

@@ -1,9 +1,13 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightType } from '~/types'
 
 import {
+    compareQuery,
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
     isBoxPlotMissingProperty,
+    isDraftQueryWorthSaving,
     syncSelectedVariablesToQuery,
     validateQuery,
 } from './queryUtils'
@@ -214,5 +218,73 @@ describe('isBoxPlotMissingProperty', () => {
                 { kind: NodeKind.EventsNode, event: '$signup', math_property: 'revenue' },
             ])
         ).toBe(false)
+    })
+})
+
+describe('compareQuery', () => {
+    const makeTrendsQuery = (trendsFilter: TrendsFilter = {}): TrendsQuery => ({
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        trendsFilter,
+    })
+
+    it('treats chartStyle changes as visualization-only', () => {
+        const plain = makeTrendsQuery()
+        const styled = makeTrendsQuery({ chartStyle: { curve: 'linear' } })
+
+        // Style changes must not count as a query change — otherwise every style tweak refetches
+        expect(compareQuery(plain, styled, { ignoreVisualizationOnlyChanges: true })).toBe(true)
+        expect(compareQuery(plain, styled)).toBe(false)
+    })
+})
+
+describe('isDraftQueryWorthSaving', () => {
+    const trends = (mutate?: (query: any) => void): Node => {
+        const query = JSON.parse(JSON.stringify(getDefaultQuery(InsightType.TRENDS, false)))
+        mutate?.(query)
+        return query
+    }
+
+    it.each<[string, Node, boolean]>([
+        ['an untouched default', trends(), false],
+        ['only a changed date range', trends((q) => (q.source.dateRange = { date_from: '-90d' })), false],
+        ['only a changed interval', trends((q) => (q.source.interval = 'week')), false],
+        ['only the test account toggle', trends((q) => (q.source.filterTestAccounts = true)), false],
+        ['only a changed display option', trends((q) => (q.source.trendsFilter = { display: 'ActionsPie' })), false],
+        [
+            'an untouched default with editor-attached query log tags',
+            trends((q) => (q.source.tags = { productKey: 'product_analytics' })),
+            false,
+        ],
+        ['a changed series event', trends((q) => (q.source.series[0].event = 'purchase')), true],
+        [
+            'an added series',
+            trends((q) => q.source.series.push({ kind: NodeKind.EventsNode, event: '$pageview', math: 'dau' })),
+            true,
+        ],
+        [
+            'an added breakdown',
+            trends((q) => (q.source.breakdownFilter = { breakdown: '$browser', breakdown_type: 'event' })),
+            true,
+        ],
+        [
+            'an added property filter',
+            trends(
+                (q) =>
+                    (q.source.properties = [{ type: 'event', key: '$browser', operator: 'exact', value: ['Chrome'] }])
+            ),
+            true,
+        ],
+        [
+            'a web analytics tile query',
+            {
+                kind: NodeKind.InsightVizNode,
+                source: { kind: NodeKind.WebOverviewQuery, properties: [] },
+            } as unknown as Node,
+            false,
+        ],
+        ['an events table query', getDefaultQuery(InsightType.JSON, false), true],
+    ])('treats %s correctly', (_name, query, expected) => {
+        expect(isDraftQueryWorthSaving(query, false)).toBe(expected)
     })
 })

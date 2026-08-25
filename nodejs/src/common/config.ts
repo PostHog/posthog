@@ -8,6 +8,20 @@ export const DEFAULT_HTTP_SERVER_PORT = 6738
 // (mirrors LOCAL_DEV_INTERNAL_API_SECRET on the Django side).
 export const LOCAL_DEV_INTERNAL_API_SECRET = 'posthog123'
 
+/**
+ * Response budget for a request to a host we don't run, used by `fetch`/`legacyFetch` in
+ * common/utils/request.ts. A CDP destination points at whatever API the customer configured, which
+ * is routinely in another region and under no latency obligation to us, so it has different needs
+ * from EXTERNAL_REQUEST_TIMEOUT_MS, which is sized for calls between our own services on the same
+ * network.
+ *
+ * Starts equal to the internal budget so the split changes no behavior on its own. Raise it with
+ * EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS to buy slower third-party APIs more headroom; an
+ * unanswered request holds its worker slot for the whole budget, so the cost lands on
+ * cdp_http_inflight_requests.
+ */
+export const DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS = 3000
+
 export enum KafkaSaslMechanism {
     Plain = 'plain',
     ScramSha256 = 'scram-sha-256',
@@ -25,18 +39,21 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_mirror = 'recordings-blob-ingestion-v2-ml-mirror',
     recordings_blob_ingestion_v2_ml_parquet_sink = 'recordings-blob-ingestion-v2-ml-parquet-sink',
     recordings_blob_ingestion_v2_ml_image_scrub = 'recordings-blob-ingestion-v2-ml-image-scrub',
+    recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
+    recordings_blob_ingestion_v2_ml_image_fetch = 'recordings-blob-ingestion-v2-ml-image-fetch',
+    recordings_blob_ingestion_v2_ml_image_fetch_retry = 'recordings-blob-ingestion-v2-ml-image-fetch-retry',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
+    // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
+    // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
-    cdp_cyclotron_worker_hogflow_legacy_pg = 'cdp-cyclotron-worker-hogflow-legacy-pg',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
-    cdp_cyclotron_worker_email_legacy_pg = 'cdp-cyclotron-worker-email-legacy-pg',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
@@ -96,6 +113,15 @@ export type CommonConfig = BaseServerConfig & {
 
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
+    /**
+     * Which world the ingestion persons store writes: 'pg' (default),
+     * 'personhog', or 'shadow' (pg authoritative, personhog best-effort).
+     * Until the merge saga lands, merge events fail loudly in personhog
+     * mode, so it is only safe for traffic that produces none.
+     */
+    PERSONS_STORE_MODE: string
+    /** Host and port of the personhog identity server. */
+    PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
@@ -173,7 +199,10 @@ export type CommonConfig = BaseServerConfig & {
     HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
+    // Despite the EXTERNAL_REQUEST_ prefix this one only reaches `internalFetch`, so it is the
+    // budget for calls to our own services. Third-party hosts use the sibling below.
     EXTERNAL_REQUEST_TIMEOUT_MS: number
+    EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
@@ -185,11 +214,13 @@ export type CommonConfig = BaseServerConfig & {
     OTEL_SERVICE_ENVIRONMENT: string | null
 
     // Shared between ingestion and CDP (used by hog transformer in both)
-    CDP_HOG_WATCHER_SAMPLE_RATE: number
 
-    // Fraction (0-1) of transformation executions shadow-executed on the Rust HogVM for
-    // latency/correctness comparison; the Node VM result stays authoritative
-    CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE: number
+    // Execute transformations on the Rust HogVM instead of the Node VM. Invocations the Rust VM
+    // can't run (unsupported host functions, addon not built) fall back to the Node VM.
+    CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
+
+    /** Per-function wall-clock budget for an event transformation, enforced by the HogVM. */
+    TRANSFORMATIONS_HOG_TIMEOUT_MS: number
 
     // Event loop yield helper (yieldEventLoopIfNeeded)
     EVENT_LOOP_YIELD_THRESHOLD_MS: number
@@ -198,6 +229,7 @@ export type CommonConfig = BaseServerConfig & {
 export type ExternalRequestConfig = Pick<
     CommonConfig,
     | 'EXTERNAL_REQUEST_TIMEOUT_MS'
+    | 'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECTIONS'
@@ -206,6 +238,9 @@ export type ExternalRequestConfig = Pick<
 export function getExternalRequestConfig(): ExternalRequestConfig {
     return {
         EXTERNAL_REQUEST_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 3000),
+        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: Number(
+            process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS ?? DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS
+        ),
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
@@ -268,6 +303,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONS_STORE_MODE: 'pg',
+        PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,
@@ -349,6 +386,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
+        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,
         EXTERNAL_REQUEST_CONNECTIONS: 500,
@@ -360,8 +398,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         OTEL_SERVICE_ENVIRONMENT: null,
 
         // Shared between ingestion and CDP
-        CDP_HOG_WATCHER_SAMPLE_RATE: 0,
-        CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE: 0,
+        CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+        TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,

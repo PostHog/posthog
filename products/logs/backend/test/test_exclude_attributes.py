@@ -34,12 +34,12 @@ class TestLogsExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         sync_execute("TRUNCATE TABLE IF EXISTS logs32")
         super().tearDownClass()
 
-    def _run(self, *, exclude: bool) -> list[dict]:
+    def _run(self, *, exclude: bool, filter_group: dict | None = None) -> list[dict]:
         query = LogsQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             serviceNames=["argo-rollouts"],
             severityLevels=[],
-            filterGroup={"type": "AND", "values": []},
+            filterGroup=filter_group or {"type": "AND", "values": []},
             excludeAttributes=exclude,
         )
         return LogsQueryRunner(query, self.team).run().results
@@ -60,3 +60,23 @@ class TestLogsExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertTrue(results[0]["attributes"])
             self.assertEqual(results[0]["resource_attributes"]["service.name"], "argo-rollouts")
+
+    def test_value_filter_with_excluded_attributes(self):
+        # Excluding attributes must not shadow the physical `attributes` field a value-comparison
+        # log_attribute filter resolves against. Before the fix this raised a QueryError (400):
+        # "Cannot access property 'logtag__str' on 'attributes'".
+        filter_group = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "logtag", "operator": "exact", "type": "log_attribute", "value": "F"},
+                    ],
+                }
+            ],
+        }
+        results = self._run(exclude=True, filter_group=filter_group)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["attributes"], {})
+        self.assertEqual(results[0]["resource_attributes"], {})

@@ -135,6 +135,7 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
+        '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
         '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
         '/ai-observability/reviews': ['AIObservability', 'aiObservabilityReviews'],
         '/ai-observability/traces': ['AIObservability', 'aiObservabilityTraces'],
@@ -288,6 +289,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
+        aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
         aiObservabilityGenerations: (): string => '/ai-observability/generations',
         aiObservabilityReviews: (): string => '/ai-observability/reviews',
         aiObservabilityTraces: (): string => '/ai-observability/traces',
@@ -302,9 +304,20 @@ export const manifest: ProductManifest = {
                 msg?: string
             }
         ): string => {
+            const encodePathSegment = (value: string): string => {
+                // kea-router decodes the pathname before matching, so preserve an encoded layer for the trace scene.
+                const encodedValue = encodeURIComponent(value).replace(
+                    /[!'()*]/g,
+                    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+                )
+                return encodeURIComponent(encodedValue).replace(
+                    /[!'()*]/g,
+                    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+                )
+            }
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
-            return `/ai-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         aiObservabilityUsers: (): string => '/ai-observability/users',
         aiObservabilityErrors: (): string => '/ai-observability/errors',
@@ -421,9 +434,8 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_prompts',
             iconType: 'llm_prompts' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.aiObservabilityPrompts(),
-            tags: ['beta'],
             sceneKey: 'AIObservabilityPrompts',
         },
     ],

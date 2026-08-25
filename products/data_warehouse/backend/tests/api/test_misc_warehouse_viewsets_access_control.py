@@ -15,8 +15,15 @@ from rest_framework.response import Response
 
 from posthog.models.organization import OrganizationMembership
 
-from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataWarehouseManagedViewSet,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
 
@@ -88,6 +95,66 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         response = self.client.get(self._path("total_rows_stats/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_managed_warehouse_status_excludes_blocked_and_direct_sources(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.viewer_user, resource="external_data_source", access_level="viewer")
+        allowed_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="allowed",
+            connection_id="allowed-connection",
+            source_type="Stripe",
+            status="Running",
+        )
+        blocked_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="blocked",
+            connection_id="blocked-connection",
+            source_type="Postgres",
+            status="Running",
+        )
+        managed_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="managed",
+            connection_id="managed-connection",
+            source_type="Postgres",
+            status="Running",
+            prefix="managed_warehouse",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={"engine": "duckdb", "system_managed": True, "credential_kind": "org_root"},
+        )
+        allowed_schema = ExternalDataSchema.objects.create(team=self.team, source=allowed_source, name="charges")
+        ExternalDataSchema.objects.create(team=self.team, source=blocked_source, name="customers")
+        ExternalDataSchema.objects.create(team=self.team, source=managed_source, name="events")
+        self._create_access_control(
+            self.viewer_user,
+            resource="external_data_source",
+            resource_id=str(blocked_source.id),
+            access_level="none",
+        )
+        self.client.force_login(self.viewer_user)
+
+        summary_response = self.client.get(self._path("managed-warehouse-data-status/"))
+        detail_response = self.client.get(
+            self._path(f"managed-warehouse-source-schemas/?source_id={blocked_source.id}")
+        )
+        allowed_detail_response = self.client.get(
+            self._path(f"managed-warehouse-source-schemas/?source_id={allowed_source.id}")
+        )
+
+        self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [source["source_id"] for source in summary_response.json()["sources"]["sources"]],
+            [str(allowed_source.id)],
+        )
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.json()["schemas"], [])
+        self.assertEqual(allowed_detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [schema["schema_id"] for schema in allowed_detail_response.json()["schemas"]],
+            [str(allowed_schema.id)],
+        )
+
     def test_data_ops_dashboard_blocked_for_viewer(self):
         # data_ops_dashboard creates a Dashboard as a side effect, so require editor
         self._create_access_control(self.viewer_user, access_level="viewer")
@@ -136,12 +203,38 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
 
         response = self.client.post(
             self._path("provision/"),
-            data={"database_name": "x", "table_name": "x"},
+            data={"database_name": "x", "schema_name": "x"},
             content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         mock_provision.assert_called_once_with(self.team.organization_id, "x", self.team.id, "x")
+
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.check_schema_name")
+    def test_check_schema_name_blocked_for_project_editor_who_is_not_org_admin(self, mock_check):
+        # The check scans every project's schema in the org, so a non-admin could otherwise
+        # probe names and learn what inaccessible projects use.
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(self._path("check-schema-name/?name=probe"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_check.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.check_schema_name")
+    def test_check_schema_name_allowed_for_org_admin(self, mock_check):
+        mock_check.return_value = Response({"name": "probe", "available": True}, status=status.HTTP_200_OK)
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(self._path("check-schema-name/?name=probe"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_check.assert_called_once_with(self.team.organization_id, "probe")
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.reset_password")
     def test_reset_password_blocked_for_project_editor_who_is_not_org_admin(self, mock_reset_password):
@@ -167,6 +260,31 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_reset_password.assert_called_once_with(self.team.organization_id)
+
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.delete_org")
+    def test_delete_org_blocked_for_project_editor_who_is_not_org_admin(self, mock_delete_org):
+        mock_delete_org.return_value = Response({"status": "deleted"})
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.delete(self._path("delete-org/"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_delete_org.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.delete_org")
+    def test_delete_org_allowed_for_org_admin_with_project_editor_access(self, mock_delete_org):
+        mock_delete_org.return_value = Response({"status": "deleted"})
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.delete(self._path("delete-org/"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_delete_org.assert_called_once_with(self.team.organization_id)
 
 
 @pytest.mark.ee
@@ -219,7 +337,12 @@ class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
 
 @pytest.mark.ee
 class TestLineageAccessControl(WarehouseAccessControlTestMixin):
-    """Upstream lineage read — viewer OK, none blocked."""
+    """Lineage read on the merged data_modeling_nodes endpoint — viewer OK, none blocked.
+
+    NodeViewSet is `scope_object = "INTERNAL"`, so the lineage action gates on warehouse RBAC
+    itself. Without that explicit check any project member could read lineage metadata (node
+    names/types/edges) — the regression this guards against.
+    """
 
     resource = "warehouse_objects"
 
@@ -231,9 +354,16 @@ class TestLineageAccessControl(WarehouseAccessControlTestMixin):
             query={"kind": "HogQLQuery", "query": "select 1"},
             created_by=self.viewer_user,
         )
+        self.dag = DAG.objects.create(team=self.team, name="test")
+        self.node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=self.saved_query,
+            type=NodeType.VIEW,
+        )
 
     def _url(self) -> str:
-        return f"/api/environments/{self.team.pk}/lineage/get_upstream/?model_id={self.saved_query.id}"
+        return f"/api/environments/{self.team.pk}/data_modeling_nodes/lineage/?saved_query_id={self.saved_query.id}"
 
     def test_viewer_can_read(self):
         self._create_access_control(self.viewer_user, access_level="viewer")

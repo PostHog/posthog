@@ -1,8 +1,11 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, TypedDict
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, NotRequired, Optional, TypedDict
 
 from requests import Session
+
+from posthog.dataclasses import frozen
 
 from .auth import (
     APIKeyAuth,
@@ -46,6 +49,41 @@ PaginatorType = Literal[
 ]
 
 
+@frozen
+class ParentRowFilter:
+    """Bounds a warehouse parent scan to rows the parent API would still list.
+
+    The API path's row set is shaped by the vendor's server-side list semantics (default
+    windows, retention), which a full snapshot scan does not reproduce: an incremental
+    parent table accumulates every row ever seen, so children fan out over parents the API
+    stopped listing long ago. `field` is the parent's API field name; rows where it is NULL
+    are kept, matching the per-row cutoff the Sentry tag-values iterator established.
+    Omit the filter only for parents whose API genuinely returns the full collection.
+
+    `not_older_than` is the vendor's list window, relative to scan time. `not_before` is an
+    absolute floor a caller already computed, typically an incremental watermark, which lets
+    a child skip parents it has processed before instead of reading and discarding them.
+    Setting both floors the scan at whichever is tighter; at least one is required.
+    """
+
+    field: str
+    not_older_than: timedelta | None = None
+    not_before: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.not_older_than is None and self.not_before is None:
+            raise ValueError("ParentRowFilter needs not_older_than, not_before, or both")
+
+    def floor(self, now: datetime) -> datetime:
+        """The earliest value of `field` a row may carry and still be scanned."""
+        floors = [] if self.not_older_than is None else [now - self.not_older_than]
+        if self.not_before is not None:
+            # A naive floor can't be compared against the timezone-aware scan time, and the
+            # API timestamps this tracks are UTC.
+            floors.append(self.not_before if self.not_before.tzinfo else self.not_before.replace(tzinfo=UTC))
+        return max(floors)
+
+
 class PaginatorTypeConfig(TypedDict, total=True):
     type: PaginatorType  # noqa
 
@@ -55,6 +93,7 @@ class PageNumberPaginatorConfig(PaginatorTypeConfig, total=False):
     page_param: Optional[str]
     total_path: Optional[TJsonPath]
     maximum_page: Optional[int]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
@@ -63,7 +102,9 @@ class OffsetPaginatorConfig(PaginatorTypeConfig, total=False):
     offset_param: Optional[str]
     limit_param: Optional[str]
     total_path: Optional[TJsonPath]
+    total_header: Optional[str]
     maximum_offset: Optional[int]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 class HeaderLinkPaginatorConfig(PaginatorTypeConfig, total=False):
@@ -77,6 +118,7 @@ class JSONResponsePaginatorConfig(PaginatorTypeConfig, total=False):
 class JSONResponseCursorPaginatorConfig(PaginatorTypeConfig, total=False):
     cursor_path: Optional[TJsonPath]
     cursor_param: Optional[str]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
 
 
 PaginatorConfig = (
@@ -166,6 +208,28 @@ class ClientConfig(TypedDict, total=False):
     # Cap on retry attempts per request. Left unset, RESTClient uses its default;
     # the inline preview sets 1 so a rate-limited endpoint errors instead of sleeping.
     max_retries: int
+    # Ceiling (seconds) on the exponential backoff between retries when the response carries no
+    # server-provided delay. Left unset, RESTClient uses its default. Raise it for an endpoint whose
+    # rate-limit window is longer than the default ceiling, so the retry budget can outlast the window.
+    retry_backoff_max_seconds: float
+    # SSRF host-pinning. When set (even to an empty list), every outgoing request URL —
+    # including paginator next-page links and seeded resume URLs — must resolve to one of
+    # these hosts; the base_url host is always implicitly allowed. Off-host URLs are rejected
+    # so a spoofed ``next`` link can't exfiltrate credentials. Pair with allow_redirects=False.
+    allowed_hosts: Optional[list[str]]
+    # When False, redirects are not followed and any 3xx is rejected — closes the redirect-based
+    # off-host escape that host-pinning alone would miss. Defaults to True (follow redirects).
+    allow_redirects: bool
+    # Per-request (connect, read) timeout in seconds. Left unset, requests never time out and a
+    # source pointed at a customer-controlled host that stalls holds an import worker forever.
+    # A single float applies to both connect and read; a tuple sets them separately.
+    request_timeout: Optional[float | tuple[float, float]]
+    # When False, this client's default tracked session is built with HTTP sample capture
+    # disabled — for endpoints whose bodies carry sensitive PII the name-based sample scrubbers
+    # aren't guaranteed to catch (e.g. student/HR records). Requests are still metered and
+    # logged. Left unset, capture follows the operator-configured sample rules as normal. No
+    # effect when a pre-built `session` is supplied instead.
+    capture: bool
 
 
 class IncrementalArgs(TypedDict, total=False):
@@ -211,7 +275,26 @@ class ResolvedParam:
 class ResponseAction(TypedDict, total=False):
     status_code: Optional[int | str]
     content: Optional[str]
+    # Match on a value inside the parsed JSON body rather than on raw text. ``json_field`` is a
+    # dotted path from the body root (e.g. ``"code"``, ``"error.type"``) and the action matches when
+    # the value there is one of ``json_values``. For an API that answers HTTP 200 and carries the
+    # outcome in the body: substring matching on the serialized body would depend on the API's
+    # whitespace and on the value not appearing elsewhere in the payload.
+    json_field: Optional[str]
+    json_values: Optional[list[Any]]
+    # One of:
+    #  - "ignore" — treat the matched response as a valid empty page and stop pagination.
+    #  - "retry"  — raise a retryable error so the request is re-issued (for an HTTP-200 body-level
+    #               error envelope, e.g. a rate-limit signal carried in the JSON, or to promote a
+    #               non-5xx status like 408 to retryable). The framework retries on HTTP status only,
+    #               so this is the hook for content-classified retries.
+    #  - "raise"  — raise a permanent (non-retryable) error with ``message``, for a success-status
+    #               body error envelope that should fail loud with an actionable message that
+    #               ``get_non_retryable_errors`` can match.
     action: str
+    # Message for the "raise" action (and, optionally, "retry"). Authored in the manifest, so it
+    # carries no secret — kept out of any URL. Falls back to a status-only default when unset.
+    message: Optional[str]
 
 
 class Endpoint(TypedDict, total=False):
@@ -221,6 +304,21 @@ class Endpoint(TypedDict, total=False):
     json: Optional[dict[str, Any]]
     paginator: Optional[PaginatorConfig]
     data_selector: Optional[TJsonPath]
+    # When True, a response whose ``data_selector`` matches nothing (the key is absent) raises
+    # instead of yielding an empty page — fail-loud on an unexpected/changed API response shape,
+    # rather than silently syncing 0 rows. A present-but-empty list is still a valid 0-row page.
+    data_selector_required: Optional[bool]
+    # Relaxes ``data_selector_required`` for empty-container bodies: when True, a 200 whose body is an
+    # empty ``{}`` or ``[]`` is treated as a valid 0-row page instead of a shape mismatch. For sources
+    # whose API drops the envelope key entirely for an empty collection. A body carrying other keys is
+    # still a shape change and still fails loud. No effect unless ``data_selector_required`` is set.
+    data_selector_empty_ok: Optional[bool]
+    # When True, a 200 whose parsed body isn't the expected list shape (selector matches nothing, or
+    # the matched value / selector-less body isn't a list) raises a RETRYABLE error and the request is
+    # reissued — for sources that defensively treat an unexpected 200-body shape as transient. This is
+    # the retryable counterpart of ``data_selector_required`` (which fails loud permanently); set at
+    # most one of the two.
+    data_selector_malformed_retryable: Optional[bool]
     response_actions: Optional[list[ResponseAction]]
     incremental: Optional[IncrementalConfig]
 
@@ -242,6 +340,14 @@ class ResourceBase(TypedDict, total=False):
 class EndpointResourceBase(ResourceBase, total=False):
     endpoint: Optional[str | Endpoint]
     include_from_parent: Optional[list[str]]
+    # Per-item transform applied after ``data_selector`` and before type coercion, for reshaping
+    # a row the selector can't express (e.g. flattening JSON:API ``attributes`` into the row root).
+    # Wired through to ``Resource.add_map``; must be dict -> dict (1:1).
+    data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
+    # When set, the resource's pages come from this callable instead of HTTP pagination —
+    # ``endpoint`` is kept only for dependency-graph bookkeeping. Used to drive a fan-out
+    # child from an already-synced warehouse parent table.
+    data_iterator: Optional[Callable[[], Iterator[list[dict[str, Any]]]]]
 
 
 class EndpointResource(EndpointResourceBase, total=False):
@@ -250,5 +356,5 @@ class EndpointResource(EndpointResourceBase, total=False):
 
 class RESTAPIConfig(TypedDict):
     client: ClientConfig
-    resource_defaults: Optional[EndpointResourceBase]
+    resource_defaults: NotRequired[Optional[EndpointResourceBase]]
     resources: list[str | EndpointResource]

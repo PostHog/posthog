@@ -7,6 +7,16 @@ from posthog.models.utils import UUIDModel
 class SlackThreadTaskMapping(UUIDModel):
     """Maps Slack threads to task runs so follow-up messages can be forwarded to the running agent."""
 
+    class ConversationType(models.TextChoices):
+        """Shape of the Slack conversation a thread lives in, in Slack's own
+        ``conversations.list`` vocabulary so there is no translation layer."""
+
+        IM = "im", "Direct message"
+        MPIM = "mpim", "Group direct message"
+        PUBLIC_CHANNEL = "public_channel", "Public channel"
+        PRIVATE_CHANNEL = "private_channel", "Private channel"
+        UNKNOWN = "unknown", "Unknown"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="slack_thread_task_mappings")
     integration = models.ForeignKey(
         "posthog.Integration",
@@ -27,6 +37,9 @@ class SlackThreadTaskMapping(UUIDModel):
         related_name="slack_thread_mappings",
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
+    # Reply-tag fallback for runs started before per-turn actor capture
+    # (tasks slack_relay); drop the column and its stamp in task_creation
+    # once those runs drain.
     latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
     # Slack `ts` of the most recent message we've already shown to the agent (either
     # in the original `<slack_thread_context>` block at task creation, or in a follow-up
@@ -34,6 +47,12 @@ class SlackThreadTaskMapping(UUIDModel):
     # with a strictly larger `ts` (and smaller than the just-arrived message's `ts`) is
     # rendered as a diff so the agent catches up on messages it never saw.
     last_forwarded_ts = models.CharField(max_length=64, null=True, blank=True)
+    # Resolved once, when the thread's task is created. NULL on rows written before this was
+    # tracked; UNKNOWN when Slack could not tell us. Both read as non-private: an install
+    # missing `groups:read` should keep team-wide read access rather than narrow a shared
+    # thread down to whoever opened it, which would leave the agent's links dead for everyone
+    # else reading along.
+    conversation_type = models.CharField(max_length=16, choices=ConversationType, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -44,6 +63,26 @@ class SlackThreadTaskMapping(UUIDModel):
                 name="uniq_slack_thread_task_mapping",
             )
         ]
+        indexes = [
+            # Serves the workspace-wide activity aggregates on the App Home tab, which scan a
+            # whole workspace over a date window rather than a single thread. `team_id` rides
+            # along as an INCLUDE column so the accessible-projects filter is evaluated off the
+            # index instead of a heap fetch per candidate row.
+            models.Index(
+                fields=["slack_workspace_id", "created_at"],
+                include=["team_id"],
+                name="slack_thr_map_ws_created_idx",
+            ),
+        ]
+
+
+# A direct message is the only conversation with no audience beyond its author, so a task
+# started in one stays with its creator. Everything else — group DMs and channels, public or
+# private — is shared with people who are all on the same team, and anything asked there is
+# already visible to them, so the thread's task is readable team-wide. Keeping this a set of
+# types rather than a boolean on the row means widening or narrowing the rule later is a
+# one-line change here, with no backfill.
+PRIVATE_CONVERSATION_TYPES = frozenset({SlackThreadTaskMapping.ConversationType.IM})
 
 
 class SlackUserProfileCache(UUIDModel):
@@ -71,6 +110,19 @@ class SlackUserProfileCache(UUIDModel):
                 name="uniq_slack_user_profile_cache_integration_user",
             )
         ]
+
+
+class UntaggedFollowupMode(models.TextChoices):
+    """What PostHog does with an untagged reply in a thread it already owns.
+
+    Read from the thread creator's settings row, so it governs everyone
+    replying in a thread that user started. ``NEVER`` is what an unset row
+    resolves to, making untagged follow-ups opt-in per person.
+    """
+
+    AUTO = "auto", "Always pick it up"
+    ASK = "ask", "Ask before picking it up"
+    NEVER = "never", "Never pick it up"
 
 
 class SlackSettings(UUIDModel):
@@ -103,8 +155,24 @@ class SlackSettings(UUIDModel):
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Unused: holds historical per-integration agent permission modes from the retired
+    # approval-card flow. Retained so the column needs no migration.
+    permission_modes = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Per-integration permission mode for Slack-started agent runs, keyed by integration id.",
+    )
     # Keys mirror the task-run request serializer.
     ai_preferences = models.JSONField(blank=True, null=True)
+    # NULL means the user has never picked, which resolves to ``NEVER``: nothing
+    # is picked up in their threads until they turn it on from the Home tab.
+    untagged_followup_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=UntaggedFollowupMode.choices,
+        help_text="What PostHog does with untagged replies in threads this user started.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

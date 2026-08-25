@@ -29,7 +29,7 @@ export enum IconSize {
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
     seriesColor?: string
-    action?: ActionFilter
+    action?: ActionFilter | null
     value?: string
     className?: string
     breakdownValue?: BreakdownKeyType

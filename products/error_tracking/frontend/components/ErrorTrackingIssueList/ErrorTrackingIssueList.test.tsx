@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -19,6 +22,7 @@ const ISSUE: ErrorTrackingIssue = {
     description: 'Something broke',
     library: 'web',
     status: 'active',
+    severity: 'high',
     assignee: null,
     first_seen: '2026-05-01T10:00:00.000Z',
     last_seen: '2026-05-26T08:00:00.000Z',
@@ -46,7 +50,7 @@ describe('ErrorTrackingIssueListRow', () => {
             </Provider>
         )
 
-        expect(screen.queryByRole('button', { name: /Unassigned/i })).not.toBeInTheDocument()
+        expect(screen.getByText(/Unassigned/i).closest('button, [role="button"]')).toBeNull()
         expect(screen.getAllByRole('link')).toHaveLength(1)
     })
 
@@ -58,10 +62,33 @@ describe('ErrorTrackingIssueListRow', () => {
         )
 
         expect(screen.getAllByRole('link')).toHaveLength(1)
-        const link = screen.getByRole('link', { name: /TypeError: undefined is not a function/i })
-        expect(link.getAttribute('href')).toMatch(
+        const link = screen.getByText(/TypeError: undefined is not a function/i).closest('a')
+        expect(link?.getAttribute('href')).toMatch(
             /\/error_tracking\/issue-abc\?timestamp=2026-05-26T08%3A00%3A00\.000Z$/
         )
+    })
+
+    it.each([
+        ['disabled', false, false],
+        ['enabled', true, true],
+    ])('shows severity only when the feature flag is %s', (_label, enabled, expectedVisible) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(
+            enabled ? [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES] : [],
+            enabled ? { [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES]: true } : {}
+        )
+
+        render(
+            <Provider>
+                <ErrorTrackingIssueListRow issue={ISSUE} />
+            </Provider>
+        )
+
+        if (expectedVisible) {
+            expect(screen.getByText('High')).toBeInTheDocument()
+        } else {
+            expect(screen.queryByText('High')).not.toBeInTheDocument()
+        }
     })
 })
 
@@ -90,6 +117,6 @@ describe('ErrorTrackingIssueList', () => {
             </Provider>
         )
 
-        expect(screen.getByRole('link', { name: /TypeError: undefined is not a function/i })).toBeInTheDocument()
+        expect(screen.getByText(/TypeError: undefined is not a function/i).closest('a')).toBeInTheDocument()
     })
 })

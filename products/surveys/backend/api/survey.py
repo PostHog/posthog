@@ -49,7 +49,13 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
-from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
+from posthog.helpers.trigram_search import (
+    DESCRIPTION_FIELD,
+    MAX_SEARCH_LENGTH,
+    NAME_FIELD,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+)
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.team.team import Team
@@ -68,12 +74,13 @@ from products.feature_flags.backend.api.feature_flag import (
     assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
     SurveyStats,
     archived_responses_filter,
+    build_choice_translation_map,
     calculate_rates,
     fetch_per_question_stats,
     fetch_response_rows,
@@ -293,6 +300,23 @@ def get_survey_conditions_with_actions(
         else:
             conditions = dict(conditions)
         conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
+    elif isinstance(conditions, dict) and isinstance(conditions.get("actions"), dict):
+        # The actions M2M didn't resolve (e.g. the referenced actions were deleted) but a stale
+        # actions blob still lives in `conditions`. That stored blob can carry fields this caller's
+        # serializer would never expose — notably `created_by` on the public /surveys and /decide
+        # payload — so project each value down to the serializer's own fields. Never surface more
+        # than the serializer itself would.
+        meta = getattr(action_serializer_class, "Meta", None)
+        allowed_fields = getattr(meta, "fields", None)
+        if isinstance(allowed_fields, list | tuple):
+            allowed = set(allowed_fields)
+            values = conditions["actions"].get("values") or []
+            conditions = dict(conditions)
+            conditions["actions"] = {
+                "values": [
+                    {k: v for k, v in value.items() if k in allowed} for value in values if isinstance(value, dict)
+                ]
+            }
     return conditions
 
 
@@ -2011,8 +2035,20 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
 
     class Meta(SurveySerializerCreateUpdateOnly.Meta):
         extra_kwargs = {
-            "name": {"help_text": "Survey name.", "min_length": 1},
-            "description": {"help_text": "Survey description."},
+            "name": {
+                "help_text": (
+                    "Survey name. Anyone can read it. In-app surveys send it to every visitor's browser "
+                    "alongside the questions and appearance text, and a hosted survey shows it on its public "
+                    "page. Keep customer names and other private details out of it."
+                ),
+                "min_length": 1,
+            },
+            "description": {
+                "help_text": (
+                    "Survey description. Internal only: unlike the name and questions, it is never delivered "
+                    "to visitors."
+                )
+            },
             "type": {"help_text": "Survey type."},
             "start_date": {
                 "help_text": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so."
@@ -2047,7 +2083,7 @@ class SurveyFilterSet(FilterSet):
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
-                description="Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
+                description="Match against survey `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`.",
             ),
         ],
     ),
@@ -2075,12 +2111,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     raise serializers.ValidationError(
                         {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
                     )
-                # Search applies its own exact-first relevance ordering — don't override it.
+                # Search applies its own relevance ordering — don't override it.
                 queryset = self._apply_search(queryset, search)
             else:
                 # Newest first — stable order for pagination and surfaces recent surveys first in pickers.
                 queryset = queryset.order_by("-created_at")
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     @tracer.start_as_current_span("SurveyViewSet.list")
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -2848,13 +2887,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         # Extract the question text and choices from the survey
         question_text = None
-        question_choices = None
+        question_dict = None
         if survey.questions and question_id:
             # Find the question with the matching ID
             for idx, question in enumerate(survey.questions):
                 if question.get("id", None) == question_id:
                     question_text = question.get("question")
-                    question_choices = question.get("choices")
+                    question_dict = question
                     # Backfill the index so the index-based response key fallback works.
                     # Without this, fetch_responses passes question_index=None into the
                     # getSurveyResponse() HogQL function, which requires an integer first
@@ -2865,17 +2904,24 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         elif survey.questions and question_index is not None:
             # Fallback to question index if question_id is not provided
             if 0 <= question_index < len(survey.questions):
-                question_text = survey.questions[question_index].get("question")
-                question_choices = survey.questions[question_index].get("choices")
+                question_dict = survey.questions[question_index]
+                question_text = question_dict.get("question")
 
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
+
+        # For choice questions, exclude predefined choices (base and translated) to only get
+        # open-ended "Other" responses — otherwise a predefined answer given in a non-base
+        # language leaks into the free-text set fed to the summarizer. Same translation-aware
+        # matching as per_question_stats' distribution.
+        exclude_values = None
+        if question_dict is not None:
+            exclude_values = list(build_choice_translation_map(question_dict).keys()) or None
 
         # Get archived response UUIDs to exclude
         archived_uuids = get_archived_response_uuids(survey_id, self.team.pk)
 
         # Fetch responses using the new module
-        # For choice questions, exclude predefined choices to only get open-ended "Other" responses
         responses = fetch_responses(
             survey_id=survey_id,
             question_index=question_index,
@@ -2883,7 +2929,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             start_date=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             end_date=end_date,
             team=self.team,
-            exclude_values=question_choices,
+            exclude_values=exclude_values,
             exclude_uuids=archived_uuids,
         )
         response_count = len(responses)
@@ -3146,8 +3192,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                         "name": f"{source_survey.name} (duplicated at {duplicate_timestamp})",
                         "description": source_survey.description,
                         "type": source_survey.type,
+                        # Per-question translations are stripped here and restored verbatim after
+                        # validation (see below), for the same reason as the survey-level translations.
                         "questions": [
-                            {k: v for k, v in q.items() if k != "id"} for q in (source_survey.questions or [])
+                            {k: v for k, v in q.items() if k not in ("id", "translations")}
+                            for q in (source_survey.questions or [])
                         ],
                         "appearance": source_survey.appearance,
                         "conditions": cleaned_conditions,
@@ -3180,8 +3229,23 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     new_survey = Survey(
                         team=team,
                         created_by=user,
+                        # Copied outside the serializer so a duplicate is never stricter than its source:
+                        # these values are already sanitized, and surveys with grandfathered language keys
+                        # (which only validate against an existing instance) would otherwise fail to copy.
+                        base_language=source_survey.base_language,
+                        translations=source_survey.translations,
                         **serializer.validated_data,
                     )
+
+                    # Restore per-question translations verbatim. The create serializer grandfathers legacy
+                    # language keys only against an existing instance, so re-validating them here would 400
+                    # a copy the source already saved. Order matches: validate_questions keeps input order.
+                    source_questions = source_survey.questions or []
+                    for index, question in enumerate(new_survey.questions or []):
+                        source_translations = source_questions[index].get("translations")
+                        if source_translations is not None:
+                            question["translations"] = source_translations
+
                     surveys_to_create.append(new_survey)
 
                 for survey in surveys_to_create:
@@ -3266,12 +3330,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         )
 
 
-class SurveyConfigSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Team
-        fields = ["survey_config"]
-
-
 class SurveyAPIActionSerializer(serializers.ModelSerializer):
     steps = ActionStepJSONSerializer(many=True, required=False)
 
@@ -3350,7 +3408,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
     internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions")
     enable_partial_responses = serializers.BooleanField(read_only=True)
-    base_language = serializers.CharField(read_only=True)
     questions = serializers.SerializerMethodField(method_name="get_questions")
     translations = serializers.SerializerMethodField(method_name="get_translations")
 
@@ -3377,7 +3434,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration_start_date",
             "schedule",
             "enable_partial_responses",
-            "base_language",
             "translations",
         ]
         read_only_fields = fields
@@ -3396,7 +3452,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField(), allow_null=True))
     def get_questions(self, survey: Survey) -> list[dict[str, Any]] | None:
-        """Return questions with question-level translation keys filtered to what the SDK can match."""
+        """Return only question fields used by SDKs, with translation keys normalized."""
         questions = survey.questions
         if not isinstance(questions, list):
             return questions
@@ -3408,16 +3464,15 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             if not isinstance(question, dict):
                 cleaned.append(question)
                 continue
-            inline_translations = question.get("translations")
-            if not isinstance(inline_translations, dict):
-                cleaned.append(question)
-                continue
-            filtered = _strip_invalid_translation_keys(inline_translations, normalized_base)
             next_question = dict(question)
-            if filtered:
-                next_question["translations"] = filtered
-            else:
-                next_question.pop("translations", None)
+            next_question.pop("isNpsQuestion", None)
+            inline_translations = question.get("translations")
+            if isinstance(inline_translations, dict):
+                filtered = _strip_invalid_translation_keys(inline_translations, normalized_base)
+                if filtered:
+                    next_question["translations"] = filtered
+                else:
+                    next_question.pop("translations", None)
             cleaned.append(next_question)
         return cleaned
 
@@ -3444,24 +3499,58 @@ def get_surveys_count(team: Team) -> int:
     )
 
 
-def get_surveys_response(team: Team):
+def get_surveys_response(team: Team) -> dict[str, Any]:
+    # Every SDK discards surveys that aren't running before evaluating eligibility, so drafts and
+    # stopped surveys are payload every client downloads and throws away. The nullness check mirrors
+    # the SDKs' own `isSurveyRunning`; keeping it time-independent matters because this response is
+    # cached and only rebuilt when a survey is saved, so a comparison against `now` would go stale.
     surveys = SurveyAPISerializer(
         Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
         .filter(team__project_id=team.project_id)
         .exclude(archived=True)
+        .filter(start_date__isnull=False, end_date__isnull=True)
+        # External surveys are their own hosted page, rendered server-side from the database by id.
+        # No SDK can display one: the web SDK renders only in-app types, and the mobile SDKs have no
+        # external_survey case in their type enums at all.
+        .exclude(type=Survey.SurveyType.EXTERNAL_SURVEY)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
         many=True,
     ).data
 
-    serialized_survey_config: dict[str, Any] = {}
-    if team.survey_config is not None:
-        serialized_survey_config = SurveyConfigSerializer(team).data
+    return {"surveys": surveys}
 
-    return {
-        "surveys": surveys,
-        "survey_config": serialized_survey_config.get("survey_config", None),
+
+def _survey_page_site_url() -> str:
+    """
+    Origin for the hosted survey page's static assets. Assets must load from the app
+    origin even when the page is served through a reverse-proxy domain, which doesn't
+    serve Django staticfiles. A localhost SITE_URL (the unset default) would emit asset
+    URLs no external browser can reach, so fall back to host-relative paths — those at
+    least keep direct app-origin access working.
+    """
+    hostname = urlparse(settings.SITE_URL).hostname
+    if hostname in (None, "localhost", "127.0.0.1", "::1"):
+        return ""
+    return settings.SITE_URL
+
+
+def _survey_error_response(
+    request: HttpRequest,
+    *,
+    error_title: str,
+    error_message: str,
+    status: int,
+    appearance: dict[str, Any] | None = None,
+) -> HttpResponse:
+    context: dict[str, Any] = {
+        "error_title": error_title,
+        "error_message": error_message,
+        "site_url": _survey_page_site_url(),
     }
+    if appearance is not None:
+        context["appearance"] = appearance
+    return render(request, "surveys/error.html", context, status=status)
 
 
 @csrf_exempt
@@ -3476,13 +3565,10 @@ def public_survey_page(request, survey_id: str):
     # Input validation
     if not UUIDT.is_valid_uuid(survey_id):
         logger.warning("survey_page_invalid_id", survey_id=survey_id)
-        return render(
+        return _survey_error_response(
             request,
-            "surveys/error.html",
-            {
-                "error_title": "Invalid request",
-                "error_message": "The requested survey is not available.",
-            },
+            error_title="Invalid request",
+            error_message="The requested survey is not available.",
             status=400,
         )
 
@@ -3493,25 +3579,19 @@ def public_survey_page(request, survey_id: str):
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
         # Use generic error message to prevent survey ID enumeration
-        return render(
+        return _survey_error_response(
             request,
-            "surveys/error.html",
-            {
-                "error_title": "Survey not available",
-                "error_message": "The requested survey is not available.",
-            },
+            error_title="Survey not available",
+            error_message="The requested survey is not available.",
             status=404,
         )
     except Exception as e:
         logger.exception("survey_page_db_error", error=str(e), survey_id=survey_id)
         capture_exception(e)
-        return render(
+        return _survey_error_response(
             request,
-            "surveys/error.html",
-            {
-                "error_title": "Service unavailable",
-                "error_message": "The service is temporarily unavailable. Please try again later.",
-            },
+            error_title="Service unavailable",
+            error_message="The service is temporarily unavailable. Please try again later.",
             status=503,
         )
 
@@ -3528,15 +3608,13 @@ def public_survey_page(request, survey_id: str):
             survey_type=survey.type,
         )
         # Pass appearance so the error page still shows the customer's brand.
-        return render(
+        # Use 404 instead of 403 to prevent information leakage.
+        return _survey_error_response(
             request,
-            "surveys/error.html",
-            {
-                "error_title": "Feels quiet in here",
-                "error_message": "This survey isn't taking responses right now. It might be closed, expired, or not live yet.",
-                "appearance": survey.appearance or {},
-            },
-            status=404,  # Use 404 instead of 403 to prevent information leakage
+            error_title="Feels quiet in here",
+            error_message="This survey isn't taking responses right now. It might be closed, expired, or not live yet.",
+            status=404,
+            appearance=survey.appearance or {},
         )
 
     # Build project config
@@ -3555,6 +3633,7 @@ def public_survey_page(request, survey_id: str):
         "survey_id": survey_id,
         "survey_data": survey_data,
         "project_config": project_config,
+        "site_url": _survey_page_site_url(),
         "display_language": get_hosted_survey_display_language(request),
         "debug": settings.DEBUG,
         "embed_mode": request.GET.get("embed") == "true",

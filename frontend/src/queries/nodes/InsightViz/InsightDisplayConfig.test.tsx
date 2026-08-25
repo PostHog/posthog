@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -75,7 +74,7 @@ function getSectionTitles(): string[] {
 }
 
 async function openOptionsMenu(): Promise<void> {
-    const optionsButtons = screen.getAllByRole('button', { name: /Options/ })
+    const optionsButtons = screen.getAllByLabelText('Options')
     await userEvent.click(optionsButtons[0])
 }
 
@@ -130,16 +129,18 @@ describe('InsightDisplayConfig', () => {
                         'Color customization by',
                         'Y-axis unit',
                         'Y-axis scale',
+                        'Y-axis range',
+                        'Line style',
                         'Statistical analysis',
                         'Axis labels',
                     ],
                     displayItems: [
                         'Show values on series',
-                        'Show legend',
                         'Show alert threshold lines',
                         'Show multiple Y-axes',
                         'Show trend lines',
                         'Show annotations',
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -151,11 +152,11 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show legend',
                         'Show alert threshold lines',
                         'Show multiple Y-axes',
                         'Show trend lines',
                         'Show annotations',
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -163,15 +164,23 @@ describe('InsightDisplayConfig', () => {
                 'trends area graph',
                 makeTrendsQuery(ChartDisplayType.ActionsAreaGraph),
                 {
-                    sections: ['Display', 'Y-axis unit', 'Y-axis scale', 'Statistical analysis', 'Axis labels'],
+                    sections: [
+                        'Display',
+                        'Y-axis unit',
+                        'Y-axis scale',
+                        'Y-axis range',
+                        'Line style',
+                        'Statistical analysis',
+                        'Axis labels',
+                    ],
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show legend',
                         'Show alert threshold lines',
                         'Show multiple Y-axes',
                         'Show trend lines',
                         'Show annotations',
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -188,8 +197,10 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show legend',
+                        'Show names on slices',
                         'Show total below chart',
+                        // In-chart legend toggle + position select ("Bottom" is the prospective default)
+                        'Show legendBottom',
                     ],
                 },
             ],
@@ -222,7 +233,7 @@ describe('InsightDisplayConfig', () => {
                 'retention',
                 makeRetentionQuery(),
                 {
-                    sections: ['Display', 'On dashboards', 'Cohort labels start at'],
+                    sections: ['Display', 'Line style', 'On dashboards', 'Cohort labels start at'],
                     displayItems: ['Show trend lines'],
                 },
             ],
@@ -230,8 +241,8 @@ describe('InsightDisplayConfig', () => {
                 'stickiness',
                 makeStickinessQuery(),
                 {
-                    sections: ['Display'],
-                    displayItems: ['Show values on series', 'Show legend', 'Show multiple Y-axes'],
+                    sections: ['Display', 'Line style'],
+                    displayItems: ['Show values on series', 'Show multiple Y-axes', 'Show legendBottom'],
                 },
             ],
             [
@@ -334,7 +345,7 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             const items = getDisplaySectionItems()
-            expect(items).toContain('Show legend')
+            expect(items.some((item) => item.includes('Show legend'))).toBe(true)
             expect(items).toContain('Show values on series')
             expect(items).toContain('Show alert threshold lines')
             expect(items).toContain('Show trend lines')
@@ -350,7 +361,7 @@ describe('InsightDisplayConfig', () => {
         it('removes axis label option count after clearing a committed label', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { xAxisLabel: 'Signup date' }))
 
-            const optionsButton = screen.getAllByRole('button', { name: /Options/ })[0]
+            const optionsButton = screen.getAllByLabelText('Options')[0]
             expect(optionsButton).toHaveTextContent(/\(1\)/)
 
             await openOptionsMenu()
@@ -365,13 +376,7 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
-    describe('line graph display options with the quill legend flag', () => {
-        beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true,
-            })
-        })
-
+    describe('in-chart legend position options', () => {
         it('keeps the "Show legend" checkbox and adds a position select on the same row', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
@@ -385,6 +390,7 @@ describe('InsightDisplayConfig', () => {
         it.each([
             ['trends bar', () => makeTrendsQuery(ChartDisplayType.ActionsBar)],
             ['trends unstacked bar', () => makeTrendsQuery(ChartDisplayType.ActionsUnstackedBar)],
+            ['trends pie', () => makeTrendsQuery(ChartDisplayType.ActionsPie)],
             ['stickiness line', () => makeStickinessQuery(ChartDisplayType.ActionsLineGraph)],
             ['stickiness bar', () => makeStickinessQuery(ChartDisplayType.ActionsBar)],
             ['lifecycle', () => makeLifecycleQuery()],

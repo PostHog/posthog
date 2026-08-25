@@ -1,12 +1,20 @@
+import uuid
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from django.apps import apps
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.schema.information_schema import (
     _bound_table_names,
+    _certification_key,
+    _classify_table,
     _pushdown_table_filter,
     _warehouse_metadata,
 )
@@ -26,10 +34,9 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
+    WarehouseColumnAnnotation,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 
 
 def _field(name: str) -> ast.Field:
@@ -140,16 +147,16 @@ class TestWarehouseMetadata(APIBaseTest):
         # rather than being clobbered by a dead row's stale value (which is what `.objects` returned).
         self._table("orders", 100)
         self._table("orders", 5, deleted=True)
-        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
-        assert row_counts["orders"] == 100
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.row_counts["orders"] == 100
 
     def test_view_row_count_comes_from_the_backing_table(self):
         backing = self._table("orders_view_backing", 42)
         DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders_view", query={"query": "SELECT 1"}, columns={}, table=backing
         )
-        _row_counts, view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
-        assert view_row_counts["orders_view"] == 42
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.view_row_counts["orders_view"] == 42
 
     def test_metadata_does_not_leak_other_teams_row_counts(self):
         # `DataWarehouseTable` is not team-scoped, so the query must filter team_id explicitly — a
@@ -157,8 +164,36 @@ class TestWarehouseMetadata(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._table("shared", 999, team=other_team)
         self._table("shared", 7)
-        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
-        assert row_counts["shared"] == 7
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.row_counts["shared"] == 7
+
+    def test_saved_query_id_map_covers_non_materialized_views(self):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="plain_view", query={"query": "SELECT 1"}, columns={}
+        )
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.saved_query_ids_by_name["plain_view"] == str(view.id)
+        assert "plain_view" not in metadata.view_row_counts
+
+
+class TestCertificationKey(SimpleTestCase):
+    def test_view_key_prefers_db_saved_query_id_over_object_id(self) -> None:
+        saved_query_id = str(uuid.uuid4())
+        view = SavedQuery(id=str(uuid.uuid4()), name="stripe.mrr_revenue_view", query="select 1", fields={})
+        key = _certification_key("stripe.mrr_revenue_view", view, "view", {"stripe.mrr_revenue_view": saved_query_id})
+        assert key == ("view", saved_query_id)
+
+    def test_view_with_name_shaped_id_and_no_saved_query_has_no_key(self) -> None:
+        name = "revenue_analytics.events.mrr_revenue_view"
+        view = SavedQuery(id=name, name=name, query="select 1", fields={})
+        assert _certification_key(name, view, "view", {}) is None
+
+    def test_resolved_view_classifies_as_view_even_when_a_warehouse_table_shares_its_name(self) -> None:
+        view = SavedQuery(id=str(uuid.uuid4()), name="stripe.mrr_revenue_view", query="select 1", fields={})
+        assert _classify_table("stripe.mrr_revenue_view", view, {"stripe.mrr_revenue_view"}, set()) == (
+            "view",
+            "views",
+        )
 
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
@@ -200,6 +235,36 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         # information_schema is self-describing
         assert rows.get("system.information_schema.columns") == "information_schema"
 
+    def test_posthog_namespaced_data_plane_tables_are_discoverable(self):
+        # The `posthog.*` namespace holds data-plane tables (ai_events, trace_spans, metrics, …) that
+        # exist ONLY there — a bare `FROM ai_events` errors, and the execute-sql prompt points agents at
+        # their `posthog.`-qualified names. If the catalog drops them, they become undiscoverable through
+        # the schema-discovery workflow and a healthy project looks like it has no such schema. Copies of
+        # root tables (posthog.events) must stay hidden so the catalog isn't cluttered with duplicates.
+        names = {
+            row[0]
+            for row in execute_hogql_query(
+                "SELECT table_name FROM system.information_schema.tables", team=self.team
+            ).results
+            or []
+        }
+        assert {"posthog.ai_events", "posthog.trace_spans", "posthog.metrics"}.issubset(names)
+        assert "events" in names
+        assert "posthog.events" not in names
+
+    def test_posthog_namespaced_table_columns_resolve(self):
+        # Being listed isn't enough — an agent that discovers `posthog.trace_spans` must then be able to
+        # inspect its columns. Guards the split between enumerating a dotted name and resolving it.
+        columns = {
+            row[0]
+            for row in execute_hogql_query(
+                "SELECT column_name FROM system.information_schema.columns WHERE table_name = 'posthog.trace_spans'",
+                team=self.team,
+            ).results
+            or []
+        }
+        assert {"trace_id", "span_id"}.issubset(columns)
+
     def test_access_scoped_system_tables_are_filtered(self):
         # Access-scoped system tables the caller can't reach must not leak into the catalog,
         # while unscoped ones remain visible — mirroring the SQL editor's access decision.
@@ -213,8 +278,10 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("person_id", "String"),
+            ("person_id", "UUID"),
             ("event_issue_id", "UUID"),
+            ("issue_id", "UUID"),
+            ("issue_id_v2", "UUID"),
             ("issue_first_seen", "DateTime"),
             ("$virt_is_bot", "Boolean"),
         ]
@@ -242,7 +309,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
         columns = {row[0]: (row[1], row[2], row[3], row[4]) for row in response.results or []}
-        assert columns["uuid"][0] == "String"
+        assert columns["uuid"][0] == "UUID"
         assert columns["timestamp"][0] == "DateTime"
         assert columns["properties"][0] == "JSON"
         # `event` is a non-nullable string column
@@ -392,8 +459,11 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
                 "amount": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
             },
         )
+        # Fetched at runtime: the model no longer crosses the facade, and this test only needs a row
+        # in place so the merge path has something to read.
+        column_statistics_model = apps.get_model("warehouse_sources", "WarehouseColumnStatistics")
         with team_scope(self.team.id, canonical=True):
-            WarehouseColumnStatistics.objects.create(
+            column_statistics_model.objects.create(
                 team=self.team,
                 table=table,
                 column_name="id",

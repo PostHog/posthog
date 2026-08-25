@@ -1,4 +1,3 @@
-import { computeSeriesNonZeroMax } from '@posthog/quill-charts'
 import type { Series } from '@posthog/quill-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
@@ -18,26 +17,6 @@ const makeSeries = (data: number[], overrides: Partial<Series> = {}): Series => 
 })
 
 describe('goalLinesAdapter', () => {
-    describe('computeSeriesNonZeroMax', () => {
-        it('returns the max non-zero finite value across all series', () => {
-            const result = computeSeriesNonZeroMax([makeSeries([1, 2, 0, 5]), makeSeries([0, 0, 3, NaN])])
-            expect(result).toBe(5)
-        })
-
-        it('ignores hidden series', () => {
-            const result = computeSeriesNonZeroMax([
-                makeSeries([1, 2, 3]),
-                makeSeries([1000], { key: 'b', visibility: { excluded: true } }),
-            ])
-            expect(result).toBe(3)
-        })
-
-        it('returns 0 when no series have non-zero values', () => {
-            expect(computeSeriesNonZeroMax([makeSeries([0, 0, NaN])])).toBe(0)
-            expect(computeSeriesNonZeroMax([])).toBe(0)
-        })
-    })
-
     describe('goalLinesToReferenceLines', () => {
         const series = [makeSeries([10, 20, 30])]
 
@@ -71,15 +50,6 @@ describe('goalLinesAdapter', () => {
         ] as const)('%s', (_, goalOverrides, expectedProps) => {
             const goals: SchemaGoalLine[] = [{ label: 'X', value: 50, ...goalOverrides }]
             expect(goalLinesToReferenceLines(goals, series)[0]).toMatchObject(expectedProps)
-        })
-
-        it('drops goals when displayIfCrossed=false and value is below the series peak', () => {
-            const goals: SchemaGoalLine[] = [
-                { label: 'Crossed', value: 5, displayIfCrossed: false },
-                { label: 'Uncrossed', value: 100, displayIfCrossed: false },
-            ]
-            const result = goalLinesToReferenceLines(goals, series) // seriesMax = 30
-            expect(result.map((r) => r.label)).toEqual(['Uncrossed'])
         })
 
         it('keeps goals when displayIfCrossed is undefined or true', () => {

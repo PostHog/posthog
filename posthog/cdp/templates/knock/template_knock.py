@@ -9,6 +9,14 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     description="Send events to Knock",
     icon_url="/static/services/knock.png",
     category=["SMS & Push Notifications"],
+    filters={
+        "events": [
+            {"id": "$identify", "name": "$identify", "type": "events", "order": 0},
+            {"id": "$pageview", "name": "$pageview", "type": "events", "order": 1},
+        ],
+        "actions": [],
+        "filter_test_accounts": True,
+    },
     code_language="hog",
     code="""
 if (empty(inputs.userId)) {
@@ -59,7 +67,7 @@ if (res.status >= 400) {
             "key": "userId",
             "type": "string",
             "label": "User ID",
-            "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://docs.gleap.io/server/rest-api",
+            "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://docs.knock.app/concepts/users#user-identifiers",
             "default": "{person.id}",
             "secret": False,
             "required": True,
@@ -79,7 +87,8 @@ if (res.status >= 400) {
             "label": "Attribute mapping",
             "description": "Map of Knock.app attributes and their values. You can use the filters section to filter out unwanted events.",
             "default": {
-                "price": "{event.properties.price}",
+                "email": "{person.properties.email}",
+                "name": "{person.properties.name}",
             },
             "secret": False,
             "required": False,

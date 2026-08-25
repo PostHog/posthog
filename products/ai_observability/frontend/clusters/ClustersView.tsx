@@ -110,7 +110,7 @@ export function ClustersView(): JSX.Element {
 
                         {showAdminPanel && (
                             <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                resourceType={AccessControlResourceType.AiObservabilityClusters}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
@@ -250,7 +250,7 @@ export function ClustersView(): JSX.Element {
 
                     {showAdminPanel && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.AiObservabilityClusters}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonButton
@@ -294,7 +294,7 @@ export function ClustersView(): JSX.Element {
                     </div>
                     {isScatterPlotExpanded && (
                         <div className="border-t p-4">
-                            <ClusterScatterPlot traceSummaries={traceSummaries} />
+                            <ClusterScatterPlot />
                             <div className="flex items-center justify-between mt-2">
                                 <span className="text-xs text-muted">Drag to zoom &middot; Double-click to reset</span>
                                 <Tooltip

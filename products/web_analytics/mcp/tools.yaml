@@ -138,8 +138,17 @@ tools:
             `widths`, or soft-delete by setting `deleted: true` (deletion goes through this update, not a destroy call).
             Changing the `url` of a 'screenshot' heatmap triggers a fresh render.
         feature_flag: heatmaps-mcp
+    saved-capture-create:
+        operation: saved_capture_create
+        enabled: false
     saved-destroy:
         operation: saved_destroy
+        enabled: false
+    saved-preflight-create:
+        operation: saved_preflight_create
+        enabled: false
+    saved-prewarm-create:
+        operation: saved_prewarm_create
         enabled: false
     web-analytics-achievements-acknowledge-celebration:
         operation: web_analytics_achievements_acknowledge_celebration
@@ -159,6 +168,9 @@ tools:
     web-analytics-achievements-update-preferences:
         operation: web_analytics_achievements_update_preferences
         enabled: false
+    web-analytics-fetch-llms-txt:
+        operation: web_analytics_fetch_llms_txt
+        enabled: false
     web-analytics-filter-presets-create:
         operation: web_analytics_filter_presets_create
         enabled: false
@@ -176,6 +188,49 @@ tools:
         enabled: false
     web-analytics-filter-presets-update:
         operation: web_analytics_filter_presets_update
+        enabled: false
+    web-analytics-path-cleaning-suggestions-apply:
+        operation: web_analytics_path_cleaning_suggestions_apply
+        enabled: true
+        scopes:
+            - web_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Apply a path-cleaning suggestion
+        description: >
+            Apply a suggested set of path-cleaning rules by its health-issue `id`, merging them into the project's path
+            cleaning configuration. Existing rules are never overwritten — only new rules are appended — and the
+            underlying `path_cleaning_suggestions` health issue is resolved. Returns how many rules were added. Requires
+            project admin (the same gate as editing path cleaning rules in team settings). Applying changes historical
+            numbers in every Web analytics and Paths chart that has cleaning enabled, so confirm with the user before
+            calling this.
+        feature_flag: web-analytics-path-cleaning-suggestions
+    web-analytics-path-cleaning-suggestions-generate:
+        operation: web_analytics_path_cleaning_suggestions_generate
+        enabled: true
+        scopes:
+            - web_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Generate path-cleaning suggestions
+        description: >
+            Analyze the project's recent URL paths and generate suggested path-cleaning rules on demand. Samples the
+            most-viewed paths, asks the model for `{regex, alias}` rules, and validates each against the real paths
+            (dropping any that don't match), then stores the result as a `path_cleaning_suggestions` health issue.
+            Returns `status` ('generated' with a `suggestion`, or a skip reason like 'skipped_no_paths' /
+            'skipped_low_cardinality' when there isn't enough to suggest from). Pending suggestions surface through the
+            health-issues API (filter `kind=path_cleaning_suggestions`); dismiss one by PATCHing the issue's `dismissed`
+            flag. Use when the user asks to clean up or normalize their paths and no suggestion exists yet. This only
+            proposes rules — apply them with `web-analytics-path-cleaning-suggestions-apply`; nothing changes until
+            then.
+        requires_ai_consent: true
+        feature_flag: web-analytics-path-cleaning-suggestions
+    web-analytics-path-cleaning-suggestions-preview:
+        operation: web_analytics_path_cleaning_suggestions_preview
         enabled: false
     web-analytics-recap:
         operation: web_analytics_recap
@@ -197,3 +252,58 @@ tools:
             (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip
             the period-over-period comparison for a faster response. Use this to answer questions like "how are my web
             analytics?", "how did the site do last week?", or "what's my traffic looking like this month?".
+wrappers:
+    query-web-overview:
+        schema_ref: AssistantWebOverviewQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web analytics overview query
+        description_file: ./prompts/query-web-overview.md
+        system_prompt_hint: Web analytics KPIs — visitors, sessions, bounce rate, session duration
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+        use_optimized_output: false
+    query-web-stats:
+        schema_ref: AssistantWebStatsTableQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web analytics breakdown table query
+        description_file: ./prompts/query-web-stats.md
+        system_prompt_hint: Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+        use_optimized_output: false
+    query-web-vitals:
+        schema_ref: AssistantWebVitalsPathBreakdownQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web vitals path breakdown query
+        description_file: ./prompts/query-web-vitals.md
+        system_prompt_hint: Core Web Vitals per page — LCP, INP, CLS, FCP bucketed into good / needs-improvement / poor
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+        use_optimized_output: false

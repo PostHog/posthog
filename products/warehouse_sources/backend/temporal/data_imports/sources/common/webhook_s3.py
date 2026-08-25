@@ -16,8 +16,8 @@ from structlog.types import FilteringBoundLogger
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
 T = TypeVar("T")
 
@@ -63,7 +63,7 @@ class WebhookSourceManager:
     def _strip_s3_protocol(self, s3_path: str) -> str:
         return s3_path.replace("s3://", "")
 
-    async def webhook_enabled(self, skip_initial_sync_complete_check: bool = False) -> bool:
+    async def webhook_enabled(self, webhook_only: bool = False) -> bool:
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
@@ -71,13 +71,18 @@ class WebhookSourceManager:
             lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
         )
 
+        # A webhook-first resource's poll does no backfill, so the poll can neither seed the
+        # table (skip the initial-sync gate) nor rebuild it after a reset (ignore reset_pipeline
+        # — honoring it would force the poll path and orphan rows only webhooks can provide).
         if (
             not schema.is_webhook
-            or (skip_initial_sync_complete_check is not True and not schema.initial_sync_complete)
-            or self._inputs.reset_pipeline
+            or (not webhook_only and not schema.initial_sync_complete)
+            or (not webhook_only and self._inputs.reset_pipeline)
         ):
             await self._logger.adebug(
-                f"webhook_enabled=False. schema.is_webhook={schema.is_webhook}. schema.initial_sync_complete={schema.initial_sync_complete}. self._inputs.reset_pipeline={self._inputs.reset_pipeline}"
+                f"webhook_enabled=False. schema.is_webhook={schema.is_webhook}. "
+                f"schema.initial_sync_complete={schema.initial_sync_complete}. "
+                f"webhook_only={webhook_only}. reset_pipeline={self._inputs.reset_pipeline}"
             )
             return False
 
@@ -92,6 +97,14 @@ class WebhookSourceManager:
         )
 
         return has_webhook_function
+
+    async def schema_is_webhook(self) -> bool:
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        schema = await database_sync_to_async_pool(_db_read_with_retry)(
+            lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
+        )
+        return bool(schema.is_webhook)
 
     async def _list_webhook_parquet_files(self) -> list[str]:
         prefix = self._get_webhook_s3_prefix()
@@ -125,10 +138,19 @@ class WebhookSourceManager:
         await self._logger.adebug(f"Webhook source reading {len(files)} files")
 
         def finalize_batch(tables: list[pa.Table]) -> pa.Table:
-            # Dedupe across the whole concatenated batch, not per file: a yielded batch can span
-            # several S3 files, and the same id (e.g. a run's queued/completed events) can land in
-            # different files. A per-file pass would let both survive into one batch.
-            merged = pa.concat_tables(tables, promote_options="permissive")
+            # Concatenate the whole batch, not per file: a yielded batch can span several S3 files,
+            # and the same id (e.g. a run's queued/completed events) can land in different files, so
+            # the downstream transformer must see all of them together to dedupe across the batch.
+            try:
+                merged = pa.concat_tables(tables, promote_options="permissive")
+            except (pa.ArrowTypeError, pa.ArrowInvalid):
+                # Each file's table is typed independently, so one payload field can infer as
+                # different, non-promotable types across files (e.g. a number that arrives quoted in
+                # one delivery and bare in another — string vs int64), which concat can't reconcile.
+                # Rebuild through the shared row-to-table path, which resolves a column's mixed types
+                # the same way a single multi-typed file already does.
+                rows = [row for table in tables for row in table.to_pylist()]
+                merged = table_from_py_list(rows)
             return table_transformer(merged) if table_transformer else merged
 
         batch_tables: list[pa.Table] = []
@@ -141,9 +163,16 @@ class WebhookSourceManager:
                 path = self._strip_s3_protocol(file)
 
                 await self._logger.adebug(f"Webhook source reading file {path}")
-                async with await s3.open_async(path, "rb") as f:
-                    data = await f.read()
-                    table = pq.read_table(pa.BufferReader(data))
+                try:
+                    async with await s3.open_async(path, "rb") as f:
+                        data = await f.read()
+                        table = pq.read_table(pa.BufferReader(data))
+                except FileNotFoundError:
+                    # A concurrent run (or a retry of this same activity) can have already
+                    # read and deleted this file between our listing and this open, since
+                    # this is a plain listing snapshot, not a lease on the listed files.
+                    await self._logger.adebug("webhook_file_already_consumed", path=path)
+                    continue
 
                 table = await self._validate_webhook_table(table)
                 if table.num_rows == 0:
@@ -195,8 +224,8 @@ class WebhookSourceManager:
         expected_team_id = self._inputs.team_id
         expected_schema_id = str(self._inputs.schema_id)
 
-        team_id_match = pc.equal(table.column("team_id"), expected_team_id)
-        schema_id_match = pc.equal(table.column("schema_id"), expected_schema_id)
+        team_id_match = pc.equal(table.column("team_id"), pa.scalar(expected_team_id))
+        schema_id_match = pc.equal(table.column("schema_id"), pa.scalar(expected_schema_id))
         valid_mask = pc.and_(team_id_match, schema_id_match)
 
         filtered = table.filter(valid_mask)

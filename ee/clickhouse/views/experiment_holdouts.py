@@ -13,8 +13,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
-from products.experiments.backend.models.experiment import ExperimentHoldout, holdout_filters_for_flag
+from products.experiments.backend.models.experiment import ExperimentHoldout
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.facade.filters import set_holdout
 
 
 @extend_schema_field(FeatureFlagConditionGroupSchemaSerializer(many=True))
@@ -122,10 +123,12 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
                     existing_flag_serializer = FeatureFlagSerializer(
                         flag,
                         data={
-                            "filters": {
-                                **flag.filters,
-                                **holdout_filters_for_flag(instance.id, validated_data["filters"]),
-                            },
+                            "filters": set_holdout(
+                                flag.filters,
+                                holdout_id=instance.id,
+                                # validate_filters guarantees a non-empty list with rollout_percentage present.
+                                exclusion_percentage=new_filters[0]["rollout_percentage"],
+                            ),
                         },
                         partial=True,
                         context=self.context,
@@ -156,10 +159,7 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 existing_flag_serializer = FeatureFlagSerializer(
                     flag,
                     data={
-                        "filters": {
-                            **flag.filters,
-                            **holdout_filters_for_flag(None, None),
-                        }
+                        "filters": set_holdout(flag.filters, holdout_id=None, exclusion_percentage=None),
                     },
                     partial=True,
                     context={"request": request, "team": self.team, "team_id": self.team_id},

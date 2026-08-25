@@ -24,8 +24,13 @@ function formatRate(count: number, windowMs: number): string {
     return `${humanFriendlyNumber(perSec * 3600, 1)}/hr`
 }
 
-function errorRate(row: AggregatedSpanRow): number {
+export function errorRate(row: AggregatedSpanRow): number {
     return row.count > 0 ? row.error_count / row.count : 0
+}
+
+// Sub-1% rates get an extra decimal so small-but-nonzero rates don't render as 0.0%.
+export function formatErrorRate(rate: number): string {
+    return `${(rate * 100).toFixed(rate > 0 && rate < 0.01 ? 2 : 1)}%`
 }
 
 const durationCell =
@@ -68,11 +73,7 @@ function buildColumns(windowMs: number): VirtualizedTableColumn<AggregatedSpanRo
             sorter: (a, b) => errorRate(a) - errorRate(b),
             render: (row) => {
                 const rate = errorRate(row)
-                return (
-                    <span className={rate > 0 ? 'text-danger' : 'text-muted'}>
-                        {`${(rate * 100).toFixed(rate > 0 && rate < 0.01 ? 2 : 1)}%`}
-                    </span>
-                )
+                return <span className={rate > 0 ? 'text-danger' : 'text-muted'}>{formatErrorRate(rate)}</span>
             },
         },
         {

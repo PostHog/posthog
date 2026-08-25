@@ -1,7 +1,14 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
+from posthog.models.property import Property
+
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import sort_cohorts_topologically
+from products.feature_flags.backend.api.feature_flag import _describe_behavioral_properties
 
 
 class TestFeatureFlagUtils(APIBaseTest):
@@ -69,3 +76,35 @@ class TestFeatureFlagUtils(APIBaseTest):
         seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
         topologically_sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
         self.assertEqual(topologically_sorted_cohort_ids, [])
+
+
+def _behavioral_prop(key: str) -> Property:
+    return Property(
+        key=key, type="behavioral", value="performed_event", event_type="events", time_value=30, time_interval="day"
+    )
+
+
+class TestDescribeBehavioralProperties(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_properties", [], None),
+            ("single_property", [_behavioral_prop("$pageview")], "'$pageview' (performed_event)"),
+            (
+                "two_distinct_properties",
+                [_behavioral_prop("$pageview"), _behavioral_prop("$autocapture")],
+                "'$pageview' (performed_event) and 1 other",
+            ),
+            (
+                "three_distinct_properties",
+                [_behavioral_prop("$pageview"), _behavioral_prop("$autocapture"), _behavioral_prop("$identify")],
+                "'$pageview' (performed_event) and 2 others",
+            ),
+            (
+                "duplicate_properties_collapse_to_one",
+                [_behavioral_prop("$pageview"), _behavioral_prop("$pageview")],
+                "'$pageview' (performed_event)",
+            ),
+        ]
+    )
+    def test_describes_behavioral_properties(self, _name, behavioral_props, expected):
+        self.assertEqual(_describe_behavioral_properties(behavioral_props), expected)

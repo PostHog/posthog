@@ -28,7 +28,17 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     RunUsageReportsInputs,
 )
-from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow, build_context
+from posthog.temporal.usage_report.workflow import (
+    SANDBOX_COMPUTE_QUERY_NAME,
+    RunUsageReportsWorkflow,
+    _queries_for_sandbox_compute_patch,
+    build_context,
+)
+
+
+def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
+    assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
+    assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
 
 
 @parameterized.expand(

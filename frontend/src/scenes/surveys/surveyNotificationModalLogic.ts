@@ -1,5 +1,6 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -17,29 +18,37 @@ import { NEW_SURVEY } from 'scenes/surveys/constants'
 import {
     SurveyResponseFilter,
     buildResponseFilterProperties,
+    isSurveyResponsePropertyKey,
     parseResponseFiltersFromProperties,
-    stripResponseFiltersFromProperties,
 } from 'scenes/surveys/responseFilters'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
     buildSurveyExampleInvocationGlobals,
     getSurveyNotificationFilters,
     getSurveyIdBasedResponseKey,
+    surveyEmitsPartialSentEvents,
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
+    CyclotronJobFilterEvents,
+    CyclotronJobFiltersType,
     CyclotronJobInvocationGlobals,
     CyclotronJobTestInvocationResult,
     EventPropertyFilter,
     EventType,
+    FilterLogicalOperator,
     HogFunctionTemplateType,
     HogFunctionType,
     IntegrationType,
     PersonType,
     PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyOperator,
     Survey,
     SurveyEventName,
@@ -47,7 +56,20 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import type { surveyNotificationModalLogicType } from './surveyNotificationModalLogicType'
+import type {
+    AccessControlLevel,
+    BasicSurveyQuestion,
+    FeatureFlagBasicType,
+    FeatureFlagFilters,
+    LinkSurveyQuestion,
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyAppearance,
+    SurveyDisplayConditions,
+    SurveySchedule,
+    SurveyType,
+} from '../../types'
+import type { NewSurvey } from './constants'
 
 export const WEBHOOK_METHOD_OPTIONS = [
     { value: 'POST', label: 'POST' },
@@ -91,7 +113,7 @@ export type OpenSurveyNotificationDialogPayload = {
     notification?: HogFunctionType | null
     intent?: SurveyNotificationModalIntent
 }
-type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses'>
+type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses' | 'type'>
 type SurveyNotificationFormErrors = Partial<Record<Exclude<keyof SurveyNotificationForm, 'responseFilters'>, string>>
 
 const MAX_EXAMPLE_QUESTIONS = 3
@@ -252,28 +274,77 @@ function buildTemplateGlobals(survey: SurveyNotificationContext): CyclotronJobIn
     })
 }
 
-export function buildLastSurveyResponseQuery(surveyId: string): EventsQuery | null {
+/**
+ * The events the notification would fire on, as an OR of one AND-group per event, which is the
+ * same shape the full destination editor uses to list matching events (`matchingFilters` in
+ * `hogFunctionConfigurationLogic`).
+ */
+function buildNotificationMatchGroup(filters: CyclotronJobFiltersType | null): PropertyGroupFilter | null {
+    const events = filters?.events ?? []
+    if (events.length === 0) {
+        return null
+    }
+
+    const eventGroups: PropertyGroupFilterValue = {
+        type: FilterLogicalOperator.Or,
+        values: events.map((event) => ({
+            type: FilterLogicalOperator.And,
+            values: [
+                ...((event.properties ?? []) as AnyPropertyFilter[]),
+                { type: PropertyFilterType.HogQL, key: hogql`event = ${event.id}` },
+            ],
+        })),
+    }
+    const globalProperties = (filters?.properties ?? []) as AnyPropertyFilter[]
+
+    return {
+        type: FilterLogicalOperator.And,
+        values: [
+            eventGroups,
+            ...(globalProperties.length > 0
+                ? [{ type: FilterLogicalOperator.And, values: globalProperties } as PropertyGroupFilterValue]
+                : []),
+        ],
+    }
+}
+
+/**
+ * The newest response the notification would actually have fired on. Selecting on anything less
+ * hands the test an event the notification rejects (a partial `survey sent`, a rating below the
+ * configured threshold), and the test is skipped with no way for the user to tell why.
+ *
+ * Only the top-level filters are read. `buildHogFunctionInvocations` evaluates those for every
+ * function, and additionally requires a mapping to match when the function has mappings, so an
+ * event that fails them is rejected outright. Survey notifications carry no mappings, so this
+ * is exact for anything this modal creates.
+ */
+export function buildLastSurveyResponseQuery(
+    surveyId: string,
+    filters: CyclotronJobFiltersType | null
+): EventsQuery | null {
     if (!surveyId || surveyId === NEW_SURVEY.id) {
         return null
     }
+
+    // Saved filters already scope by survey, but a hand-edited one may not, and pulling another
+    // survey's response into this survey's test would be worse than finding nothing.
+    const surveyIdProperty: EventPropertyFilter = {
+        key: SurveyEventProperties.SURVEY_ID,
+        type: PropertyFilterType.Event,
+        value: surveyId,
+        operator: PropertyOperator.Exact,
+    }
+    const matchGroup = buildNotificationMatchGroup(filters)
+
     return {
         kind: NodeKind.EventsQuery,
         select: ['*', 'person'],
-        fixedProperties: [
-            {
-                key: SurveyEventProperties.SURVEY_ID,
-                type: PropertyFilterType.Event,
-                value: surveyId,
-                operator: PropertyOperator.Exact,
-            },
-            {
-                type: PropertyFilterType.HogQL,
-                key: `event IN ('${SurveyEventName.SENT}', '${SurveyEventName.DISMISSED}')`,
-            },
-        ],
         after: '-90d',
         orderBy: ['timestamp DESC'],
         limit: 1,
+        filterTestAccounts: filters?.filter_test_accounts,
+        events: matchGroup ? undefined : [SurveyEventName.SENT, SurveyEventName.DISMISSED],
+        fixedProperties: matchGroup ? [surveyIdProperty, matchGroup] : [surveyIdProperty],
         modifiers: {
             personsOnEventsMode: 'person_id_no_override_properties_on_events',
         },
@@ -286,24 +357,51 @@ type LastSurveyResponseResult =
     | { status: 'failed' }
 
 /**
- * Aligns sample globals with the saved notification's first event filter so the test
- * passes the compiled filter bytecode. Without this, a tiny mismatch (e.g. a survey id
+ * Operators where copying the filter's own value into the sample event satisfies the filter.
+ * An allowlist rather than a list of negations to skip, so an operator nobody thought about
+ * leaves the sample alone instead of being handed a value that makes the filter reject it.
+ */
+const SAMPLE_SATISFIABLE_OPERATORS = new Set<PropertyOperator>([
+    PropertyOperator.Exact,
+    PropertyOperator.IContains,
+    PropertyOperator.GreaterThanOrEqual,
+    PropertyOperator.LessThanOrEqual,
+    PropertyOperator.IsSet,
+])
+
+/**
+ * Aligns sample globals with the first event filter of the configuration being tested so the
+ * test passes the compiled filter bytecode. Without this, a tiny mismatch (e.g. a survey id
  * that drifted from `values.survey.id` due to copying or migration) skips the test.
  */
-function alignGlobalsWithNotificationFilter(
+export function alignGlobalsWithNotificationFilter(
     globals: CyclotronJobInvocationGlobals,
-    notification: HogFunctionType | null
+    filters: CyclotronJobFiltersType | null
 ): CyclotronJobInvocationGlobals {
-    const effectiveFilter = notification?.mappings?.[0]?.filters ?? notification?.filters ?? null
-    const firstEvent = effectiveFilter?.events?.[0]
+    const firstEvent = filters?.events?.[0]
     if (!firstEvent) {
         return globals
     }
     const mergedProperties = { ...globals.event.properties }
     for (const prop of firstEvent.properties ?? []) {
-        if ('key' in prop && prop.key && 'value' in prop && prop.value !== undefined) {
-            mergedProperties[prop.key] = prop.value
+        if (!('key' in prop) || !prop.key || !('value' in prop) || prop.value === undefined) {
+            continue
         }
+        // A property filter with no operator is an exact match, both here and in the backend.
+        const operator = prop.operator ?? PropertyOperator.Exact
+        if (!SAMPLE_SATISFIABLE_OPERATORS.has(operator)) {
+            continue
+        }
+        // `is set` carries a sentinel rather than a real value, so only fill in a missing key.
+        if (operator === PropertyOperator.IsSet && mergedProperties[prop.key] !== undefined) {
+            continue
+        }
+        // An `is any of` filter stores every accepted value; one of them is enough for the sample.
+        const value = Array.isArray(prop.value) ? prop.value[0] : prop.value
+        if (value === undefined) {
+            continue
+        }
+        mergedProperties[prop.key] = value
     }
     return {
         ...globals,
@@ -353,6 +451,7 @@ async function buildSurveyNotificationPayload({
             template,
             destination: form.destination,
             surveyId: survey.id,
+            emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
             form,
         })
     }
@@ -372,6 +471,7 @@ async function buildSurveyNotificationPayload({
         destination: form.destination,
         surveyName: survey.name,
         surveyId: survey.id,
+        emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
         form,
     })
 }
@@ -605,12 +705,14 @@ function createSurveyNotificationPayload({
     destination,
     surveyName,
     surveyId,
+    emitsPartialSentEvents,
     form,
 }: {
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyName?: string | null
     surveyId: string
+    emitsPartialSentEvents: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
@@ -668,14 +770,49 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(surveyId, buildResponseFilterProperties(form.responseFilters)),
+        filters: getSurveyNotificationFilters(
+            surveyId,
+            emitsPartialSentEvents,
+            buildResponseFilterProperties(form.responseFilters)
+        ),
         hog: template.code,
         icon_url: template.icon_url,
         enabled: true,
     }
 }
 
-function mergeResponseFiltersIntoExistingFilters(
+// Everything this modal writes onto a sent branch. Anything else was added elsewhere, so it has
+// to survive a rebuild: per-event properties are AND'd, and dropping a restriction widens which
+// responses reach the destination.
+const MODAL_MANAGED_SENT_PROPERTY_KEYS = new Set<string>([
+    SurveyEventProperties.SURVEY_ID,
+    SurveyEventProperties.SURVEY_COMPLETED,
+])
+
+function getCustomSentProperties(
+    filters: HogFunctionType['filters']
+): NonNullable<CyclotronJobFilterEvents['properties']> {
+    // Union across every sent branch rather than the first one: a restriction added through the full
+    // editor can sit on any single branch, and per-event properties are AND'd, so losing it widens
+    // delivery. Keyed by value because the same restriction normally exists on every branch, and
+    // object identity would let copies pile up on each re-save.
+    const byValue = new Map<string, NonNullable<CyclotronJobFilterEvents['properties']>[number]>()
+    for (const event of filters?.events ?? []) {
+        if (event.id !== SurveyEventName.SENT) {
+            continue
+        }
+        for (const property of event.properties ?? []) {
+            const key = 'key' in property && typeof property.key === 'string' ? property.key : null
+            if (key !== null && (MODAL_MANAGED_SENT_PROPERTY_KEYS.has(key) || isSurveyResponsePropertyKey(key))) {
+                continue
+            }
+            byValue.set(JSON.stringify(property), property)
+        }
+    }
+    return Array.from(byValue.values())
+}
+
+export function mergeResponseFiltersIntoExistingFilters(
     existingFilters: HogFunctionType['filters'],
     fallbackFilters: HogFunctionType['filters'],
     responseFilters: SurveyResponseFilter[]
@@ -685,25 +822,25 @@ function mergeResponseFiltersIntoExistingFilters(
         return fallbackFilters
     }
     const responseProperties = buildResponseFilterProperties(responseFilters)
-    const events = (base.events ?? []).map((event) => {
-        if (event.id !== SurveyEventName.SENT) {
-            return event
-        }
-        const preservedProperties = stripResponseFiltersFromProperties(
-            (event.properties ?? []).filter(
-                (property): property is EventPropertyFilter =>
-                    typeof property === 'object' &&
-                    property !== null &&
-                    'type' in property &&
-                    (property as { type?: unknown }).type === PropertyFilterType.Event
-            )
-        )
-        return {
-            ...event,
-            properties: [...preservedProperties, ...responseProperties],
-        }
-    })
-    return { ...base, events }
+    // Sent branches are rebuilt from the freshly built filters rather than preserved, so re-saving
+    // repairs a notification stored before the completion branches were corrected. Only when the
+    // saved config already had one: a notification whose sent branches were removed through the
+    // full editor is deliberately dismissal-only, and reinstating them would widen delivery. A
+    // notification needing the repair still has its sent branch, so gating on it costs nothing.
+    const hasSavedSentBranch = (base.events ?? []).some((event) => event.id === SurveyEventName.SENT)
+    const customProperties = getCustomSentProperties(base)
+    const rebuiltSentEvents = hasSavedSentBranch
+        ? (fallbackFilters?.events ?? [])
+              .filter((event) => event.id === SurveyEventName.SENT)
+              .map(
+                  (event): CyclotronJobFilterEvents => ({
+                      ...event,
+                      properties: [...(event.properties ?? []), ...customProperties, ...responseProperties],
+                  })
+              )
+        : []
+    const preservedEvents = (base.events ?? []).filter((event) => event.id !== SurveyEventName.SENT)
+    return { ...base, events: [...rebuiltSentEvents, ...preservedEvents] }
 }
 
 function updateSurveyNotificationPayload({
@@ -711,12 +848,14 @@ function updateSurveyNotificationPayload({
     template,
     destination,
     surveyId,
+    emitsPartialSentEvents,
     form,
 }: {
     notification: HogFunctionType
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyId: string
+    emitsPartialSentEvents: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const payload = createSurveyNotificationPayload({
@@ -724,6 +863,7 @@ function updateSurveyNotificationPayload({
         destination,
         surveyName: null,
         surveyId,
+        emitsPartialSentEvents,
         form,
     })
 
@@ -769,6 +909,7 @@ function createCopiedSurveyNotificationPayload({
         destination,
         surveyName: survey.name,
         surveyId: survey.id,
+        emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
         form,
     })
 
@@ -789,7 +930,11 @@ function createCopiedSurveyNotificationPayload({
         },
         mappings: remapSurveyResponseProperties(notification.mappings, survey),
         masking: notification.masking,
-        filters: getSurveyNotificationFilters(survey.id, buildResponseFilterProperties(form.responseFilters)),
+        filters: getSurveyNotificationFilters(
+            survey.id,
+            surveyEmitsPartialSentEvents(survey),
+            buildResponseFilterProperties(form.responseFilters)
+        ),
         hog: remapSurveyResponseProperties(notification.hog, survey) ?? template.code,
         icon_url: notification.icon_url ?? template.icon_url,
         enabled: true,
@@ -845,6 +990,284 @@ function getNotificationFormErrors(
             }
     }
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface surveyNotificationModalLogicValues {
+    integrations: IntegrationType[] | null // integrationsLogic
+    survey: NewSurvey | Survey // surveyLogic
+    surveyLoading: boolean // surveyLogic
+    surveyNotifications: HogFunctionType[] // surveyLogic
+    surveyNotificationsLoading: boolean // surveyLogic
+    copiedNotification: HogFunctionType | null
+    editingNotification: HogFunctionType | null
+    hasSlackIntegration: boolean
+    isNotificationFormSubmitting: boolean
+    isNotificationFormValid: boolean
+    isOpen: boolean
+    notificationForm: SurveyNotificationForm
+    notificationFormAllErrors: Record<string, any>
+    notificationFormChanged: boolean
+    notificationFormErrors: DeepPartialMap<SurveyNotificationForm, ValidationErrorType>
+    notificationFormHasErrors: boolean
+    notificationFormManualErrors: Record<string, any>
+    notificationFormTouched: boolean
+    notificationFormTouches: Record<string, boolean>
+    notificationFormValidationErrors: DeepPartialMap<SurveyNotificationForm, ValidationErrorType>
+    notificationSubmissionError: string | null
+    pendingDeepLink: string | null
+    selectedSlackIntegration: IntegrationType | null
+    showNotificationFormErrors: boolean
+    submitDisabledReason: string | undefined
+    templateGlobals: CyclotronJobInvocationGlobals
+    testResult: CyclotronJobTestInvocationResult | null
+    testResultError: string | null
+    testResultLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface surveyNotificationModalLogicActions {
+    loadSurveyNotifications: () => any // surveyLogic
+    loadSurveyNotificationsSuccess: (
+        surveyNotifications: HogFunctionType[],
+        payload?: any
+    ) => {
+        payload?: any
+        surveyNotifications: HogFunctionType[]
+    } // surveyLogic
+    loadSurveySuccess: (
+        survey:
+            | Survey
+            | {
+                  appearance: SurveyAppearance | null
+                  archived: boolean
+                  base_language?: string | null | undefined
+                  conditions: SurveyDisplayConditions | null
+                  current_iteration?: number | null | undefined
+                  description: string
+                  enable_iframe_embedding?: boolean | null | undefined
+                  enable_partial_responses?: boolean | null | undefined
+                  end_date: string | null
+                  form_content?: Record<string, unknown> | null | undefined
+                  headline_response_count?: number | null | undefined
+                  headline_summary?: string | null | undefined
+                  id: 'new'
+                  iteration_count?: number | null | undefined
+                  iteration_frequency_days?: number | null | undefined
+                  iteration_start_dates?: string[] | undefined
+                  linked_flag: FeatureFlagBasicType | null
+                  linked_flag_id: number | null
+                  name: string
+                  questions: (
+                      | BasicSurveyQuestion
+                      | LinkSurveyQuestion
+                      | MultipleSurveyQuestion
+                      | RatingSurveyQuestion
+                  )[]
+                  response_sampling_interval?: number | null | undefined
+                  response_sampling_interval_type?: string | null | undefined
+                  response_sampling_limit?: number | null | undefined
+                  response_sampling_start_date?: string | null | undefined
+                  responses_limit: number | null
+                  schedule?: SurveySchedule | null | undefined
+                  start_date: string | null
+                  targeting_flag: FeatureFlagBasicType | null
+                  targeting_flag_filters?: FeatureFlagFilters | undefined
+                  translations?:
+                      | Record<
+                            string,
+                            {
+                                backButtonText?: string | undefined
+                                name?: string | undefined
+                                submitButtonText?: string | undefined
+                                thankYouMessageCloseButtonText?: string | undefined
+                                thankYouMessageDescription?: string | undefined
+                                thankYouMessageHeader?: string | undefined
+                            }
+                        >
+                      | null
+                      | undefined
+                  type: SurveyType
+                  user_access_level: AccessControlLevel
+              },
+        payload?: any
+    ) => {
+        payload?: any
+        survey:
+            | Survey
+            | {
+                  appearance: SurveyAppearance | null
+                  archived: boolean
+                  base_language?: string | null | undefined
+                  conditions: SurveyDisplayConditions | null
+                  current_iteration?: number | null | undefined
+                  description: string
+                  enable_iframe_embedding?: boolean | null | undefined
+                  enable_partial_responses?: boolean | null | undefined
+                  end_date: string | null
+                  form_content?: Record<string, unknown> | null | undefined
+                  headline_response_count?: number | null | undefined
+                  headline_summary?: string | null | undefined
+                  id: 'new'
+                  iteration_count?: number | null | undefined
+                  iteration_frequency_days?: number | null | undefined
+                  iteration_start_dates?: string[] | undefined
+                  linked_flag: FeatureFlagBasicType | null
+                  linked_flag_id: number | null
+                  name: string
+                  questions: (
+                      | BasicSurveyQuestion
+                      | LinkSurveyQuestion
+                      | MultipleSurveyQuestion
+                      | RatingSurveyQuestion
+                  )[]
+                  response_sampling_interval?: number | null | undefined
+                  response_sampling_interval_type?: string | null | undefined
+                  response_sampling_limit?: number | null | undefined
+                  response_sampling_start_date?: string | null | undefined
+                  responses_limit: number | null
+                  schedule?: SurveySchedule | null | undefined
+                  start_date: string | null
+                  targeting_flag: FeatureFlagBasicType | null
+                  targeting_flag_filters?: FeatureFlagFilters | undefined
+                  translations?:
+                      | Record<
+                            string,
+                            {
+                                backButtonText?: string | undefined
+                                name?: string | undefined
+                                submitButtonText?: string | undefined
+                                thankYouMessageCloseButtonText?: string | undefined
+                                thankYouMessageDescription?: string | undefined
+                                thankYouMessageHeader?: string | undefined
+                            }
+                        >
+                      | null
+                      | undefined
+                  type: SurveyType
+                  user_access_level: AccessControlLevel
+              }
+    } // surveyLogic
+    clearTestResult: () => {
+        value: true
+    }
+    clearTestResultFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    clearTestResultSuccess: (
+        testResult: null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        testResult: null
+        payload?: {
+            value: true
+        }
+    }
+    closeDialog: () => {
+        value: true
+    }
+    consumePendingDeepLink: () => {
+        value: true
+    }
+    openDialog: (payload?: OpenSurveyNotificationDialogPayload) => {
+        intent: SurveyNotificationModalIntent
+        notification: HogFunctionType | null
+    }
+    resetNotificationForm: (values?: SurveyNotificationForm) => {
+        values?: SurveyNotificationForm
+    }
+    sendTestNotification: (payload: { source: SurveyNotificationTestSource }) => {
+        source: SurveyNotificationTestSource
+    }
+    sendTestNotificationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    sendTestNotificationSuccess: (
+        testResult: CyclotronJobTestInvocationResult,
+        payload?: {
+            source: SurveyNotificationTestSource
+        }
+    ) => {
+        testResult: CyclotronJobTestInvocationResult
+        payload?: {
+            source: SurveyNotificationTestSource
+        }
+    }
+    setNotificationFormManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setNotificationFormValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setNotificationFormValues: (values: DeepPartial<SurveyNotificationForm>) => {
+        values: DeepPartial<SurveyNotificationForm>
+    }
+    setNotificationSubmissionError: (error: string | null) => {
+        error: string | null
+    }
+    setPendingDeepLink: (target: string | null) => {
+        target: string | null
+    }
+    submitNotificationForm: () => {
+        value: boolean
+    }
+    submitNotificationFormFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitNotificationFormRequest: (notificationForm: SurveyNotificationForm) => {
+        notificationForm: SurveyNotificationForm
+    }
+    submitNotificationFormSuccess: (notificationForm: SurveyNotificationForm) => {
+        notificationForm: SurveyNotificationForm
+    }
+    touchNotificationFormField: (key: string) => {
+        key: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface surveyNotificationModalLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        hasSlackIntegration: (integrations: IntegrationType[] | null) => boolean
+        selectedSlackIntegration: (
+            integrations: IntegrationType[] | null,
+            notificationForm: SurveyNotificationForm
+        ) => IntegrationType | null
+        templateGlobals: (survey: NewSurvey | Survey) => CyclotronJobInvocationGlobals
+        submitDisabledReason: (
+            survey: NewSurvey | Survey,
+            notificationFormErrors: DeepPartialMap<SurveyNotificationForm, ValidationErrorType>,
+            isNotificationFormSubmitting: boolean,
+            editingNotification: HogFunctionType | null,
+            copiedNotification: HogFunctionType | null
+        ) => string | undefined
+    }
+}
+
+export type surveyNotificationModalLogicType = MakeLogicType<
+    surveyNotificationModalLogicValues,
+    surveyNotificationModalLogicActions,
+    SurveyNotificationModalLogicProps,
+    surveyNotificationModalLogicMeta
+>
 
 export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType>([
     path(['scenes', 'surveys', 'surveyNotificationModalLogic']),
@@ -939,28 +1362,36 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                         copiedNotification: values.copiedNotification,
                     })
 
+                    // Filter against the configuration being tested, not the saved notification,
+                    // so unsaved filter edits in the modal are reflected in the test.
+                    const filters = configuration.filters ?? null
+
                     let globals: CyclotronJobInvocationGlobals = values.templateGlobals
                     let usingSample = source === 'sample'
                     if (source === 'last_response') {
-                        const lookup = await fetchLastSurveyResponseGlobals(values.lastResponseEventQuery)
+                        const lookup = await fetchLastSurveyResponseGlobals(
+                            buildLastSurveyResponseQuery(values.survey.id, filters)
+                        )
                         if (lookup.status === 'ok') {
                             globals = lookup.globals
                         } else if (lookup.status === 'failed') {
                             usingSample = true
                             lemonToast.warning(
-                                'Could not fetch the last response — sent the test with sample data instead.'
+                                "Couldn't load the last response. Sent the test with sample data instead."
                             )
                         } else {
                             usingSample = true
-                            lemonToast.info('No survey responses yet — sent the test with sample data instead.')
+                            lemonToast.info(
+                                'No response in the last 90 days matches these filters. Sent the test with sample data instead.'
+                            )
                         }
                     }
 
-                    // Align sample globals with the saved filter's expected values so the test
+                    // Align sample globals with the filter's expected values so the test
                     // isn't skipped by a $survey_id or completion-flag mismatch. Applies to an
                     // explicit sample-data test and to a last-response test that fell back to it.
                     if (usingSample) {
-                        globals = alignGlobalsWithNotificationFilter(globals, values.editingNotification)
+                        globals = alignGlobalsWithNotificationFilter(globals, filters)
                     }
 
                     const id = values.editingNotification?.id ?? 'new'
@@ -1014,10 +1445,6 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 null,
         ],
         templateGlobals: [(s) => [s.survey], (survey: SurveyNotificationContext) => buildTemplateGlobals(survey)],
-        lastResponseEventQuery: [
-            (s) => [s.survey],
-            (survey: SurveyNotificationContext): EventsQuery | null => buildLastSurveyResponseQuery(survey.id),
-        ],
         submitDisabledReason: [
             (s) => [
                 s.survey,

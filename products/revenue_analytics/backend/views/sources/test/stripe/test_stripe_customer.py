@@ -14,7 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA as CUSTOMER_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.customer import build
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
@@ -97,10 +97,6 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         self.setup_stripe_external_data_source_with_specific_schemas(
             [{"name": CUSTOMER_RESOURCE_NAME, "table_name": None}]
         )
-
-        # Set the table to None to simulate missing table
-        customer_schema = self.get_stripe_schema_by_name(CUSTOMER_RESOURCE_NAME)
-        customer_schema.table = None
 
         query = build(self.stripe_handle)
 

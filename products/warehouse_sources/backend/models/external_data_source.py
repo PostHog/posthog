@@ -1,7 +1,7 @@
-from datetime import datetime
 from uuid import UUID
 
 from django.db import models
+from django.utils import timezone
 
 import structlog
 
@@ -10,9 +10,20 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSourceType,
+    ManagedWarehouseSQLMode,
+    external_data_source_type_choices,
+)
 
 logger = structlog.get_logger(__name__)
+
+MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
+MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
+MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND = "duckgres_service"
+MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS = frozenset({"org_root", "stored_server_login"})
+SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
 
 
 class ExternalDataSourceManager(models.Manager):
@@ -29,6 +40,8 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         WEB = "web", "web"
         API = "api", "api"
         MCP = "mcp", "mcp"
+        WIZARD = "wizard", "wizard"
+        SELF_DRIVING = "self_driving", "self_driving"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
@@ -54,7 +67,12 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     # `status` is deprecated in favour of external_data_schema.status
     status = models.CharField(max_length=400)
-    source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
+    source_type = models.CharField(max_length=128, choices=external_data_source_type_choices)
+    # Pinned vendor API version (opaque vendor label, e.g. a Stripe date version). NULL resolves
+    # to the source's `default_version` at sync time. A dedicated column (not `job_inputs`) so the
+    # pin is queryable via the `data_warehouse_sources` HogQL system table — `job_inputs` is
+    # encrypted at rest.
+    api_version = models.CharField(max_length=128, null=True, blank=True)
     job_inputs = EncryptedJSONField(null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
@@ -65,7 +83,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
     access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
     # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
-    direct_query_enabled = models.BooleanField(default=True)
+    # Off by default — a user opts a synced source in explicitly before it becomes live-queryable.
+    direct_query_enabled = models.BooleanField(default=False)
+    # Auto-enable syncing for schemas discovered after source creation (both the scheduled
+    # discovery pass and manual "Pull new schemas"). Off by default — per-source opt-in.
+    auto_sync_new_schemas = models.BooleanField(default=False)
+    # Optional list of fnmatch-style globs (e.g. ["raw_*"]) restricting which newly discovered
+    # schema names auto-sync; matched case-insensitively against both the qualified and bare
+    # table name. Null/empty means every new schema qualifies.
+    auto_sync_schema_patterns = models.JSONField(null=True, blank=True)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
@@ -92,6 +118,154 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_direct_snowflake(self) -> bool:
         return self.is_direct_query and self.source_type == ExternalDataSourceType.SNOWFLAKE
+
+    @property
+    def is_direct_redshift(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.REDSHIFT
+
+    @property
+    def is_system_managed(self) -> bool:
+        metadata = self.connection_metadata
+        return isinstance(metadata, dict) and metadata.get("system_managed") is True
+
+    @property
+    def has_managed_warehouse_prefix(self) -> bool:
+        return self.prefix == MANAGED_WAREHOUSE_SOURCE_PREFIX
+
+    @property
+    def is_managed_warehouse(self) -> bool:
+        metadata = self.connection_metadata
+        return (
+            self.source_type == ExternalDataSourceType.POSTGRES
+            and self.access_method == self.AccessMethod.DIRECT
+            and self.has_managed_warehouse_prefix
+            and self.is_system_managed
+            and isinstance(metadata, dict)
+            and metadata.get("engine") == "duckdb"
+        )
+
+    @classmethod
+    def managed_warehouse_identity_q(cls) -> models.Q:
+        return models.Q(
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=cls.AccessMethod.DIRECT,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            connection_metadata__engine="duckdb",
+            connection_metadata__system_managed=True,
+        )
+
+    @classmethod
+    def legacy_managed_warehouse_q(cls) -> models.Q:
+        return cls.managed_warehouse_identity_q() & models.Q(
+            direct_query_enabled=True,
+            connection_metadata__credential_kind__in=MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
+        )
+
+    @classmethod
+    def ready_managed_warehouse_q(cls) -> models.Q:
+        return (
+            cls.managed_warehouse_identity_q()
+            & models.Q(direct_query_enabled=True)
+            & (
+                models.Q(connection_metadata__credential_kind=MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND)
+                | models.Q(
+                    connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+                    connection_metadata__reader_configured=True,
+                )
+            )
+        )
+
+    @classmethod
+    def dynamic_managed_warehouse_q(cls) -> models.Q:
+        return cls.managed_warehouse_identity_q() & models.Q(
+            direct_query_enabled=True,
+            connection_metadata__credential_kind=MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
+        )
+
+    def _has_valid_managed_warehouse_connection_inputs(self, *, expected_user: str | None = None) -> bool:
+        job_inputs = self.job_inputs
+        if not isinstance(job_inputs, dict):
+            return False
+
+        port = job_inputs.get("port")
+        if isinstance(port, bool):
+            return False
+        if isinstance(port, int):
+            port_number = port
+        elif isinstance(port, str) and port.isdigit():
+            port_number = int(port)
+        else:
+            return False
+
+        user = job_inputs.get("user")
+        return (
+            isinstance(user, str)
+            and bool(user)
+            and (expected_user is None or user == expected_user)
+            and isinstance(job_inputs.get("host"), str)
+            and bool(job_inputs["host"].strip())
+            and isinstance(job_inputs.get("database"), str)
+            and bool(job_inputs["database"].strip())
+            and isinstance(job_inputs.get("password"), str)
+            and bool(job_inputs["password"])
+            and 1 <= port_number <= 65535
+        )
+
+    @property
+    def is_legacy_managed_warehouse(self) -> bool:
+        metadata = self.connection_metadata
+        return (
+            self.is_managed_warehouse
+            and isinstance(metadata, dict)
+            and metadata.get("credential_kind") in MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS
+        )
+
+    @property
+    def is_managed_warehouse_ready(self) -> bool:
+        metadata = self.connection_metadata
+        if (
+            not self.is_managed_warehouse
+            or not self.direct_query_enabled
+            or not isinstance(metadata, dict)
+            or metadata.get("credential_kind") != MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND
+            or metadata.get("reader_configured") is not True
+        ):
+            return False
+
+        return self._has_valid_managed_warehouse_connection_inputs(expected_user=f"posthog_team_{self.team_id}")
+
+    @property
+    def is_dynamic_managed_warehouse(self) -> bool:
+        metadata = self.connection_metadata
+        return (
+            self.is_managed_warehouse
+            and self.direct_query_enabled
+            and isinstance(metadata, dict)
+            and metadata.get("credential_kind") == MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
+            and isinstance(metadata.get("lifecycle_generation"), int)
+            and not isinstance(metadata.get("lifecycle_generation"), bool)
+            and metadata["lifecycle_generation"] >= 0
+            and self.job_inputs == {}
+        )
+
+    @property
+    def managed_warehouse_sql_mode(self) -> ManagedWarehouseSQLMode:
+        # Accepted interim contract for the default-off rollout: provisioning already exposes organization-root
+        # access, so duckgres_service is intentionally the built-in organization connection. Project-scoped grants
+        # require future Duckgres authorization support.
+        if self.is_dynamic_managed_warehouse or self.is_managed_warehouse_ready:
+            return ManagedWarehouseSQLMode.BUILT_IN
+        if (
+            self.is_legacy_managed_warehouse
+            and self.direct_query_enabled
+            and self._has_valid_managed_warehouse_connection_inputs()
+        ):
+            return ManagedWarehouseSQLMode.EXTERNAL
+        return ManagedWarehouseSQLMode.UNAVAILABLE
+
+    @classmethod
+    def is_system_managed_prefix(cls, prefix: str | None) -> bool:
+        return isinstance(prefix, str) and prefix.strip() in SYSTEM_MANAGED_SOURCE_PREFIXES
 
     @property
     def direct_engine(self) -> str | None:
@@ -128,7 +302,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()
 
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
@@ -181,12 +355,42 @@ def get_direct_external_data_source_for_connection(
     except ValueError:
         return None
 
-    return (
+    # Function-local: capability imports this module (circular); also keeps direct-SQL drivers off django.setup().
+    from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
+    source = (
         ExternalDataSource.objects.filter(
             team_id=team_id,
             id=source_uuid,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        .exclude(deleted=True)
+        .defer("job_inputs")
+        .first()
+    )
+    if source is None or not is_direct_capable(source):
+        return None
+
+    if source.has_managed_warehouse_prefix and source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+        return None
+    return source
+
+
+def is_managed_warehouse_connection_ready(team_id: int, connection_id: str | None) -> bool:
+    if not connection_id:
+        return False
+
+    try:
+        source_uuid = UUID(connection_id)
+    except ValueError:
+        return False
+
+    source = (
+        ExternalDataSource.objects.filter(
+            team_id=team_id,
+            id=source_uuid,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
         )
         .exclude(deleted=True)
         .first()
     )
+    return source is not None and source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN

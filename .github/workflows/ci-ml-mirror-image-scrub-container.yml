@@ -3,7 +3,6 @@ name: Build and deploy ml-mirror-image-scrub container image
 on:
     workflow_dispatch:
     pull_request:
-    merge_group:
     push:
         branches:
             - 'master'
@@ -19,7 +18,7 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog' && github.event_name != 'merge_group'
+        if: github.repository_owner == 'PostHog'
         name: Determine need to run ml-mirror-image-scrub Docker build
         outputs:
             scrub_files: ${{ steps.filter.outputs.scrub_files }}
@@ -33,7 +32,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
@@ -46,9 +45,7 @@ jobs:
     test:
         needs: changes
         name: Unit-test ml-mirror-image-scrub
-        if: |
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
-            github.event_name == 'merge_group'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
@@ -85,12 +82,14 @@ jobs:
     build:
         needs: changes
         name: Build and push ml-mirror-image-scrub image
+        # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
+        # pulls images pushed for them, and each constituent PR already built its own.
         if: |
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
-            github.event_name == 'merge_group' ||
-            (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.scrub_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
-        runs-on: depot-ubuntu-latest
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true') ||
+             (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
+             (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.scrub_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'))
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -100,7 +99,23 @@ jobs:
         outputs:
             digest: ${{ steps.build.outputs.digest }}
 
+        # ECR routing resolved once so the push target can't drift from the digest reader:
+        # master → posthog-ml-mirror-image-scrub via the master role; else → the -prs repo via the prs role.
+        env:
+            ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && 'posthog-ml-mirror-image-scrub' || 'posthog-ml-mirror-image-scrub-prs' }}
+            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+
         steps:
+            - name: Assert master publish role is configured
+              if: github.ref == 'refs/heads/master'
+              env:
+                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+              run: |
+                  if [[ -z "$MASTER_ROLE" ]]; then
+                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
+                    exit 1
+                  fi
+
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -118,7 +133,9 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: posthog-ml-mirror-image-scrub
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  # ECR repo + role resolved once at job level (see env above). ghcr/dockerhub unchanged.
+                  ecr-image-name: ${{ env.ECR_IMAGE }}
+                  aws-role-to-assume: ${{ env.ECR_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -133,11 +150,13 @@ jobs:
                   buildx-fallback: false
                   # Depot project "replay-vision-ingestion-ml-mirror-image-scrub".
                   project: 'hmrgpk84ch'
-                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: Dockerfile.ml-mirror-image-scrub
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
-                  platforms: linux/amd64
+                  # Both arches: the charts-side Karpenter NodePool defaults to arm64 (Graviton), and an
+                  # amd64-only manifest fails there with "no match for platform in manifest".
+                  platforms: linux/amd64,linux/arm64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
 
@@ -148,10 +167,10 @@ jobs:
                   COMMIT_SHA: ${{ github.sha }}
               run: |
                   echo "Image digest: $IMAGE_DIGEST"
-                  echo "Full image reference: $IMAGE_REGISTRY/posthog-ml-mirror-image-scrub:$COMMIT_SHA@$IMAGE_DIGEST"
+                  echo "Full image reference: $IMAGE_REGISTRY/$ECR_IMAGE:$COMMIT_SHA@$IMAGE_DIGEST"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-ml-mirror-image-scrub:$COMMIT_SHA@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`$IMAGE_REGISTRY/$ECR_IMAGE:$COMMIT_SHA@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "**Image SHA:** \`$COMMIT_SHA@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY

@@ -31,10 +31,11 @@ pytestmark = [
 ]
 
 
-def test_delete_batch_export(client: HttpClient, temporal, organization, team, user):
+def test_delete_batch_export(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
     """Test deleting a BatchExport."""
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -89,10 +90,13 @@ async def wait_for_workflow_in_status(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, organization, team, user):
+def test_delete_batch_export_cancels_backfills(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     """Test deleting a BatchExport cancels ongoing BatchExportBackfill."""
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -147,9 +151,12 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, org
         describe_schedule(temporal, batch_export_id)
 
 
-def test_cannot_delete_export_of_other_organizations(client: HttpClient, temporal, organization, team, user):
+def test_cannot_delete_export_of_other_organizations(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -182,9 +189,10 @@ def test_cannot_delete_export_of_other_organizations(client: HttpClient, tempora
     assert response.status_code == status.HTTP_200_OK
 
 
-def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal, organization, team, user):
+def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -215,10 +223,13 @@ def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal, organi
 
 
 @pytest.mark.django_db(transaction=True)
-def test_delete_batch_export_even_without_underlying_schedule(client: HttpClient, temporal, organization, team, user):
+def test_delete_batch_export_even_without_underlying_schedule(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     """Test deleting a BatchExport completes even if underlying Schedule was already deleted."""
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

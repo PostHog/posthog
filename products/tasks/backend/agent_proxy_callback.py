@@ -14,7 +14,7 @@ from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackResponseSerializer,
     TaskRunErrorResponseSerializer,
 )
-from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
                 id=run_id, task_id=task_id, team_id=team_id
             )
             if task_run.mode == "interactive":
-                notify_task_run_awaiting_input(task_run)
+                notify_task_run_turn_completed(task_run)
                 dispatched = True
         except TaskRun.DoesNotExist:
             logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})

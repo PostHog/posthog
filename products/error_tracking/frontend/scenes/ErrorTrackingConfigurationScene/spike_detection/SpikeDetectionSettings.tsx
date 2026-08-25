@@ -9,17 +9,20 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
-import { ERROR_TRACKING_LOGIC_KEY } from '../../../utils'
+import { ERROR_TRACKING_LOGIC_KEY, errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { RecentSpikes } from './RecentSpikes'
 import { spikeDetectionConfigLogic } from './spikeDetectionConfigLogic'
 
 export function SpikeDetectionSettings(): JSX.Element {
     const { configLoading, configFormChanged, isConfigFormSubmitting, hasSpikeAlerts } =
         useValues(spikeDetectionConfigLogic)
+    // Must match the props the configuration tab mounts settingsLogic with. The logic is keyed on
+    // logicKey alone, so a different sectionId here would rebuild the shared instance and break
+    // panel navigation for every error tracking setting.
     const { selectSetting } = useActions(
         settingsLogic({
             logicKey: ERROR_TRACKING_LOGIC_KEY,
-            sectionId: 'environment-error-tracking',
+            sectionId: 'environment-error-tracking-configuration',
             settingId: 'error-tracking-alerting',
         })
     )
@@ -111,7 +114,10 @@ export function SpikeDetectionSettings(): JSX.Element {
                     <LemonButton
                         type="primary"
                         htmlType="submit"
-                        disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                        disabledReason={
+                            errorTrackingEditAccessDisabledReason() ??
+                            (!configFormChanged ? 'No changes to save' : undefined)
+                        }
                         loading={isConfigFormSubmitting}
                     >
                         Save

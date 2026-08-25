@@ -40,24 +40,50 @@ The right mitigation depends on experiment state:
 
 ## The two rollout controls
 
-There are two separate controls that determine who sees what. Both are set via `parameters`.
+There are two separate controls that determine who sees what.
+Both live on the linked feature flag, sent through the `feature_flag` object in the flag's own shape (not the deprecated `parameters` keys).
 
-### 1. Variant split (`parameters.feature_flag_variants`)
+### 1. Variant split (`feature_flag.filters.multivariate.variants`)
 
 How users **inside** the experiment are distributed across variants.
 
-- Array of `{key, name, split_percent}` — percentages must sum to 100
-- First variant must have key `"control"` — this is the baseline
+- Array of `{key, name, rollout_percentage}`, where the `rollout_percentage` values must sum to 100
 - Minimum 2 variants, maximum 20
+- No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant
 - Default: control 50% / test 50%
 
-If the user says "A/B/C test", map the baseline to `"control"` and create additional variants for the others.
+If the user says "A/B/C test" without naming keys, key the baseline `"control"` (the convention) and create additional variants for the others; if they ask for specific keys, use them as-is with the baseline first.
 
-### 2. Overall rollout (`parameters.rollout_percentage`)
+### 2. Overall rollout (`feature_flag.filters.groups[0].rollout_percentage`)
 
-What percentage of **all** users enter the experiment at all. Default: 100%.
+What percentage of **all** users enter the experiment at all, sent as a single rollout group: `groups: [{ "properties": [], "rollout_percentage": N }]`.
+Default: 100%.
 
-Users not included are excluded entirely — they don't see any variant and are **not part of the analysis**.
+Users not included are excluded entirely: they don't see any variant and are **not part of the analysis**.
+
+### Where these are sent
+
+Both controls live inside `feature_flag.filters`:
+
+```json
+{
+  "feature_flag": {
+    "filters": {
+      "multivariate": {
+        "variants": [
+          { "key": "control", "name": "Control", "rollout_percentage": 50 },
+          { "key": "test", "name": "Test", "rollout_percentage": 50 }
+        ]
+      },
+      "groups": [{ "properties": [], "rollout_percentage": 100 }]
+    },
+    "ensure_experience_continuity": false
+  }
+}
+```
+
+`filters` may also carry `aggregation_group_type_index` (to run the experiment on a group type rather than individual users) and `payloads` (JSON-encoded strings keyed by variant key).
+On a **running** experiment, any flag-config change must also send `update_feature_flag_params: true`, otherwise the API rejects the update before it reaches the flag (see "Changing rollout on a running experiment").
 
 ### How they interact
 
@@ -168,6 +194,9 @@ Present the warning covering both perspectives:
 
 **Exception**: Increasing rollout (without changing the split) is generally safe — no users switch variants, more users are added cleanly.
 
+**If the goal is "stop new users from entering" rather than a percentage change**: reducing the rollout is the wrong tool — it drops already-enrolled users out of the experiment too.
+Freezing exposure (`experiment-freeze-exposure`) closes enrollment while enrolled users keep their variant and metrics keep flowing; see `managing-experiment-lifecycle` for its preconditions and limitations.
+
 **Mid-experiment fix for uneven-split bias**: switching multivariate handling from "Exclude" to "First
 seen variant" is the recommended mitigation for already-launched experiments — no users switch variants
 and all collected data stays in the analysis. Changing the split to be even is an anti-pattern mid-run
@@ -175,3 +204,9 @@ and all collected data stays in the analysis. Changing the split to be even is a
 been exposed to many users yet. See `configuring-experiment-analytics` for how to change the handling.
 
 See `references/changing-distribution-after-launch.md` for detailed warnings, what to tell the user, and when to recommend alternatives.
+
+## Related skills
+
+- **`configuring-experiment-analytics`** — the analysis side: exposure criteria, metrics, and multivariate handling
+- **`diagnosing-experiment-results`** — when a mid-run split change has already skewed the results
+- **`managing-experiment-lifecycle`** — reset or end-and-restart mechanics when a split change requires them

@@ -27,6 +27,7 @@ use uuid::Uuid;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::order_sentinel::SentinelContext;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
@@ -121,6 +122,10 @@ struct FakeWorker {
     pub url: String,
     /// (distinct_id, seq) pairs in arrival order.
     pub received: Arc<Mutex<Vec<(String, usize)>>>,
+    /// Message count of each accepted /ingest request, in arrival order. With a
+    /// single worker and partition a sub-batch is the whole Kafka batch, which
+    /// is what lets the batching-bound tests read batch sizes from here.
+    pub batch_sizes: Arc<Mutex<Vec<usize>>>,
     /// Gates /_ready (pool membership). When false the worker leaves the pool.
     pub healthy: Arc<AtomicBool>,
     /// Gates /ingest only. When false the worker stays ready (in the pool) but
@@ -166,6 +171,7 @@ impl FakeWorker {
 
     async fn start_inner(delivery_log: Option<DeliveryLog>) -> Self {
         let received: Arc<Mutex<Vec<(String, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+        let batch_sizes: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
         let healthy = Arc::new(AtomicBool::new(true));
         let ingest_ok = Arc::new(AtomicBool::new(true));
         let ack_lost_once = Arc::new(AtomicBool::new(false));
@@ -195,6 +201,7 @@ impl FakeWorker {
                 "/ingest",
                 post({
                     let recv = Arc::clone(&received);
+                    let sizes = Arc::clone(&batch_sizes);
                     let h = Arc::clone(&healthy);
                     let ingest_ok = Arc::clone(&ingest_ok);
                     let ack_lost_once = Arc::clone(&ack_lost_once);
@@ -205,6 +212,7 @@ impl FakeWorker {
                     let delivery_log = delivery_log.clone();
                     move |AxumJson(req): AxumJson<IngestBatchRequest>| {
                         let recv = recv.clone();
+                        let sizes = sizes.clone();
                         let h = h.clone();
                         let ingest_ok = ingest_ok.clone();
                         let ack_lost_once = ack_lost_once.clone();
@@ -265,6 +273,7 @@ impl FakeWorker {
                                 })
                                 .collect();
                             recv.lock().unwrap().extend(entries.iter().cloned());
+                            sizes.lock().unwrap().push(req.messages.len());
                             // Record the whole batch as one contiguous slot in the
                             // shared total order (it was accepted as a unit).
                             if let Some(log) = &delivery_log {
@@ -302,7 +311,9 @@ impl FakeWorker {
                         }
                     }
                 }),
-            );
+            )
+            // Like the real Express worker, inflate gzipped request bodies.
+            .layer(tower_http::decompression::RequestDecompressionLayer::new());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -312,6 +323,7 @@ impl FakeWorker {
         Self {
             url,
             received,
+            batch_sizes,
             healthy,
             ingest_ok,
             ack_lost_once,
@@ -325,6 +337,11 @@ impl FakeWorker {
 
     fn count(&self) -> usize {
         self.received.lock().unwrap().len()
+    }
+
+    /// Message count of each accepted /ingest request, in arrival order.
+    fn batch_sizes(&self) -> Vec<usize> {
+        self.batch_sizes.lock().unwrap().clone()
     }
 
     /// /ingest requests that have reached this worker (including any held by the gate).
@@ -371,7 +388,11 @@ struct Harness {
 /// the production batch consumer (no auto commit/store, earliest reset). The
 /// short session timeout makes group handovers observable quickly in tests.
 /// `instance_id` opts into static membership (`group.instance.id`).
-fn make_kafka_consumer(topic: &str, group_id: &str, instance_id: Option<&str>) -> StreamConsumer {
+fn make_kafka_consumer(
+    topic: &str,
+    group_id: &str,
+    instance_id: Option<&str>,
+) -> StreamConsumer<SentinelContext> {
     let mut config = ClientConfig::new();
     config
         .set("bootstrap.servers", KAFKA_BROKERS)
@@ -384,7 +405,9 @@ fn make_kafka_consumer(topic: &str, group_id: &str, instance_id: Option<&str>) -
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    let kafka_consumer: StreamConsumer = config.create().expect("kafka consumer");
+    let kafka_consumer: StreamConsumer<SentinelContext> = config
+        .create_with_context(SentinelContext::detached())
+        .expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
 }
@@ -427,6 +450,44 @@ impl Harness {
         deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
     ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            deferred_flush_timeout,
+            registry_config,
+            0,
+        )
+        .await
+    }
+
+    /// Like `start`, but bounds batch collection by payload bytes as well as
+    /// count (`CONSUMER_BATCH_SIZE_KB`). Single worker and partition, so each
+    /// /ingest request is one whole Kafka batch.
+    async fn start_byte_capped(topic: &str, batch_size_bytes: usize) -> Self {
+        Self::start_inner(
+            topic,
+            1,
+            1,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            batch_size_bytes,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_inner(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        deferred_flush_timeout: Duration,
+        registry_config: WorkerRegistryConfig,
+        batch_size_bytes: usize,
+    ) -> Self {
         create_topic(topic, partitions).await;
 
         let delivery_log: DeliveryLog = Arc::new(Mutex::new(Vec::new()));
@@ -449,6 +510,7 @@ impl Harness {
             None,
             &worker_urls,
             1,
+            true,
         ));
         spawn_reaper(
             Arc::clone(&registry),
@@ -473,10 +535,13 @@ impl Harness {
             worker_urls,
             IngestionConsumerOptions {
                 batch_size: 50,
+                batch_size_bytes,
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
+                debug_recorder: None,
+                eager_deferred_flush: false,
             },
             handle,
         );
@@ -525,6 +590,7 @@ impl Harness {
             None,
             &worker_urls,
             1,
+            true,
         ));
         spawn_reaper(
             Arc::clone(&registry),
@@ -547,10 +613,13 @@ impl Harness {
             worker_urls,
             IngestionConsumerOptions {
                 batch_size: 50,
+                batch_size_bytes: 0,
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
+                debug_recorder: None,
+                eager_deferred_flush: false,
             },
             handle,
         );
@@ -689,6 +758,84 @@ async fn messages_per_distinct_id_arrive_in_order() {
             );
         }
     }
+
+    harness.stop().await;
+}
+
+/// The byte bound ends collection before the count bound when payloads are
+/// large, so batch memory tracks bytes rather than event count.
+///
+/// Twelve 2KiB messages sit far inside the 50-message count cap, so without the
+/// byte bound they batch together; the 4KiB cap admits at most two per batch
+/// (the second crosses it). The count cap alone cannot express that, which is
+/// the regression: a lane whose events are large gets the memory of a full
+/// count batch no matter how the count is tuned.
+#[tokio::test]
+async fn byte_bound_caps_batches_below_the_count_bound() {
+    let topic = format!("e2e-bytecap-{}", Uuid::new_v4());
+    let harness = Harness::start_byte_capped(&topic, 4096).await;
+
+    let producer = make_producer();
+    let payload = vec![b'x'; 2048];
+    for seq in 0..12usize {
+        produce_raw(
+            &producer,
+            &topic,
+            0,
+            &format!("tok:user-1:{seq}"),
+            &payload,
+            None,
+        )
+        .await;
+    }
+
+    harness.wait_for(12, Duration::from_secs(20)).await;
+
+    let sizes = harness.workers[0].batch_sizes();
+    assert_eq!(
+        sizes.iter().sum::<usize>(),
+        12,
+        "every message must still be delivered, got batches {sizes:?}"
+    );
+    // A collection timeout can only make a batch smaller, so this holds
+    // regardless of how production interleaves with the 100ms window.
+    assert!(
+        sizes.iter().all(|&n| n <= 2),
+        "no batch may exceed the byte bound by more than one message, got {sizes:?}"
+    );
+
+    harness.stop().await;
+}
+
+/// A single message larger than the whole byte bound still moves.
+///
+/// The bound is checked before appending, so the first message of a batch is
+/// always admitted. Checking after would let one oversized payload produce an
+/// empty batch and wedge its partition — the message can never be skipped, and
+/// no smaller batch can ever contain it.
+#[tokio::test]
+async fn message_larger_than_byte_bound_is_still_delivered() {
+    let topic = format!("e2e-bytecap-oversize-{}", Uuid::new_v4());
+    let harness = Harness::start_byte_capped(&topic, 4096).await;
+
+    let producer = make_producer();
+    produce_raw(
+        &producer,
+        &topic,
+        0,
+        "tok:user-1:0",
+        &vec![b'x'; 16384],
+        None,
+    )
+    .await;
+
+    harness.wait_for(1, Duration::from_secs(20)).await;
+
+    assert_eq!(
+        harness.workers[0].batch_sizes(),
+        vec![1],
+        "the oversized message must arrive as a batch of one"
+    );
 
     harness.stop().await;
 }
@@ -1253,7 +1400,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
     let dispatcher = Dispatcher::new(Arc::clone(&registry));
-    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1);
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1, true);
 
     // batch-1: user-1 pins to a worker. Send it for real but DON'T resolve, so it
     // is genuinely in flight on that worker.
@@ -1263,7 +1410,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     let pinned_idx = workers.iter().position(|w| w.url == pinned_url).unwrap();
     let survivor_idx = 1 - pinned_idx;
     transport
-        .send_batch(&pinned_url, "batch-1", b1[0].messages.clone())
+        .send_batch(&pinned_url, "batch-1", b1[0].messages.clone(), false)
         .await
         .expect("batch-1 send");
 
@@ -1281,6 +1428,7 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
         b1[0].messages.len(),
         &b1[0].routing_keys,
         false,
+        false,
     );
     let f2 = dispatcher.flush_deferred("batch-2");
     assert_eq!(f2.len(), 1);
@@ -1290,7 +1438,12 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
         "deferred group flushes to the survivor, not the drainer"
     );
     transport
-        .send_batch(f2[0].worker.as_ref(), "batch-2", f2[0].messages.clone())
+        .send_batch(
+            f2[0].worker.as_ref(),
+            "batch-2",
+            f2[0].messages.clone(),
+            false,
+        )
         .await
         .expect("batch-2 flush send");
 
@@ -2002,6 +2155,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
         None,
         &worker_urls,
         1,
+        true,
     ));
     let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
@@ -2013,10 +2167,13 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
         worker_urls,
         IngestionConsumerOptions {
             batch_size: 50,
+            batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
+            eager_deferred_flush: false,
         },
         handle2,
     );
@@ -2074,6 +2231,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
         None,
         &urls,
         1,
+        true,
     ));
     let mut manager = Manager::builder("e2e-fenced")
         .with_trap_signals(false)
@@ -2087,10 +2245,13 @@ async fn fenced_static_member_exits_on_fatal_error() {
         urls,
         IngestionConsumerOptions {
             batch_size: 50,
+            batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: None,
+            eager_deferred_flush: false,
         },
         handle,
     );

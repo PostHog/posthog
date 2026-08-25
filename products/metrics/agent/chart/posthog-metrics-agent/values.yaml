@@ -1,0 +1,66 @@
+image:
+    repository: posthog/metrics-agent
+    # Defaults to the chart's appVersion.
+    tag: ''
+    pullPolicy: IfNotPresent
+
+posthog:
+    # PostHog ingestion origin. EU cloud: https://eu.i.posthog.com
+    host: https://us.i.posthog.com
+    # Per-signal ingest path. Defaults to PostHog's public metrics route;
+    # override only for a proxy or a test sink (e.g. /v1/metrics).
+    ingestPath: ''
+    # Project API key. Stored in a chart-managed Secret.
+    apiKey: ''
+    # Alternatively, the name of an existing Secret with the key `posthog-api-key`.
+    # Takes precedence over apiKey.
+    existingSecret: ''
+
+# Number of agent instances. 1 runs a single Deployment. Above 1 the chart
+# runs a StatefulSet fleet that partitions scrape targets by address hash, so
+# each target is scraped by exactly one shard. Scale this for large clusters
+# instead of replicas, which would double-count every target.
+shards: 1
+
+scrape:
+    interval: 15s
+    # Scrape pods annotated with prometheus.io/scrape: "true"
+    # (path and port via prometheus.io/path and prometheus.io/port).
+    annotationDiscovery: true
+    # Extra fixed host:port targets, e.g. ['my-svc:9090'].
+    staticTargets: []
+    # Raw Prometheus scrape_configs YAML (a list) appended verbatim.
+    # With shards > 1, add the hashmod relabel pair to each job here too
+    # (see templates/_helpers.tpl) or every shard will scrape it.
+    extraScrapeConfigs: ''
+
+# Extra environment variables passed to the agent container, e.g.
+# {POSTHOG_DEBUG: "1", SCRAPE_JOB_NAME: my-fleet}. See the image README for
+# the full env surface.
+podEnv: {}
+
+# Disk-backed delivery queue: samples scraped while PostHog is unreachable
+# survive pod restarts and deliver on recovery. Without it the queue is
+# in-memory and a restart during an outage drops whatever was buffered.
+persistence:
+    enabled: false
+    size: 10Gi
+    storageClass: ''
+
+resources:
+    requests:
+        cpu: 100m
+        memory: 256Mi
+    limits:
+        memory: 512Mi
+
+rbac:
+    create: true
+
+serviceAccount:
+    create: true
+    name: ''
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

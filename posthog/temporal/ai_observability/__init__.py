@@ -1,6 +1,8 @@
 from posthog.temporal.ai_observability.eval_reports.activities import (
+    check_count_triggered_eval_report_activity,
+    check_count_triggered_eval_reports_activity,
     deliver_report_activity,
-    fetch_count_triggered_eval_reports_activity,
+    fetch_count_triggered_eval_report_candidates_activity,
     fetch_due_eval_reports_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
@@ -36,13 +38,20 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
     send_evaluation_disabled_email_activity,
-    send_trial_usage_email_activity,
     update_key_state_activity,
 )
 from posthog.temporal.ai_observability.metrics import EvalsMetricsInterceptor  # noqa: F401
+from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    RunAggregateEvaluationWorkflow,
+    check_session_settled_activity,
+    check_trace_settled_activity,
+)
 from posthog.temporal.ai_observability.run_evaluation import RunEvaluationWorkflow
+from posthog.temporal.ai_observability.run_session_evaluation import (
+    execute_session_hog_eval_activity,
+    execute_session_llm_judge_activity,
+)
 from posthog.temporal.ai_observability.run_tagger import (
     RunTaggerWorkflow,
     disable_tagger_activity,
@@ -82,14 +91,13 @@ from products.signals.backend.temporal.emit_eval_signal import emit_eval_signal_
 
 EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,
-    RunTraceEvaluationWorkflow,
+    RunTraceEvaluationWorkflow,  # drains in-flight runs; remove once none remain post-deploy
+    RunAggregateEvaluationWorkflow,
 ]
 
 EVAL_ACTIVITIES = [
     fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
     disable_evaluation_activity,
-    send_trial_usage_email_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
@@ -97,10 +105,14 @@ EVAL_ACTIVITIES = [
     execute_sentiment_eval_activity,
     execute_trace_llm_judge_activity,
     execute_trace_hog_eval_activity,
+    execute_session_llm_judge_activity,
+    execute_session_hog_eval_activity,
+    check_trace_settled_activity,
+    check_session_settled_activity,
     emit_evaluation_event_activity,
     emit_trace_evaluation_event_activity,
     emit_internal_telemetry_activity,
-    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+    emit_eval_signal_activity,
 ]
 
 TAGGER_WORKFLOWS = [
@@ -151,7 +163,9 @@ ACTIVITIES = [
     emit_cluster_events_activity,
     # Evaluation report activities
     fetch_due_eval_reports_activity,
-    fetch_count_triggered_eval_reports_activity,
+    fetch_count_triggered_eval_report_candidates_activity,
+    check_count_triggered_eval_report_activity,
+    check_count_triggered_eval_reports_activity,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
     store_report_run_activity,
@@ -167,9 +181,7 @@ ACTIVITIES = [
     emit_evaluation_cluster_events_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
     fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
     disable_evaluation_activity,
-    send_trial_usage_email_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
@@ -177,5 +189,5 @@ ACTIVITIES = [
     execute_sentiment_eval_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
-    emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+    emit_eval_signal_activity,
 ]

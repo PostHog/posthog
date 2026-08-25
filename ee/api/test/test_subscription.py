@@ -24,20 +24,26 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     Subscription,
     SubscriptionDelivery,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -92,6 +98,18 @@ class TestSubscriptionTemporal(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
         assert response.status_code == status.HTTP_200_OK
 
+    @parameterized.expand(
+        [
+            ("daily", ["monday", "tuesday", "wednesday", "thursday", "friday"]),
+            ("weekly", ["monday", "wednesday", "friday"]),
+        ]
+    )
+    def test_accepts_multiple_delivery_weekdays(self, frequency: str, byweekday: list[str]) -> None:
+        response = self._create_subscription(frequency=frequency, byweekday=byweekday, bysetpos=None)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["byweekday"] == byweekday
+
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -106,6 +124,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "resource_name": data["resource_name"],
             "dashboard_export_insights": [],
             "prompt": None,
+            "ai_prompt_config": {},
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -135,6 +154,95 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
         assert activity_inputs.subscription_id == data["id"]
         assert activity_inputs.invite_message == "hey there!"
+
+    @parameterized.expand(
+        [
+            ("default_fires", None, True),
+            ("explicit_true_fires", True, True),
+            ("opt_out_skips", False, False),
+        ]
+    )
+    def test_create_send_test_now_controls_immediate_delivery(self, _name, send_test_now, should_fire):
+        kwargs = {} if send_test_now is None else {"send_test_now": send_test_now}
+        response = self._create_subscription(**kwargs)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert "send_test_now" not in response.json()
+        if should_fire:
+            self.mock_temporal_client.start_workflow.assert_called_once()
+        else:
+            self.mock_temporal_client.start_workflow.assert_not_called()
+        # Opting out of the first send must not touch the recurring schedule
+        assert Subscription.objects.get(id=response.json()["id"]).next_delivery_date is not None
+
+    @parameterized.expand(
+        [
+            ("opt_in_fires", True, True),
+            ("opt_out_skips", False, False),
+        ]
+    )
+    def test_update_honors_explicit_send_test_now(self, _name, send_test_now, should_fire):
+        sub_id = self._create_subscription().json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        # target_value would infer a send on its own — explicit send_test_now must override either way
+        payload: dict = {"target_value": "other@posthog.com", "send_test_now": send_test_now}
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", payload)
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert "send_test_now" not in response.json()
+        if should_fire:
+            self.mock_temporal_client.start_workflow.assert_called_once()
+        else:
+            self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_update_send_test_now_skips_duplicate_in_flight_delivery(self):
+        sub_id = self._create_subscription().json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+        self.mock_temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
+            f"send-test-now-subscription-{sub_id}", "handle-subscription-value-change"
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True})
+        # A delivery already in flight must not fail the update or fan out a second send
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_update_inferred_deliveries_get_unique_workflow_ids(self):
+        # Only explicit send_test_now dedupes: two legitimate consecutive recipient edits must
+        # both deliver, each under a fresh workflow ID, instead of the second silently deduping.
+        sub_id = self._create_subscription().json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        for recipient in ("first@posthog.com", "second@posthog.com"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"target_value": recipient}
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+        assert self.mock_temporal_client.start_workflow.call_count == 2
+        workflow_ids = [call.kwargs["id"] for call in self.mock_temporal_client.start_workflow.call_args_list]
+        assert all(wf_id.startswith(f"handle-subscription-value-change-{sub_id}-") for wf_id in workflow_ids)
+        assert len(set(workflow_ids)) == 2
+
+    @patch("posthog.rate_limit.SubscriptionTestDeliveryThrottle.rate", new="2/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_update_send_test_now_shares_test_delivery_throttle(self, _rate_limit_enabled_mock):
+        throttle_key = f"throttle_subscription_test_delivery_team_{self.team.id}"
+        cache.delete(throttle_key)
+        self.addCleanup(cache.delete, throttle_key)
+
+        sub_id = self._create_subscription().json()["id"]
+
+        for _ in range(2):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True}
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+        throttled = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True})
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        # Plain edits without send_test_now must not be throttled
+        plain = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Still editable"})
+        assert plain.status_code == status.HTTP_200_OK, plain.content
 
     def test_cannot_create_subscription_without_insight_or_dashboard(self):
         response = self.client.post(
@@ -197,6 +305,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             {
                 "target_value": "test@posthog.com,new_user@posthog.com",
                 "invite_message": "hi new user",
+                "send_test_now": True,
             },
         )
         updated_data = response.json()
@@ -205,6 +314,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.mock_temporal_client.start_workflow.assert_called_once()
         wf_args, _ = self.mock_temporal_client.start_workflow.call_args
         activity_inputs = wf_args[1]
+        assert activity_inputs.previous_target_value == "test@posthog.com"
         assert activity_inputs.previous_value == "test@posthog.com"
         assert activity_inputs.invite_message == "hi new user"
 
@@ -246,109 +356,56 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         ).json()["id"]
 
-    # Each case is (name, build, should_fire, expected_reason); build(test) -> (sub_id, patch_payload).
-    # The inline factory keeps each case's setup next to its expected outcome.
+    # Each case is (name, build, should_fire); build(test) -> (sub_id, patch_payload). Explicit
+    # send_test_now always wins; when omitted, the send is inferred from whether the edit changed
+    # what gets delivered (or re-enabled the subscription) — schedule/meta-only edits stay quiet.
     @parameterized.expand(
         [
-            # Schedule/meta-only edits must NOT re-fire a delivery.
-            ("frequency", lambda t: (t._basic_sub(), {"frequency": "daily"}), False, "no_delivery_relevant_change"),
-            ("interval", lambda t: (t._basic_sub(), {"interval": 3}), False, "no_delivery_relevant_change"),
-            ("title", lambda t: (t._basic_sub(), {"title": "Renamed"}), False, "no_delivery_relevant_change"),
-            # Delivery-relevant edits MUST fire a confirmation — what (or where) gets delivered changed,
-            # or the subscription was re-enabled.
+            ("schedule_only_inferred_no_send", lambda t: (t._basic_sub(), {"frequency": "daily"}), False),
             (
-                "target_value",
+                "schedule_only_with_send",
+                lambda t: (t._basic_sub(), {"frequency": "daily", "send_test_now": True}),
+                True,
+            ),
+            (
+                "recipient_inferred_send",
                 lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}),
                 True,
-                "delivery_field_changed",
             ),
             (
-                "target_type",  # switching channel routes delivery elsewhere — needs a Slack integration
+                "recipient_with_opt_out",
                 lambda t: (
                     t._basic_sub(),
-                    {
-                        "target_type": "slack",
-                        "target_value": "#general",
-                        "integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id,
-                    },
-                ),
-                True,
-                "delivery_field_changed",
-            ),
-            ("re_enable", lambda t: (t._disabled_email_sub(), {"enabled": True}), True, "re_enabled"),
-            (
-                "integration_swap",  # Slack routing depends on the workspace, not just target_value
-                lambda t: (
-                    Subscription.objects.create(
-                        team=t.team,
-                        target_type="slack",
-                        target_value="#general",
-                        integration=Integration.objects.create(team=t.team, kind="slack", config={}),
-                        frequency="daily",
-                        start_date=timezone.now(),
-                        insight=t.insight,
-                        title="t",
-                    ).id,
-                    {"integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id},
-                ),
-                True,
-                "delivery_field_changed",
-            ),
-            (
-                "dashboard_export_change",  # changing the exported insight set hits the M2M branch
-                lambda t: (
-                    t._dashboard_sub(
-                        [t.insight, (other := Insight.objects.create(team=t.team, name="other"))],
-                        [t.insight],
-                    ),
-                    {"dashboard_export_insights": [t.insight.id, other.id]},
-                ),
-                True,
-                "delivery_field_changed",
-            ),
-            # ...except re-submitting the identical export set, which changes nothing.
-            (
-                "dashboard_export_resubmit_same",
-                lambda t: (
-                    t._dashboard_sub([t.insight], [t.insight]),
-                    {"dashboard_export_insights": [t.insight.id], "title": "Renamed"},
+                    {"target_value": "test@posthog.com,extra@posthog.com", "send_test_now": False},
                 ),
                 False,
-                "no_delivery_relevant_change",
             ),
+            ("re_enable_inferred_send", lambda t: (t._disabled_email_sub(), {"enabled": True}), True),
+            (
+                "re_enable_with_opt_out",
+                lambda t: (t._disabled_email_sub(), {"enabled": True, "send_test_now": False}),
+                False,
+            ),
+            # send_test_now on an edit that leaves the sub disabled must not deliver.
+            ("send_but_left_disabled", lambda t: (t._disabled_email_sub(), {"send_test_now": True}), False),
         ]
     )
-    def test_update_fires_delivery_only_when_delivery_relevant_field_changes(
+    def test_update_fires_delivery_only_when_send_test_now(
         self,
         _name: str,
         build: Callable[["TestSubscriptionTemporal"], tuple[int, dict]],
         should_fire: bool,
-        expected_reason: str,
     ):
         sub_id, patch_payload = build(self)
         self.mock_temporal_client.start_workflow.reset_mock()
 
-        with patch("ee.api.subscription.posthoganalytics.capture") as mock_capture:
-            response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
-            assert response.status_code == status.HTTP_200_OK, response.content
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
+        assert response.status_code == status.HTTP_200_OK, response.content
 
-        # The workflow fires only when the edit warrants a confirmation delivery...
         if should_fire:
             self.mock_temporal_client.start_workflow.assert_called_once()
         else:
             self.mock_temporal_client.start_workflow.assert_not_called()
-
-        # ...and the decision is always emitted so a silent suppression is observable — the post_save
-        # "<kind> subscription updated" event fires pre-decision and can't carry this signal.
-        decision_calls = [
-            call
-            for call in mock_capture.call_args_list
-            if call.kwargs.get("event") == "subscription_update_delivery_decision"
-        ]
-        assert len(decision_calls) == 1
-        properties = decision_calls[0].kwargs["properties"]
-        assert properties["delivery_triggered"] is should_fire
-        assert properties["reason"] == expected_reason
 
     @freeze_time("2026-06-15T10:00:00Z")  # Monday — weekly (Sat) is 5 days away, daily is 1 day
     def test_schedule_only_update_still_recomputes_next_delivery_date(self):
@@ -499,9 +556,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
 
-    def test_cannot_create_dashboard_subscription_with_too_many_insights(self):
+    def test_dashboard_subscription_enforces_maximum_insights(self):
         insights = []
-        for _ in range(7):
+        for _ in range(MAX_INSIGHTS + 1):
             insight = Insight.objects.create(
                 filters=Filter(data=self.insight_filter_dict).to_dict(),
                 team=self.team,
@@ -510,22 +567,31 @@ class TestSubscriptionTemporal(APILicensedTest):
             self.dashboard.tiles.create(insight=insight)
             insights.append(insight)
 
+        payload = {
+            "dashboard": self.dashboard.id,
+            "target_type": "email",
+            "target_value": "test@posthog.com",
+            "frequency": "weekly",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00",
+            "title": "Dashboard Subscription",
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {**payload, "dashboard_export_insights": [i.id for i in insights[:MAX_INSIGHTS]]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             {
-                "dashboard": self.dashboard.id,
+                **payload,
                 "dashboard_export_insights": [i.id for i in insights],  # exceeds limit
-                "target_type": "email",
-                "target_value": "test@posthog.com",
-                "frequency": "weekly",
-                "interval": 1,
-                "start_date": "2022-01-01T00:00:00",
-                "title": "Dashboard Subscription",
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
-        assert "Cannot select more than 6 insights" in response.json()["detail"]
+        assert f"Cannot select more than {MAX_INSIGHTS} insights" in response.json()["detail"]
 
     def test_cannot_create_dashboard_subscription_with_insights_from_other_dashboard(self):
         # Create an insight that belongs to a different dashboard
@@ -598,7 +664,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
-        assert "do not belong to your team" in response.json()["detail"]
+        assert "not in your team" in response.json()["detail"]
 
     def test_can_create_slack_subscription_with_valid_integration(self):
         integration = Integration.objects.create(team=self.team, kind="slack", config={})
@@ -1162,6 +1228,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         activity_inputs = wf_args[1]
         assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
         assert activity_inputs.subscription_id == sub_id
+        assert activity_inputs.previous_target_value is None
         assert activity_inputs.previous_value is None
         assert activity_inputs.trigger_type == SubscriptionTriggerType.MANUAL
         assert wf_kwargs["id"] == f"test-delivery-subscription-{sub_id}"
@@ -1402,6 +1469,33 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert len(results) == 1
         assert results[0]["title"] == "UniqueSearchableTitle"
 
+    def test_list_subscriptions_search_matches_ai_prompt_text(self):
+        # An AI report's subject exists only in its prompt, so without this a caller wanting the
+        # reports about one thing has to fetch every ai_prompt row and sift them client-side.
+        for title, prompt in [
+            ("Tool health", "Report on $mcp_tool_call errors this week."),
+            ("Pageviews", "Summarize $pageview trends this week."),
+        ]:
+            Subscription.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title=title,
+                prompt=prompt,
+                target_type="email",
+                target_value="test@posthog.com",
+                frequency="weekly",
+                interval=1,
+                start_date=datetime(2022, 1, 1, tzinfo=UTC),
+            )
+
+        list_res = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {"resource_type": "ai_prompt", "search": "$mcp_"},
+        )
+
+        assert list_res.status_code == status.HTTP_200_OK
+        assert [r["title"] for r in list_res.json()["results"]] == ["Tool health"]
+
     def test_list_subscriptions_filter_by_resource_type(self):
         self.dashboard.tiles.create(insight=self.insight)
         dash_res = self.client.post(
@@ -1450,10 +1544,103 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert len(results) == 1
         assert results[0]["title"] == "Mine"
 
+    def test_list_subscriptions_filter_by_insights(self):
+        other_insight = Insight.objects.create(
+            filters=Filter(data=self.insight_filter_dict).to_dict(), team=self.team, created_by=self.user
+        )
+        first_id = self._create_subscription(title="First").json()["id"]
+        second_id = self._create_subscription(title="Second", insight=other_insight.id).json()["id"]
+
+        both = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {"insights": f"{self.insight.id},{other_insight.id}"},
+        )
+        assert both.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in both.json()["results"]} == {first_id, second_id}
+
+        # The legacy single-ID `insight` param routes through the same filter
+        single = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {"insight": str(other_insight.id)},
+        )
+        assert single.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in single.json()["results"]} == {second_id}
+
+    @parameterized.expand(
+        [
+            ("insights_non_numeric_token", "insights", "abc,1"),
+            ("insights_superscript_digit", "insights", "²"),
+            ("insights_empty", "insights", ","),
+            ("insight_non_numeric", "insight", "abc"),
+            ("dashboard_tiles_non_numeric", "dashboard_tiles", "abc"),
+            ("dashboard_non_numeric", "dashboard", "abc"),
+        ]
+    )
+    def test_list_subscriptions_rejects_invalid_id_filters(self, _name, param, value):
+        # Invalid tokens must 400 rather than being silently dropped (a typo would
+        # otherwise quietly narrow results) or raising an unhandled 500.
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {param: value})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert res.json()["attr"] == param
+
+    def _insight(self, **kwargs) -> Insight:
+        return Insight.objects.create(
+            filters=Filter(data=self.insight_filter_dict).to_dict(), team=self.team, created_by=self.user, **kwargs
+        )
+
+    def test_list_subscriptions_filter_by_dashboard_tiles(self):
+        # The filter resolves the dashboard's tile insights server-side, so it returns subscriptions on
+        # tiled insights without the client passing any insight IDs (fixes the overview's flaky Insights tab).
+        tiled_insight = self._insight()
+        self.dashboard.tiles.create(insight=tiled_insight)
+        on_tile_id = self._create_subscription(title="On tile", insight=tiled_insight.id).json()["id"]
+
+        # A tiled insight that has since been soft-deleted must drop out (mirrors the old client-side guard).
+        deleted_insight = self._insight()
+        self.dashboard.tiles.create(insight=deleted_insight)
+        self._create_subscription(title="On deleted insight", insight=deleted_insight.id)
+        deleted_insight.deleted = True
+        deleted_insight.save()
+
+        # A subscription on an insight that is not a tile of this dashboard must be excluded.
+        self._create_subscription(title="Off dashboard", insight=self._insight().id)
+
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id})
+        assert res.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in res.json()["results"]} == {on_tile_id}
+
+    def test_list_subscriptions_filter_by_dashboard_tiles_empty_dashboard(self):
+        # A dashboard with no insight tiles resolves to an empty set rather than erroring.
+        self._create_subscription(title="Unrelated", insight=self._insight().id)
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id})
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["results"] == []
+
+    def test_dashboard_tiles_filter_requires_dashboard_view_access(self):
+        # Without a view-access check a member could pass any dashboard ID and enumerate its tiles'
+        # subscriptions. Denying object access must 403, not leak the tile set.
+        self._create_subscription(title="On tile", insight=self._insight().id)
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object", return_value=False
+        ):
+            res = self.client.get(
+                f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id}
+            )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.content
+
+    def test_dashboard_tiles_filter_rejects_other_teams_dashboard(self):
+        # A dashboard from another team must 404-style reject (team scoping), never resolve its tiles.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Theirs")
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": other_dashboard.id})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert res.json().get("attr") == "dashboard_tiles"
+
     @parameterized.expand(
         [
             ("invalid_created_by", "created_by", "not-a-uuid", "created_by"),
             ("invalid_target_type", "target_type", "not_a_channel", "target_type"),
+            ("invalid_insights", "insights", "abc,def", "insights"),
         ],
         name_func=lambda f, _n, p: f"{f.__name__}__{p.args[0]}",
     )
@@ -1530,7 +1717,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_re_enable_resets_stale_next_delivery_date(self):
         # Without this reset the scheduler's `next_delivery_date__lte=now` filter
         # picks the sub up on its next tick and fires a second delivery right
-        # after the immediate TARGET_CHANGE confirmation.
+        # after the immediate SUBSCRIPTION_CHANGE confirmation.
         subscription = Subscription.objects.create(
             team=self.team,
             target_type="email",
@@ -1557,8 +1744,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert subscription.enabled is True
         assert subscription.next_delivery_date is not None
         assert subscription.next_delivery_date > timezone.now()
-        # Re-enable also fires the immediate TARGET_CHANGE confirmation delivery —
-        # the date reset prevents the *scheduler* from firing a second one moments later.
+        # Re-enabling infers a confirmation delivery; the date reset must still run so the
+        # scheduler doesn't fire a second, stale-dated delivery right after it.
         temporal_mock.return_value.start_workflow.assert_called_once()
 
     @parameterized.expand(
@@ -1680,14 +1867,14 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
-            # The confirmation-delivery workflow fires only on a re-enable or a delivery-relevant change —
-            # not on a meta-only edit (title) or a redundant enable that changes nothing. (This narrows the
-            # previous "every edit to an enabled sub fires" matrix; see FIELDS_THAT_TRIGGER_REDELIVERY.)
-            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, False),
+            # No edit fires a confirmation delivery unless send_test_now is set — not a meta-only edit,
+            # not a redundant toggle, and (unlike before) not a bare re-enable either.
+            ("enabled_field_edit_no_send", True, {"title": "renamed"}, False),
             ("redundant_enable", True, {"enabled": True}, False),
             ("disable_enabled", True, {"enabled": False}, False),
             ("redundant_disable", False, {"enabled": False}, False),
-            ("enable_disabled", False, {"enabled": True}, True),
+            ("enable_disabled_inferred_send", False, {"enabled": True}, True),
+            ("enable_disabled_with_opt_out", False, {"enabled": True, "send_test_now": False}, False),
         ]
     )
     def test_patch_workflow_trigger_for_enabled_field(
@@ -1983,14 +2170,24 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
     def test_ai_delivery_report_hidden_without_query_access(self, _name, is_ai, restrict, expect_hidden):
         subscription = self._create_ai_subscription() if is_ai else self.subscription
         generated_hogql = "SELECT count() FROM events"
+        # The safe error message on a failed step is query-derived too, so it is scrubbed with the diagnostics.
+        scrubbed_error_message = "Unable to resolve field 'adoption_rate'"
         content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
         if is_ai:
             # AI deliveries also persist the rendered report and per-step query diagnostics; the
             # diagnostics embed the generated HogQL, which must never reach a query-restricted caller.
-            content_snapshot["ai_report"] = "# Weekly report"
-            content_snapshot["ai_report_diagnostics"] = [
-                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None}
+            content_snapshot[AI_REPORT_SNAPSHOT_KEY] = "# Weekly report"
+            content_snapshot[AI_REPORT_DIAGNOSTICS_KEY] = [
+                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None},
+                {
+                    "description": "adoption",
+                    "hogql": "SELECT bad",
+                    "ok": False,
+                    "error_type": "ResolutionError",
+                    "human_readable_error": scrubbed_error_message,
+                },
             ]
+            content_snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] = "Weekly growth recap"
         delivery = SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -2015,8 +2212,15 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         if expect_hidden:
             assert data["content_snapshot"] == {}
             assert data["change_summary"] is None
-            # Defence-in-depth against a future per-key scrub: the generated HogQL must not appear at all.
+            # The query-derived report and diagnostics are scrubbed per-field; the generated HogQL
+            # must not appear at all (defence-in-depth across content_snapshot and the typed fields).
+            assert data[AI_REPORT_SNAPSHOT_KEY] is None
+            assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert generated_hogql not in str(data)
+            assert scrubbed_error_message not in str(data)
+            # The prompt is user-authored (not query-derived) and already readable on the parent
+            # subscription, so it stays visible even for a query-restricted caller.
+            assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             # The list endpoint shares the same get_serializer_context path, so it scrubs too.
             list_response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
@@ -2025,17 +2229,80 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
             assert row["content_snapshot"] == {}
             assert row["change_summary"] is None
+            assert row[AI_REPORT_SNAPSHOT_KEY] is None
+            assert row[AI_REPORT_DIAGNOSTICS_KEY] is None
+            assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             assert generated_hogql not in str(row)
+            assert scrubbed_error_message not in str(row)
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
             if is_ai:
-                # A query-access caller on an AI delivery legitimately receives the diagnostics,
-                # including the generated HogQL — this is the intended debugging surface.
-                assert data["content_snapshot"]["ai_report_diagnostics"][0]["hogql"] == generated_hogql
+                # A query-access caller on an AI delivery legitimately receives the report and the
+                # diagnostics (including the generated HogQL) — the intended debugging surface.
+                assert data[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][0]["hogql"] == generated_hogql
+                # The safe error message on the failed step is part of the query-access debugging surface.
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["human_readable_error"] == scrubbed_error_message
+                assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
+                # The typed fields are the contract: the report must not be shipped twice, so the
+                # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
+                assert AI_REPORT_SNAPSHOT_KEY not in data["content_snapshot"]
+                assert AI_REPORT_DIAGNOSTICS_KEY not in data["content_snapshot"]
+                assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in data["content_snapshot"]
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
+
+    @parameterized.expand(
+        [
+            (
+                "report_prompt_and_diagnostics",
+                {
+                    AI_REPORT_SNAPSHOT_KEY: "# Report",
+                    AI_REPORT_PROMPT_SNAPSHOT_KEY: "Weekly growth recap",
+                    AI_REPORT_DIAGNOSTICS_KEY: [
+                        {"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}
+                    ],
+                },
+                "# Report",
+                "Weekly growth recap",
+                [{"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}],
+            ),
+            # Deliveries created before prompt/diagnostics snapshotting only carry the report.
+            ("report_without_prompt", {AI_REPORT_SNAPSHOT_KEY: "# Report"}, "# Report", None, None),
+            ("absent_keys", {}, None, None, None),
+            ("non_string_values", {AI_REPORT_SNAPSHOT_KEY: 123, AI_REPORT_PROMPT_SNAPSHOT_KEY: ""}, None, None, None),
+        ]
+    )
+    def test_delivery_exposes_ai_report_fields(
+        self, _name, snapshot, expected_report, expected_prompt, expected_diagnostics
+    ):
+        delivery = self._create_delivery(idempotency_key=f"ai-fields-{_name}", content_snapshot=snapshot)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data[AI_REPORT_SNAPSHOT_KEY] == expected_report
+        assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
+        assert data[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
+        # The typed fields are the contract — the AI keys are stripped from content_snapshot so the
+        # report is not shipped twice (the snapshot stays a dict, just without the AI keys).
+        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
+            assert ai_key not in data["content_snapshot"]
+        # The list endpoint serves the delivery history table, so it must expose the same fields.
+        list_response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
+        )
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
+        assert row[AI_REPORT_SNAPSHOT_KEY] == expected_report
+        assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
+        assert row[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
+        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
+            assert ai_key not in row["content_snapshot"]
 
     def test_can_list_deliveries(self):
         d1 = self._create_delivery(idempotency_key="key-1")
@@ -2387,6 +2654,51 @@ class TestAISubscriptionAPI(APILicensedTest):
             )
         assert response.status_code == expected_status, response.json()
 
+    @parameterized.expand(
+        [
+            ("prompt_change_clears_plan", {"prompt": "A completely different question about retention?"}, False),
+            ("title_change_keeps_plan", {"title": "Renamed"}, True),
+        ]
+    )
+    def test_editing_prompt_invalidates_frozen_query_plan(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, body, plan_survives
+    ):
+        self._mock_temporal(mock_sync)
+        frozen = {
+            "version": 1,
+            "plan": {
+                "overall_intent": "i",
+                "steps": [
+                    {
+                        "description": "d",
+                        "query_type": "hogql",
+                        "hogql": "SELECT count() FROM events WHERE {{date_range}}",
+                    }
+                ],
+            },
+        }
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(id=sub_id).update(ai_query_plan=frozen)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", body)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert Subscription.objects.get(id=sub_id).ai_query_plan == (frozen if plan_survives else None)
+
+    def test_orm_prompt_edit_also_invalidates_frozen_query_plan(self, mock_is_cloud, mock_flag, mock_sync):
+        # The invalidation lives on Subscription.save() (not the serializer), so ORM-path edits —
+        # management commands, future code — can't leave a plan answering the old prompt.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(id=sub_id).update(ai_query_plan={"version": 1, "plan": {}})
+
+        sub = Subscription.objects.get(id=sub_id)
+        sub.prompt = "A different question entirely?"
+        sub.save()
+
+        sub.refresh_from_db()
+        assert sub.ai_query_plan is None
+
     def _enable_access_control_feature(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -2653,12 +2965,11 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         update_resp = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"prompt": "Show me new error events"},
+            {"prompt": "Show me new error events", "send_test_now": True},
         )
         assert update_resp.status_code == status.HTTP_200_OK, update_resp.json()
         assert update_resp.json()["prompt"] == "Show me new error events"
-        # prompt is delivery-relevant for AI subscriptions; editing it must re-fire the
-        # confirmation delivery so recipients see the updated report.
+        # send_test_now on the edit fires the confirmation delivery so recipients see the updated report.
         mock_client.start_workflow.assert_called_once()
 
     def test_resource_type_is_derived_and_read_only(self, mock_is_cloud, mock_flag, mock_sync):
@@ -2718,3 +3029,431 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    @parameterized.expand(
+        [
+            ("last_n_days_missing_start", {"mode": "last_n_days"}, "start_days_ago"),
+            ("range_missing_end", {"mode": "days_ago_range", "start_days_ago": 10}, "end_days_ago"),
+            (
+                "range_end_not_before_start",
+                {"mode": "days_ago_range", "start_days_ago": 3, "end_days_ago": 5},
+                "end_days_ago",
+            ),
+            ("start_out_of_bounds", {"mode": "last_n_days", "start_days_ago": 400}, "start_days_ago"),
+            ("unknown_mode", {"mode": "calendar_week"}, "mode"),
+        ]
+    )
+    def test_invalid_ai_window_config_is_rejected(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, window, expected_error_field
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(ai_prompt_config={"window": window}),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_error_field in str(response.json()), response.json()
+
+    def test_ai_window_round_trips_and_mode_switch_clears_day_bounds(self, mock_is_cloud, mock_flag, mock_sync):
+        # Stale day bounds surviving a switch back to since_last_sent would silently pin the window
+        # to old day values if the row is ever read without mode dispatch.
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(ai_prompt_config={"window": {"mode": "last_n_days", "start_days_ago": 14}}),
+        )
+        assert create_resp.status_code == status.HTTP_201_CREATED, create_resp.json()
+        created = create_resp.json()
+        assert created["ai_prompt_config"]["window"]["mode"] == "last_n_days"
+        assert created["ai_prompt_config"]["window"]["start_days_ago"] == 14
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created['id']}",
+            {"ai_prompt_config": {"window": {"mode": "since_last_sent"}}},
+        )
+        assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.json()
+        window = patch_resp.json()["ai_prompt_config"]["window"]
+        assert window["mode"] == "since_last_sent"
+        assert window["start_days_ago"] is None
+
+    def test_garbage_ai_prompt_config_still_serializes_on_read(self, mock_is_cloud, mock_flag, mock_sync):
+        # The read path routes through the fail-soft normalizer; without it, DRF's
+        # IntegerField.to_representation (int(value)) 500s the detail GET and the team's whole
+        # subscription list on an out-of-band row. Guards against removing the override.
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_ai_payload())
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(
+            ai_prompt_config={"window": {"mode": "bogus", "start_days_ago": "seven", "end_days_ago": True}}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ai_prompt_config"]["window"] == {
+            "mode": "since_last_sent",
+            "start_days_ago": None,
+            "end_days_ago": None,
+        }
+
+    def test_ai_prompt_config_rejected_on_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        payload = self._insight_payload()
+        payload["ai_prompt_config"] = {"window": {"mode": "last_n_days", "start_days_ago": 7}}
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "ai_prompt_config" in str(response.json()), response.json()
+
+
+class TestSubscriptionObjectAccessControl(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self._sync_connect_patcher = patch("ee.api.subscription.sync_connect")
+        self.mock_temporal_client = MagicMock(start_workflow=AsyncMock())
+        self._sync_connect_patcher.start().return_value = self.mock_temporal_client
+        self.addCleanup(self._sync_connect_patcher.stop)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+
+        self.open_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self.restricted_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self.restricted_dashboard = Dashboard.objects.create(team=self.team, name="Private numbers")
+        DashboardTile.objects.create(dashboard=self.restricted_dashboard, insight=self.open_insight)
+        self._rule("insight", obj=self.restricted_insight)
+        self._rule("dashboard", obj=self.restricted_dashboard)
+
+    def _payload(self, **overrides):
+        payload = {
+            "target_type": "email",
+            "target_value": "attacker@example.com",
+            "frequency": "daily",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00Z",
+            "title": "Exfil",
+        }
+        payload.update(overrides)
+        return payload
+
+    def _subscription_for(self, **kwargs) -> Subscription:
+        return create_subscription(team=self.team, created_by=self.user, **kwargs)
+
+    def _delivery_for(self, subscription: Subscription, **overrides) -> SubscriptionDelivery:
+        return SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id=f"wf-{subscription.id}",
+            idempotency_key=f"key-{subscription.id}",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="owner@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+            content_snapshot={"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+            **overrides,
+        )
+
+    def _rule(self, resource: str, *, obj=None, level: str = "none", for_member: bool = True, team=None) -> None:
+        AccessControl.objects.create(
+            team=team or self.team,
+            resource=resource,
+            resource_id=str(obj.id) if obj is not None else None,
+            organization_member=self.organization_membership if for_member else None,
+            access_level=level,
+        )
+        cache.clear()
+
+    def _dashboard_with_tiles(self, *insights: Insight) -> Dashboard:
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        for insight in insights:
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        return dashboard
+
+    def _sub_on_an_open_insight(self) -> Subscription:
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_on_a_restricted_insight(self) -> Subscription:
+        return self._subscription_for(insight=self.restricted_insight)
+
+    def _sub_on_a_restricted_dashboard(self) -> Subscription:
+        return self._subscription_for(dashboard=self.restricted_dashboard)
+
+    def _sub_on_an_ai_prompt(self) -> Subscription:
+        return self._subscription_for(prompt="How did signups do last week?")
+
+    def _sub_exporting_an_insight_restricted_afterwards(self) -> Subscription:
+        exported = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(exported))
+        subscription.dashboard_export_insights.set([exported])
+        self._rule("insight", obj=exported)
+        return subscription
+
+    def _sub_rendering_every_tile(self) -> Subscription:
+        return self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight))
+
+    def _sub_selecting_only_the_open_tile(self) -> Subscription:
+        subscription = self._subscription_for(
+            dashboard=self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        )
+        subscription.dashboard_export_insights.set([self.open_insight])
+        return subscription
+
+    def _sub_whose_restricted_tile_was_removed(self) -> Subscription:
+        dashboard = self._dashboard_with_tiles(self.open_insight)
+        restricted_tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        restricted_tile.deleted = True
+        restricted_tile.save(update_fields=["deleted"])
+        return subscription
+
+    def _sub_under_a_resource_wide_deny(self) -> Subscription:
+        self._rule("insight")
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_under_a_lone_resource_wide_deny(self) -> Subscription:
+        AccessControl.objects.filter(team=self.team).delete()
+        return self._sub_under_a_resource_wide_deny()
+
+    def _sub_under_a_resource_wide_deny_with_a_grant(self) -> Subscription:
+        self._rule("insight")
+        self._rule("insight", obj=self.open_insight, level="viewer")
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_read_by_an_org_admin(self) -> Subscription:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        private_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self._rule("insight", obj=private_insight, for_member=False)
+        return self._subscription_for(insight=private_insight)
+
+    def _sub_in_a_team_without_rules(self) -> Subscription:
+        AccessControl.objects.filter(team=self.team).delete()
+        cache.clear()
+        return self._subscription_for(insight=self.open_insight)
+
+    def _sub_on_a_soft_deleted_restricted_insight(self) -> Subscription:
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        self.restricted_insight.deleted = True
+        self.restricted_insight.save(update_fields=["deleted"])
+        return subscription
+
+    def _assert_visibility(self, subscription: Subscription, *, sees_subscription: bool, sees_deliveries: bool) -> None:
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert listed.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in listed.json()["results"]] == ([subscription.id] if sees_subscription else [])
+
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+        expected = status.HTTP_200_OK if sees_subscription else status.HTTP_403_FORBIDDEN
+        assert retrieved.status_code == expected, retrieved.json()
+
+        deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+        assert deliveries.status_code == status.HTTP_200_OK
+        assert len(deliveries.json()["results"]) == (1 if sees_deliveries else 0)
+
+    @parameterized.expand(
+        [
+            ("an open insight", "_sub_on_an_open_insight", True, True),
+            ("an AI prompt, so no target at all", "_sub_on_an_ai_prompt", True, True),
+            ("a restricted insight", "_sub_on_a_restricted_insight", False, False),
+            ("a restricted dashboard", "_sub_on_a_restricted_dashboard", False, False),
+            (
+                "an exported insight restricted after saving",
+                "_sub_exporting_an_insight_restricted_afterwards",
+                False,
+                False,
+            ),
+            ("no selection and a restricted tile", "_sub_rendering_every_tile", False, False),
+            ("a selection that leaves the restricted tile out", "_sub_selecting_only_the_open_tile", True, True),
+            ("a restricted tile that was removed", "_sub_whose_restricted_tile_was_removed", True, False),
+            ("a deny on the whole insight resource", "_sub_under_a_resource_wide_deny", False, False),
+            ("that deny as the only rule in the team", "_sub_under_a_lone_resource_wide_deny", False, False),
+            ("that deny with the insight granted back", "_sub_under_a_resource_wide_deny_with_a_grant", True, True),
+            ("an org admin reading a private insight", "_sub_read_by_an_org_admin", True, True),
+            ("a team with no access rules", "_sub_in_a_team_without_rules", True, True),
+            ("a restricted insight that was soft-deleted", "_sub_on_a_soft_deleted_restricted_insight", True, False),
+        ]
+    )
+    def test_target_access_decides_what_the_caller_sees(self, _name, builder, sees_subscription, sees_deliveries):
+        subscription = getattr(self, builder)()
+        self._delivery_for(subscription)
+
+        self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
+
+    def _create_on_a_restricted_insight(self):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.restricted_insight.id)
+        )
+
+    def _create_on_a_restricted_dashboard(self):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(dashboard=self.restricted_dashboard.id, dashboard_export_insights=[self.open_insight.id]),
+        )
+
+    def _create_selecting_a_restricted_insight(self):
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(
+                dashboard=dashboard.id,
+                dashboard_export_insights=[self.open_insight.id, self.restricted_insight.id],
+            ),
+        )
+
+    def _patch_adding_a_restricted_insight(self):
+        subscription = self._sub_selecting_only_the_open_tile()
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"dashboard_export_insights": [self.open_insight.id, self.restricted_insight.id]},
+        )
+
+    def _create_selecting_an_insight_from_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign_insight = Insight.objects.create(team=other_team, filters={"events": [{"id": "$pageview"}]})
+        dashboard = self._dashboard_with_tiles(self.restricted_insight)
+        return self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(
+                dashboard=dashboard.id,
+                dashboard_export_insights=[foreign_insight.id, self.restricted_insight.id],
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("the insight target", "_create_on_a_restricted_insight", "insight", "Viewer access"),
+            ("the dashboard target", "_create_on_a_restricted_dashboard", "dashboard", "Viewer access"),
+            (
+                "an insight in the export selection",
+                "_create_selecting_a_restricted_insight",
+                "dashboard_export_insights",
+                "Viewer access",
+            ),
+            (
+                "an insight a PATCH adds to the selection",
+                "_patch_adding_a_restricted_insight",
+                "dashboard_export_insights",
+                "Viewer access",
+            ),
+            (
+                "an insight from another team, which outranks the access error",
+                "_create_selecting_an_insight_from_another_team",
+                "dashboard_export_insights",
+                "not in your team",
+            ),
+        ]
+    )
+    def test_write_is_rejected_when_the_caller_cannot_view_a_target(self, _name, request_builder, attr, message):
+        response = getattr(self, request_builder)()
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == attr, body
+        assert message in body["detail"], body
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_create_allows_an_open_insight(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.open_insight.id)
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("patch", "patch", "", {"target_value": "attacker@example.com"}),
+            ("test_delivery", "post", "/test-delivery", None),
+        ]
+    )
+    def test_restricted_subscription_cannot_be_written_by_id(self, _name, method, url_suffix, body):
+        subscription = self._sub_on_a_restricted_insight()
+
+        url = f"/api/projects/{self.team.id}/subscriptions/{subscription.id}{url_suffix}"
+        response = getattr(self.client, method)(url, body)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_insight_filter_does_not_confirm_a_restricted_subscription(self):
+        hidden = self._sub_on_a_restricted_insight()
+
+        filtered = self.client.get(f"/api/projects/{self.team.id}/subscriptions?insight={self.restricted_insight.id}")
+
+        assert filtered.status_code == status.HTTP_200_OK
+        assert filtered.json()["results"] == []
+        assert Subscription.objects.filter(pk=hidden.pk).exists()
+
+    def test_tile_rule_holds_for_a_dashboard_read_through_an_environment(self):
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+        self._rule("insight", obj=self.restricted_insight, team=environment)
+        dashboard = Dashboard.objects.create(team=environment, name="Team dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        subscription = create_subscription(team=environment, created_by=self.user, dashboard=dashboard)
+
+        listed = self.client.get(f"/api/environments/{environment.id}/subscriptions")
+
+        assert listed.status_code == status.HTTP_200_OK
+        assert subscription.id not in [row["id"] for row in listed.json()["results"]]
+
+    def test_multi_insight_dashboard_subscription_is_returned_exactly_once(self):
+        second_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight, second_insight))
+        subscription.dashboard_export_insights.set([self.open_insight, second_insight])
+        self._delivery_for(subscription)
+
+        self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=True)
+
+    @parameterized.expand(
+        [
+            ("a rename", {"title": "Renamed"}, status.HTTP_400_BAD_REQUEST),
+            ("a new recipient", {"target_value": "attacker@example.com"}, status.HTTP_400_BAD_REQUEST),
+            ("turning it off", {"deleted": True}, status.HTTP_200_OK),
+        ]
+    )
+    def test_write_to_a_soft_deleted_restricted_target_may_only_turn_it_off(self, _name, body, expected):
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        self.restricted_insight.deleted = True
+        self.restricted_insight.save(update_fields=["deleted"])
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", body)
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("an open insight", False), ("a restricted insight", True)])
+    def test_subscription_on_a_soft_deleted_target_can_still_be_turned_off(self, _name, restricted):
+        target = self.restricted_insight if restricted else self.open_insight
+        subscription = self._subscription_for(insight=target)
+        target.deleted = True
+        target.save(update_fields=["deleted"])
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"deleted": True})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand([("a rename", {"title": "Renamed"}), ("turning it off", {"deleted": True})])
+    def test_patch_that_omits_the_selection_is_accepted(self, _name, body):
+        subscription = self._sub_selecting_only_the_open_tile()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", body)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_repointing_an_empty_selection_at_a_restricted_tile_is_rejected(self):
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight))
+        target_dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"dashboard": target_dashboard.id, "target_value": "attacker@example.com"},
+        )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == "dashboard", body
+        assert "Viewer access to every insight on this dashboard" in body["detail"], body
+        self.mock_temporal_client.start_workflow.assert_not_called()

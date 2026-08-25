@@ -8,6 +8,32 @@ export function dimColor(color: string, alpha: number): string {
     return d3Color(color)?.copy({ opacity: alpha }).toString() ?? color
 }
 
+/** Resolve a CSS custom-property reference (`var(--x)`, with an optional fallback) to its
+ *  computed color value. A canvas 2D context can't resolve `var()`, so an accent handed to
+ *  `fillStyle`/`strokeStyle` (or through `dimColor`, which relies on `d3.color` parsing it)
+ *  must be a concrete color first. Non-`var()` inputs, and SSR/no-DOM contexts, return the
+ *  input unchanged; `root` defaults to `document.body` to match {@link themeFromCssVars}. */
+export function resolveCssColor(color: string, root?: HTMLElement): string {
+    const trimmed = color.trim()
+    if (!trimmed.startsWith('var(')) {
+        return color
+    }
+    if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') {
+        return color
+    }
+    const match = /^var\(\s*(--[^,)]+?)\s*(?:,\s*([\s\S]+))?\)$/.exec(trimmed)
+    if (!match) {
+        return color
+    }
+    const [, name, fallback] = match
+    const el = root ?? document.body
+    const value = getComputedStyle(el).getPropertyValue(name).trim()
+    if (value) {
+        return value
+    }
+    return fallback && fallback.trim() ? resolveCssColor(fallback.trim(), el) : color
+}
+
 /** Linear RGB interpolation between two colors. `t` is clamped to [0, 1]; `t=0` returns `from`,
  *  `t=1` returns `to`. Falls back to `from` when either color can't be parsed. */
 export function mixColors(from: string, to: string, t: number): string {

@@ -2,10 +2,10 @@
 /**
  * Compute the set of stories affected by a set of changed files using the
  * module-graph.json emitted by the Storybook build (see the ModuleGraphPlugin
- * in `common/storybook/.storybook/plugins/module-graph-plugin.ts`).
+ * in `common/storybook/.storybook/plugins/vite-module-graph-plugin.ts`).
  *
- * Called from `.github/workflows/ci-storybook.yml`'s shadow-story-selection
- * job. Shadow-only today — does not change what visual-regression runs.
+ * Called from `.github/workflows/ci-storybook.yml`'s story-selection job to
+ * narrow visual-regression runs to stories affected by a pull request.
  *
  * Usage:
  *   bin/find-affected-stories \
@@ -27,9 +27,10 @@
 
 import { execFileSync } from 'child_process'
 import * as fs from 'fs'
+import { pathToFileURL } from 'url'
 
 // -----------------------------------------------------------------------------
-// Invalidators webpack can't see
+// Invalidators the module graph can't see
 // -----------------------------------------------------------------------------
 
 // Changes to any file matching these substrings force a full-run: the effect
@@ -38,8 +39,8 @@ import * as fs from 'fs'
 const FULL_RUN_PATTERNS = [
     '.storybook/',
     'common/storybook/tailwind.config.js',
-    'common/storybook/webpack.config.js',
     'common/storybook/package.json',
+    'frontend/src/lib/',
     'frontend/src/styles/',
     'frontend/src/mocks/',
     'common/tailwind/',
@@ -57,9 +58,14 @@ const FULL_RUN_PATTERNS = [
     '.nvmrc',
 ]
 
+const STORYBOOK_RELEVANT_FILE_RE =
+    /^(frontend\/|products\/.*\/(frontend|mcp\/apps)\/|common\/(esbuilder|mosaic|storybook|tailwind)\/|packages\/quill\/|ee\/frontend\/|services\/mcp\/src\/ui-apps\/)/
+const NON_RUNTIME_FILE_RE =
+    /(^|\/)(__tests__|tests?)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)README\.md$|^(frontend|playwright)\/snapshots\.yml$/
+
 const MAX_CHANGED_FILES = 100
 // Rough per-story render cost (see ci-storybook.yml matrix); used only for
-// the savings-estimate row in the shadow job summary.
+// the savings-estimate row in the job summary.
 const AVG_STORY_DURATION_SECONDS = 6
 const TARGET_SHARD_SECONDS = 10 * 60
 const STORY_RE = /\.stories\.(tsx?|mdx|jsx?)$/
@@ -109,7 +115,7 @@ function emitFull(reason, totalStories) {
 function emitSelective(affected, totalStories, unresolved) {
     const affectedDuration = affected.length * AVG_STORY_DURATION_SECONDS
     const totalDuration = totalStories * AVG_STORY_DURATION_SECONDS
-    // 2x safety factor, matching the backend shadow convention.
+    // 2x safety factor keeps selective shards below the target under variance.
     const suggestedShards = Math.max(1, Math.floor((affectedDuration * 2) / TARGET_SHARD_SECONDS) + 1)
     process.stdout.write(
         JSON.stringify({
@@ -129,7 +135,7 @@ function emitSelective(affected, totalStories, unresolved) {
 // Core logic
 // -----------------------------------------------------------------------------
 
-function requiresFullRun(changedFile) {
+export function requiresFullRun(changedFile) {
     for (const pattern of FULL_RUN_PATTERNS) {
         if (changedFile.includes(pattern)) {
             return `changed file matches full-run pattern '${pattern}': ${changedFile}`
@@ -138,10 +144,10 @@ function requiresFullRun(changedFile) {
     return null
 }
 
-function normalize(p) {
+export function normalize(p) {
     if (!p) return p
     // Strip any leading ./ or / so equality works against module names from the
-    // ModuleGraphPlugin (which emits repo-relative names).
+    // module graph plugin (which emits repo-relative names).
     return p.replace(/^\.\//, '').replace(/^\/+/, '')
 }
 
@@ -165,7 +171,7 @@ function countStories(modules) {
     return n
 }
 
-function affectedStoriesFor(changedFiles, graph) {
+export function affectedStoriesFor(changedFiles, graph) {
     const { byName } = graph
     const unresolved = []
     const start = new Set()
@@ -200,11 +206,17 @@ function affectedStoriesFor(changedFiles, graph) {
     return { affected: [...stories].sort(), unresolved }
 }
 
+export function unresolvedRuntimeFiles(unresolvedFiles) {
+    return unresolvedFiles.filter(
+        (file) => STORYBOOK_RELEVANT_FILE_RE.test(normalize(file)) && !NON_RUNTIME_FILE_RE.test(normalize(file))
+    )
+}
+
 // -----------------------------------------------------------------------------
 // Entrypoint
 // -----------------------------------------------------------------------------
 
-function main() {
+export function main() {
     const args = parseArgs(process.argv.slice(2))
     if (!args.graph) {
         process.stderr.write('Error: --graph is required\n')
@@ -254,8 +266,15 @@ function main() {
     }
 
     const { affected, unresolved } = affectedStoriesFor(changed, graph)
+    const unresolvedRuntime = unresolvedRuntimeFiles(unresolved)
+    if (unresolvedRuntime.length > 0) {
+        emitFull(`changed frontend file missing from module graph: ${unresolvedRuntime[0]}`, totalStories)
+        return
+    }
     process.stderr.write(`Affected stories: ${affected.length} / ${totalStories} (unresolved: ${unresolved.length})\n`)
     emitSelective(affected, totalStories, unresolved)
 }
 
-main()
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main()
+}

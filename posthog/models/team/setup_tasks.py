@@ -72,11 +72,6 @@ class SetupTaskId(StrEnum):
     SetUpAiEvaluation = "set_up_llm_evaluation"
     RunAIPlayground = "run_ai_playground"
 
-    # Revenue Analytics
-    EnableRevenueAnalyticsViewset = "enable_revenue_analytics_viewset"
-    ConnectRevenueSource = "connect_revenue_source"
-    SetUpRevenueGoal = "set_up_revenue_goal"
-
     # Logs
     EnableLogCapture = "enable_log_capture"
     ViewFirstLogs = "view_first_logs"

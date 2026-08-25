@@ -32,6 +32,8 @@ import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { EXPOSURE_DEFAULT_EVENT, EXPOSURE_FEATURE_FLAG_PROPERTY, featureFlagVariantProperty } from './exposureContract'
+
 /**
  * We extract all the math properties from the EntityNode type so we can use them as
  * options when creating a query. Tools like the running time calculator have to set
@@ -495,10 +497,15 @@ const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSou
  */
 export const getExposureConfigEventsNode = (
     exposureConfig: ExperimentEventExposureConfig,
-    options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
+    options: {
+        featureFlagKey: string
+        featureFlagVariants: MultivariateFlagVariant[]
+        /** The experiment's server-resolved default exposure event, see `resolvedExposureEvent`. */
+        resolvedExposureEvent?: string
+    }
 ): EventsNode => {
     const exposure_step_name = 'Experiment exposure'
-    if (exposureConfig && exposureConfig.event !== '$feature_flag_called') {
+    if (exposureConfig && exposureConfig.event !== EXPOSURE_DEFAULT_EVENT) {
         const { featureFlagKey, featureFlagVariants } = options
         return {
             kind: NodeKind.EventsNode,
@@ -507,7 +514,7 @@ export const getExposureConfigEventsNode = (
             properties: [
                 ...(exposureConfig.properties || []),
                 {
-                    key: `$feature/${featureFlagKey}`,
+                    key: featureFlagVariantProperty(featureFlagKey),
                     type: PropertyFilterType.Event,
                     value: featureFlagVariants.map(({ key }) => key),
                     operator: PropertyOperator.Exact,
@@ -519,10 +526,10 @@ export const getExposureConfigEventsNode = (
     return {
         kind: NodeKind.EventsNode,
         custom_name: exposure_step_name,
-        event: '$feature_flag_called',
+        event: options.resolvedExposureEvent ?? EXPOSURE_DEFAULT_EVENT,
         properties: [
             {
-                key: '$feature_flag',
+                key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                 type: PropertyFilterType.Event,
                 value: options.featureFlagKey,
                 operator: PropertyOperator.Exact,

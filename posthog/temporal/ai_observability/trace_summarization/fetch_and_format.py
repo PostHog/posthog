@@ -34,7 +34,14 @@ logger = structlog.get_logger(__name__)
 
 
 def _fetch_and_format_trace(
-    trace_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
+    trace_id: str,
+    team_id: int,
+    window_start: str,
+    window_end: str,
+    max_length: int | None = None,
+    *,
+    max_trace_events: int | None = None,
+    max_raw_trace_size: int | None = None,
 ) -> FetchResult | None:
     """Fetch trace data and format text representation.
 
@@ -46,18 +53,29 @@ def _fetch_and_format_trace(
     if llm_trace is None:
         return None
 
+    event_count = len(llm_trace.events)
+    if max_trace_events is not None and event_count > max_trace_events:
+        logger.warning(
+            "Skipping trace with too many events",
+            trace_id=trace_id,
+            team_id=team_id,
+            event_count=event_count,
+            max_trace_events=max_trace_events,
+        )
+        return FetchResult(text_repr=None, event_count=event_count)
+
     raw_size = sum(len(str(e.properties)) for e in llm_trace.events)
-    if raw_size > MAX_RAW_TRACE_SIZE:
+    raw_size_limit = max_raw_trace_size if max_raw_trace_size is not None else MAX_RAW_TRACE_SIZE
+    if raw_size > raw_size_limit:
         logger.warning(
             "Skipping oversized trace",
             trace_id=trace_id,
             team_id=team_id,
-            event_count=len(llm_trace.events),
+            event_count=event_count,
             raw_size=raw_size,
-            max_raw_size=MAX_RAW_TRACE_SIZE,
+            max_raw_size=raw_size_limit,
         )
-        _trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
-        return FetchResult(text_repr=None, event_count=len(hierarchy))
+        return FetchResult(text_repr=None, event_count=event_count)
 
     trace_dict, hierarchy = llm_trace_to_formatter_format(llm_trace)
 

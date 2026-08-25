@@ -2,40 +2,56 @@
 
 Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
 started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
-a single ``head_branch``. Rates and percentiles are over completed runs only, so they
-are ``None`` for a window with no completed runs.
+a single ``head_branch`` and/or attributed pull-request runs. Rates are over completed
+runs. Duration percentiles are over successful runs only — cancelled/skipped runs
+(common on PR branches, where a new push supersedes in-flight CI) and failed runs
+end early and would bias a "how long does CI take" percentile low — so they are
+``None`` for a window with no successful runs. No-op gate runs are excluded from the
+percentiles too, with an all-successful fallback for legitimately all-fast workflows
+(see ``run_duration_percentile_expr``), so the Workflows table agrees with the
+activity chart and the detail-page KPIs.
 
 The per-bucket history adapts its granularity to the window length (hour / day / week)
 so the trend sparkline keeps a readable number of points — per-day buckets are useless
 for a 24h window and far too many for a year.
 """
 
-from datetime import date, datetime, timedelta
-from typing import Literal
+from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import RepoRef, WorkflowHealthBucket, WorkflowHealthItem
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
+from posthog.clickhouse.workload import Workload
 
-Granularity = Literal["hour", "day", "week"]
+from products.engineering_analytics.backend.facade.contracts import (
+    RepoRef,
+    TimeToGreenBucket,
+    WorkflowHealthBucket,
+    WorkflowHealthItem,
+    WorkflowHealthRunScope,
+)
+from products.engineering_analytics.backend.logic.queries._buckets import (
+    Granularity,
+    bucket_expr,
+    normalize_bucket,
+    pick_granularity,
+    window_buckets,
+)
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    LATEST_COMPLETED_RUN_FAILED,
+    RUN_DURATION_PERCENTILE_CONDITION,
+    branch_filter_clause,
+    date_to_filter_clause,
+    non_default_branch_predicate,
+    run_duration_percentile_expr,
+    run_scope_filter_clause,
+    run_started_floor_constant,
+)
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
 
 _LIMIT = 100
 # Generous bound: _LIMIT workflows x at most ~366 daily buckets.
 _BUCKET_LIMIT = 40000
-
-# ClickHouse bucket function per granularity. Week starts Monday (mode 1).
-_BUCKET_FN: dict[Granularity, str] = {
-    "hour": "toStartOfHour(run_started_at)",
-    "day": "toStartOfDay(run_started_at)",
-    "week": "toStartOfWeek(run_started_at, 1)",
-}
-_BUCKET_STEP: dict[Granularity, timedelta] = {
-    "hour": timedelta(hours=1),
-    "day": timedelta(days=1),
-    "week": timedelta(weeks=1),
-}
 
 _SELECT = f"""
     SELECT
@@ -43,16 +59,21 @@ _SELECT = f"""
         repo_name,
         workflow_name,
         count() AS run_count,
+        countIf(status = 'completed' AND conclusion = 'success') AS successful_run_count,
+        countIf(status = 'completed' AND conclusion IN ('success', 'failure', 'timed_out')) AS conclusive_run_count,
+        countIf({RUN_DURATION_PERCENTILE_CONDITION}) AS percentile_run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
-        quantileIf(0.5)(duration_seconds, status = 'completed') AS p50_seconds,
-        quantileIf(0.95)(duration_seconds, status = 'completed') AS p95_seconds,
+        {run_duration_percentile_expr(0.5)} AS p50_seconds,
+        {run_duration_percentile_expr(0.95)} AS p95_seconds,
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
-        argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,
-        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion,
+        {LATEST_COMPLETED_RUN_FAILED} AS latest_failed,
+        argMaxIf(conclusion, (run_started_at, id), status = 'completed') AS latest_conclusion,
+        argMaxIf(id, (run_started_at, id), status = 'completed') AS latest_run_id,
+        argMaxIf(run_attempt, (run_started_at, id), status = 'completed') AS latest_run_attempt,
         countIf(run_attempt > 1) AS rerun_cycles
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     GROUP BY repo_owner, repo_name, workflow_name
     ORDER BY run_count DESC
     LIMIT {_LIMIT}
@@ -68,7 +89,7 @@ _PREV_SELECT = """
         workflow_name,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {prev_from} AND run_started_at < {date_from} __BRANCH__
+    WHERE run_started_at >= {prev_from} AND run_started_at < {date_from} __BRANCH__ __RUN_SCOPE__
     GROUP BY repo_owner, repo_name, workflow_name
 """
 
@@ -83,10 +104,100 @@ _BUCKET_SELECT = f"""
         countIf(status = 'completed' AND conclusion = 'success') AS successes,
         countIf(status = 'completed' AND conclusion IN ('failure', 'timed_out')) AS failures
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     GROUP BY repo_owner, repo_name, workflow_name, bucket_start
     LIMIT {_BUCKET_LIMIT}
 """
+
+
+# A push round is one (repo, head_sha): every workflow GitHub fired for that push. The measure is the
+# wall from the round's first run start to the moment its last workflow first completed benign: the
+# question a PR author asks ("how long until this push is green"), which no single run answers.
+#
+# Each workflow anchors on its FIRST benign completion, never its latest run: a flake re-run stretches
+# the wall to its recovery, while a re-fire after the round already went green cannot stretch it
+# retroactively. Benign is wider than success (a path-filtered workflow reports 'skipped' and holds
+# nothing back) and narrower than "not a decisive failure": a cancelled run reached no verdict.
+#
+# A round that can't be measured honestly is a non-sample, never a shorter one:
+#   - a workflow with no benign completion (still running, or it never passed)
+#   - no workflow that actually succeeded, so the round only ever skipped
+#   - partial attribution: fork-PR runs land unassociated, so a per-run ``pr_number`` filter would
+#     read a fork push as green in seconds. A round with any unattributed sibling drops out whole.
+#
+# Known overstatement: a workflow whose first run on the SHA lands late (marking a draft ready fires
+# workflows a draft never ran) stretches the wall, because the round really wasn't green until it
+# passed, so the wall then also covers the hours the PR sat in draft. Distinguishing that from a
+# slow queue would need a re-fire gap threshold, which is a number nobody can defend.
+_TIME_TO_GREEN_SELECT = f"""
+    WITH workflows_on_push AS (
+        SELECT
+            repo_owner,
+            repo_name,
+            head_sha,
+            workflow_name,
+            min(pr_number > 0) AS attributed,
+            min(run_started_at) AS first_start,
+            min(if(
+                status = 'completed' AND coalesce(conclusion, '') IN ('success', 'skipped', 'neutral'),
+                updated_at, NULL
+            )) AS first_green_end,
+            countIf(status = 'completed' AND conclusion = 'success') > 0 AS has_success
+        FROM __RUNS_SOURCE__ AS r
+        WHERE run_started_at >= {{date_from}} __DATE_TO__
+          AND NOT r.is_merge_queue
+          AND {non_default_branch_predicate()}
+        GROUP BY repo_owner, repo_name, head_sha, workflow_name
+    ),
+    green_rounds AS (
+        SELECT
+            min(first_start) AS round_start,
+            dateDiff('second', min(first_start), max(first_green_end)) AS wall_seconds
+        FROM workflows_on_push
+        GROUP BY repo_owner, repo_name, head_sha
+        HAVING min(attributed) = 1
+           AND countIf(first_green_end IS NULL) = 0
+           AND countIf(has_success) > 0
+    )
+    SELECT
+        __BUCKET_FN__ AS bucket_start,
+        quantile(0.5)(wall_seconds) AS p50_seconds
+    FROM green_rounds
+    GROUP BY bucket_start
+    LIMIT {_BUCKET_LIMIT}
+"""
+
+
+def query_time_to_green_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    granularity: Granularity,
+) -> list[TimeToGreenBucket]:
+    """Median wall clock from a push round's first run start to all its workflows first green, per
+    bucket, oldest first, keyed on the bucket the round started in. Only fully green, fully attributed
+    rounds are samples (``_TIME_TO_GREEN_SELECT`` has the exclusions and the one known overstatement);
+    an empty bucket carries ``p50_seconds`` None (a gap, not instant CI)."""
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
+    }
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
+    sql = (
+        _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        .replace("__DATE_TO__", date_to_clause)
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "round_start"))
+    )
+    response = curated.run(sql, query_type="engineering_analytics.time_to_green_series", placeholders=placeholders)
+    p50_by_bucket = {
+        normalize_bucket(bucket_start, granularity): opt_float(p50_seconds)
+        for bucket_start, p50_seconds in response.results or []
+    }
+    return [
+        TimeToGreenBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
+        for bucket in window_buckets(date_from, date_to, granularity)
+    ]
 
 
 def query_workflow_health(
@@ -94,33 +205,35 @@ def query_workflow_health(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    branch: str | None = None,
+    branch: str | None,
+    run_scope: WorkflowHealthRunScope,
+    workload: Workload = Workload.DEFAULT,
 ) -> list[WorkflowHealthItem]:
-    granularity = _pick_granularity(date_from, date_to)
-    date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
-    # An empty/whitespace branch is "no filter", not a literal match on ''.
-    branch = branch.strip() if branch else None
-    branch_clause = "AND head_branch = {branch}" if branch else ""
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    if branch:
-        placeholders["branch"] = ast.Constant(value=branch)
+    granularity = pick_granularity(date_from, date_to)
+    placeholders: dict[str, ast.Expr] = {
+        "date_from": ast.Constant(value=date_from),
+        "run_started_floor": run_started_floor_constant(date_from),
+    }
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
+    branch_clause = branch_filter_clause(branch, placeholders)
+    run_scope_clause = run_scope_filter_clause(run_scope)
 
-    runs_source = curated.run_source()
+    runs_source = curated.run_source(started_floor=True)
 
     def fill(template: str) -> str:
         return (
             template.replace("__RUNS_SOURCE__", runs_source)
             .replace("__DATE_TO__", date_to_clause)
             .replace("__BRANCH__", branch_clause)
-            .replace("__BUCKET_FN__", _BUCKET_FN[granularity])
+            .replace("__RUN_SCOPE__", run_scope_clause)
+            .replace("__BUCKET_FN__", bucket_expr(granularity))
         )
 
     response = curated.run(
         fill(_SELECT),
         query_type="engineering_analytics.workflow_health",
         placeholders=placeholders,
+        workload=workload,
     )
     if not response.results:
         return []
@@ -129,6 +242,7 @@ def query_workflow_health(
         fill(_BUCKET_SELECT),
         query_type="engineering_analytics.workflow_health_buckets",
         placeholders=placeholders,
+        workload=workload,
     )
 
     end = date_to or datetime.now(tz=date_from.tzinfo)
@@ -136,7 +250,14 @@ def query_workflow_health(
     prev_response = curated.run(
         fill(_PREV_SELECT),
         query_type="engineering_analytics.workflow_health_prev",
-        placeholders={**placeholders, "prev_from": ast.Constant(value=prev_from)},
+        # The prev window scans [prev_from, date_from); its scan floor must come from prev_from, not
+        # date_from, or the raw prefilter would cut every previous-window row before the parsed filter.
+        placeholders={
+            **placeholders,
+            "prev_from": ast.Constant(value=prev_from),
+            "run_started_floor": run_started_floor_constant(prev_from),
+        },
+        workload=workload,
     )
     prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
         (repo_owner, repo_name, workflow_name): opt_float(success_rate)
@@ -146,18 +267,23 @@ def query_workflow_health(
     for repo_owner, repo_name, workflow_name, bucket_start, run_count, completed, successes, failures in (
         bucket_response.results or []
     ):
-        key = _normalize(bucket_start, granularity)
+        key = normalize_bucket(bucket_start, granularity)
         buckets_by_workflow.setdefault((repo_owner, repo_name, workflow_name), {})[key] = WorkflowHealthBucket(
             bucket_start=key, run_count=run_count, completed=completed, successes=successes, failures=failures
         )
 
-    cost_by_workflow = query_workflow_window_costs(curated=curated, date_from=date_from, date_to=date_to, branch=branch)
-    window = _window_buckets(date_from, date_to, granularity)
+    cost_by_workflow = query_workflow_window_costs(
+        curated=curated, date_from=date_from, date_to=date_to, branch=branch, run_scope=run_scope, workload=workload
+    )
+    window = window_buckets(date_from, date_to, granularity)
     return [
         WorkflowHealthItem(
             repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
             workflow_name=workflow_name,
             run_count=run_count,
+            successful_run_count=successful_run_count,
+            conclusive_run_count=conclusive_run_count,
+            percentile_run_count=percentile_run_count,
             success_rate=opt_float(success_rate),
             p50_seconds=opt_float(p50_seconds),
             p95_seconds=opt_float(p95_seconds),
@@ -168,6 +294,8 @@ def query_workflow_health(
             # The raw conclusion of that latest completed run, so the UI can tell a real pass from a
             # cancelled/skipped run (both have latest_run_failed false). None when nothing completed.
             latest_run_conclusion=(latest_conclusion or None) if completed_count else None,
+            latest_run_id=int(latest_run_id) if completed_count else None,
+            latest_run_attempt=int(latest_run_attempt) if completed_count else None,
             granularity=granularity,
             buckets=[
                 buckets_by_workflow.get((repo_owner, repo_name, workflow_name), {}).get(
@@ -184,46 +312,5 @@ def query_workflow_health(
             rerun_cycles=rerun_cycles,
             success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
         )
-        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, rerun_cycles in response.results
+        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
     ]
-
-
-def _pick_granularity(date_from: datetime, date_to: datetime | None) -> Granularity:
-    """Hour for short windows, week for long ones — keeps the sparkline at a readable point count."""
-    end = date_to or datetime.now(tz=date_from.tzinfo)
-    span = end - date_from
-    if span <= timedelta(hours=48):
-        return "hour"
-    if span <= timedelta(days=90):
-        return "day"
-    return "week"
-
-
-def _window_buckets(date_from: datetime, date_to: datetime | None, granularity: Granularity) -> list[datetime]:
-    end = date_to or datetime.now(tz=date_from.tzinfo)
-    start = _normalize(date_from, granularity)
-    end_aligned = _normalize(end, granularity)
-    if end_aligned < start:
-        return []
-    step = _BUCKET_STEP[granularity]
-    buckets: list[datetime] = []
-    current = start
-    while current <= end_aligned:
-        buckets.append(current)
-        current += step
-    return buckets
-
-
-def _normalize(value: datetime | date, granularity: Granularity) -> datetime:
-    """Align a timestamp to its bucket start, tz-naive, so query rows and the zero-fill series key alike.
-
-    ClickHouse can hand the bucket back as a ``date`` (date/week truncation) or a ``datetime``
-    (hour truncation); widen the former so both sides key on the same type.
-    """
-    naive = value.replace(tzinfo=None) if isinstance(value, datetime) else datetime(value.year, value.month, value.day)
-    if granularity == "hour":
-        return naive.replace(minute=0, second=0, microsecond=0)
-    midnight = naive.replace(hour=0, minute=0, second=0, microsecond=0)
-    if granularity == "week":
-        return midnight - timedelta(days=midnight.weekday())
-    return midnight

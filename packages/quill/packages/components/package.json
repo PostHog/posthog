@@ -48,8 +48,8 @@
         "@tanstack/react-table": "^8.21.3",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
-        "@vitejs/plugin-react": "^5.1.1",
-        "vite": "^6.3.5",
+        "@vitejs/plugin-react": "catalog:",
+        "vite": "catalog:",
         "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {

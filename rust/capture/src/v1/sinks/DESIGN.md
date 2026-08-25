@@ -624,13 +624,11 @@ If `producer.send()` returns `QueueFull`, the event is failed immediately
 as a retriable error. Backpressure is handled by librdkafka's internal
 queue and the client-level retry mechanism, not an app-level sleep loop.
 
-`effective_partition_key()` (`kafka/sink.rs`) decides whether the
-prepared key should be nulled. Prepared events always carry a key;
-the sink nulls it when
-`force_disable_person_processing` is set and the destination is
-`AnalyticsMain` or `Overflow`. In that case `None` is passed to rdkafka
-so it round-robins; passing `Some("")` would hash to a single
-deterministic partition via murmur2, creating a hot partition.
+Prepared events always carry a key; the sink uses it unless
+`PreparedEvent::ordering` is `OrderingGuarantee::None`, in which case
+`None` is passed to rdkafka so it round-robins. Passing `Some("")` would
+hash to a single deterministic partition via murmur2, creating a hot
+partition. See §9 for how the guarantee is decided.
 
 ### Phase 2 — Drain
 
@@ -1057,7 +1055,9 @@ and the client-controlled `attempt` label is capped at `6+`, so
 All error-related metrics use stable, low-cardinality tags derived from:
 
 - `error_code_tag()` — maps `RDKafkaErrorCode` variants to snake_case strings
-  (e.g. `queue_full`, `message_size_too_large`, `all_brokers_down`)
+  (e.g. `queue_full`, `message_size_too_large`, `all_brokers_down`). Defined in
+  `common_kafka::error` and re-exported from `kafka/types.rs`, so producers
+  outside the sink share the same vocabulary
 - `KafkaSinkError::as_tag()` — sink-level tags
   (e.g. `sink_unavailable`, `timeout`, `task_panicked`)
 - `ProduceError::as_tag()` — producer-level tags
@@ -1131,29 +1131,44 @@ and the sink:
   └───────────────────────────────────────────────────┘
 ```
 
-2. **`should_null_partition_key()`** (`kafka/sink.rs`) decides whether
-   the prepared key should be nulled before sending to the producer:
+2. **`PreparedEvent::ordering`** decides whether the prepared key is used.
+   `Event::ordering()` returns an `OrderingGuarantee` (`crate::ordering`,
+   shared with the v0 sink) and the sink passes `None` to rdkafka for
+   `OrderingGuarantee::None`, `Some(prepared.partition_key)` otherwise.
 
-```rust
-fn should_null_partition_key(
-    force_disable_person_processing: bool,
-    destination: &Destination,
-) -> bool
-```
-
-   If `force_disable_person_processing` is set and the destination is
-   `AnalyticsMain` or `Overflow`, it returns `true` and the sink passes
-   `None` to rdkafka. Otherwise the sink passes
-   `Some(prepared.partition_key)`.
+   `WrappedEvent::ordering` gives up the guarantee only on the lanes that
+   exist to absorb hot keys (`AnalyticsMain`, `Overflow`,
+   `AiEventsOverflow`). On the person-writing lanes (`AnalyticsMain`,
+   `Overflow`) that takes `force_disable_person_processing`; a
+   `spread_partitions` stamp alone takes effect only on the read-only
+   `AiEventsOverflow` lane (`Destination::writes_persons`). It is computed
+   at prepare time rather than stamped during processing because it
+   depends on the final destination, which `apply_historical_rerouting`
+   can still change after `apply_restrictions` has disabled person
+   processing.
 
 Key design choices:
 
+- **The person-processing header is not a control channel.** Nulling the
+  key is driven by `ordering`, never by reading
+  `headers.force_disable_person_processing` back out. That header is an
+  instruction to downstream to skip identity resolution, so using it to
+  request partition spreading silently disabled person processing for
+  every rate-limited overflow event.
+- **`spread_partitions` is separate from person processing.** The overflow
+  limiter sets it alone when a key merely exceeds its burst budget, leaving
+  person processing on. The sink realizes the spread only where the
+  consumer does not write persons (the AI overflow lane); on the analytics
+  lanes the key holds until person processing is off, because spreading one
+  distinct id across partitions contends the consumer's person updates. A
+  `ForceLimited` verdict sets both flags, matching v0.
 - **`None` = round-robin.** `None` is passed to rdkafka, which
   round-robins across partitions. Passing `Some("")` would hash to a
   single deterministic partition via murmur2, creating a hot spot.
-- **DLQ/Historical/Custom retain key** even when
-  `force_disable_person_processing` is set — only Main and Overflow
-  drop the key, matching v0 behavior.
+- **DLQ/Historical/Custom/AI-main retain key** even when
+  `force_disable_person_processing` is set. Only the analytics main and
+  overflow lanes and the AI overflow lane drop it, matching v0's
+  `route()`.
 - **Cookieless mode** uses `token:client_ip` as partition key instead
   of `token:distinct_id`, with IP redacted to `127.0.0.1` for
   `capture_internal` requests.

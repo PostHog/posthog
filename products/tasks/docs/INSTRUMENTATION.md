@@ -23,14 +23,16 @@ All events captured via `Task.capture_event()` automatically include:
 
 All events captured via `TaskRun.capture_event()` automatically include:
 
-| Property      | Type   | Description                                |
-| ------------- | ------ | ------------------------------------------ |
-| `task_id`     | `str`  | UUID of the task                           |
-| `run_id`      | `str`  | UUID of the run                            |
-| `team_id`     | `int`  | Team ID                                    |
-| `repository`  | `str?` | Repository in `org/repo` format (nullable) |
-| `environment` | `str`  | `cloud` or `local` (defaults to `cloud`)   |
-| `mode`        | `str`  | Execution mode (e.g. `background`)         |
+| Property          | Type   | Description                                                             |
+| ----------------- | ------ | ----------------------------------------------------------------------- |
+| `task_id`         | `str`  | UUID of the task                                                        |
+| `run_id`          | `str`  | UUID of the run                                                         |
+| `team_id`         | `int`  | Team ID                                                                 |
+| `repository`      | `str?` | Repository in `org/repo` format (nullable)                              |
+| `loop_id`         | `str?` | UUID of the loop that spawned this run, from run state (nullable)       |
+| `loop_trigger_id` | `str?` | UUID of the loop trigger that fired this run, from run state (nullable) |
+| `environment`     | `str`  | `cloud` or `local` (defaults to `cloud`)                                |
+| `mode`            | `str`  | Execution mode (e.g. `background`)                                      |
 
 ## Task Model Events
 
@@ -64,6 +66,21 @@ Tracked when `Task.soft_delete()` is called. Additional properties:
 | ------------------ | ------- | --------------------------- |
 | `duration_seconds` | `float` | Seconds since task creation |
 
+## Facade events
+
+Source: `products/tasks/backend/facade/api.py`
+
+### `task_handed_off`
+
+Tracked when a task controller hands the task off to a colleague (ownership moves
+to the recipient). Captured under the handoff actor's identity rather than the
+recipient's, even though the task's `created_by` has moved by then. Additional properties:
+
+| Property       | Type   | Description                          |
+| -------------- | ------ | ------------------------------------ |
+| `from_user_id` | `int?` | User ID of the previous owner        |
+| `to_user_id`   | `int`  | User ID of the recipient (new owner) |
+
 ## TaskRun Model Events
 
 Source: `products/tasks/backend/models.py`
@@ -78,13 +95,28 @@ Tracked when `TaskRun.mark_completed()` is called. Additional properties:
 
 ### `task_run_failed`
 
-Tracked when `TaskRun.mark_failed()` is called. Additional properties:
+Captured exactly once per failed run, by whichever component performs the DB transition to `FAILED`:
+`TaskRun.mark_failed()` (janitor sweeps via the facade), the `update_task_run_status` Temporal activity (workflow failures), the facade run PATCH path (agent-reported failures), or `_terminalize_unstarted_task_run` (workflow dispatch failures).
+Additional properties:
 
-| Property           | Type    | Description                            |
-| ------------------ | ------- | -------------------------------------- |
-| `error_type`       | `str`   | Exception class name                   |
-| `error_message`    | `str`   | Error message (truncated to 500 chars) |
-| `duration_seconds` | `float` | Time from creation to failure          |
+| Property           | Type    | Description                                                                                                                                                                                                    |
+| ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `error_type`       | `str`   | Stable failure source: exception class name (workflow failures), `agent_reported`, `stale_queued_cleanup`, `workflow_start_failed`, `followup_delivery_failed`, `stale_run_reaped`; `unspecified` when unknown |
+| `error_message`    | `str`   | Error message (truncated to the **last** 500 chars — the root cause sits at the tail)                                                                                                                          |
+| `duration_seconds` | `float` | Time from creation to failure                                                                                                                                                                                  |
+
+## Loop Fire Metrics
+
+Source: `products/tasks/backend/metrics.py`, emitted from `products/tasks/backend/logic/services/loop_runs.py::fire_loop`.
+
+Prometheus counters (not `posthoganalytics.capture()` events):
+
+| Metric                                 | Labels   | Description                                                                                                                                                                 |
+| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog_tasks_loop_fire_total`        | `reason` | One increment per `fire_loop()` call, labeled with the `LoopFireResult.reason` outcome (`created`, `deduped`, `overlap_skipped`, `rate_capped`, `disabled`, `gate_blocked`) |
+| `posthog_tasks_loop_auto_paused_total` | (none)   | One increment each time a loop is auto-paused after `consecutive_failures` reaches the threshold                                                                            |
+
+`fire_loop()` also logs `loop_fire_created` (standard Python logger, not analytics) with `loop_id`, `loop_trigger_id`, `task_id`, `task_run_id` and `actor_id` on every successful fire.
 
 ## Workflow Events
 
@@ -107,14 +139,48 @@ Tracked when the workflow begins execution.
 
 Tracked after sandbox and agent server are provisioned.
 
-| Property        | Type   | Description                     |
-| --------------- | ------ | ------------------------------- |
-| `run_id`        | `str`  | UUID of the run                 |
-| `task_id`       | `str`  | UUID of the task                |
-| `sandbox_id`    | `str`  | Sandbox identifier              |
-| `sandbox_url`   | `str`  | URL of the sandbox              |
-| `used_snapshot` | `bool` | Whether a snapshot was used     |
-| `repository`    | `str`  | Repository in `org/repo` format |
+| Property                | Type   | Description                                               |
+| ----------------------- | ------ | --------------------------------------------------------- |
+| `run_id`                | `str`  | UUID of the run                                           |
+| `task_id`               | `str`  | UUID of the task                                          |
+| `sandbox_id`            | `str`  | Sandbox identifier                                        |
+| `sandbox_url`           | `str`  | URL of the sandbox                                        |
+| `used_snapshot`         | `bool` | Whether a snapshot was used                               |
+| `repository`            | `str`  | Repository in `org/repo` format                           |
+| `boot_path`             | `str`  | Classic or overlapping clone boot                         |
+| `boot_total_ms`         | `int`  | Infrastructure boot time, excluding setup agent execution |
+| `sandbox_create_ms`     | `int`  | Sandbox creation time                                     |
+| `repo_clone_ms`         | `int`  | Repository clone time                                     |
+| `branch_checkout_ms`    | `int`  | Branch checkout time                                      |
+| `agent_launch_ms`       | `int`  | Agent server launch time                                  |
+| `agent_ready_wait_ms`   | `int`  | Time spent waiting for the agent server                   |
+| `agent_session_init_ms` | `int`  | Agent session initialization time                         |
+
+### Modal VM rollout payload
+
+The `tasks-modal-vm-sandbox` payload supports gradual rollout by origin product:
+
+```json
+{
+  "default_base_origin_products": ["user_created"],
+  "origin_product_rollout_percentages": { "signals_scout": 10 },
+  "default_custom_image": "posthog-dev-stack"
+}
+```
+
+Each percentage uses a stable hash of the origin product and run ID. The same run keeps its runtime choice across activity retries.
+
+### Agent server readiness retry metric
+
+`posthog_tasks_process_agent_server_readiness_retry_total` counts readiness retries that re-enter the start path in the existing sandbox. The start path keeps a process that became healthy between attempts and replaces one that remains unready.
+
+| Label            | Description                                 |
+| ---------------- | ------------------------------------------- |
+| `attempt`        | Temporal activity attempt number            |
+| `outcome`        | `succeeded` or `failed`                     |
+| `boot_path`      | Classic or overlapping clone boot           |
+| `origin_product` | Product that created the task               |
+| `runtime`        | Sandbox runtime, currently `gvisor` or `vm` |
 
 ### `task_run_cancelled`
 
@@ -127,17 +193,18 @@ Tracked when the workflow is cancelled via `CancelledError`.
 | `repository` | `str` | Repository in `org/repo` format |
 | `team_id`    | `int` | Team ID                         |
 
-### `task_run_failed` (workflow)
+### `task_run_failed` (workflow, metrics only)
 
-Tracked when the workflow fails with an exception.
+Recorded when the workflow fails with an exception — **not captured as an analytics event** (the `update_task_run_status` activity owns the analytics capture on the DB transition, see above).
+The workflow emission feeds the `posthog_tasks_task_run_failed_total` Prometheus counter and structured logging with these properties:
 
-| Property        | Type  | Description                            |
-| --------------- | ----- | -------------------------------------- |
-| `run_id`        | `str` | UUID of the run                        |
-| `task_id`       | `str` | UUID of the task                       |
-| `error_type`    | `str` | Exception class name                   |
-| `error_message` | `str` | Error message (truncated to 500 chars) |
-| `sandbox_id`    | `str` | Sandbox identifier (if available)      |
+| Property        | Type  | Description                                 |
+| --------------- | ----- | ------------------------------------------- |
+| `run_id`        | `str` | UUID of the run                             |
+| `task_id`       | `str` | UUID of the task                            |
+| `error_type`    | `str` | Exception class name                        |
+| `error_message` | `str` | Error message (truncated to last 500 chars) |
+| `sandbox_id`    | `str` | Sandbox identifier (if available)           |
 
 ## Webhook Events
 
@@ -167,7 +234,7 @@ Source: `products/tasks/backend/api.py`
 
 ### `code_invite_redeemed`
 
-Tracked when a user redeems a Code invite. Includes `organization` group analytics. No additional properties.
+Tracked when a user redeems a Desktop invite. Includes `organization` group analytics. No additional properties.
 
 ## Activity Observability Events
 

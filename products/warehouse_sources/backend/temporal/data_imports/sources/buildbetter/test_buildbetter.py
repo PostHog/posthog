@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildbette
     buildbetter_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.buildbetter.source import BuildBetterSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
@@ -239,3 +240,31 @@ class TestBuildbetterSource:
         assert batches == [[{"id": "x"}]]
         assert response.primary_keys == ["id"]
         manager.can_resume.assert_called_once()
+
+
+class TestBuildBetterSourceNonRetryableErrors:
+    def setup_method(self) -> None:
+        self.source = BuildBetterSource()
+
+    @parameterized.expand(
+        [
+            ("401_client_error", "401 Client Error: Unauthorized for url: https://api.buildbetter.app/v1/graphql"),
+            ("403_client_error", "403 Client Error: Forbidden for url: https://api.buildbetter.app/v1/graphql"),
+            ("auth_hook_unauthorized", "BuildBetter GraphQL error: Authentication hook unauthorized this request"),
+            ("webhook_auth_request_failed", "BuildBetter GraphQL error: webhook authentication request failed"),
+        ]
+    )
+    def test_matches_auth_failures(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("read_timeout", "HTTPSConnectionPool(host='api.buildbetter.app', port=443): Read timed out."),
+            ("server_error", "BuildBetter: server error 503"),
+            ("connection_reset", "Connection reset by peer"),
+        ]
+    )
+    def test_does_not_match_transient_errors(self, _name: str, other_error: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)

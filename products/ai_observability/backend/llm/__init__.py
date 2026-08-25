@@ -21,7 +21,7 @@ class ModelInfo(TypedDict):
 
 
 # Single registry of providers. Add new providers here and everything else
-# (model lists, trial models, ID sets) derives from it automatically.
+# (model lists, playground models, ID sets) derives from it automatically.
 PROVIDERS: list[tuple[str, Any]] = [
     ("OpenAI", OpenAIConfig),
     ("Anthropic", AnthropicConfig),
@@ -41,23 +41,23 @@ def get_default_models() -> list[ModelInfo]:
     return result
 
 
-def get_trial_models() -> list[ModelInfo]:
-    """Returns the models available to trial users (PostHog pays).
+def get_playground_models() -> list[ModelInfo]:
+    """Returns the models available in the PostHog-funded playground.
 
     This is a curated subset excluding expensive models like pro/opus tiers
     while including one flagship per provider for quality evaluation.
     """
     result: list[ModelInfo] = []
     for display_name, config in PROVIDERS:
-        result.extend(_build_model_infos(display_name, config.TRIAL_MODELS))
+        result.extend(_build_model_infos(display_name, config.PLAYGROUND_MODELS))
     return result
 
 
-TRIAL_MODEL_IDS: frozenset[str] = frozenset(model for _, config in PROVIDERS for model in config.TRIAL_MODELS)
+PLAYGROUND_MODEL_IDS: frozenset[str] = frozenset(model for _, config in PROVIDERS for model in config.PLAYGROUND_MODELS)
 
 # Provider-keyed lookup (lowercase keys matching DB provider values)
-TRIAL_MODELS_BY_PROVIDER: dict[str, list[str]] = {
-    display_name.lower(): config.TRIAL_MODELS for display_name, config in PROVIDERS
+PLAYGROUND_MODELS_BY_PROVIDER: dict[str, list[str]] = {
+    display_name.lower(): config.PLAYGROUND_MODELS for display_name, config in PROVIDERS
 }
 
 # Model picked when an eval/tagger has no explicit model_configuration and the provider is
@@ -79,11 +79,11 @@ __all__ = [
     "UnsupportedProviderError",
     "PROVIDERS",
     "SUPPORTED_MODELS_WITH_THINKING",
-    "TRIAL_MODEL_IDS",
-    "TRIAL_MODELS_BY_PROVIDER",
+    "PLAYGROUND_MODEL_IDS",
+    "PLAYGROUND_MODELS_BY_PROVIDER",
     "DEFAULT_MODEL_BY_PROVIDER",
     "get_default_models",
-    "get_trial_models",
+    "get_playground_models",
     "OpenAIConfig",
     "AnthropicConfig",
     "GeminiConfig",

@@ -1,45 +1,30 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { hogqlQuery } from '~/queries/query'
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
-import { type AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    MCPToolCategoryCountItem,
+    MCPToolCategoryItem,
+    MCPToolQualityDailyStatItem,
+    MCPToolQualityRowItem,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
-import toolQualityQueryTemplate from '../backend/templates/tool_quality.sql?raw'
-import type { mcpAnalyticsToolQualityLogicType } from './mcpAnalyticsToolQualityLogicType'
-
-// `$mcp_tool_category` is stamped onto every $mcp_tool_call event by the producer
-// (PostHog's MCP server from its catalog; external servers via the SDK). We read
-// the available categories straight from the data so the scope selector works for
-// any project's taxonomy without a hardcoded tool→category map.
-const CATEGORIES_QUERY = hogql`
-SELECT DISTINCT toString(properties.$mcp_tool_category) AS category
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 30 DAY
-    AND properties.$mcp_tool_category IS NOT NULL
-    AND properties.$mcp_tool_category != ''
-ORDER BY category
-`
-
-// Per-category call counts over a fixed 7-day window powering the "share of MCP
-// usage" headline. Rows with an empty category count toward the total but not the
-// in-scope numerator, so uncategorized traffic dilutes the share as expected.
-const CATEGORY_COUNTS_QUERY = hogql`
-SELECT toString(properties.$mcp_tool_category) AS category, count() AS calls
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-GROUP BY category
-`
+import {
+    type IntervalOption,
+    buildBucketKeys,
+    intervalOptionsForWindow,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    parseIntervalParam,
+    resolveInterval,
+} from './timeBuckets'
 
 export interface CategoryCount {
     category: string
@@ -62,6 +47,34 @@ export interface SortState {
 export interface DateFilter {
     dateFrom: string | null
     dateTo: string | null
+}
+
+// Carry the selected window across navigation as date_from / date_to, plus the grouping interval
+// when one is pinned, mirroring the tab's actionToUrl. Only set them when present so a cleared range
+// and an auto interval stay out of the URL.
+export function mcpDateSearchParams(dateFilter: DateFilter, interval?: IntervalType | null): Record<string, string> {
+    const params: Record<string, string> = {}
+    if (dateFilter.dateFrom) {
+        params.date_from = dateFilter.dateFrom
+    }
+    if (dateFilter.dateTo) {
+        params.date_to = dateFilter.dateTo
+    }
+    if (interval) {
+        params.interval = interval
+    }
+    return params
+}
+
+// Link from the Tool quality tab to an individual tool's report, keeping the date filter and pinned
+// interval so the tool page opens on the same window and granularity.
+export function mcpToolReportUrl(tool: string, dateFilter: DateFilter, interval?: IntervalType | null): string {
+    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter, interval)).url
+}
+
+// Link back from a tool report to the Tool quality tab, restoring the date filter and interval.
+export function mcpToolQualityUrlWithDates(dateFilter: DateFilter, interval?: IntervalType | null): string {
+    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter, interval)).url
 }
 
 export interface ToolQualityRow {
@@ -100,46 +113,17 @@ export interface DailyChartData {
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 const DEFAULT_SORT: SortState = { column: 'total_calls', direction: 'DESC' }
 
-const EMPTY_CHART_DATA: DailyChartData = {
-    labels: [],
-    calls: [],
-    errors: [],
-    successRate: [],
-    p50: [],
-    p95: [],
-    p99: [],
-}
-
-// Pivot per-day rows into chart series over a gap-free day axis: ClickHouse only
-// returns days that had events, so missing days are filled in to keep the x-axis
-// linear. Counts fill with 0 (genuinely no activity); rate and latency fill with
-// NaN so the chart skips the point instead of drawing a misleading dip to zero.
-// `range` spans the axis over the full selected window (so empty leading/trailing
-// days still show); without it, the axis spans only the days that have data.
-export function buildDailyChartData(
-    dailyStats: DailyToolStat[],
-    range?: { start: string; end: string }
-): DailyChartData {
-    let startDay: string
-    let endDay: string
-    if (range) {
-        startDay = range.start
-        endDay = range.end
-    } else if (dailyStats.length > 0) {
-        startDay = dailyStats[0].day
-        endDay = dailyStats[dailyStats.length - 1].day
-    } else {
-        return EMPTY_CHART_DATA
-    }
-    const byDay = new Map(dailyStats.map((r) => [r.day, r]))
-    const end = dayjs(endDay)
-    const labels: string[] = []
-    for (let day = dayjs(startDay); !day.isAfter(end); day = day.add(1, 'day')) {
-        labels.push(day.format('YYYY-MM-DD'))
-    }
-    const rows = labels.map((day) => byDay.get(day))
+// Pivot per-bucket rows onto the full set of interval buckets spanning the selected window:
+// ClickHouse only returns buckets that had events, so `bucketKeys` (built from the window at the
+// active interval) keeps the x-axis linear and covering the whole range regardless of granularity.
+// Counts fill with 0 (genuinely no activity); rate and latency fill with NaN so the chart skips the
+// point instead of drawing a misleading dip to zero. Rows match by normalized bucket key, so day,
+// hour, and minute intervals all line up.
+export function buildDailyChartData(dailyStats: DailyToolStat[], bucketKeys: string[]): DailyChartData {
+    const byBucket = new Map(dailyStats.map((r) => [normalizeBucket(r.day), r]))
+    const rows = bucketKeys.map((k) => byBucket.get(k))
     return {
-        labels,
+        labels: bucketKeys,
         calls: rows.map((r) => r?.calls ?? 0),
         errors: rows.map((r) => r?.errors ?? 0),
         successRate: rows.map((r) => (r && r.calls ? ((r.calls - r.errors) / r.calls) * 100 : NaN)),
@@ -162,12 +146,156 @@ function sortToolRows(rows: ToolQualityRow[], sort: SortState): ToolQualityRow[]
     })
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpAnalyticsToolQualityLogicValues {
+    availableCategories: string[]
+    availableCategoriesLoading: boolean
+    categoryCounts: CategoryCount[]
+    categoryCountsLoading: boolean
+    dailyChartData: DailyChartData
+    dailyStats: DailyToolStat[]
+    dailyStatsLoading: boolean
+    dateFilter: DateFilter
+    dateRangeLabel: string
+    filteredRows: ToolQualityRow[]
+    incompleteTail: boolean
+    interval: IntervalType
+    intervalOptions: IntervalOption[]
+    pinnedInterval: IntervalType | null
+    scopeShare: ScopeShare
+    searchTerm: string
+    selectedCategories: string[]
+    selectedTool: string | null
+    toolQualitySort: SortState
+    toolRows: ToolQualityRow[]
+    toolRowsLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpAnalyticsToolQualityLogicActions {
+    loadAvailableCategories: () => any
+    loadAvailableCategoriesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAvailableCategoriesSuccess: (
+        availableCategories: string[],
+        payload?: any
+    ) => {
+        availableCategories: string[]
+        payload?: any
+    }
+    loadCategoryCounts: () => any
+    loadCategoryCountsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCategoryCountsSuccess: (
+        categoryCounts: CategoryCount[],
+        payload?: any
+    ) => {
+        categoryCounts: CategoryCount[]
+        payload?: any
+    }
+    loadDailyStats: (_: void) => void
+    loadDailyStatsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDailyStatsSuccess: (
+        dailyStats: DailyToolStat[],
+        payload?: void
+    ) => {
+        dailyStats: DailyToolStat[]
+        payload?: void
+    }
+    loadToolRows: (_: void) => void
+    loadToolRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadToolRowsSuccess: (
+        toolRows: ToolQualityRow[],
+        payload?: void
+    ) => {
+        toolRows: ToolQualityRow[]
+        payload?: void
+    }
+    reloadAll: () => {
+        value: true
+    }
+    setDateFilter: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
+    setPinnedInterval: (interval: IntervalType | null) => {
+        interval: IntervalType | null
+    }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
+    setSelectedCategories: (categories: string[]) => {
+        categories: string[]
+    }
+    setSelectedTool: (tool: string | null) => {
+        tool: string | null
+    }
+    setToolQualitySort: (
+        column: string,
+        direction: SortDirection
+    ) => {
+        column: string
+        direction: SortDirection
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface mcpAnalyticsToolQualityLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        dateRangeLabel: (dateFilter: DateFilter) => string
+        intervalOptions: (dateFilter: DateFilter, timezone: string) => IntervalOption[]
+        interval: (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string) => IntervalType
+        scopeShare: (categoryCounts: CategoryCount[], selectedCategories: string[]) => ScopeShare
+        filteredRows: (toolRows: ToolQualityRow[], toolQualitySort: SortState, searchTerm: string) => ToolQualityRow[]
+        dailyChartData: (
+            dailyStats: DailyToolStat[],
+            dateFilter: DateFilter,
+            interval: IntervalType,
+            timezone: string
+        ) => DailyChartData
+        incompleteTail: (dailyChartData: DailyChartData, interval: IntervalType, timezone: string) => boolean
+    }
+}
+
+export type mcpAnalyticsToolQualityLogicType = MakeLogicType<
+    mcpAnalyticsToolQualityLogicValues,
+    mcpAnalyticsToolQualityLogicActions,
+    Record<string, any>,
+    mcpAnalyticsToolQualityLogicMeta
+>
+
 export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsToolQualityLogic']),
 
     actions({
         setToolQualitySort: (column: string, direction: SortDirection) => ({ column, direction }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setPinnedInterval: (interval: IntervalType | null) => ({ interval }),
         setSelectedCategories: (categories: string[]) => ({ categories }),
         setSelectedTool: (tool: string | null) => ({ tool }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -185,6 +313,15 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             DEFAULT_DATE_FILTER,
             {
                 setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
+            },
+        ],
+        // The grouping the user picked, kept independent of the window: null means follow the
+        // auto-choice for the range. It survives date changes so switching windows doesn't quietly
+        // undo the pin — `interval` drops back to auto only when the pin no longer fits.
+        pinnedInterval: [
+            null as IntervalType | null,
+            {
+                setPinnedInterval: (_, { interval }): IntervalType | null => interval,
             },
         ],
         selectedCategories: [
@@ -212,8 +349,12 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             [] as string[],
             {
                 loadAvailableCategories: async (): Promise<string[]> => {
-                    const response = await hogqlQuery(CATEGORIES_QUERY)
-                    return ((response?.results as unknown[][]) ?? []).map((r) => String(r[0] ?? '')).filter(Boolean)
+                    // Fixed 30-day window so the scope selector lists every category regardless of the tab filter.
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolCategoriesQuery,
+                        dateRange: { date_from: '-30d' },
+                    })) as { results?: MCPToolCategoryItem[] }
+                    return (response.results ?? []).map((r) => r.category).filter(Boolean)
                 },
             },
         ],
@@ -221,11 +362,11 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             [] as CategoryCount[],
             {
                 loadCategoryCounts: async (): Promise<CategoryCount[]> => {
-                    const response = await hogqlQuery(CATEGORY_COUNTS_QUERY)
-                    return ((response?.results as unknown[][]) ?? []).map((r) => ({
-                        category: String(r[0] ?? ''),
-                        calls: Number(r[1] ?? 0),
-                    }))
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolCategoryCountsQuery,
+                        dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
+                    })) as { results?: MCPToolCategoryCountItem[] }
+                    return (response.results ?? []).map((r) => ({ category: r.category, calls: r.calls }))
                 },
             },
         ],
@@ -234,34 +375,25 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             {
                 loadToolRows: async (_: void, breakpoint): Promise<ToolQualityRow[]> => {
                     await breakpoint(100)
-                    // Fixed server-side order; column sorting happens client-side on the loaded set.
-                    const query = toolQualityQueryTemplate
-                        .replace('__ORDER_BY__', 'total_calls')
-                        .replace('__ORDER_DIRECTION__', 'DESC')
+                    // Fixed server-side order (total_calls DESC); column sorting happens client-side.
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query,
-                        filters: {
-                            dateRange: {
-                                date_from: values.dateFilter.dateFrom,
-                                date_to: values.dateFilter.dateTo,
-                            },
-                            ...(values.categoryProperties.length > 0 ? { properties: values.categoryProperties } : {}),
-                        },
-                    })) as HogQLQueryResponse
+                        kind: NodeKind.MCPToolQualityRowsQuery,
+                        dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
+                        categories: values.selectedCategories,
+                    })) as { results?: MCPToolQualityRowItem[] }
                     breakpoint()
-                    return ((response.results as unknown[][]) ?? []).map((r) => ({
-                        tool: String(r[0] ?? ''),
-                        total_calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        error_rate_pct: Number(r[3] ?? 0),
-                        p50_duration_ms: Number(r[4] ?? 0),
-                        p95_duration_ms: Number(r[5] ?? 0),
-                        p99_duration_ms: Number(r[6] ?? 0),
-                        users: Number(r[7] ?? 0),
-                        sessions: Number(r[8] ?? 0),
-                        first_seen: String(r[9] ?? ''),
-                        last_seen: String(r[10] ?? ''),
+                    return (response.results ?? []).map((r) => ({
+                        tool: r.tool,
+                        total_calls: r.total_calls,
+                        errors: r.errors,
+                        error_rate_pct: r.error_rate_pct,
+                        p50_duration_ms: r.p50_duration_ms,
+                        p95_duration_ms: r.p95_duration_ms,
+                        p99_duration_ms: r.p99_duration_ms,
+                        users: r.users,
+                        sessions: r.sessions,
+                        first_seen: r.first_seen,
+                        last_seen: r.last_seen,
                     }))
                 },
             },
@@ -271,53 +403,21 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             {
                 loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
                     await breakpoint(100)
-                    // The selected tool rides along as a property filter resolved by the
-                    // {filters} placeholder, so the value never touches the query string.
-                    const toolProperty: AnyPropertyFilter[] = values.selectedTool
-                        ? [
-                              {
-                                  key: '$mcp_tool_name',
-                                  value: [values.selectedTool],
-                                  operator: PropertyOperator.Exact,
-                                  type: PropertyFilterType.Event,
-                              },
-                          ]
-                        : []
-                    const properties = [...values.categoryProperties, ...toolProperty]
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-SELECT
-    toDate(timestamp) AS day,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
-    round(quantile(0.99)(toFloat(properties.$mcp_duration_ms))) AS p99
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY day
-ORDER BY day
-`,
-                        filters: {
-                            dateRange: {
-                                date_from: values.dateFilter.dateFrom,
-                                date_to: values.dateFilter.dateTo,
-                            },
-                            ...(properties.length > 0 ? { properties } : {}),
-                        },
-                    })) as HogQLQueryResponse
+                        kind: NodeKind.MCPToolQualityDailyStatsQuery,
+                        dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
+                        interval: values.interval,
+                        categories: values.selectedCategories,
+                        ...(values.selectedTool ? { toolName: values.selectedTool } : {}),
+                    })) as { results?: MCPToolQualityDailyStatItem[] }
                     breakpoint()
-                    return ((response.results as unknown[][]) ?? []).map((r) => ({
-                        day: String(r[0] ?? ''),
-                        calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        p50: Number(r[3] ?? 0),
-                        p95: Number(r[4] ?? 0),
-                        p99: Number(r[5] ?? 0),
+                    return (response.results ?? []).map((r) => ({
+                        day: r.day,
+                        calls: r.calls,
+                        errors: r.errors,
+                        p50: r.p50,
+                        p95: r.p95,
+                        p99: r.p99,
                     }))
                 },
             },
@@ -325,21 +425,25 @@ ORDER BY day
     })),
 
     selectors({
-        // Event property filter applied to every query so the whole tab scopes to
-        // the selected categories. Empty selection means "all categories".
-        categoryProperties: [
-            (s) => [s.selectedCategories],
-            (selectedCategories: string[]): AnyPropertyFilter[] =>
-                selectedCategories.length > 0
-                    ? [
-                          {
-                              key: '$mcp_tool_category',
-                              value: selectedCategories,
-                              operator: PropertyOperator.Exact,
-                              type: PropertyFilterType.Event,
-                          },
-                      ]
-                    : [],
+        // Human-readable label for the active window (e.g. "Last 7 days"), used by
+        // the scope-share headline so it never falls out of sync with the filter.
+        dateRangeLabel: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): string =>
+                dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ?? 'the selected range',
+        ],
+        intervalOptions: [
+            (s) => [s.dateFilter, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, timezone: string): IntervalOption[] =>
+                intervalOptionsForWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone),
+        ],
+        // Grouping interval for the charts: the pinned choice, or PostHog's standard auto-choice when
+        // none is pinned, so a sub-day window (e.g. last 12 hours) still buckets hourly by default
+        // instead of collapsing to a single day point.
+        interval: [
+            (s) => [s.dateFilter, s.pinnedInterval, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string): IntervalType =>
+                resolveInterval(dateFilter.dateFrom, dateFilter.dateTo, timezone, pinnedInterval),
         ],
         scopeShare: [
             (s) => [s.categoryCounts, s.selectedCategories],
@@ -361,25 +465,40 @@ ORDER BY day
             },
         ],
         dailyChartData: [
-            (s) => [s.dailyStats, s.dateFilter, teamLogic.selectors.timezone],
-            (dailyStats: DailyToolStat[], dateFilter: DateFilter, timezone: string): DailyChartData => {
-                const start = dateStringToDayJs(dateFilter.dateFrom, timezone)
-                const end =
-                    (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : dayjs().tz(timezone)) ??
-                    dayjs()
-                const range = start ? { start: start.format('YYYY-MM-DD'), end: end.format('YYYY-MM-DD') } : undefined
-                return buildDailyChartData(dailyStats, range)
+            (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],
+            (
+                dailyStats: DailyToolStat[],
+                dateFilter: DateFilter,
+                interval: IntervalType,
+                timezone: string
+            ): DailyChartData => {
+                const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
+                return buildDailyChartData(dailyStats, bucketKeys)
             },
+        ],
+        // The charts dash the final segment when it is the current, still-collecting interval, so a
+        // partial day doesn't read as a fall in calls or a latency improvement.
+        incompleteTail: [
+            (s) => [s.dailyChartData, s.interval, teamLogic.selectors.timezone],
+            (dailyChartData: DailyChartData, interval: IntervalType, timezone: string): boolean =>
+                lastBucketIsInProgress(dailyChartData.labels, timezone, interval),
         ],
     }),
 
     listeners(({ actions, values }) => ({
-        // Both scope filters refetch the table and the charts
+        // Both scope filters refetch the table and the charts; a date change also
+        // refreshes the category counts so the "share of MCP usage" headline tracks
+        // the same window.
         setDateFilter: () => {
             actions.reloadAll()
+            actions.loadCategoryCounts()
         },
         setSelectedCategories: () => {
             actions.reloadAll()
+        },
+        // Only the charts bucket by interval; the table is a single-window aggregate.
+        setPinnedInterval: () => {
+            actions.loadDailyStats()
         },
         reloadAll: () => {
             actions.loadToolRows()
@@ -406,6 +525,11 @@ ORDER BY day
             } else {
                 delete searchParams.tool
             }
+            if (values.selectedCategories.length > 0) {
+                searchParams.categories = values.selectedCategories
+            } else {
+                delete searchParams.categories
+            }
             if (values.dateFilter.dateFrom) {
                 searchParams.date_from = values.dateFilter.dateFrom
             } else {
@@ -416,11 +540,18 @@ ORDER BY day
             } else {
                 delete searchParams.date_to
             }
+            if (values.pinnedInterval) {
+                searchParams.interval = values.pinnedInterval
+            } else {
+                delete searchParams.interval
+            }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
             setSelectedTool: syncUrl,
             setDateFilter: syncUrl,
+            setPinnedInterval: syncUrl,
+            setSelectedCategories: syncUrl,
         }
     }),
 
@@ -430,11 +561,23 @@ ORDER BY day
             if (tool !== values.selectedTool) {
                 actions.setSelectedTool(tool)
             }
+            const categories = Array.isArray(searchParams.categories)
+                ? searchParams.categories.map(String)
+                : typeof searchParams.categories === 'string' && searchParams.categories
+                  ? [searchParams.categories]
+                  : []
+            if (JSON.stringify(categories) !== JSON.stringify(values.selectedCategories)) {
+                actions.setSelectedCategories(categories)
+            }
             const dateFrom =
                 typeof searchParams.date_from === 'string' ? searchParams.date_from : values.dateFilter.dateFrom
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
             if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
                 actions.setDateFilter(dateFrom, dateTo)
+            }
+            const interval = parseIntervalParam(searchParams.interval)
+            if (interval !== values.pinnedInterval) {
+                actions.setPinnedInterval(interval)
             }
         },
     })),

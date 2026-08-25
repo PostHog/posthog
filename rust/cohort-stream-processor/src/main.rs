@@ -18,29 +18,36 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, FollowerRoute,
-    MergeRoute, TransferRoute,
+    MergeRoute, SeedFollowerConsumer, TransferRoute,
 };
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
-use cohort_stream_processor::observability::store_stats::StoreStatsSweeper;
+use cohort_stream_processor::observability::disk::SharedDiskUtilization;
+use cohort_stream_processor::observability::store_stats::{DiskProbe, StoreStatsSweeper};
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, Follower, FollowerSet, OffsetTracker,
-    PartitionRouter,
+    run_rebalance_worker, CohortConsumerContext, ConsumerPauser, Follower, FollowerSet,
+    LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
 };
 use cohort_stream_processor::producer::{
-    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaStreamEventSink, KafkaTransferSink,
-    MembershipSink, NoopCascadeSink, StreamEventSink, TransferSink,
+    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaReconcileMarkerSink,
+    KafkaSeedTileSink, KafkaStreamEventSink, KafkaTransferSink, MembershipSink, NoopCascadeSink,
+    NoopReconcileMarkerSink, NoopSeedTileSink, ReconcileMarkerSink, SeedTileSink, StreamEventSink,
+    TransferSink,
 };
 use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
     S3Uploader, TrackedTopic, CHECKPOINT_LOOP_NAME,
 };
-use cohort_stream_processor::store::CohortStore;
-use cohort_stream_processor::sweep::{run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper};
-use cohort_stream_processor::workers::MergeWorkerDeps;
+use cohort_stream_processor::store::{CohortStore, StoreHandle};
+use cohort_stream_processor::sweep::{
+    run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper, ReconcileDrainSweeper,
+};
+use cohort_stream_processor::workers::{
+    MergeWorkerDeps, PersonSeedDeps, ReconcileBacklog, ReconcileDeps,
+};
 
 common_alloc::used!();
 
@@ -66,7 +73,7 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
-    config.validate_durability_startup()?;
+    config.validate_startup()?;
 
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(90))
@@ -98,6 +105,12 @@ async fn async_main(config: Config) -> Result<()> {
     let cascade_follower_handle = config.cohort_cascade_enabled.then(|| {
         manager.register(
             "cascade-follower",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+        )
+    });
+    let seed_follower_handle = config.cohort_seed_consumer_enabled.then(|| {
+        manager.register(
+            "seed-follower",
             ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
         )
     });
@@ -168,11 +181,12 @@ async fn async_main(config: Config) -> Result<()> {
         .context("creating shadow producer")?,
     );
 
-    // Only the transfer sink gets the shorter `message.timeout.ms`: its produce runs inline on a
-    // partition worker under a bounded retry loop, so a long per-attempt timeout would multiply into
-    // a worker hold past the 30 s graceful-shutdown window. The membership and re-key sinks keep the
-    // shared 20 s — membership drops on fail (at-most-once) and the re-key produce rides the
-    // events-path offset gate (held-then-redelivered), so neither blocks a worker for the full timeout.
+    // The transfer and marker sinks get the shorter `message.timeout.ms`: both produce inline on a
+    // partition worker and both are retried on a cadence — the transfer by a bounded inline loop, the
+    // marker by the drain sweeper — so a long per-attempt timeout repeats into a worker hold rather
+    // than costing it once. The membership and re-key sinks keep the shared 20 s: membership drops on
+    // fail (at-most-once) and the re-key produce rides the events-path offset gate
+    // (held-then-redelivered), so neither retries a black-holed produce on a timer.
     let transfer_kafka_config = config.build_transfer_kafka_config();
     let transfer_sink: Arc<dyn TransferSink> = Arc::new(
         KafkaTransferSink::new(
@@ -197,6 +211,31 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         Arc::new(NoopCascadeSink)
     };
+    let seed_tile_sink: Arc<dyn SeedTileSink> = if config.cohort_seed_consumer_enabled {
+        Arc::new(
+            KafkaSeedTileSink::new(
+                &kafka_config,
+                config.cohort_stream_seed_events_topic.clone(),
+            )
+            .await
+            .context("creating cohort_stream_seed_events re-key producer")?,
+        )
+    } else {
+        Arc::new(NoopSeedTileSink)
+    };
+    let marker_sink: Arc<dyn ReconcileMarkerSink> = if config.cohort_seed_reconcile_enabled {
+        Arc::new(
+            KafkaReconcileMarkerSink::new(
+                &config.build_marker_kafka_config(),
+                config.cohort_reconcile_markers_topic.clone(),
+            )
+            .await
+            .context("creating cohort_reconcile_markers producer")?,
+        )
+    } else {
+        Arc::new(NoopReconcileMarkerSink)
+    };
+    let reconcile_backlog = Arc::new(ReconcileBacklog::default());
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
         stream_event_sink,
@@ -209,22 +248,42 @@ async fn async_main(config: Config) -> Result<()> {
         cascade_tracker: Arc::new(OffsetTracker::new()),
         cascade: config.cascade_config(),
         partition_count: config.cohort_partition_count,
+        seed_tile_sink,
+        seed_tracker: Arc::new(OffsetTracker::new()),
+        // Unconditional (cheap): the event path observes regardless of the seed gate.
+        live_watermarks: Arc::new(LiveWatermarks::new()),
+        register_transfer_enabled: config.cohort_register_transfer_enabled,
+        reconcile: ReconcileDeps {
+            enabled: config.cohort_seed_reconcile_enabled,
+            scan_page: config.cohort_seed_reconcile_scan_page,
+            backlog: reconcile_backlog.clone(),
+            marker_sink,
+        },
+        person_seed: PersonSeedDeps {
+            enabled: config.cohort_seed_person_apply_enabled,
+            live_margin_ms: config.cohort_seed_person_live_margin_ms,
+        },
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
-    // needs its own handle on the store and each per-topic tracker to capture the offset manifest.
+    // needs its own raw-store handle and each per-topic tracker to capture the offset manifest.
     // Captured unconditionally to satisfy the borrow checker; consumed only when `checkpoint_enabled`.
+    // The sweeper keeps the raw `CohortStore` rather than the facade because of its must-not-panic
+    // policy (see checkpoint.rs).
     let store_for_checkpoint = store.clone();
-    let store_for_stats = store.clone();
     let events_tracker_for_checkpoint = offset_tracker.clone();
     let merge_tracker_for_checkpoint = merge_deps.merge_tracker.clone();
     let transfer_tracker_for_checkpoint = merge_deps.transfer_tracker.clone();
     let cascade_tracker_for_checkpoint = merge_deps.cascade_tracker.clone();
+    let seed_tracker_for_checkpoint = merge_deps.seed_tracker.clone();
+
+    let handle = StoreHandle::new(store, config.offload_config());
+    let handle_for_stats = handle.clone();
 
     let dispatcher = Arc::new(EventDispatcher::new(
         router,
         offset_tracker,
-        store,
+        handle,
         catalog.clone(),
         sink,
         merge_deps,
@@ -234,8 +293,6 @@ async fn async_main(config: Config) -> Result<()> {
     if config.durable_restore_enabled {
         dispatcher.enable_durable_restore();
     }
-    // Person-memo config, likewise set before any worker spawns.
-    dispatcher.set_person_memo_config(config.person_memo_config());
     // Event-name fan-out gating, likewise set before any worker spawns.
     dispatcher.set_event_name_gating(config.event_name_gating());
 
@@ -247,6 +304,8 @@ async fn async_main(config: Config) -> Result<()> {
     stream_consumer
         .subscribe(&[config.cohort_stream_events_topic.as_str()])
         .context("subscribing to cohort_stream_events")?;
+    // Shared with the seed consumer's idle probe.
+    let stream_consumer = Arc::new(stream_consumer);
 
     let merges_follower_consumer: Arc<StreamConsumer> = Arc::new(
         config
@@ -267,6 +326,18 @@ async fn async_main(config: Config) -> Result<()> {
                 .follower_client_config(&config.kafka_cascade_consumer_group)
                 .create()
                 .context("creating cohort_cascade_events follower consumer")?,
+        ))
+    } else {
+        None
+    };
+    // Gated: a gate-off deploy is safe without the seed topic existing at all.
+    let seed_follower_consumer: Option<Arc<StreamConsumer>> = if config.cohort_seed_consumer_enabled
+    {
+        Some(Arc::new(
+            config
+                .follower_client_config(&config.kafka_seed_consumer_group)
+                .create()
+                .context("creating cohort_stream_seed_events follower consumer")?,
         ))
     } else {
         None
@@ -318,6 +389,35 @@ async fn async_main(config: Config) -> Result<()> {
             cascade_partitions,
         );
     }
+    // A tile must land on the partition owning its person's state slice.
+    if let Some(seed_consumer) = &seed_follower_consumer {
+        let seed_partitions =
+            fetch_partition_count(seed_consumer, &config.cohort_stream_seed_events_topic)?;
+        anyhow::ensure!(
+            seed_partitions as u32 == config.cohort_partition_count,
+            "cohort_stream_seed_events must be co-partitioned with {} at COHORT_PARTITION_COUNT={}: {} has {}",
+            config.cohort_stream_events_topic,
+            config.cohort_partition_count,
+            config.cohort_stream_seed_events_topic,
+            seed_partitions,
+        );
+        // Nothing co-partitions with the marker topic, so only its existence matters. Failing here
+        // beats the alternative: a marker produce retrying forever while it holds the seed offset.
+        // Nested under the seed consumer on purpose: reconcile jobs are admitted only from seed
+        // tiles, so without it no marker can be produced and there is nothing to prove.
+        if config.cohort_seed_reconcile_enabled {
+            fetch_partition_count(seed_consumer, &config.cohort_reconcile_markers_topic).with_context(
+                || {
+                    format!(
+                        "{} must exist before a processor with COHORT_SEED_RECONCILE_ENABLED starts. \
+                         Provision the topic, or set COHORT_SEED_RECONCILE_ENABLED=false to start \
+                         without the reconcile path.",
+                        config.cohort_reconcile_markers_topic,
+                    )
+                },
+            )?;
+        }
+    }
 
     if let Some(manifest) = restore.manifest.as_ref() {
         commit_follower_offsets_from_manifest(
@@ -337,6 +437,15 @@ async fn async_main(config: Config) -> Result<()> {
                 manifest,
             );
         }
+        // State rolls back to the snapshot, so the seed offsets must roll back with it or the
+        // in-between tiles never replay.
+        if let Some(seed_consumer) = &seed_follower_consumer {
+            commit_follower_offsets_from_manifest(
+                seed_consumer,
+                &config.cohort_stream_seed_events_topic,
+                manifest,
+            );
+        }
     }
 
     let mut follower_mirrors = vec![
@@ -353,6 +462,12 @@ async fn async_main(config: Config) -> Result<()> {
         follower_mirrors.push(Follower::new(
             cascade_consumer.clone(),
             config.cohort_cascade_events_topic.clone(),
+        ));
+    }
+    if let Some(seed_consumer) = &seed_follower_consumer {
+        follower_mirrors.push(Follower::new(
+            seed_consumer.clone(),
+            config.cohort_stream_seed_events_topic.clone(),
         ));
     }
     let followers = Arc::new(FollowerSet::new(follower_mirrors));
@@ -412,10 +527,27 @@ async fn async_main(config: Config) -> Result<()> {
         consumer_handle.shutdown_token(),
     ));
 
-    // Publish store cache/size metrics via the sweep machinery, and Tokio runtime metrics via a
-    // separate monitor.
+    if config.cohort_seed_reconcile_enabled {
+        tokio::spawn(run_sweep_loop(
+            ReconcileDrainSweeper::new(dispatcher.clone(), reconcile_backlog),
+            config.reconcile_tick_interval(),
+            "reconcile",
+            consumer_handle.shutdown_token(),
+        ));
+    }
+
+    // Publish store cache/size metrics and the store filesystem's utilization via the sweep
+    // machinery, and Tokio runtime metrics via a separate monitor. The disk snapshot feeds the
+    // seed consumer's disk-backpressure gate; a sample surviving four sweep ticks unrefreshed
+    // means the sweep is wedged, so it expires rather than latching the gate.
+    let disk_state = Arc::new(SharedDiskUtilization::new(
+        config.stats_publish_interval() * 4,
+    ));
     tokio::spawn(run_sweep_loop(
-        StoreStatsSweeper::new(store_for_stats),
+        StoreStatsSweeper::new(
+            handle_for_stats,
+            DiskProbe::new(PathBuf::from(&config.store_path), disk_state.clone()),
+        ),
         config.stats_publish_interval(),
         "store_stats",
         consumer_handle.shutdown_token(),
@@ -458,6 +590,12 @@ async fn async_main(config: Config) -> Result<()> {
             trackers.push((
                 config.cohort_cascade_events_topic.clone(),
                 cascade_tracker_for_checkpoint,
+            ));
+        }
+        if config.cohort_seed_consumer_enabled {
+            trackers.push((
+                config.cohort_stream_seed_events_topic.clone(),
+                seed_tracker_for_checkpoint,
             ));
         }
         tokio::spawn(run_sweep_loop(
@@ -511,6 +649,39 @@ async fn async_main(config: Config) -> Result<()> {
             config.offset_commit_interval(),
         );
         spawn_follower_after_catalog_load(catalog.clone(), cascade_follower, cascade_handle);
+    }
+
+    if let (Some(seed_consumer), Some(seed_handle)) = (seed_follower_consumer, seed_follower_handle)
+    {
+        let seed_topic = config.cohort_stream_seed_events_topic.clone();
+        let pauser: Arc<dyn PartitionPauser> = Arc::new(ConsumerPauser::new(
+            seed_consumer.clone(),
+            seed_topic.clone(),
+        ));
+        let seed_follower = SeedFollowerConsumer::new(
+            seed_consumer,
+            seed_topic,
+            stream_consumer.clone(),
+            config.cohort_stream_events_topic.clone(),
+            dispatcher.clone(),
+            seed_handle.clone(),
+            pauser,
+            config.recv_batch_size,
+            config.recv_batch_timeout(),
+            config.offset_commit_interval(),
+            config.cohort_seed_fence_margin_ms,
+            config.seed_idle_probe_interval(),
+            config.seed_pacing_config()?,
+            disk_state.clone(),
+        );
+        let seed_catalog = catalog.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = seed_handle.shutdown_recv() => {}
+                _ = seed_catalog.wait_until_loaded() => seed_follower.process().await,
+            }
+        });
     }
 
     let events_consumer = CohortStreamEventsConsumer::new(
@@ -644,6 +815,7 @@ fn log_startup(config: &Config) {
         kafka_hosts = %config.kafka_hosts,
         input_topic = %config.cohort_stream_events_topic,
         output_topic = %config.cohort_membership_changed_topic,
+        reconcile_markers_topic = %config.cohort_reconcile_markers_topic,
         consumer_group = %config.kafka_consumer_group,
         offset_reset = %config.kafka_consumer_offset_reset,
         merge_topic = %config.person_merge_events_topic,
@@ -663,6 +835,17 @@ fn log_startup(config: &Config) {
         cohort_cascade_enabled = config.cohort_cascade_enabled,
         cascade_topic = %config.cohort_cascade_events_topic,
         cascade_consumer_group = %config.kafka_cascade_consumer_group,
+        cohort_seed_consumer_enabled = config.cohort_seed_consumer_enabled,
+        seed_topic = %config.cohort_stream_seed_events_topic,
+        seed_consumer_group = %config.kafka_seed_consumer_group,
+        seed_fence_margin_ms = config.cohort_seed_fence_margin_ms,
+        cohort_seed_live_lag_pause_ms = config.cohort_seed_live_lag_pause_ms,
+        cohort_seed_live_lag_resume_ms = config.cohort_seed_live_lag_resume_ms,
+        cohort_seed_disk_pause_pct = config.cohort_seed_disk_pause_pct,
+        cohort_seed_disk_resume_pct = config.cohort_seed_disk_resume_pct,
+        cohort_seed_reconcile_enabled = config.cohort_seed_reconcile_enabled,
+        cohort_seed_reconcile_scan_page = config.cohort_seed_reconcile_scan_page,
+        cohort_seed_reconcile_tick_interval_ms = config.cohort_seed_reconcile_tick_interval_ms,
         "starting cohort-stream-processor",
     );
 }

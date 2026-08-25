@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -5,8 +6,7 @@ from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
@@ -14,34 +14,76 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    UNVERSIONED_API_VERSION,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
+    LinkedinAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+from .client import API_VERSION, LinkedinAdsApiError, LinkedinAdsDailyRateLimitError
 from .linkedin_ads import (
+    LinkedinAdsMissingTokenError,
     LinkedInAdsResumeConfig,
+    LinkedinAdsTokenRefreshError,
     get_incremental_fields as get_linkedin_ads_incremental_fields,
     get_schemas as get_linkedin_ads_schemas,
+    linkedin_ads_client_for_integration,
     linkedin_ads_source,
 )
 
+# LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
+LINKEDIN_ADS_VERSION_202606 = "202606"
+LINKEDIN_ADS_VERSION_202607 = "202607"
+LINKEDIN_ADS_VERSION_202608 = "202608"
+
+# Opaque source version label -> LinkedIn API version header. The legacy `v1` pin keeps sending the
+# header it always has (`API_VERSION`), so existing syncs are byte-for-byte unchanged.
+_API_HEADER_BY_VERSION = {
+    UNVERSIONED_API_VERSION: API_VERSION,
+    LINKEDIN_ADS_VERSION_202606: LINKEDIN_ADS_VERSION_202606,
+    LINKEDIN_ADS_VERSION_202607: LINKEDIN_ADS_VERSION_202607,
+    LINKEDIN_ADS_VERSION_202608: LINKEDIN_ADS_VERSION_202608,
+}
+
 
 @SourceRegistry.register
-class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig]):
+class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
+    api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
+
+    supported_versions = (
+        UNVERSIONED_API_VERSION,
+        LINKEDIN_ADS_VERSION_202606,
+        LINKEDIN_ADS_VERSION_202607,
+        LINKEDIN_ADS_VERSION_202608,
+    )
+    default_version = LINKEDIN_ADS_VERSION_202608
+    # LinkedIn supports each version for a minimum of one year, then starts rejecting it with a 426
+    # `NONEXISTENT_VERSION` (see `get_non_retryable_errors`). The legacy `v1` pin sends the header it
+    # always has (202508, August 2025 — `_API_HEADER_BY_VERSION`), which reached that one-year mark;
+    # 202606 sunsets 2027-06-15. Repin migration lives alongside this bump.
+    deprecated_versions = (
+        VersionDeprecation(version=UNVERSIONED_API_VERSION, sunset_at=date(2026, 8, 1)),
+        VersionDeprecation(version=LINKEDIN_ADS_VERSION_202606, sunset_at=date(2027, 6, 15)),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -87,6 +129,22 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # user must re-authorize. Model-specific so we don't swallow unrelated `DoesNotExist`
             # errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
+            # LinkedIn rejects a deprecated/sunset version header with this stable code (see
+            # `deprecated_versions`). It happens on every call under that pin regardless of resource
+            # or account, so retrying can never succeed — only repinning to a supported version does.
+            "NONEXISTENT_VERSION": "PostHog is using a LinkedIn Ads API version that LinkedIn has sunset. This is being fixed on our side — no action is needed from you.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `client.py`'s `_call_finder` already retries these in-process via tenacity (5 attempts,
+        # exponential backoff honoring Retry-After) before re-raising `LinkedinAdsRetryableError`. A
+        # 429/5xx/malformed-body that survives all 5 attempts is a transient LinkedIn/edge blip, not
+        # a bug — Temporal's activity retry recovers once the upstream issue clears, so keep it out
+        # of error tracking as noise. Match the stable message prefix LinkedIn's own status/body are
+        # appended to, not the volatile status code or body.
+        return {
+            "LinkedIn API error (retryable, ",
+            "LinkedIn API returned a malformed (non-JSON) response",
         }
 
     @property
@@ -104,19 +162,18 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="account_id",
-                        label="Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="",
-                        secret=False,
-                    ),
                     SourceFieldOauthConfig(
                         name="linkedin_ads_integration_id",
                         label="LinkedIn Ads account",
                         required=True,
                         kind="linkedin-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="account_id",
+                        label="Account ID",
+                        integrationField="linkedin_ads_integration_id",
+                        integrationKind="linkedin-ads",
+                        required=True,
                     ),
                 ],
             ),
@@ -132,11 +189,71 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             ],
         )
 
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A member's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
+        # List against the default version's header (not the client's legacy default) so the account
+        # picker tracks the version new sources are created on, rather than the oldest declared label.
+        try:
+            client = linkedin_ads_client_for_integration(
+                integration_id, team_id, api_version=_API_HEADER_BY_VERSION[self.default_version]
+            )
+        except Integration.DoesNotExist as e:
+            raise IntegrationAccountListingError(
+                "Your LinkedIn Ads connection is no longer available — it may have been disconnected. "
+                "Please re-authorize the LinkedIn Ads integration."
+            ) from e
+        except LinkedinAdsTokenRefreshError as e:
+            raise IntegrationAccountListingError(str(e)) from e
+        except LinkedinAdsMissingTokenError as e:
+            raise IntegrationAccountListingError(
+                "The LinkedIn Ads integration has no access token. Please re-authorize the integration."
+            ) from e
+
+        try:
+            accounts = client.get_accounts()
+        except LinkedinAdsApiError as e:
+            if e.api_status_code not in (401, 403):
+                # Any other status means we built a bad request, which the user cannot fix.
+                raise
+            raise IntegrationAccountListingError(
+                "LinkedIn rejected the credentials for this integration. Please re-authorize the "
+                "LinkedIn Ads integration and make sure the signed-in member can access your ad accounts."
+            ) from e
+        except LinkedinAdsDailyRateLimitError as e:
+            raise IntegrationAccountListingError(
+                "LinkedIn's daily API limit for this connection has been reached. "
+                "Please try again after it resets at midnight UTC."
+            ) from e
+
+        return [
+            IntegrationAccount(
+                value=str(account["id"]),
+                display_name=account.get("name") or "Unnamed account",
+                badges=(account["status"],) if account.get("status") else (),
+            )
+            for account in accounts
+        ]
+
     def validate_credentials(
-        self, config: LinkedinAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LinkedinAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
+
+        # LinkedIn only accepts the numeric ad account ID. A free-text value (a profile URL, a
+        # name, stray whitespace) is otherwise accepted here and only fails on the first sync, so
+        # reject it up front with the same guidance the sync-time error gives.
+        if not config.account_id.isdigit():
+            return (
+                False,
+                "The LinkedIn Ads Account ID must be the numeric account ID from your LinkedIn Campaign Manager (digits only).",
+            )
 
         try:
             Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
@@ -154,6 +271,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         linkedin_ads_schemas = get_linkedin_ads_schemas()
         ads_incremental_fields = get_linkedin_ads_incremental_fields()
@@ -167,8 +285,9 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
                 ],
+                should_sync_default=schema.should_sync_default,
             )
-            for endpoint in linkedin_ads_schemas.keys()
+            for endpoint, schema in linkedin_ads_schemas.items()
         ]
 
         if names is not None:
@@ -186,12 +305,17 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         resumable_source_manager: ResumableSourceManager[LinkedInAdsResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        # `inputs.api_version` is already resolved upstream; resolving again is idempotent and keeps
+        # this correct if ever called with a raw pin. An unmapped label passes through to LinkedIn.
+        resolved_version = self.resolve_api_version(inputs.api_version)
+        api_version = _API_HEADER_BY_VERSION.get(resolved_version, resolved_version)
         return linkedin_ads_source(
             config=config,
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
             resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
+            api_version=api_version,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,

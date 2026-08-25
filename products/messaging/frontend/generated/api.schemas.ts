@@ -70,13 +70,176 @@ export interface AddOptOutRequestApi {
 }
 
 export interface MessagePreferencesApi {
+    /** Server-assigned UUID for this recipient's preference record. */
     readonly id: string
     /** The recipient identifier (e.g. email address). */
     identifier: string
     /** When the preference was last updated. */
     updated_at: string
-    /** Map of category ID to preference status. */
+    /** Map of category ID to preference status (`OPTED_IN`, `OPTED_OUT` or `NO_PREFERENCE`). The reserved `$all` key covers every marketing message. */
     preferences: unknown
+}
+
+export interface BulkOptOutEntryApi {
+    /**
+     * The recipient identifier to opt out (e.g. email address).
+     * @maxLength 512
+     */
+    identifier: string
+    /** Message category key for this recipient. Overrides the request-level category_key. */
+    category_key?: string
+}
+
+export interface BulkAddOptOutsRequestApi {
+    /** Recipients to opt out, at most 1000 per request. */
+    opt_outs: BulkOptOutEntryApi[]
+    /** Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages. */
+    category_key?: string
+}
+
+export interface BulkAddOptOutsResultApi {
+    /** Number of opt-out entries received. */
+    total: number
+    /** Number of recipient and category pairs recorded as opted out. */
+    opted_out: number
+    /** Number of entries skipped because their category_key doesn't exist. */
+    skipped: number
+    /** The first few entry-level problems, so the caller can fix their list. */
+    errors: string[]
+}
+
+export interface MessagingErrorApi {
+    /** Human-readable description of what went wrong. */
+    error: string
+}
+
+export interface GenerateLinkRequestApi {
+    /**
+     * Recipient to generate the link for. Defaults to the requesting user's own email address.
+     * @maxLength 512
+     */
+    recipient?: string
+}
+
+export interface PreferencesLinkApi {
+    /** Token-gated URL where the recipient can manage their preferences. */
+    preferences_url: string
+}
+
+/**
+ * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
+ * {count, next, previous, results} envelope instead of an untyped object.
+ */
+export interface PaginatedOptOutsApi {
+    /** Total number of opted-out recipients for the category. */
+    count: number
+    /**
+     * URL for the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    results: MessagePreferencesApi[]
+}
+
+export interface RemoveOptOutRequestApi {
+    /**
+     * The recipient identifier to opt back in (e.g. email address).
+     * @maxLength 512
+     */
+    identifier: string
+    /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
+    category_key?: string
+}
+
+export interface WebhookUrlApi {
+    /** URL to register in Customer.io so it posts subscription changes to PostHog. */
+    url: string
+}
+
+export interface AddSuppressionRequestApi {
+    /**
+     * The email address to suppress. Will not receive any messages until removed.
+     * @maxLength 512
+     */
+    identifier: string
+}
+
+/**
+ * * `BOUNCE` - Bounce
+ * * `MANUAL` - Manual
+ */
+export type MessageSuppressionSourceEnumApi =
+    (typeof MessageSuppressionSourceEnumApi)[keyof typeof MessageSuppressionSourceEnumApi]
+
+export const MessageSuppressionSourceEnumApi = {
+    Bounce: 'BOUNCE',
+    Manual: 'MANUAL',
+} as const
+
+export interface MessageSuppressionApi {
+    /** Server-assigned UUID for this suppression entry. */
+    readonly id: string
+    /** Normalized recipient email address. Suppression is keyed on this value, per team. */
+    readonly identifier: string
+    /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+     *
+     * * `BOUNCE` - Bounce
+     * * `MANUAL` - Manual */
+    readonly source: MessageSuppressionSourceEnumApi
+    /**
+     * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
+     * @nullable
+     */
+    readonly reason: string | null
+    /** Rolling count of consecutive soft bounces with no successful delivery in between. Reset to 0 on any successful delivery. Ignored for MANUAL entries. */
+    readonly transient_bounce_count: number
+    /**
+     * Timestamp of the most recent bounce, if any.
+     * @nullable
+     */
+    readonly last_bounce_at: string | null
+    /**
+     * SMTP diagnostic string from the most recent bounce (e.g. '550 5.1.1 user unknown'), kept for visibility.
+     * @nullable
+     */
+    readonly last_bounce_diagnostic: string | null
+    /** Whether the address is actively suppressed. A BOUNCE row can exist while still only counting bounces (suppressed=false) before it crosses the threshold. */
+    readonly suppressed: boolean
+    /**
+     * Timestamp when the address was first suppressed.
+     * @nullable
+     */
+    readonly suppressed_at: string | null
+    /** When the row was first created (first bounce or manual add). */
+    readonly created_at: string
+    /** When the row was last touched by any write. */
+    readonly updated_at: string
+}
+
+/**
+ * OpenAPI shape for the paginated suppressions response. Declared so drf-spectacular emits
+ * the {count, next, previous, results} envelope on the generated client, rather than a bare
+ * array — which the frontend actually receives at runtime.
+ */
+export interface PaginatedMessageSuppressionApi {
+    /** Total number of suppressed recipients for the team. */
+    count: number
+    /**
+     * URL for the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    results: MessageSuppressionApi[]
 }
 
 /**
@@ -155,6 +318,7 @@ export interface MessageTemplateContentApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -167,6 +331,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -334,6 +499,37 @@ export type MessagingCategoriesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type MessagingPreferencesExportOptOutsCsvRetrieveParams = {
+    /**
+     * Message category key to export. If omitted, exports recipients opted out of all marketing messages.
+     */
+    category_key?: string
+}
+
+export type MessagingPreferencesOptOutsRetrieveParams = {
+    /**
+     * Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.
+     */
+    category_key?: string
+    page?: number
+    page_size?: number
+    /**
+     * Case-insensitive substring match on the recipient identifier.
+     * @maxLength 512
+     */
+    search?: string
+}
+
+export type MessagingSuppressionsSuppressionsRetrieveParams = {
+    page?: number
+    page_size?: number
+    /**
+     * Case-insensitive substring match on the recipient email address.
+     * @maxLength 512
+     */
+    search?: string
 }
 
 export type MessagingTemplatesListParams = {

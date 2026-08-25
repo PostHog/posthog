@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-use super::utils::{add_raw_to_junk, get_sourcelocation_context};
+use super::utils::{add_raw_to_junk, get_sourcelocation_context, is_kotlin_compose_source};
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
@@ -60,7 +60,7 @@ impl RawJSFrame {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                warn!("Unexpected JS symbol resolution error: {:?}", e);
+                warn!(team_id, "Unexpected JS symbol resolution error: {:?}", e);
                 Ok(self.handle_resolution_error(JsResolveErr::InvalidSourceMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
@@ -180,9 +180,20 @@ impl RawJSFrame {
     }
 
     pub fn is_suspicious(&self) -> bool {
-        self.source_url
-            .as_ref()
-            .is_some_and(|s| s.contains("posthog.com/static/"))
+        // posthog-js is served from a regional asset CDN whose host is
+        // `{region}-assets.i.posthog.com` (the `assets` target in the SDK's request router).
+        // Matching that host rather than a `posthog.com/static/` substring keeps PostHog's own
+        // app bundles out of the count: they are served from hosts like
+        // `app-static-prod.posthog.com` under the same `/static/` path, so a substring match
+        // marks every error in the PostHog app itself as an SDK exception.
+        const SDK_ASSET_HOST_SUFFIX: &str = "-assets.i.posthog.com";
+
+        let Ok(url) = self.source_url() else {
+            return false;
+        };
+
+        url.host_str()
+            .is_some_and(|host| host.ends_with(SDK_ASSET_HOST_SUFFIX))
     }
 }
 
@@ -213,10 +224,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
             .and_then(|f| f.name())
             .map(|s| sanitize_string(s.to_string()));
 
-        let in_app = source
-            .as_ref()
-            .map(|s| !s.contains("node_modules"))
-            .unwrap_or(raw_frame.meta.in_app);
+        let in_app = raw_frame.meta.in_app && !source.as_deref().is_some_and(is_dependency_source);
 
         let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
 
@@ -235,7 +243,6 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: get_sourcelocation_context(&token, context_lines),
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious,
             module: None,
@@ -294,7 +301,6 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,
@@ -334,7 +340,6 @@ impl From<&RawJSFrame> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,
@@ -346,8 +351,41 @@ impl From<&RawJSFrame> for Frame {
     }
 }
 
+fn is_dependency_source(source: &str) -> bool {
+    source.contains("node_modules") || is_kotlin_compose_source(source)
+}
+
 #[cfg(test)]
 mod test {
+    use super::is_dependency_source;
+
+    #[test]
+    fn detects_dependency_sources() {
+        let cases = [
+            ("webpack:///app/node_modules/react/index.js", true),
+            (
+                "webpack:///app/../dependencies/compose/ui/src/commonMain/kotlin/androidx/compose/ui/Button.kt",
+                true,
+            ),
+            (
+                "webpack:///app/../dependencies/compose/ui/src/skikoMain/kotlin/androidx/compose/ui/RootNodeOwner.kt",
+                true,
+            ),
+            (
+                "webpack:///app/../dependencies/compose/resources/src/commonMain/kotlin/org/jetbrains/compose/resources/Resource.kt",
+                true,
+            ),
+            (
+                "webpack:///app/src/commonMain/kotlin/com/example/checkout/App.kt",
+                false,
+            ),
+        ];
+
+        for (source, expected) in cases {
+            assert_eq!(is_dependency_source(source), expected, "{source}");
+        }
+    }
+
     #[test]
     fn source_ref_generation() {
         let frame = super::RawJSFrame {
@@ -375,5 +413,49 @@ mod test {
             frame.source_url().unwrap(),
             "http://example.com/path/to/file.js".parse().unwrap()
         );
+    }
+
+    fn frame_from(source_url: Option<&str>) -> super::RawJSFrame {
+        super::RawJSFrame {
+            location: None,
+            source_url: source_url.map(str::to_string),
+            fn_name: "main".to_string(),
+            chunk_id: None,
+            meta: Default::default(),
+        }
+    }
+
+    #[test]
+    fn only_the_sdk_asset_cdn_is_suspicious() {
+        let cases = [
+            ("https://us-assets.i.posthog.com/static/array.js", true),
+            ("https://eu-assets.i.posthog.com/static/recorder.js", true),
+            // Frame filenames often carry a trailing `:line:column`, so this has to match after
+            // the same parsing the resolution path does, not on the raw string.
+            ("https://us-assets.i.posthog.com/static/array.js:1:2", true),
+            (
+                "https://app-static-prod.posthog.com/static/chunk-ABC12345.js",
+                false,
+            ),
+            (
+                "https://app-static.eu.posthog.com/static/chunk-DEF67890.js",
+                false,
+            ),
+            // The legacy host served both the app and the pre-CDN snippet, so a frame here
+            // cannot be attributed to the SDK.
+            ("https://app.posthog.com/static/array.js", false),
+            ("https://example.com/static/bundle.js", false),
+            ("/static/relative.js", false),
+        ];
+
+        for (source_url, expected) in cases {
+            assert_eq!(
+                frame_from(Some(source_url)).is_suspicious(),
+                expected,
+                "{source_url}"
+            );
+        }
+
+        assert!(!frame_from(None).is_suspicious());
     }
 }

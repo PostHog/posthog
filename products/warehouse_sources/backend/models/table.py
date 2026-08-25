@@ -1,12 +1,16 @@
 import csv
+import sys
 import time
-from datetime import datetime
+import subprocess
+from collections.abc import Iterable
 from io import StringIO
 from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 from clickhouse_driver.errors import ServerException as ClickHouseServerException
@@ -14,8 +18,11 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
@@ -26,31 +33,28 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_clickhouse_query_error
+from posthog.errors import (
+    CORRUPTED_PARQUET_METADATA_MESSAGE,
+    QueryErrorCategory,
+    classify_query_error,
+    wrap_clickhouse_query_error,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.facade.sources import (
-    DIRECT_MYSQL_SCHEMA_OPTION,
-    DIRECT_MYSQL_TABLE_OPTION,
-    DIRECT_POSTGRES_CATALOG_OPTION,
-    DIRECT_POSTGRES_SCHEMA_OPTION,
-    DIRECT_POSTGRES_TABLE_OPTION,
-    DIRECT_SNOWFLAKE_CATALOG_OPTION,
-    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
-    DIRECT_SNOWFLAKE_TABLE_OPTION,
-)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
+    LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
+    reconstruct_ordered_columns,
     remove_named_tuples,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping
@@ -74,8 +78,11 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
-    "Access Denied: while reading key:": "Access was denied when reading the provided file",
-    "Could not list objects in bucket": "Access was denied to the provided bucket",
+    "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
+    # tables) use a different vocabulary than ClickHouse's native S3 errors above.
+    "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
+    "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
     "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
@@ -84,6 +91,7 @@ ExtractErrors = {
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
+    "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
@@ -103,6 +111,55 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+
+# chdb has no query timeout, and a stalled S3 read can wedge a web worker indefinitely
+# (each request also pins ~300MB of RSS for the embedded ClickHouse). Running it in a
+# subprocess lets us kill it and degrade to the ClickHouse-cluster fallback.
+CHDB_QUERY_TIMEOUT_SECONDS = 30.0
+
+# ClickHouse's Hive-style partition inference guesses a type per partition-folder value it
+# samples (e.g. our internal `_ph_partition_key`), independently of the physical column type.
+# A table whose partition granularity changed over time (see repartition.py's tiering from
+# week -> hour) mixes value shapes across folders — e.g. an hour-tier "2017-06-30T05" next to
+# older week-tier folders — and CH can misclassify the column as Date, then fail to parse it.
+# HogQLGlobalSettings.use_hive_partitioning disables this for the normal HogQL query path; the
+# raw ClickHouse queries below bypass that path and must opt out the same way.
+DISABLE_HIVE_PARTITIONING_SETTINGS: dict[str, int] = {"use_hive_partitioning": 0}
+
+_CHDB_SUBPROCESS_SCRIPT = """
+import sys
+
+try:
+    import chdb
+
+    result = chdb.query(sys.stdin.read(), output_format="CSV")
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)
+
+sys.stdout.write(str(result))
+"""
+
+
+def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> str:
+    # The query is passed over stdin because it embeds S3 credentials — argv is world-readable.
+    # Errors are re-raised as RuntimeError with chdb's message preserved so callers'
+    # error classification (e.g. _is_suppressed_chdb_error) behaves as if chdb ran in-process.
+    try:
+        process = subprocess.run(
+            [sys.executable, "-c", _CHDB_SUBPROCESS_SCRIPT],
+            input=query,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"chdb query timed out after {timeout}s")
+
+    if process.returncode != 0:
+        raise RuntimeError(process.stderr.strip() or f"chdb subprocess exited with code {process.returncode}")
+
+    return process.stdout
 
 
 class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
@@ -130,6 +187,93 @@ class DataWarehouseTableManager(models.Manager["DataWarehouseTable"]):
         return self.get_queryset().queryable()
 
 
+def get_hogql_field_for_column(
+    column_name: str,
+    column_definition: dict[str, Any] | str,
+    clickhouse_type: str,
+    is_nullable: bool,
+) -> DatabaseField:
+    if isinstance(column_definition, dict) and column_definition.get("hogql") == "StructDatabaseField":
+        child_fields: dict[str, DatabaseField] = {}
+        nested_definitions = column_definition.get("fields")
+        if isinstance(nested_definitions, dict):
+            for nested_name, nested_definition in nested_definitions.items():
+                if not isinstance(nested_definition, dict):
+                    continue
+
+                nested_clickhouse_type = str(nested_definition.get("clickhouse", "String"))
+                nested_is_nullable = False
+                if nested_clickhouse_type.startswith("Nullable("):
+                    nested_clickhouse_type = nested_clickhouse_type.replace("Nullable(", "")[:-1]
+                    nested_is_nullable = True
+
+                child_fields[nested_name] = get_hogql_field_for_column(
+                    nested_name,
+                    nested_definition,
+                    nested_clickhouse_type,
+                    nested_is_nullable,
+                )
+
+        return StructDatabaseField(name=column_name, nullable=is_nullable, fields=child_fields)
+
+    # Support for 'old' style columns
+    if isinstance(column_definition, str):
+        hogql_type_str = clickhouse_type.partition("(")[0]
+        return LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+
+    return STR_TO_HOGQL_MAPPING.get(
+        str(column_definition.get("hogql", "UnknownDatabaseField")),
+        STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+    )(name=column_name, nullable=is_nullable)
+
+
+def hogql_fields_and_structure_for_columns(
+    columns: dict[str, Any],
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+    column_order: list[str] | None = None,
+) -> tuple[dict[str, FieldOrTable], list[str]]:
+    """Shared columns → HogQL fields mapping for warehouse and direct virtual tables.
+
+    Structure entries (the S3 table-function column spec) are only meaningful for S3-backed
+    tables; direct virtual tables ignore them. ``column_order`` restores the SELECT order the
+    jsonb column store drops (see ``reconstruct_ordered_columns``); omit it for column dicts
+    whose insertion order is already meaningful.
+    """
+    fields: dict[str, FieldOrTable] = {}
+    structure = []
+    for column, type in reconstruct_ordered_columns(columns, column_order):
+        # Support for 'old' style columns
+        if isinstance(type, str):
+            clickhouse_type = type
+        else:
+            clickhouse_type = type["clickhouse"]
+
+        is_nullable = False
+
+        if clickhouse_type.startswith("Nullable("):
+            clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+            is_nullable = True
+
+        # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
+        if clickhouse_type.startswith("Array("):
+            clickhouse_type = remove_named_tuples(clickhouse_type)
+
+        if isinstance(type, dict):
+            column_invalid = not type.get("valid", True)
+        else:
+            column_invalid = False
+
+        if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+            if is_nullable:
+                structure.append(f"`{column}` Nullable({clickhouse_type})")
+            else:
+                structure.append(f"`{column}` {clickhouse_type}")
+
+        fields[column] = get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
+
+    return fields, structure
+
+
 class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # loading external_data_source and credentials is easily N+1,
     # so we have a custom object manager meaning people can't forget to load them
@@ -147,6 +291,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         Delta = "Delta", "Delta"
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
+    class CreatedVia(models.TextChoices):
+        # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
+        # attribution can be counted together. The last three have no source equivalent — they cover
+        # the tables PostHog creates itself, which a request surface would otherwise misattribute to
+        # whoever happened to trigger the run.
+        WEB = "web", "web"
+        API = "api", "api"
+        MCP = "mcp", "mcp"
+        WIZARD = "wizard", "wizard"
+        SELF_DRIVING = "self_driving", "self_driving"
+        SOURCE = "source", "source"
+        MATERIALIZED_VIEW = "materialized_view", "materialized_view"
+        DEMO = "demo", "demo"
+
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -157,11 +315,26 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
 
+    # Where this table came from — the request surface for user-created tables, or the internal
+    # path that built it. Derived server-side (never taken from the request body) so a client can't
+    # self-label. NULL on rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
+
     columns = models.JSONField(
         default=dict,
         null=True,
         blank=True,
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
+    )
+    # Postgres jsonb does not preserve `columns` key order, so this records the physical column
+    # order captured at write time (for materialized-view backing tables, the view's SELECT order).
+    # Null on rows saved before this field existed and on non-materialized tables (they fall back
+    # to jsonb key order). Internal only, not exposed through the API.
+    column_order = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Ordered column names capturing physical/SELECT order (columns jsonb loses key order). Not user-facing.",
     )
 
     options = models.JSONField(default=dict, blank=True)
@@ -173,6 +346,46 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+
+    def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
+        if not internally_computed_url_pattern:
+            self._reject_client_supplied_url_pattern_change(kwargs.get("update_fields"))
+        super().save(*args, **kwargs)
+
+    def clean(self) -> None:
+        # Django admin's changeform validates via full_clean() (form.is_valid() -> clean()) before
+        # ModelAdmin.save_model() ever calls save() - and unlike DRF's perform_update, save_model
+        # doesn't translate a save()-raised ValidationError into a form error, so it would surface
+        # as an unhandled 500. Running the same check here lets admin catch it as a normal field
+        # error. save()'s check stays the enforcement of record for every other caller (DRF, a
+        # management command, a future endpoint), since nothing but ModelForm calls full_clean().
+        super().clean()
+        self._reject_client_supplied_url_pattern_change(update_fields=None)
+
+    def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
+        """Block a url_pattern change on a table with no credential, unless the caller declares the
+        new value was computed by PostHog's own code rather than taken from request input.
+
+        A table with no credential is read by ClickHouse under the cluster's own S3 role rather than
+        a key the team supplied, so its url_pattern is only safe because PostHog chose it. Pipeline
+        syncs, saved-query materialization, and the direct-connection upsert helpers all legitimately
+        rewrite this field on such tables using values they compute themselves; those call
+        ``save(internally_computed_url_pattern=True)`` to say so. Every other caller, present or
+        future, is refused by default rather than trusted to have remembered a check elsewhere.
+        """
+        if self._state.adding:
+            return
+        if update_fields is not None and "url_pattern" not in update_fields:
+            return
+        prior = type(self).raw_objects.filter(pk=self.pk).values_list("credential_id", "url_pattern").first()
+        if prior is None:
+            return
+        prior_credential_id, prior_url_pattern = prior
+        if prior_credential_id is None and prior_url_pattern != self.url_pattern:
+            raise ValidationError(
+                "This table has no credential, so its URL is only safe because PostHog set it. "
+                "Add an access key and secret before pointing it at a different location."
+            )
 
     @property
     def name_chain(self) -> list[str]:
@@ -191,7 +404,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             join.soft_delete()
 
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()
 
     def table_name_without_prefix(self) -> str:
@@ -271,12 +484,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
 
+    def set_columns(self, columns: dict[str, Any]) -> None:
+        """Assign ``columns`` and record its order together.
+
+        The single chokepoint for persisting columns: the caller passes an ordered dict (DESCRIBE /
+        SELECT order), and both the jsonb payload and the ordered names are set here so they can
+        never drift. Never assign ``self.columns`` directly at a persist site.
+        """
+        self.columns = columns
+        self.column_order = list(columns.keys())
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableIntrospectedColumns:
-        import chdb  # noqa: PLC0415 - embedded ClickHouse; deferred so this model module stays off the startup path
-
         result: list[tuple[str, ...]] | None = None
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
@@ -298,16 +519,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
+            chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
-            # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
-            # See https://github.com/chdb-io/chdb/pull/374 for the fix
+            # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
+            # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
+            # so this SET stays until chdb is upgraded past that release.
             if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                 chdb_query = (
                     f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
                 )
-            chdb_result = chdb.query(chdb_query, output_format="CSV")
-            reader = csv.reader(StringIO(str(chdb_result)))
+            chdb_result = run_chdb_query(chdb_query)
+            reader = csv.reader(StringIO(chdb_result))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
             if self._is_suppressed_chdb_error(chdb_error):
@@ -329,7 +551,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             attempts = 5
             for i in range(attempts):
                 try:
-                    get_columns_settings: dict[str, int] = {}
+                    get_columns_settings: dict[str, int] = dict(DISABLE_HIVE_PARTITIONING_SETTINGS)
                     if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                         get_columns_settings["format_csv_allow_double_quotes"] = (
                             1 if self.csv_allow_double_quotes else 0
@@ -388,6 +610,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             result = sync_execute(
                 f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
                 args=placeholder_context.values,
+                settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
             )
 
             return result[0][0]
@@ -404,8 +627,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
-        import chdb  # noqa: PLC0415 - embedded ClickHouse; deferred so this model module stays off the startup path
-
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
@@ -423,10 +644,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
+            chdb_query = f"SET use_hive_partitioning = 0; SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
-            chdb_result = chdb.query(chdb_query, output_format="CSV")
-            reader = csv.reader(StringIO(str(chdb_result)))
+            chdb_result = run_chdb_query(chdb_query)
+            reader = csv.reader(StringIO(chdb_result))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
             capture_exception(chdb_error)
@@ -444,6 +665,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",
                     args=placeholder_context.values,
+                    settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
                 )
             except Exception as err:
                 capture_exception(err)
@@ -472,82 +694,55 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def _get_hogql_field_for_column(
-        self,
-        column_name: str,
-        column_definition: dict[str, Any] | str,
-        clickhouse_type: str,
-        is_nullable: bool,
-    ) -> DatabaseField:
-        if isinstance(column_definition, dict) and column_definition.get("hogql") == "StructDatabaseField":
-            child_fields: dict[str, DatabaseField] = {}
-            nested_definitions = column_definition.get("fields")
-            if isinstance(nested_definitions, dict):
-                for nested_name, nested_definition in nested_definitions.items():
-                    if not isinstance(nested_definition, dict):
-                        continue
-
-                    nested_clickhouse_type = str(nested_definition.get("clickhouse", "String"))
-                    nested_is_nullable = False
-                    if nested_clickhouse_type.startswith("Nullable("):
-                        nested_clickhouse_type = nested_clickhouse_type.replace("Nullable(", "")[:-1]
-                        nested_is_nullable = True
-
-                    child_fields[nested_name] = self._get_hogql_field_for_column(
-                        nested_name,
-                        nested_definition,
-                        nested_clickhouse_type,
-                        nested_is_nullable,
-                    )
-
-            return StructDatabaseField(name=column_name, nullable=is_nullable, fields=child_fields)
-
-        # Support for 'old' style columns
-        if isinstance(column_definition, str):
-            hogql_type_str = clickhouse_type.partition("(")[0]
-            return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
-
-        return STR_TO_HOGQL_MAPPING.get(
-            str(column_definition.get("hogql", "UnknownDatabaseField")),
-            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
-        )(name=column_name, nullable=is_nullable)
+    def _direct_columns_are_complete(self) -> bool:
+        """Whether this direct table's stored columns are the complete physical schema — i.e. no
+        column-picker restriction (`ExternalDataSchema.enabled_columns`) is in effect. Only then may
+        a direct `SELECT *` pass through literally; otherwise the fields are a subset and the star
+        must expand from them. Reads the schema rows preloaded onto this instance by
+        `_preload_active_external_data_schemas` (every direct-query DB build path calls it before
+        `hogql_definition`); if they aren't preloaded, returns False (safe: expand) rather than issue
+        a query on this hot table-build path."""
+        schema_rows = self.__dict__.get("_active_external_data_schemas")
+        if schema_rows is None:
+            return False
+        return len(schema_rows) > 0 and all(row.enabled_columns is None for row in schema_rows)
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
+    ) -> (
+        HogQLDataWarehouseTable
+        | DirectPostgresTable
+        | DirectMySQLTable
+        | DirectSnowflakeTable
+        | DirectRedshiftTable
+        | DirectClickHouseTable
+        | DirectMotherDuckTable
+    ):
+        # Deferred: importing data_warehouse's facade at module scope creates an import cycle
+        # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
+        # These direct-query option keys are only needed here, at query-build time.
+        from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
+            DIRECT_CLICKHOUSE_DATABASE_OPTION,
+            DIRECT_CLICKHOUSE_TABLE_OPTION,
+            DIRECT_MOTHERDUCK_CATALOG_OPTION,
+            DIRECT_MOTHERDUCK_SCHEMA_OPTION,
+            DIRECT_MOTHERDUCK_TABLE_OPTION,
+            DIRECT_MYSQL_SCHEMA_OPTION,
+            DIRECT_MYSQL_TABLE_OPTION,
+            DIRECT_POSTGRES_CATALOG_OPTION,
+            DIRECT_POSTGRES_SCHEMA_OPTION,
+            DIRECT_POSTGRES_TABLE_OPTION,
+            DIRECT_REDSHIFT_CATALOG_OPTION,
+            DIRECT_REDSHIFT_SCHEMA_OPTION,
+            DIRECT_REDSHIFT_TABLE_OPTION,
+            DIRECT_SNOWFLAKE_CATALOG_OPTION,
+            DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+            DIRECT_SNOWFLAKE_TABLE_OPTION,
+        )
+
         columns = self.columns or {}
 
-        fields: dict[str, FieldOrTable] = {}
-        structure = []
-        for column, type in columns.items():
-            # Support for 'old' style columns
-            if isinstance(type, str):
-                clickhouse_type = type
-            else:
-                clickhouse_type = type["clickhouse"]
-
-            is_nullable = False
-
-            if clickhouse_type.startswith("Nullable("):
-                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
-                is_nullable = True
-
-            # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-            if clickhouse_type.startswith("Array("):
-                clickhouse_type = remove_named_tuples(clickhouse_type)
-
-            if isinstance(type, dict):
-                column_invalid = not type.get("valid", True)
-            else:
-                column_invalid = False
-
-            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                if is_nullable:
-                    structure.append(f"`{column}` Nullable({clickhouse_type})")
-                else:
-                    structure.append(f"`{column}` {clickhouse_type}")
-
-            fields[column] = self._get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
+        fields, structure = hogql_fields_and_structure_for_columns(columns, modifiers, column_order=self.column_order)
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (
@@ -572,6 +767,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=postgres_schema,
                 postgres_table_name=postgres_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                source_type=self.external_data_source.source_type,
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -623,6 +819,105 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
+        if self.external_data_source and self.external_data_source.is_direct_redshift:
+            # Redshift is a Postgres fork and reuses DirectPostgresTable's schema-qualified,
+            # double-quoted table-reference rendering (see DirectRedshiftTable).
+            job_inputs = self.external_data_source.job_inputs or {}
+            redshift_catalog = (
+                self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION), str)
+                else job_inputs.get("database")
+            )
+            redshift_schema = (
+                self.options.get(DIRECT_REDSHIFT_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_SCHEMA_OPTION), str)
+                else job_inputs.get("schema", "public")
+            )
+            redshift_table_name = (
+                self.options.get(DIRECT_REDSHIFT_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectRedshiftTable(
+                name=self.name,
+                fields=fields,
+                postgres_catalog=redshift_catalog,
+                postgres_schema=redshift_schema,
+                postgres_table_name=redshift_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        # Engine-keyed like ClickHouse (no is_direct_motherduck) to satisfy the source-agnostic
+        # guard; the is_direct_query check keeps synced sources' tables S3-backed.
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "motherduck"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            motherduck_database = (
+                self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
+                else job_inputs.get("database", "")
+            )
+            motherduck_schema = (
+                self.options.get(DIRECT_MOTHERDUCK_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_SCHEMA_OPTION), str)
+                else "main"
+            )
+            motherduck_table_name = (
+                self.options.get(DIRECT_MOTHERDUCK_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectMotherDuckTable(
+                name=self.name,
+                fields=fields,
+                motherduck_database=motherduck_database,
+                motherduck_schema=motherduck_schema,
+                motherduck_table_name=motherduck_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
+            )
+
+        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard. The
+        # is_direct_query check is load-bearing: direct_engine ignores access_method, and a synced
+        # source's tables must stay S3-backed — as a direct table, every ordinary query against
+        # them fails (the printer's team_id guard doesn't skip DirectSQLTable).
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "clickhouse"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            # Every direct-ClickHouse table is discovered from the source's single configured
+            # database, so the live source config is authoritative. Prefer it over the per-table
+            # option, which can be stale — e.g. stored as "default" when the source was first synced
+            # before a database was set — and would otherwise resolve to a database that doesn't
+            # exist on the server. Fall back to the stored option only when no database is configured.
+            configured_database = job_inputs.get("database")
+            if isinstance(configured_database, str) and configured_database.strip():
+                clickhouse_database = configured_database
+            else:
+                stored_database = self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
+                clickhouse_database = stored_database if isinstance(stored_database, str) else "default"
+            clickhouse_table_name = (
+                self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectClickHouseTable(
+                name=self.name,
+                fields=fields,
+                clickhouse_database=clickhouse_database,
+                clickhouse_table_name=clickhouse_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
+            )
+
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())
         default_fields = external_tables.get("*", {})
@@ -651,6 +946,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
+            external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
+            source_type=self.external_data_source.source_type if self.external_data_source else None,
         )
 
         if self._is_csv_format():
@@ -716,7 +1013,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             sync_execute(
                 f"SELECT 1 FROM {func} LIMIT 100",
                 args=ctx.values,
-                settings={"format_csv_allow_double_quotes": 1 if setting else 0},
+                settings={**DISABLE_HIVE_PARTITIONING_SETTINGS, "format_csv_allow_double_quotes": 1 if setting else 0},
             )
         except ClickHouseServerException as e:
             if e.code in self._CSV_PARSE_ERROR_CODES:
@@ -727,15 +1024,50 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
 
     def _safe_expose_ch_error(self, err):
+        # Match ExtractErrors against the raw ClickHouse message: wrap_clickhouse_query_error may
+        # rewrite the message for some codes (e.g. STD_EXCEPTION), which would hide the substrings
+        # we key on here.
+        raw_message = err.message if isinstance(err, ClickHouseServerException) else str(err)
         err = wrap_clickhouse_query_error(err)
-        for key, value in ExtractErrors.items():
-            if key in err.message:
-                raise Exception(value)
 
-        if isinstance(err, CHQueryErrorTooManySimultaneousQueries):
+        # Only ClickHouse ServerException-derived errors carry a `.message`. Everything else —
+        # transient connection/read errors (e.g. an EOFError from a dropped ClickHouse socket) and
+        # already-translated APIExceptions like ClickHouseAtCapacity — has no `.message`, so re-raise
+        # it untouched. Masking these as a storage-bucket misconfiguration would hide a retryable
+        # error (or an already user-safe one) behind a misleading user-facing message.
+        if not hasattr(err, "message"):
             raise err
 
-        raise Exception("Could not get columns")
+        # A cancelled query here means our own client timed out reading, not a bad file or bucket.
+        if classify_query_error(err) == QueryErrorCategory.CANCELLED:
+            raise Exception(
+                "Reading the files from your storage bucket took too long and the query was cancelled. "
+                "This is usually temporary - try again, or narrow the URL pattern if the dataset is very large."
+            )
+
+        # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
+        # blips as delta-rs (see TRANSIENT_OBJECT_STORE_ERRORS), just wrapped in a ClickHouse
+        # exception instead of an OSError/DeltaError. Recognize it here too, before the generic
+        # bucket-misconfiguration fallback below, so it's classified as retryable instead of
+        # blamed on the customer's credentials or URL pattern.
+        # Deferred: pipelines.core.delta.errors pulls in posthog.temporal.common.errors ->
+        # temporalio, which must stay off django.setup(), where this model loads in every process.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415
+            TRANSIENT_OBJECT_STORE_ERRORS,
+            TransientObjectStoreError,
+        )
+
+        if any(needle in raw_message for needle in TRANSIENT_OBJECT_STORE_ERRORS):
+            raise TransientObjectStoreError(raw_message)
+
+        for key, value in ExtractErrors.items():
+            if key in raw_message:
+                raise Exception(value)
+
+        raise Exception(
+            "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "
+            "and credentials are correct, then try again."
+        )
 
 
 @database_sync_to_async
@@ -757,4 +1089,6 @@ def acreate_datawarehousetable(**kwargs):
 
 @database_sync_to_async
 def asave_datawarehousetable(table: DataWarehouseTable) -> None:
-    table.save()
+    # Saved-query materialization is the only caller: it computes url_pattern itself from the
+    # backing DataWarehouseSavedQuery rather than taking it from request input.
+    table.save(internally_computed_url_pattern=True)

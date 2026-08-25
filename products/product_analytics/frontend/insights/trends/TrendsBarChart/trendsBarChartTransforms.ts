@@ -1,5 +1,5 @@
 import { DEFAULT_Y_AXIS_ID, normalizeAxisLabel } from '@posthog/quill-charts'
-import type { Series, TimeInterval, TimeSeriesBarChartConfig, YAxisConfig } from '@posthog/quill-charts'
+import type { Series, TimeInterval, TimeSeriesBarChartConfig, TooltipContext, YAxisConfig } from '@posthog/quill-charts'
 
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
@@ -104,6 +104,8 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
 export function buildTrendsBarTimeSeriesConfig(
     opts: BuildTrendsBarTimeSeriesConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
+    // No range extras: bar length encodes magnitude from zero, so a bound carried over from another
+    // display type is dropped rather than silently truncating bars with no control left to clear it.
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
@@ -211,4 +213,16 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
         return buildMainTrendsBarSeries(r, index, opts, data)
     })
     return { series, labels, displayLabels }
+}
+
+/** The aggregated tooltip describes one bar/segment. Stacked-breakdown mode keeps every sparse
+ *  segment in `seriesData` in declaration order, so resolve the hovered one by key — `[0]` is
+ *  another segment's zero cell. Without a hovered key, fall back to the first entry. */
+export function pickAggregatedTooltipSeriesData<M>(
+    ctx: Pick<TooltipContext<M>, 'hoveredSeriesKey' | 'seriesData'>
+): TooltipContext<M>['seriesData'] {
+    const hovered = ctx.hoveredSeriesKey
+        ? ctx.seriesData.find((entry) => entry.series.key === ctx.hoveredSeriesKey)
+        : undefined
+    return hovered ? [hovered] : ctx.seriesData.slice(0, 1)
 }

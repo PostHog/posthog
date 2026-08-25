@@ -1,19 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { urls } from 'scenes/urls'
 
 import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
-import { sanitizeTraceUrlSearchParams } from '../../utils'
-import { evaluationSupportsReports } from '../evaluationCapabilities'
+import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
+import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
-import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
+import { EvaluationRunsFilters } from './EvaluationRunsFilters'
 
 const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: string }[] = [
     { value: 'negative', label: 'Negative' },
@@ -23,14 +21,14 @@ const SENTIMENT_FILTER_OPTIONS: { value: SentimentEvaluationRunsFilter; label: s
 ]
 
 function SentimentEvaluationRunsFilters(): JSX.Element {
-    const { evaluationSummaryFilter } = useValues(llmEvaluationLogic)
-    const { setEvaluationSummaryFilter } = useActions(llmEvaluationLogic)
+    const { evaluationRunsFilter } = useValues(llmEvaluationLogic)
+    const { setEvaluationRunsFilter } = useActions(llmEvaluationLogic)
 
     return (
         <LemonSegmentedButton
-            value={evaluationSummaryFilter as SentimentEvaluationRunsFilter}
+            value={evaluationRunsFilter as SentimentEvaluationRunsFilter}
             onChange={(value) => {
-                setEvaluationSummaryFilter(value as SentimentEvaluationRunsFilter, evaluationSummaryFilter)
+                setEvaluationRunsFilter(value as SentimentEvaluationRunsFilter, evaluationRunsFilter)
             }}
             options={SENTIMENT_FILTER_OPTIONS}
             size="small"
@@ -40,11 +38,9 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
 }
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
-    const { searchParams } = useValues(router)
-    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading } = useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
-    const showSummary = evaluationSupportsReports(evaluation)
+    const showOutcomeFilters = evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -57,40 +53,7 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Target',
             key: 'target',
-            render: (_, run) => {
-                // Generation-target runs link to the specific event in the trace; trace-target
-                // runs (no generation id) link to the whole trace.
-                if (run.generation_id) {
-                    return (
-                        <div className="font-mono text-sm">
-                            <Link
-                                to={
-                                    combineUrl(urls.aiObservabilityTrace(run.trace_id), {
-                                        ...traceSearchParams,
-                                        event: run.generation_id,
-                                    }).url
-                                }
-                                className="text-primary"
-                            >
-                                {run.generation_id.slice(0, 12)}...
-                            </Link>
-                        </div>
-                    )
-                }
-                if (run.trace_id) {
-                    return (
-                        <div className="font-mono text-sm">
-                            <Link
-                                to={combineUrl(urls.aiObservabilityTrace(run.trace_id), traceSearchParams).url}
-                                className="text-primary"
-                            >
-                                trace {run.trace_id.slice(0, 12)}...
-                            </Link>
-                        </div>
-                    )
-                }
-                return <span className="font-mono text-sm text-muted">—</span>
-            },
+            render: (_, run) => <EvaluationRunTargetCell run={run} />,
         },
         {
             title: 'Result',
@@ -129,8 +92,8 @@ export function EvaluationRunsTable(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                {showSummary ? (
-                    <EvaluationSummaryControls />
+                {showOutcomeFilters ? (
+                    <EvaluationRunsFilters />
                 ) : showSentimentFilters ? (
                     <SentimentEvaluationRunsFilters />
                 ) : (
@@ -147,8 +110,6 @@ export function EvaluationRunsTable(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-
-            {showSummary && <EvaluationSummaryPanel runsLookup={runsLookup} />}
 
             <LemonTable
                 columns={columns}

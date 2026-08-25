@@ -61,7 +61,10 @@ impl RawNodeFrame {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
             }
             Err(ResolveError::ResolutionError(e)) => {
-                warn!("Unexpected Node.js symbol resolution error: {:?}", e);
+                warn!(
+                    team_id,
+                    "Unexpected Node.js symbol resolution error: {:?}", e
+                );
                 Ok((self, JsResolveErr::InvalidSourceMap(e.to_string())).into())
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
@@ -120,6 +123,10 @@ impl RawNodeFrame {
         hasher.update(self.filename.as_bytes());
         hasher.update(self.function.as_bytes());
         hasher.update(self.lineno.unwrap_or_default().to_be_bytes());
+        // In a minified bundle every frame shares the file, the line (1), an anonymized
+        // function name, and the context line — the column is the only discriminator, so
+        // leaving it out of the id collapses distinct frames into one cached resolution.
+        hasher.update(self.colno.unwrap_or_default().to_be_bytes());
         self.module
             .as_ref()
             .inspect(|m| hasher.update(m.as_bytes()));
@@ -186,7 +193,6 @@ impl From<&RawNodeFrame> for Frame {
 
             junk_drawer: None,
             context: raw.get_context(),
-            release: None,
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
@@ -232,7 +238,6 @@ impl From<(&RawNodeFrame, SourceLocation<'_>, usize)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: get_sourcelocation_context(&location, context_lines),
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: raw_frame.module.clone(),
@@ -290,7 +295,6 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: raw_frame.get_context(),
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: raw_frame.module.clone(),
@@ -322,6 +326,28 @@ fn is_dependency_source(source: &str) -> bool {
 #[cfg(test)]
 mod test {
     use super::RawNodeFrame;
+
+    #[test]
+    fn frame_id_distinguishes_columns_on_the_same_line() {
+        // Minified bundles put every frame on line 1 of the same file with an anonymized
+        // function name and an identical context line, so the column is the only field
+        // separating distinct frames. An id that ignores it collapses them into one
+        // cached resolution.
+        let frame = |colno: u32| -> RawNodeFrame {
+            serde_json::from_value(serde_json::json!({
+                "filename": "dist/index.js",
+                "function": "?",
+                "lineno": 1,
+                "colno": colno,
+                "module": "index",
+                "context_line": "!function(){try{var e=global}catch(e){}}();(()=>{\"use strict\"})();",
+            }))
+            .unwrap()
+        };
+
+        assert_ne!(frame(1345).frame_id(), frame(1453).frame_id());
+        assert_eq!(frame(1345).frame_id(), frame(1345).frame_id());
+    }
 
     #[test]
     fn test_in_app_normalization() {

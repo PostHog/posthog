@@ -3,11 +3,13 @@ package docker
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
 func installFakeDocker(t *testing.T, script string) {
@@ -108,6 +110,11 @@ func TestStripComposeLogsTail(t *testing.T) {
 			shell: "docker compose up",
 			want:  "docker compose up",
 		},
+		{
+			name:  "logs tail inside if/else keeps the fi",
+			shell: `if [ "$S" = "1" ]; then sleep infinity; else docker compose -f a.yml up -d && echo ready && docker compose -f a.yml logs --tail=100 -f; fi`,
+			want:  `if [ "$S" = "1" ]; then sleep infinity; else docker compose -f a.yml up -d && echo ready; fi`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -116,6 +123,32 @@ func TestStripComposeLogsTail(t *testing.T) {
 				t.Fatalf("StripComposeLogsTail() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestStripComposeLogsTailOnRealDockerComposeProcShell strips the actual
+// docker-compose proc shell phrocs loads at runtime (bin/mprocs.yaml, via
+// config.LoadRegistry), not just the hand-written fixtures above. If a future
+// edit to that shell leaves a dangling else/fi after stripping, the
+// docker-compose proc fails to parse and the whole dev stack fails to start,
+// with none of the fixture-based cases above able to catch it.
+func TestStripComposeLogsTailOnRealDockerComposeProcShell(t *testing.T) {
+	cfg, err := config.LoadRegistry()
+	if err != nil || cfg == nil {
+		t.Skip("bin/mprocs.yaml not found from this working directory")
+	}
+	proc, ok := cfg.Procs["docker-compose"]
+	if !ok {
+		t.Fatal("docker-compose proc not found in bin/mprocs.yaml")
+	}
+
+	stripped := StripComposeLogsTail(proc.Shell)
+
+	if strings.Contains(stripped, "logs") && strings.Contains(stripped, "--tail") {
+		t.Fatalf("expected the logs tail to be stripped, got: %q", stripped)
+	}
+	if err := exec.Command("bash", "-n", "-c", stripped).Run(); err != nil {
+		t.Fatalf("stripped shell is not valid bash: %v\nshell: %q", err, stripped)
 	}
 }
 

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { PushNotificationPayloadSchema } from './pushNotification'
+
 export const CyclotronInputSchema = z.object({
     value: z.any(),
     templating: z.enum(['hog', 'liquid']).optional(),
@@ -17,13 +19,19 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'choice',
         'json',
         'integration',
+        'integration_multi',
         'integration_field',
         'email',
         'native_email',
         'posthog_assignee',
         'posthog_ticket_tags',
         'posthog_business_hours',
+        'push_subscription',
         'customer_analytics_account_properties',
+        'customer_analytics_account_relationships',
+        'task_model',
+        'task_repository',
+        'task_mcp_installations',
     ]),
     key: z.string(),
     label: z.string(),
@@ -55,6 +63,30 @@ export const CyclotronInputMappingSchema = z.object({
     inputs: z.record(z.string(), CyclotronInputSchema).optional().nullable(),
     filters: z.any().optional().nullable(),
 })
+
+// The invariants the cyclotron-hog worker relies on when it enriches and
+// executes an invocation: `globals.project.{id,url}` and
+// `globals.event.{distinct_id,properties}` are dereferenced unguarded
+// downstream, so an invocation reconstructed without them is a poison pill.
+// Validate these rather than blind-casting a deserialized/rehydrated payload.
+// Everything else stays permissive (`passthrough`) so drift on non-critical
+// fields never rejects an otherwise-valid message.
+export const HogFunctionInvocationGlobalsSchema = z
+    .object({
+        project: z
+            .object({
+                id: z.number(),
+                url: z.string(),
+            })
+            .passthrough(),
+        event: z
+            .object({
+                distinct_id: z.string(),
+                properties: z.record(z.string(), z.unknown()),
+            })
+            .passthrough(),
+    })
+    .passthrough()
 
 export type CyclotronJobInputSchemaType = z.infer<typeof CyclotronJobInputSchemaTypeSchema>
 
@@ -93,6 +125,8 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
 })
 
+export const MAX_WORKFLOW_EMAIL_SENDERS = 10
+
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     type: z.literal('email'),
     to: z.object({
@@ -102,6 +136,11 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     replyTo: z.string().optional(),
     from: z.object({
         integrationId: z.number(),
+        integrationIds: z.array(z.number()).max(MAX_WORKFLOW_EMAIL_SENDERS).optional(),
+        // Templated per-invocation sender overrides. EmailService requires the rendered
+        // address to be on the selected integration's verified domain before it reaches the provider.
+        email: z.string().optional(),
+        name: z.string().optional(),
     }),
     cc: z.string().optional(),
     bcc: z.string().optional(),
@@ -111,12 +150,27 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     html: z.string(),
 })
 
+export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({
+    type: z.literal('sendPushNotification'),
+    integrationIds: z.array(z.number()),
+    distinctId: z.string(),
+    payload: PushNotificationPayloadSchema,
+    max_tries: z.number().optional(),
+    timeoutMs: z.number().optional(),
+})
+
+export type PushNotificationPayloadType = z.infer<typeof PushNotificationPayloadSchema>
+
 export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
     typeof CyclotronInvocationQueueParametersFetchAwsSigV4Schema
 >
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
+export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer<
+    typeof CyclotronInvocationQueueParametersSendPushNotificationSchema
+>
 
 export type CyclotronInvocationQueueParametersType =
     | CyclotronInvocationQueueParametersFetchType
     | CyclotronInvocationQueueParametersEmailType
+    | CyclotronInvocationQueueParametersSendPushNotificationType

@@ -75,15 +75,30 @@ describe('AddWidgetModal', () => {
         expect(
             screen.getByText(/Bring context from your different PostHog products into one dashboard/i)
         ).toBeInTheDocument()
-        expect(screen.getByRole('heading', { name: 'Error tracking' })).toBeInTheDocument()
-        expect(screen.getByRole('checkbox', { name: 'Top issues' })).toBeInTheDocument()
+        expect(screen.getByText('Error tracking', { selector: 'h5' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
         expect(screen.getByText(/Ranked list of the most impactful error tracking issues/i)).toBeInTheDocument()
+    })
+
+    it('shows alphabetized badges for each widget product section', () => {
+        renderAddWidgetModal()
+
+        const badges = screen.getByTestId('dashboard-widget-product-badges')
+        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual([
+            'Activity',
+            'Error tracking',
+            'Experiments',
+            'Logs',
+            'Session replay',
+            'Support',
+            'Surveys',
+        ])
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {
         renderAddWidgetModal()
 
-        const topIssuesCard = screen.getByRole('checkbox', { name: 'Top issues' })
+        const topIssuesCard = screen.getByLabelText('Top issues')
 
         expect(topIssuesCard).toHaveAttribute('aria-checked', 'false')
 
@@ -100,8 +115,8 @@ describe('AddWidgetModal', () => {
 
         renderAddWidgetModal({ onAdd, onClose })
 
-        await userEvent.click(screen.getByRole('checkbox', { name: 'Top issues' }))
-        await userEvent.click(screen.getByRole('button', { name: 'Add widget' }))
+        await userEvent.click(screen.getByLabelText('Top issues'))
+        await userEvent.click(screen.getByTestId('add-widget-submit'))
 
         expect(onAdd).toHaveBeenCalledWith([expect.objectContaining({ widgetType: 'error_tracking_list' })])
         expect(onClose).toHaveBeenCalled()
@@ -117,7 +132,7 @@ describe('AddWidgetModal', () => {
     it('shows a group-level product nudge when the setup requirement is unmet', () => {
         renderAddWidgetModal()
 
-        expect(screen.getByRole('link', { name: /Explore error tracking/i })).toHaveAttribute(
+        expect(screen.getByText(/Explore error tracking/i).closest('a')).toHaveAttribute(
             'href',
             'https://posthog.com/docs/error-tracking'
         )
@@ -127,31 +142,31 @@ describe('AddWidgetModal', () => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, autocapture_exceptions_opt_in: true })
         renderAddWidgetModal()
 
-        expect(screen.queryByRole('link', { name: /Explore error tracking/i })).not.toBeInTheDocument()
+        expect(screen.queryByText(/Explore error tracking/i)).not.toBeInTheDocument()
     })
 
     it('does not nudge for product areas without a setup requirement', () => {
         renderAddWidgetModal()
 
-        expect(screen.queryByRole('link', { name: /Explore experiments/i })).not.toBeInTheDocument()
+        expect(screen.queryByText(/Explore experiments/i)).not.toBeInTheDocument()
     })
 
     it('collapses and expands a section when its header is clicked', async () => {
         renderAddWidgetModal()
 
-        expect(screen.getByRole('checkbox', { name: 'Top issues' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
 
-        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
-        expect(screen.queryByRole('checkbox', { name: 'Top issues' })).not.toBeInTheDocument()
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
+        expect(screen.queryByLabelText('Top issues')).not.toBeInTheDocument()
 
-        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
-        expect(screen.getByRole('checkbox', { name: 'Top issues' })).toBeInTheDocument()
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
+        expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
     })
 
     it('resets collapsed sections when the modal is reopened', async () => {
         const logic = renderAddWidgetModal()
 
-        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
         expect(logic.values.addWidgetCollapsedGroups).toContain('error_tracking')
 
         logic.actions.setAddWidgetModalOpen(true)

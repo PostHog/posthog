@@ -46,7 +46,7 @@ describe('WidgetCardBody', () => {
             </WidgetCardBody>
         )
 
-        const refreshButton = screen.getByRole('button', { name: 'Refresh data' })
+        const refreshButton = screen.getByText('Refresh data')
         expect(refreshButton).toBeInTheDocument()
         refreshButton.click()
         expect(onRefresh).toHaveBeenCalledTimes(1)

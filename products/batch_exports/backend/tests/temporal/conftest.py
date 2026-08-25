@@ -6,6 +6,7 @@ import datetime as dt
 import pytest
 
 from django.conf import settings
+from django.test import override_settings
 
 import psycopg
 import pytest_asyncio
@@ -26,6 +27,11 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
+    truncate_events,
+    truncate_persons,
+    truncate_sessions,
+)
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonDistinctId2Values,
     PersonValues,
@@ -33,6 +39,14 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_persons_in_clickhouse,
     insert_person_distinct_id2_values_in_clickhouse,
 )
+
+
+@pytest_asyncio.fixture
+async def truncate_clickhouse_tables(clickhouse_client):
+    yield
+    await truncate_events(clickhouse_client)
+    await truncate_persons(clickhouse_client)
+    await truncate_sessions(clickhouse_client)
 
 
 @pytest.fixture(scope="package", autouse=True)
@@ -53,6 +67,19 @@ def clickhouse_create_db_and_tables():
     create_clickhouse_tables()  # Create all expected tables
 
     yield
+
+
+@pytest.fixture(autouse=True)
+def reduced_staging_partitions():
+    """Cap CH→S3 staging fan-out at 2 partition files instead of the production default of 10.
+
+    Ten concurrent S3 writers per tiny staging insert, multiplied across xdist workers, contends on
+    the shared CI objectstorage and produces 20s+ staging stalls that trip workflow execution
+    timeouts. Two partitions keep the multi-file read path exercised; tests that assert partition
+    behavior set their own override.
+    """
+    with override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=2):
+        yield
 
 
 @pytest.fixture

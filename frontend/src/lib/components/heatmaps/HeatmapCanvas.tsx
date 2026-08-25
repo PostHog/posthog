@@ -35,13 +35,23 @@ function HeatmapMouseInfo({
     onHasValue?: (hasValue: boolean) => void
 }): JSX.Element | null {
     const shiftPressed = useShiftKeyPressed()
-    const { heatmapTooltipLabel, rawHeatmapLoading } = useValues(heatmapDataLogic({ context }))
+    const { heatmapTooltipLabel, rawHeatmapLoading, heatmapTooltipSuppressed } = useValues(
+        heatmapDataLogic({ context })
+    )
 
     const containerMousePosition = useMousePosition(containerRef?.current)
     const viewportMousePosition = useMousePosition()
-    const value = heatmapJsRef.current?.getValueAt(containerMousePosition)
+    let value: number | undefined
+    try {
+        value = heatmapJsRef.current?.getValueAt(containerMousePosition)
+    } catch {
+        // heatmap.js throws reading its canvas if it was created while the container had
+        // zero height (IndexSizeError in Chromium, raw NS_ERROR_FAILURE in Firefox);
+        // this runs on every mouse move, so swallow rather than crash the scene
+        value = undefined
+    }
 
-    const hasValue = !!(containerMousePosition && (value || shiftPressed))
+    const hasValue = !!(containerMousePosition && (value || shiftPressed)) && !heatmapTooltipSuppressed
 
     useEffect(() => {
         onHasValue?.(hasValue)
@@ -90,7 +100,7 @@ export function HeatmapCanvas({
         isReady,
         heightOverride,
         heatmapFixedPositionMode,
-        heatmapElements,
+        filteredHeatmapElements,
         windowWidthOverride,
     } = useValues(heatmapDataLogic({ context, exportToken }))
     const { setSelectedArea } = useActions(heatmapDataLogic({ context, exportToken }))
@@ -133,7 +143,7 @@ export function HeatmapCanvas({
             const nearbyElements: HeatmapAreaPoint[] = []
             let totalCount = 0
 
-            for (const element of heatmapElements) {
+            for (const element of filteredHeatmapElements) {
                 const visualX = element.xPercentage * width
                 const distance = Math.sqrt(Math.pow(clickX - visualX, 2) + Math.pow(clickY - element.y, 2))
 
@@ -156,7 +166,7 @@ export function HeatmapCanvas({
                 })
             }
         },
-        [heatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
+        [filteredHeatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
     )
 
     const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
@@ -191,11 +201,16 @@ export function HeatmapCanvas({
             return
         }
 
-        heatmapsJsRef.current?.configure({
-            ...HEATMAP_CONFIG,
-            container: heatmapsJsContainerRef.current,
-            gradient: heatmapJSColorGradient,
-        })
+        try {
+            heatmapsJsRef.current?.configure({
+                ...HEATMAP_CONFIG,
+                container: heatmapsJsContainerRef.current,
+                gradient: heatmapJSColorGradient,
+            })
+        } catch (e) {
+            // configure re-renders the canvas, which throws if it was created zero-height
+            console.error('error configuring heatmap', e)
+        }
     }, [heatmapJSColorGradient])
 
     if (!heatmapFilters.enabled) {
@@ -255,7 +270,7 @@ export function HeatmapCanvas({
             <div
                 key={
                     exportToken
-                        ? 'export-heatmap'
+                        ? `export-heatmap-${widthOverride ?? windowWidth}x${heightOverride}x${heatmapFixedPositionMode}`
                         : `${widthOverride ?? windowWidth}x${windowHeight}x${heightOverride}x${heatmapFixedPositionMode}`
                 }
                 className={cn('absolute inset-0', loadingClass)}

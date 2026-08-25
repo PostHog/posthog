@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -178,6 +179,16 @@ const DAILY_STATS = [
 
 const CATEGORY_LIST = [['Data exploration'], ['Insights'], ['Dashboards'], ['Cohorts']]
 
+// One category per tool in the clustering fixture. Deliberately selective: `SQL` and
+// `Insights` each cover two of the three clusters, so picking one visibly narrows the list
+// rather than leaving it whole.
+const TOOL_CATEGORY_MAP = [
+    ['execute-sql', 'SQL'],
+    ['insight-create', 'Insights'],
+    ['query-trends', 'Product analytics'],
+    ['read-data-schema', 'Data schema'],
+]
+
 const CATEGORY_COUNTS = [
     ['Data exploration', 2240],
     ['Insights', 950],
@@ -309,8 +320,246 @@ const CLUSTER_SNAPSHOT = {
                 'List all custom events captured in the last 30 days.',
             ],
             journey: null,
+            // Only this cluster carries recovery data, so the story covers both the section
+            // rendering and the other clusters, which stand in for snapshots predating it.
+            switches: [
+                { from_tool: 'query-trends', to_tool: 'execute-sql', count: 6 },
+                { from_tool: 'insight-create', to_tool: 'query-trends', count: 2 },
+            ],
+            self_retries: [{ tool: 'read-data-schema', count: 4 }],
         },
     ],
+    tools: [
+        {
+            tool: 'execute-sql',
+            call_count: 1720,
+            error_count: 94,
+            session_count: 61,
+            contested_score: 0.31,
+            advertised_sessions: 74,
+            called_when_advertised: 66,
+            discovery_rate_pct: 89.2,
+            description: 'Run a ClickHouse SQL query against events, persons, and warehouse tables.',
+            n_clusters_served: 3,
+            clusters: [
+                {
+                    cluster_id: 1,
+                    calls: 1480,
+                    capture_pct: 81.3,
+                    rank: 1,
+                    description_fit: 0.71,
+                    top_competitor: { tool: 'read-data-schema', pct: 14.3 },
+                },
+                {
+                    cluster_id: 3,
+                    calls: 120,
+                    capture_pct: 29.3,
+                    rank: 2,
+                    description_fit: 0.44,
+                    top_competitor: { tool: 'read-data-schema', pct: 36.6 },
+                },
+            ],
+        },
+        {
+            // Well described but rarely picked when advertised: the scatter's lower right.
+            tool: 'read-data-schema',
+            call_count: 540,
+            error_count: 5,
+            session_count: 58,
+            contested_score: 0.66,
+            advertised_sessions: 74,
+            called_when_advertised: 18,
+            discovery_rate_pct: 24.3,
+            description: 'List the events, properties, and property values available in the project.',
+            n_clusters_served: 3,
+            clusters: [
+                {
+                    cluster_id: 3,
+                    calls: 150,
+                    capture_pct: 36.6,
+                    rank: 1,
+                    description_fit: 0.78,
+                    top_competitor: { tool: 'execute-sql', pct: 29.3 },
+                },
+            ],
+        },
+        {
+            // No description and too few advertised sessions, so fit and discovery are unmeasurable.
+            tool: 'insight-create',
+            call_count: 370,
+            error_count: 8,
+            session_count: 30,
+            contested_score: 0.52,
+            advertised_sessions: 3,
+            called_when_advertised: 2,
+            discovery_rate_pct: null,
+            description: null,
+            n_clusters_served: 2,
+            clusters: [
+                {
+                    cluster_id: 2,
+                    calls: 320,
+                    capture_pct: 46.4,
+                    rank: 1,
+                    description_fit: null,
+                    top_competitor: { tool: 'query-trends', pct: 34.8 },
+                },
+            ],
+        },
+    ],
+    tool_overlaps: [
+        {
+            tool_a: 'execute-sql',
+            tool_b: 'read-data-schema',
+            contested_calls: 270,
+            sessions_with_both: 41,
+            sessions_with_either: 78,
+        },
+        {
+            tool_a: 'insight-create',
+            tool_b: 'query-trends',
+            contested_calls: 140,
+            sessions_with_both: 9,
+            sessions_with_either: 44,
+        },
+    ],
+}
+
+// [tool, intent, durationMs, client, errorMessage]
+const ACTIVITY_CALLS: [string, string | null, number | null, string, string | null][] = [
+    [
+        'feature-flag-get-all',
+        'Searching PROD feature flags for scope-related keys as a broader sanity check.',
+        174,
+        '',
+        null,
+    ],
+    [
+        'switch-project',
+        'Switching to the PROD project to cross-check the participant scope config flag.',
+        154,
+        '',
+        null,
+    ],
+    ['execute-sql', 'Corroborate homepage INP p75 with its actual seven-day sample count.', 772, '', null],
+    [
+        'session-recording-summarize',
+        "Verify whether the candidate's staff-route activity exposed protected content.",
+        88000,
+        '',
+        null,
+    ],
+    [
+        'read-data-schema',
+        'Locate existing background prefetch events for the post-deployment smoke check.',
+        601,
+        '',
+        null,
+    ],
+    ['exec', 'Signals scout run: discover durable-memory write tool.', null, '', null],
+    ['logs-services-create', 'Checking whether backend log services could corroborate a failed signup.', 274, '', null],
+    [
+        'exec',
+        'Learning read-data-schema tool schema to discover available events and properties.',
+        2,
+        'claude-code',
+        null,
+    ],
+    ['exec', 'Learning execute-sql tool schema to run custom queries for adoption metrics.', 1, 'claude-code', null],
+    [
+        'scout-scratchpad-search',
+        'Retrieve the full coverage map before refreshing the player-refresh watchpoint.',
+        47,
+        '',
+        null,
+    ],
+    [
+        'read-data-schema',
+        'Verify the captured Web Vitals property for homepage INP sample counting.',
+        517,
+        'claude-code',
+        null,
+    ],
+    ['query-trends', 'Chart weekly active agents to see whether adoption is still climbing.', 1320, 'cursor', null],
+    [
+        'insight-create',
+        'Save the retention breakdown so the team can track it without re-querying.',
+        940,
+        'cursor',
+        null,
+    ],
+    [
+        'cohort-create',
+        'Build a cohort of agents that hit an error in their first session.',
+        1620,
+        'claude-ai',
+        'Cohort name already exists in this project',
+    ],
+    ['dashboard-create', 'Assemble the adoption dashboard from the insights created earlier.', 1180, 'claude-ai', null],
+    ['execute-sql', 'Break down tool errors by client to find which harness fails most.', 3525, 'posthog-cli', null],
+    [
+        'feature-flag-list',
+        'Audit which flags are still referenced before proposing cleanups.',
+        510,
+        'posthog-cli',
+        null,
+    ],
+    ['query-trends', 'Compare this week against last to confirm the drop is not seasonal.', 2122, '', null],
+    [
+        'exec',
+        'Retry the durable-memory write now that the schema is known.',
+        30000,
+        'windsurf',
+        'Tool timed out after 30s',
+    ],
+    ['read-data-schema', 'Final schema sweep to confirm no event was missed in the audit.', 380, '', null],
+]
+
+const ACTIVITY_OVERVIEW = {
+    // A project still under the ~300-call metrics gate, which is who lands on this tab.
+    stats: {
+        total_calls: 284,
+        distinct_tools: 9,
+        distinct_sessions: 23,
+        distinct_clients: 6,
+        calls_with_intent: 236,
+        error_calls: 12,
+        missing_capability_reports: 7,
+    },
+    // Top 5 of 9 tools, so these sum under total_calls; their errors sum to error_calls.
+    top_tools: [
+        { tool: 'exec', calls: 96, errors: 5 },
+        { tool: 'execute-sql', calls: 64, errors: 4 },
+        { tool: 'read-data-schema', calls: 43, errors: 1 },
+        { tool: 'query-trends', calls: 31, errors: 1 },
+        { tool: 'insight-create', calls: 22, errors: 1 },
+    ],
+    // Sums to stats.total_calls, so the card agrees with the summary line above it.
+    clients: [
+        { client: '', calls: 148 },
+        { client: 'claude-code', calls: 71 },
+        { client: 'cursor', calls: 33 },
+        { client: 'claude-ai', calls: 18 },
+        { client: 'posthog-cli', calls: 9 },
+        { client: 'windsurf', calls: 5 },
+    ],
+    recent_calls: ACTIVITY_CALLS.map(([tool, intent, duration_ms, client_name, error_message], index) => ({
+        // Spaced off the story's mockDate so the relative "when" column stays deterministic.
+        timestamp: dayjs('2026-06-07T12:00:00Z')
+            .subtract(index * 37, 'second')
+            .toISOString(),
+        tool,
+        intent,
+        is_error: error_message !== null,
+        error_message,
+        duration_ms,
+        client_name,
+    })),
+}
+
+const INTENT_DIGEST = {
+    digest: 'Agents are extensively analyzing and validating feature flags, especially participant and scope-related flags, across multiple projects to ensure correct configuration and deployment. They are investigating user behavior, event schemas, and telemetry to support product analytics, adoption, and revenue reporting, and to diagnose issues such as interface unresponsiveness, conversion tracking failures, and LLM-related errors. Additionally, they are auditing dashboards, saved insights, and survey data to verify data freshness and rebuild product usage metrics.',
+    intent_count: 100,
 }
 
 const meta: Meta = {
@@ -320,6 +569,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
+                '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': ACTIVITY_OVERVIEW,
                 '/api/environments/:team_id/mcp_analytics/sessions/': SESSION_LIST,
                 '/api/environments/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
                 '/api/projects/:team_id/property_definitions': ({ request }) => {
@@ -333,6 +583,8 @@ const meta: Meta = {
                 ],
             },
             post: {
+                // POST, not GET — the endpoint generates the digest (and caches it) on call.
+                '/api/projects/:team_id/mcp_analytics/sessions/intent_digest/': INTENT_DIGEST,
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     const query: string = body?.query?.query ?? ''
@@ -341,6 +593,75 @@ const meta: Meta = {
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
                     }
+                    // Tool quality tab runners return typed item rows — match on kind, not a SQL string.
+                    if (body?.query?.kind === 'MCPToolQualityRowsQuery') {
+                        return [
+                            200,
+                            {
+                                results: TOOL_QUALITY_ROWS.map((r) => ({
+                                    tool: r[0],
+                                    total_calls: r[1],
+                                    errors: r[2],
+                                    error_rate_pct: r[3],
+                                    p50_duration_ms: r[4],
+                                    p95_duration_ms: r[5],
+                                    p99_duration_ms: r[6],
+                                    users: r[7],
+                                    sessions: r[8],
+                                    first_seen: r[9],
+                                    last_seen: r[10],
+                                })),
+                            },
+                        ]
+                    }
+                    if (body?.query?.kind === 'MCPToolQualityDailyStatsQuery') {
+                        return [
+                            200,
+                            {
+                                results: DAILY_STATS.map((r) => ({
+                                    day: r[0],
+                                    calls: r[1],
+                                    errors: r[2],
+                                    p50: r[3],
+                                    p95: r[4],
+                                    p99: r[5],
+                                })),
+                            },
+                        ]
+                    }
+                    if (body?.query?.kind === 'MCPToolCallBreakdownQuery') {
+                        return [
+                            200,
+                            {
+                                results: TOOL_DAILY_RESULTS.map(([bucket, tool, calls]) => ({
+                                    bucket,
+                                    tool,
+                                    calls,
+                                })),
+                            },
+                        ]
+                    }
+                    if (body?.query?.kind === 'MCPToolCallsAndErrorsQuery') {
+                        return [
+                            200,
+                            {
+                                results: ACTIVITY_RESULTS.map(([bucket, successes, errors]) => ({
+                                    bucket,
+                                    successes,
+                                    errors,
+                                })),
+                            },
+                        ]
+                    }
+                    if (body?.query?.kind === 'MCPToolCategoriesQuery') {
+                        return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
+                    }
+                    if (body?.query?.kind === 'MCPToolCategoryMapQuery') {
+                        return [200, { results: TOOL_CATEGORY_MAP.map((r) => ({ tool: r[0], category: r[1] })) }]
+                    }
+                    if (body?.query?.kind === 'MCPToolCategoryCountsQuery') {
+                        return [200, { results: CATEGORY_COUNTS.map((r) => ({ category: r[0], calls: r[1] })) }]
+                    }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
@@ -348,26 +669,6 @@ const meta: Meta = {
                     }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]
-                    }
-                    // Tool quality tab queries — checked before the dashboard's
-                    // p95 tool table so the more specific markers win.
-                    if (query.includes('toDate(timestamp) AS day')) {
-                        return [200, { results: DAILY_STATS }]
-                    }
-                    if (query.includes('p99_duration_ms')) {
-                        return [200, { results: TOOL_QUALITY_ROWS }]
-                    }
-                    if (query.includes('DISTINCT') && query.includes('AS category')) {
-                        return [200, { results: CATEGORY_LIST }]
-                    }
-                    if (query.includes('count() AS calls') && query.includes('GROUP BY category')) {
-                        return [200, { results: CATEGORY_COUNTS }]
-                    }
-                    if (query.includes('AS successes')) {
-                        return [200, { results: ACTIVITY_RESULTS }]
-                    }
-                    if (query.includes('GROUP BY day, tool')) {
-                        return [200, { results: TOOL_DAILY_RESULTS }]
                     }
                     if (query.includes('p95_duration_ms')) {
                         return [200, { results: TOOL_RESULTS }]
@@ -398,6 +699,15 @@ export const Dashboard: Story = {}
 export const DashboardWithMenuBar: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS, FEATURE_FLAGS.SCENE_MENU_BAR],
+    },
+}
+
+// The default landing tab for low-volume projects. The feed mock carries the endpoint's full
+// 20-row cap so the feed overflows its viewport — the case where it has to scroll rather than
+// stretch the grid past the sidebar.
+export const Activity: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsActivity(),
     },
 }
 

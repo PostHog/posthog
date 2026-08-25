@@ -1,13 +1,17 @@
 import clsx from 'clsx'
-import { Suspense, lazy, useMemo } from 'react'
+import { Suspense, useMemo } from 'react'
 
 import type { HedgehogActorOptions } from '@posthog/hedgehog-mode'
+
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import { getHedgehogModeAssetsUrl } from './HedgehogMode'
 
-const StaticHedgehog = lazy(() => import('@posthog/hedgehog-mode').then((m) => ({ default: m.StaticHedgehog })))
+const StaticHedgehog = lazyWithRetry(() =>
+    import('@posthog/hedgehog-mode').then((m) => ({ default: m.StaticHedgehog }))
+)
 
 export type HedgehogModeStaticProps = {
     size?: number | string

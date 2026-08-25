@@ -1,6 +1,10 @@
 import os
+import atexit
 import typing
 import logging
+from collections.abc import Sequence
+
+from django.http import HttpRequest, HttpResponse
 
 import structlog
 from opentelemetry import trace
@@ -16,23 +20,72 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import Span
+from opentelemetry.util.http import sanitize_method
 
 # Get a structlog logger for this module's own messages
 logger = structlog.get_logger(__name__)
 
 
-def _otel_django_request_hook(span, request):
+def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
     if span and span.is_recording():
         actual_path = request.path
-        http_method = request.method
+        http_method = request.method or ""
         span.set_attribute("http.method", http_method)
         span.set_attribute("http.url", actual_path)
         # span.update_name(f"{http_method} {actual_path}") # Use with caution - high cardinality
 
 
-def _otel_django_response_hook(span, request, response):
-    if span and span.is_recording():
-        span.set_attribute("http.status_code", response.status_code)
+def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpResponse) -> None:
+    if not span or not span.is_recording():
+        return
+
+    span.set_attribute("http.status_code", response.status_code)
+    route = getattr(getattr(request, "resolver_match", None), "route", None)
+    if not route:
+        return
+
+    http_method = sanitize_method((request.method or "").strip())
+    span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
+
+
+def _otel_redis_request_hook(span: Span, instance: object, args: Sequence[object], kwargs: dict[str, object]) -> None:
+    """Tag cluster-client spans with the connection attributes the instrumentor leaves off.
+
+    opentelemetry-instrumentation-redis reads `db.system` and `net.peer.*` off
+    `client.connection_pool.connection_kwargs`, and returns early for any client that has no
+    `connection_pool`. `redis.cluster.RedisCluster` keeps per-node pools under `nodes_manager`
+    instead, so its spans arrive carrying a command name and nothing else, which hides them from
+    every query that selects Redis spans by `db.system` or groups them by host.
+
+    A command's shard is chosen inside `execute_command`, after this hook runs, so `net.peer.name`
+    is a node from the client's own topology: it identifies the cluster, not the hop that served
+    the command. `db.redis.cluster` marks that distinction.
+    """
+    # This runs inside the traced Redis call, and the instrumentor does not guard hook calls, so a
+    # raise here would fail the command itself. An unfamiliar client shape degrades to an untagged
+    # span instead, which is the behavior without this hook.
+    try:
+        if not span or not span.is_recording() or hasattr(instance, "connection_pool"):
+            return
+
+        startup_nodes = getattr(getattr(instance, "nodes_manager", None), "startup_nodes", None)
+        if not startup_nodes:
+            return
+
+        span.set_attribute("db.system", "redis")
+        span.set_attribute("db.redis.cluster", True)
+        span.set_attribute("net.transport", "ip_tcp")
+
+        node = next(iter(startup_nodes.values()), None)
+        host = getattr(node, "host", None)
+        port = getattr(node, "port", None)
+        if host:
+            span.set_attribute("net.peer.name", host)
+        if port:
+            span.set_attribute("net.peer.port", port)
+    except Exception:
+        logger.debug("otel_redis_request_hook_failed", exc_info=True)
 
 
 def initialize_otel():
@@ -89,11 +142,21 @@ def initialize_otel():
             source_module="otel_instrumentation",
         )
 
-        provider = TracerProvider(resource=resource)
+        # shutdown_on_exit=False: the SDK's own atexit hook calls provider.shutdown(),
+        # which joins the BatchSpanProcessor export thread WITHOUT a timeout. If the
+        # OTLP collector is unreachable, that thread sits in the gRPC exporter's
+        # retry/backoff loop (~63s of sleeps per batch, and the exporter's shutdown
+        # flag is only set after the join returns), so every process exit hangs until
+        # SIGKILL — under granian this turns each worker stop into a
+        # "refused to gracefully stop" hard kill. A bounded force_flush gives spans
+        # their best shot at export and then lets the process exit; the export thread
+        # is a daemon, so skipping shutdown() leaks nothing at exit.
+        provider = TracerProvider(resource=resource, shutdown_on_exit=False)
         otlp_exporter = OTLPSpanExporter()  # Assumes OTLP endpoint is configured via env vars
         processor = BatchSpanProcessor(otlp_exporter)
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
+        atexit.register(lambda: provider.force_flush(timeout_millis=5_000))
         logger.info(
             "otel_core_components_initialized_successfully",
             service_name=service_name,
@@ -142,7 +205,7 @@ def instrument_celery(provider: trace.TracerProvider):
 
 def instrument_redis(provider: trace.TracerProvider):
     try:
-        RedisInstrumentor().instrument(tracer_provider=provider)
+        RedisInstrumentor().instrument(tracer_provider=provider, request_hook=_otel_redis_request_hook)
         logger.info("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="success")
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="RedisInstrumentor", status="error", exc_info=e)

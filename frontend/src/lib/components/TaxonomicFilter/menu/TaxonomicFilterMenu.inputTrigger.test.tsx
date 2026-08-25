@@ -9,6 +9,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { emptyPaginated } from '~/test/mocks/taxonomicFilterApiMock'
 
 import { TaxonomicFilterHeadless } from '../headless'
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
@@ -24,22 +25,7 @@ jest.mock('posthog-js', () => ({
     default: { capture: jest.fn() },
 }))
 
-jest.mock('lib/api', () => {
-    const emptyPaginated = (): Promise<{ results: any[]; count: number; next: null }> =>
-        Promise.resolve({ results: [], count: 0, next: null })
-    return {
-        __esModule: true,
-        default: {
-            get: jest.fn().mockImplementation(emptyPaginated),
-            actions: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseSavedQueries: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseTables: { list: jest.fn().mockImplementation(emptyPaginated) },
-            queryTabState: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dashboards: { list: jest.fn().mockImplementation(emptyPaginated) },
-            cohorts: { listPaginated: jest.fn().mockImplementation(emptyPaginated) },
-        },
-    }
-})
+jest.mock('lib/api', () => require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock())
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
 
@@ -63,7 +49,7 @@ describe('TaxonomicFilterMenu input trigger', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
-        apiGet.mockResolvedValue({ results: [], count: 0, next: null })
+        apiGet.mockImplementation(emptyPaginated)
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({})
         initKeaTests()
@@ -78,13 +64,13 @@ describe('TaxonomicFilterMenu input trigger', () => {
 
         expect(screen.getByTestId('taxonomic-filter-menu-input')).toBeInTheDocument()
         expect(screen.getByRole('textbox')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Open filter menu' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Open filter menu')).toBeInTheDocument()
     })
 
     it('opens the dropdown menu (without a redundant "New filter…" item) when the filter icon is clicked', async () => {
         renderInputTriggerMenu()
 
-        await userEvent.click(screen.getByRole('button', { name: 'Open filter menu' }))
+        await userEvent.click(screen.getByLabelText('Open filter menu'))
 
         // The menu opens — its always-present "HogQL expression" entry confirms it.
         await waitFor(() => {
@@ -124,7 +110,7 @@ describe('TaxonomicFilterMenu input trigger', () => {
         expect(screen.queryByTestId('taxonomic-filter-menu-input')).not.toBeInTheDocument()
         // The search field renders in the trigger row beside the filter-icon
         // button (chrome opens around it), not adrift in the popover.
-        const iconButton = screen.getByRole('button', { name: 'Open filter menu' })
+        const iconButton = screen.getByLabelText('Open filter menu')
         const searchInput = screen.getByTestId('menu-filter-search')
         expect(iconButton.closest('.LemonInput')).toContainElement(searchInput)
     })

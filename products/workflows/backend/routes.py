@@ -1,13 +1,16 @@
 from posthog.api.routing import RouterRegistry
 
-from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.api import hog_flow, hog_flow_template, workflow_tasks
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.register_legacy_dual_route(r"hog_flows", hog_flow.HogFlowViewSet, "environment_hog_flows", ["team_id"])
-    routers.register_legacy_dual_route(
+    routers.projects.register(r"hog_flows", hog_flow.HogFlowViewSet, "project_hog_flows", ["team_id"])
+    routers.projects.register(
+        r"workflow_tasks", workflow_tasks.WorkflowTaskViewSet, "project_workflow_tasks", ["team_id"]
+    )
+    routers.projects.register(
         r"hog_flow_templates",
         hog_flow_template.HogFlowTemplateViewSet,
-        "environment_hog_flow_templates",
+        "project_hog_flow_templates",
         ["team_id"],
     )

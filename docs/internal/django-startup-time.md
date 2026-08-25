@@ -46,6 +46,10 @@ The entrypoints that own a setup (`manage.py`, `posthog/wsgi.py`, `posthog/asgi.
 The freeze moves the ~600k surviving boot objects to the permanent generation, so they are excluded from every future full collection — which also makes post-boot work (management-command discovery, the first router build) collect almost for free, and maximizes copy-on-write page sharing when a prototype process forks workers.
 There is deliberately no `gc.collect()` before the freeze: a full pass over the boot heap costs ~210ms and reclaims only ~4% of objects (a few MB), so the garbage is frozen along with everything else.
 The window must always close — GC left disabled in a long-lived process means unbounded cycle growth — hence the `try`/`finally` and the guard test asserting `gc.isenabled()` and a nonzero freeze count after a `manage.py` boot.
+Pytest processes get the same window via a dedicated early-loaded plugin, `pytest_boot_gc.py`, registered with `-p pytest_boot_gc` in `pytest.ini`.
+`-p` plugins load before pytest-django's `load_initial_conftests` hook, which is what runs `django.setup()`, so the disable is already in effect when setup's several million permanent allocations happen.
+The root conftest still closes the window (freeze, re-enable, threshold tuning) via `_end_gc_boot_window` at collection finish; its own `gc.disable()` call stays as a fallback for test configs that do not load the plugin.
+This saves ~0.2–0.4s per test process.
 Celery's `django.setup()` happens inside its Django fixup, not in an entrypoint we own, so celery workers do not get the window yet.
 
 ### 5. Generated schema and query layer evicted from setup
@@ -60,11 +64,13 @@ The same applies to the celery task graph: `posthog/tasks/__init__.py` eagerly i
 
 ## The regression guard
 
-`posthog/test/test_startup_import_budget.py` boots a bare `django.setup()` in a clean subprocess and asserts three things, one per mechanism:
+`posthog/test/repo_invariants/test_startup_import_budget.py` boots a bare `django.setup()` in a clean subprocess and asserts three things, one per mechanism:
 
 1. No `FORBIDDEN_AT_SETUP` heavy module (the lazy router aggregator, the generated `posthog.schema`, the query-runner layer, the AI core, `chdb`, `scipy`, …) is in `sys.modules`.
 2. Every model registers at app-population — importing the router adds none.
 3. No signal receiver connects _only_ when the router is built.
+
+It runs in the `repo-checks` CI job on every backend-touching PR regardless of test selection, because a products-only diff skips the Django suite entirely.
 
 **When a guard fails, fix the import — do not widen the list.**
 Defer the offending import, add the missing `models/__init__` import, or wire the receiver at `ready()`.
@@ -76,7 +82,7 @@ Confirm the module is absent from a bare `django.setup()` first, then add it.
 
 **The forward-looking guard: new heavy imports.**
 `FORBIDDEN_AT_SETUP` only catches modules someone already named; `test_no_new_heavy_imports_at_setup` catches the heavy import nobody has named yet.
-It captures `python -X importtime` over a bare setup (GC disabled, so a migrating gen2 pause can't masquerade as a module's cost), aggregates self-time by top-level package for third-party (SDKs split across submodules; the package total is the meaningful number) and per-module for first-party, and fails when a name **not** in `posthog/test/setup_import_baseline.txt` costs ≥100ms.
+It captures `python -X importtime` over a bare setup (GC disabled, so a migrating gen2 pause can't masquerade as a module's cost), aggregates self-time by top-level package for third-party (SDKs split across submodules; the package total is the meaningful number) and per-module for first-party, and fails when a name **not** in `posthog/test/repo_invariants/setup_import_baseline.txt` costs ≥100ms.
 There are deliberately no per-entry time budgets — absolute timings flake in CI — time is only the materiality gate for _new arrivals_: known names are never timed, and a new arrival is deterministic (the PR that adds the import, adds it).
 Two captures are taken and the per-name minimum used, because a cold first boot pays page-cache misses that can double a package's apparent cost.
 When it fires: defer the import (the failure message carries the playbook); baseline a package only when every process genuinely needs it during setup, with a justifying comment.
@@ -192,6 +198,9 @@ If the constant lives in a heavy module (a Temporal destination, an SDK wrapper)
 Deferring an import does not delete the work; it moves it to first use, and first use may be a live request.
 The general question to ask of any deferral: _which process pays now, on what path, and is that path latency-sensitive?_
 Background workers paying lazily is almost always fine; web workers paying on first requests usually is not.
+When first use is latency-sensitive, move the cost back deliberately with a targeted, per-process warm-up rather than re-eagering the import for everyone.
+The warehouse source catalog (every vendor SDK, lazy via `SourceRegistry`) has two of these: temporal workers whose queues run data-import syncs call `load_all_sources()` at worker boot, and web workers call `posthog/warehouse_source_prewarm.py` at startup (during `posthog.wsgi` module import, inside the boot GC window; during lifespan startup for ASGI), behind `PREWARM_WAREHOUSE_SOURCE_REGISTRY`, which deployment configuration enables only for the dedicated Granian deployment that serves warehouse queries (the shared launcher leaves it off).
+Both warm synchronously before the process starts serving; a failed prewarm logs and leaves the worker to the lazy path, and every other process keeps that path.
 
 **Pydantic `defer_build` on the generated schema: attempted and reverted.**
 Generating `posthog.schema` against a `defer_build` base took ~400ms of core-schema construction off every setup, and looked safe — validation, `model_dump`, `model_json_schema`, and `TypeAdapter` all build on demand in round-trip tests.

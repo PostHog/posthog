@@ -21,7 +21,6 @@ from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Q
-from django.utils import timezone
 
 import structlog
 
@@ -40,9 +39,10 @@ INVESTIGATION_NOTIFY_GRACE_MINUTES = 5
 
 # Fallback for non-terminal investigations (RUNNING / PENDING / SKIPPED / null). Must
 # exceed the activity's worst case — `ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE`
-# (20 min) × `ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS` (2) — so a healthy long
-# investigation isn't preempted by a duplicate force-dispatch.
-INVESTIGATION_RUNNING_GRACE_MINUTES = 45
+# (40 min) × `ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS` (2) = 80 min — plus slack, so a
+# healthy long investigation on its second attempt isn't preempted by a duplicate
+# force-dispatch that would fire a notification the verdict gate was meant to hold.
+INVESTIGATION_RUNNING_GRACE_MINUTES = 90
 
 
 def run_investigation_notification_safety_net() -> int:
@@ -97,19 +97,18 @@ def run_investigation_notification_safety_net() -> int:
                 if locked.notification_sent_at is not None or locked.notification_suppressed_by_agent:
                     continue
                 breaches = _fallback_breach_descriptions(locked)
-                targets = dispatch_alert_notification(alert, locked, breaches)
-                if targets is not None:
-                    record_alert_delivery(alert, locked, targets)
-                # Set notification_sent_at in lock-step with record_alert_delivery so
-                # gating/idempotency reads that still use this marker stay consistent.
-                locked.notification_sent_at = timezone.now()
-                locked.save(update_fields=["notification_sent_at"])
+                deliveries = dispatch_alert_notification(alert, locked, breaches)
+                record_alert_delivery(alert, locked, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
                 "alert.investigation_safety_net_failed",
                 alert_id=str(alert.id),
                 alert_check_id=str(check.id),
             )
+            continue
+
+        if not deliveries:
+            # Stamped but undeliverable — nobody was notified, so it doesn't count.
             continue
 
         logger.warning(

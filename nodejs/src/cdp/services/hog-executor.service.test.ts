@@ -6,10 +6,16 @@ import { AddressInfo } from 'net'
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/common/utils/logger'
 
+import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
+import {
+    EmailSuppressionService,
+    emailSuppressionConfigFromEnv,
+} from '../../../src/cdp/services/messaging/email-suppression.service'
 import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
@@ -20,7 +26,8 @@ import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
+import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
@@ -45,7 +52,7 @@ const cleanLogs = (logs: string[]): string[] => {
 
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
-    let executor: HogExecutorService
+    let executor: HogExecutorAsyncService
     let hub: Hub
 
     beforeEach(async () => {
@@ -53,40 +60,73 @@ describe('Hog Executor', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         hub = await createHub()
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        executor = new HogExecutorService(
+        executor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
+                siteUrl: hub.SITE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService
+            {
+                teamManager: hub.teamManager,
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                // No push sends in this suite - the push queue type is covered by push-notification.service.test.ts
+                pushNotificationService: undefined as any,
+            }
         )
     })
 
     afterEach(() => {
         // Ensure any spies (e.g., execHog, Math.random, Date.now) are restored between tests
         jest.restoreAllMocks()
+    })
+
+    describe('getSensitiveValues', () => {
+        it('masks the nested secrets of every integration in an integration_multi input', () => {
+            const hogFunction = {
+                inputs_schema: [{ type: 'integration_multi', key: 'channels' }],
+            } as unknown as HogFunctionType
+            const inputs = {
+                channels: [
+                    { $integration_id: 1, access_token_raw: 'fcm-secret-token' },
+                    { $integration_id: 2, signing_key: 'apns-signing-key-secret' },
+                ],
+            }
+
+            const values = executor.hogExecutor.getSensitiveValues(hogFunction, inputs)
+
+            // Without integration_multi + array handling these secrets leak into team-visible logs.
+            expect(values).toContain('fcm-secret-token')
+            expect(values).toContain('apns-signing-key-secret')
+        })
     })
 
     describe('general event processing', () => {
@@ -107,7 +147,7 @@ describe('Hog Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
-                emailAssets: [],
+                messageAssets: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -317,311 +357,7 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('filtering', () => {
-        it('builds the correct globals object when filtering', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            const inputGlobals = createHogExecutionGlobals({ groups: {} })
-            expect(inputGlobals.source).toBeUndefined()
-            const results = await executor.buildHogFunctionInvocations([fn], inputGlobals)
-
-            expect(results.invocations).toHaveLength(1)
-
-            expect(results.invocations[0].state.globals.source).toEqual({
-                name: 'Hog Function',
-                url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
-            })
-        })
-
-        it('can filters incoming messages correctly', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({ groups: {} })
-            )
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({
-                    groups: {},
-                    event: {
-                        event: '$pageview',
-                        properties: {
-                            $current_url: 'https://posthog.com',
-                        },
-                    } as any,
-                })
-            )
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_texts', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_text_filter,
-            })
-
-            const elementsChain = (buttonText: string) =>
-                `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="${buttonText}";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";button.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="${buttonText}";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('Not our text'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('Reload'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_href', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_href_filter,
-            })
-
-            const elementsChain = (link: string) =>
-                `span.LemonButton__content:attr__class="LemonButton__content"attr__href="${link}"href="${link}"nth-child="2"nth-of-type="2"text="Activity";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";a.LemonButton.LemonButton--full-width.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-alt.Link.NavbarButton:attr__class="Link LemonButton LemonButton--secondary LemonButton--status-alt LemonButton--full-width LemonButton--has-icon NavbarButton"attr__data-attr="menu-item-activity"attr__href="${link}"href="${link}"nth-child="1"nth-of-type="1"text="Activity";li.w-full:attr__class="w-full"nth-child="6"nth-of-type="6";ul:nth-child="1"nth-of-type="1";div.Navbar3000__top.ScrollableShadows__inner:attr__class="ScrollableShadows__inner Navbar3000__top"nth-child="1"nth-of-type="1";div.ScrollableShadows.ScrollableShadows--vertical:attr__class="ScrollableShadows ScrollableShadows--vertical"nth-child="1"nth-of-type="1";div.Navbar3000__content:attr__class="Navbar3000__content"nth-child="1"nth-of-type="1";nav.Navbar3000:attr__class="Navbar3000"nth-child="1"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('/project/1/not-a-link'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('/project/1/activity/explore'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-
-        it('can use elements_chain_tags and _ids', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.elements_tag_and_id_filter,
-            })
-
-            const elementsChain = (id: string) =>
-                `a.Link.font-semibold.text-text-3000.text-xl:attr__class="Link font-semibold text-xl text-text-3000"attr__href="/project/1/dashboard/1"attr__id="${id}"attr_id="${id}"href="/project/1/dashboard/1"nth-child="1"nth-of-type="1"text="My App Dashboard";div.ProjectHomepage__dashboardheader__title:attr__class="ProjectHomepage__dashboardheader__title"nth-child="1"nth-of-type="1";div.ProjectHomepage__dashboardheader:attr__class="ProjectHomepage__dashboardheader"nth-child="2"nth-of-type="2";div.ProjectHomepage:attr__class="ProjectHomepage"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
-
-            const hogGlobals1 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('notfound'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldntMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals1)
-            expect(resultsShouldntMatch.invocations).toHaveLength(0)
-            expect(resultsShouldntMatch.metrics).toHaveLength(1)
-
-            const hogGlobals2 = createHogExecutionGlobals({
-                groups: {},
-                event: {
-                    uuid: 'uuid',
-                    event: '$autocapture',
-                    elements_chain: elementsChain('homelink'),
-                    distinct_id: 'distinct_id',
-                    url: 'http://localhost:8000/events/1',
-                    properties: {
-                        $lib_version: '1.2.3',
-                    },
-                    timestamp: new Date().toISOString(),
-                },
-            })
-
-            const resultsShouldMatch = await executor.buildHogFunctionInvocations([fn], hogGlobals2)
-            expect(resultsShouldMatch.invocations).toHaveLength(1)
-            expect(resultsShouldMatch.metrics).toHaveLength(0)
-        })
-    })
-
     describe('mappings', () => {
-        let fn: HogFunctionType
-        beforeEach(() => {
-            fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                mappings: [
-                    {
-                        // Filters for pageview or autocapture
-                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
-                        inputs: {
-                            url: {
-                                order: 0,
-                                value: 'https://example.com?q={event.event}',
-                                bytecode: [
-                                    '_H',
-                                    1,
-                                    32,
-                                    'https://example.com?q=',
-                                    32,
-                                    'event',
-                                    32,
-                                    'event',
-                                    1,
-                                    2,
-                                    2,
-                                    'concat',
-                                    2,
-                                ],
-                            },
-                        },
-                    },
-                    {
-                        // No filters so should match all events
-                        ...HOG_FILTERS_EXAMPLES.no_filters,
-                    },
-
-                    {
-                        // Broken filters so shouldn't match
-                        ...HOG_FILTERS_EXAMPLES.broken_filters,
-                    },
-                ],
-            })
-        })
-
-        it('can build mappings', async () => {
-            const pageviewGlobals = createHogExecutionGlobals({
-                event: {
-                    event: '$pageview',
-                    properties: {
-                        $current_url: 'https://posthog.com',
-                    },
-                } as any,
-            })
-
-            const results1 = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
-            expect(results1.invocations).toHaveLength(2)
-            expect(results1.metrics).toHaveLength(1)
-            expect(results1.logs).toHaveLength(1)
-            expect(results1.logs[0].message).toMatchInlineSnapshot(
-                `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
-            )
-
-            const results2 = await executor.buildHogFunctionInvocations(
-                [fn],
-                createHogExecutionGlobals({
-                    event: {
-                        event: 'test',
-                    } as any,
-                })
-            )
-            expect(results2.invocations).toHaveLength(1)
-            expect(results2.metrics).toHaveLength(2)
-            expect(results2.logs).toHaveLength(1)
-
-            expect(results2.metrics[0].metric_name).toBe('filtered')
-            expect(results2.metrics[1].metric_name).toBe('filtering_failed')
-        })
-
-        it('generates the correct inputs', async () => {
-            const pageviewGlobals = createHogExecutionGlobals({
-                event: {
-                    event: '$pageview',
-                    properties: {
-                        $current_url: 'https://posthog.com',
-                    },
-                } as any,
-            })
-
-            const result = await executor.buildHogFunctionInvocations([fn], pageviewGlobals)
-            // First mapping has input overrides that should be applied
-            expect(result.invocations[0].state.globals.inputs.headers).toEqual({
-                version: 'v=',
-            })
-            expect(result.invocations[0].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com?q=$pageview"`
-            )
-            // Second mapping has no input overrides
-            expect(result.invocations[1].state.globals.inputs.headers).toEqual({
-                version: 'v=',
-            })
-            expect(result.invocations[1].state.globals.inputs.url).toMatchInlineSnapshot(
-                `"https://example.com/posthog-webhook"`
-            )
-        })
-
         it('rebuilds mapping inputs when an invocation arrives without inputs (rerun path)', async () => {
             // The rerun path strips `inputs` from the persisted globals and lets
             // the executor rebuild them. For mapping destinations the mapping's
@@ -961,6 +697,49 @@ describe('Hog Executor', () => {
             const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain('Team 1 not found')
         })
+
+        it.each([
+            ['postHogGetTicket', { ticket_id: 'test-ticket-123' }],
+            ['postHogUpdateTicket', { ticket_id: 'test-ticket-456', updates: { status: 'new' } }],
+        ])('%s points at the setup step when the team has no secret API token', async (name, args) => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            mockExecHogForAsyncFunction(name, [args])
+
+            const result = await executor.execute(createTicketInvocation())
+            // Nothing provisions this token, so the message has to name the setup step rather
+            // than the field - it reaches the customer verbatim in the workflow logs. Square
+            // brackets would be parsed as entity chips by the log viewer and swallowed.
+            expect(result.error).toContain('This project has no secret API key')
+            expect(result.error).toContain('ticket workflow actions')
+            expect(result.error).toContain('Settings > Support > Secret API key')
+            expect(result.error).not.toContain('[')
+        })
+
+        it('captures exception with team_id when the ticket secret API token is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogUpdateTicket', [
+                { ticket_id: 'test-ticket-456', updates: { status: 'new' } },
+            ])
+            await executor.execute(createTicketInvocation())
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({
+                    tags: expect.objectContaining({ team_id: 1, function: 'postHogUpdateTicket' }),
+                })
+            )
+        })
     })
 
     describe('postHogGetAccount', () => {
@@ -1036,7 +815,44 @@ describe('Hog Executor', () => {
             mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
 
             const result = await executor.execute(createAccountInvocation())
-            expect(result.error).toContain('has no secret API token configured')
+            // The message reaches the customer verbatim in the workflow logs, so it has to name
+            // the setup step rather than the field.
+            expect(result.error).toContain('This project has no secret API key')
+            expect(result.error).toContain('account workflow actions')
+            expect(result.error).toContain('Settings > Support > Secret API key')
+        })
+
+        it('captures exception with team_id when secret API token is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ tags: expect.objectContaining({ team_id: 1 }) })
+            )
+        })
+
+        it('does not capture exception when queue is set up successfully', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
 
         it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
@@ -1270,7 +1086,7 @@ describe('Hog Executor', () => {
             // Should be scheduled for retry
             expect(result.invocation.state.attempts).toBe(1)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 1 with status code 500. Retrying in 1500ms.',
+                'HTTP fetch failed on attempt 1 with status code 500. Retrying.',
             ])
             expect(result.invocation.queuePriority).toBe(1) // Priority decreased
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
@@ -1280,7 +1096,7 @@ describe('Hog Executor', () => {
             result = await executor.executeFetch(result.invocation)
             expect(result.invocation.state.attempts).toBe(2)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 2 with status code 500. Retrying in 2500ms.',
+                'HTTP fetch failed on attempt 2 with status code 500. Retrying.',
             ])
             expect(result.invocation.queuePriority).toBe(2) // Priority decreased
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:02.500Z"`)
@@ -1288,7 +1104,7 @@ describe('Hog Executor', () => {
             // Execute the final retry
             result = await executor.executeFetch(result.invocation)
             expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 3 with status code 500. Retrying in 3500ms.',
+                'HTTP fetch failed on attempt 3 with status code 500.',
             ])
             // All values reset due to no longer retrying
             expect(result.invocation.state.attempts).toBe(0)
@@ -1552,7 +1368,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "HTTP fetch failed on attempt 1 with status code (none). Error: Invalid hostname. Retrying in 1500ms.",
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: Invalid hostname. Retrying.",
                 ]
             `)
         })
@@ -1597,7 +1413,7 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying in 1500ms.",
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying.",
                 ]
             `)
         })
@@ -1776,7 +1592,9 @@ describe('Hog Executor', () => {
                 },
             }
 
-            jest.spyOn(executor['hogInputsService'], 'loadIntegrationInputs').mockResolvedValue(mockIntegrationInputs)
+            jest.spyOn(executor['deps'].hogInputsService, 'loadIntegrationInputs').mockResolvedValue(
+                mockIntegrationInputs
+            )
 
             const invocation = createExampleInvocation()
             invocation.state.globals.inputs = mockIntegrationInputs
@@ -2026,10 +1844,6 @@ describe('Hog Executor', () => {
                 } as any)
             }
 
-            const setMode = (mode: 'disabled' | 'warn' | 'enforce'): void => {
-                ;(executor as any).config.selfLoopGuardMode = mode
-            }
-
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
@@ -2065,56 +1879,7 @@ describe('Hog Executor', () => {
                 return metric.values.find((v) => v.labels.mode === mode && v.labels.action === action)?.value ?? 0
             }
 
-            // The detected count is the production signal that drives the enforce decision,
-            // so assert it actually moves - not just the human-facing log.
-            const readDetectedCount = (): Promise<number> => readActionCount('warn', 'detected')
-
-            it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
-                ;(fetch as jest.Mock).mockImplementationOnce(() =>
-                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
-                )
-                const detectedBefore = await readDetectedCount()
-
-                const result = await executor.executeFetch(invocation)
-
-                // Observe-only: the fetch still happens and nothing errors.
-                expect(result.error).toBeUndefined()
-                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
-                    expect.arrayContaining([expect.stringContaining('can form an event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore + 1)
-            })
-
-            it('does not flag a normal external fetch even with the project token in the body', async () => {
-                setMode('warn')
-                mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: `${baseUrl}/test`,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
-                mockRequest.mockClear()
-                const detectedBefore = await readDetectedCount()
-
-                const result = await executor.executeFetch(invocation)
-
-                expect(result.error).toBeUndefined()
-                expect(mockRequest).toHaveBeenCalled()
-                expect(cleanLogs(result.logs.map((l) => l.message))).not.toEqual(
-                    expect.arrayContaining([expect.stringContaining('event-forwarding loop')])
-                )
-                expect(await readDetectedCount()).toBe(detectedBefore)
-            })
-
             it('fails open: a team lookup error never breaks the fetch', async () => {
-                setMode('warn')
                 jest.spyOn(hub.teamManager, 'getTeam').mockRejectedValue(new Error('db unavailable'))
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2139,7 +1904,6 @@ describe('Hog Executor', () => {
                 { case: 'mid-chain under the cap', depth: 2, stampedTo: 3 },
                 { case: 'the last hop under the cap', depth: 9, stampedTo: 10 },
             ])('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo }) => {
-                setMode('enforce')
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2164,7 +1928,6 @@ describe('Hog Executor', () => {
             // depth for a DIFFERENT function is treated as depth 0 here, so a legitimately
             // running destination is never blocked by an unrelated deep chain.
             it('enforce: does NOT block when the high depth belongs to another function', async () => {
-                setMode('enforce')
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2186,7 +1949,6 @@ describe('Hog Executor', () => {
             })
 
             it('enforce: breaks the chain once it reaches the cap', async () => {
-                setMode('enforce')
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
                     url: INGEST_URL,
@@ -2210,7 +1972,6 @@ describe('Hog Executor', () => {
             })
 
             it('enforce: leaves a normal external fetch untouched', async () => {
-                setMode('enforce')
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
                     url: `${baseUrl}/test`,
@@ -2264,17 +2025,62 @@ describe('Hog Executor', () => {
             }
             invocation.state.vmState = { stack: [] } as any
 
-            const result = (executor as any).routeEmailToQueue(invocation)
+            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originQueue).toBe('hogflow')
+            expect(result.invocation.queuePriority).toBe(1)
+            expect(result.invocation.queueMetadata?.originPriority).toBe(invocation.queuePriority)
             expect(result.metrics).toContainEqual(
                 expect.objectContaining({
                     metric_name: 'email_queued',
                     metric_kind: 'email',
                 })
             )
+        })
+
+        it('should classify transactional sends into the fast priority class', () => {
+            const hogFunction = createHogFunction({
+                name: 'Email function',
+                metadata: { message_category_type: 'transactional' },
+            })
+
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                queue: 'hogflow',
+                queueParameters: {
+                    type: 'email',
+                    to: { email: 'user@example.com' },
+                    from: { integrationId: 1 },
+                    subject: 'Test',
+                    text: 'Hello',
+                    html: '<p>Hello</p>',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
+
+            expect(result.invocation.queuePriority).toBe(0)
+        })
+
+        it('should restore the origin priority when routing back from the email queue', () => {
+            const hogFunction = createHogFunction({ name: 'Email function' })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                queue: 'email',
+                queuePriority: 1,
+                // originPriority 0 also guards the restore against a `||`-style
+                // fallback that would treat a falsy origin priority as absent.
+                queueMetadata: { originQueue: 'hogflow', originPriority: 0 },
+            }
+
+            const result = (executor as any).routeToQueue(invocation, 'hogflow')
+
+            expect(result.invocation.queue).toBe('hogflow')
+            expect(result.invocation.queuePriority).toBe(0)
+            expect(result.invocation.queueMetadata).toBeUndefined()
         })
 
         it('should preserve the same job ID (no new job created)', () => {
@@ -2292,7 +2098,7 @@ describe('Hog Executor', () => {
             }
             invocation.state.vmState = { stack: [] } as any
 
-            const result = (executor as any).routeEmailToQueue(invocation)
+            const result = (executor as any).routeEmailToQueue(invocation, invocation.queuePriority)
 
             expect(result.invocation.id).toBe(invocation.id)
         })
@@ -2327,13 +2133,51 @@ describe('Hog Executor', () => {
             expect(result.finished).toBe(false)
         })
 
-        it('should send inline when sendEmailsInline is set', async () => {
+        it('should send inline when isTest is set', async () => {
             const invocation = createEmailInvocation()
 
-            const result = await executor.executeWithAsyncFunctions(invocation, { sendEmailsInline: true })
+            const result = await executor.executeWithAsyncFunctions(invocation, { isTest: true })
 
             expect(result.invocation.queue).not.toBe('email')
             expect(result.finished).toBe(true)
+        })
+
+        it('should stash the origin queue priority when the send happens mid-run', async () => {
+            // A send from the hogflow queue runs the hog program first, which clones the
+            // invocation and resets queuePriority to 0 before the email is detected and routed.
+            // The stashed origin priority must come from the entry invocation, otherwise the job
+            // returns to the hogflow queue at priority 0 and jumps ahead of every other run.
+            const hogFunction = createHogFunction({ name: 'Email function' })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction, { inputs: {} }, 'hogflow'),
+                queuePriority: 2,
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName: 'sendEmail',
+                    asyncFunctionArgs: [
+                        {
+                            to: { email: 'user@example.com' },
+                            from: { integrationId: 1 },
+                            subject: 'Test',
+                            text: 'Hello',
+                            html: '<p>Hello</p>',
+                        },
+                    ],
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+            })
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originPriority).toBe(2)
         })
     })
 })

@@ -70,7 +70,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             return responses[path]
 
         return patch(
-            "posthog.models.integration.GitHubIntegration._gh_api_get", autospec=True, side_effect=_side_effect
+            "posthog.models.integration.github.GitHubIntegration._gh_api_get", autospec=True, side_effect=_side_effect
         )
 
     def _cache_for(self, integration: Integration) -> GitHubRepositoryFullCache:
@@ -108,7 +108,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             tree_paths="old/path",
         )
 
-        with patch("posthog.models.integration.GitHubIntegration._gh_api_get", autospec=True) as mock_gh_api_get:
+        with patch("posthog.models.integration.github.GitHubIntegration._gh_api_get", autospec=True) as mock_gh_api_get:
             entry = async_to_sync(self._cache_for(integration).sync_full_cache_entry_async)("posthog/posthog")
 
         assert mock_gh_api_get.call_count == 0  # TTL short-circuits before any API calls
@@ -209,7 +209,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             return responses[path]
 
         with patch(
-            "posthog.models.integration.GitHubIntegration._gh_api_get",
+            "posthog.models.integration.github.GitHubIntegration._gh_api_get",
             autospec=True,
             side_effect=_side_effect,
         ):
@@ -233,7 +233,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             return responses[path]
 
         with patch(
-            "posthog.models.integration.GitHubIntegration._gh_api_get",
+            "posthog.models.integration.github.GitHubIntegration._gh_api_get",
             autospec=True,
             side_effect=_side_effect,
         ):
@@ -253,7 +253,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             return responses[path]
 
         with patch(
-            "posthog.models.integration.GitHubIntegration._gh_api_get",
+            "posthog.models.integration.github.GitHubIntegration._gh_api_get",
             autospec=True,
             side_effect=_side_effect,
         ):
@@ -466,7 +466,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
         assert IntegrationRepositoryCacheEntry.objects.filter(pk=keep.pk).exists()
 
     def test_sync_full_cache_evicts_cross_source_rows_for_team(self):
-        # Team upgrade scenario: PostHog Code (UserIntegration) hydrated rows for this team, then
+        # Team upgrade scenario: PostHog Desktop (UserIntegration) hydrated rows for this team, then
         # the team connected a team-level Integration. Cascade now picks the Integration; the old
         # UserIntegration row would otherwise linger and surface as a duplicate to HogQL queries.
         user = User.objects.create(email="user@example.com")

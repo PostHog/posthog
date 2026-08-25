@@ -10,9 +10,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import APPSFLYER_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
 # Aggregate pull requests cap the date range at ~1000 days.
@@ -212,6 +212,8 @@ def appsflyer_source(
         partition_format="month",
         partition_keys=["date"],
         sort_mode="asc",
-        # Dimension keys can collide (e.g. blank campaign values).
-        has_duplicate_primary_keys=True,
+        # Dimension keys can collide (e.g. blank campaign values) — an expected trait of report
+        # data, not something the user can fix. Don't set has_duplicate_primary_keys: that flag
+        # tells validate_incremental_sync to block incremental syncing altogether. The merge's own
+        # per-batch dedup (keep-last-per-key) already resolves the collision safely.
     )

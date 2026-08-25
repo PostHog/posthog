@@ -3,7 +3,6 @@ import './StepContentEditor.scss'
 import { JSONContent } from '@tiptap/core'
 import { Color } from '@tiptap/extension-color'
 import { Image } from '@tiptap/extension-image'
-import { Link } from '@tiptap/extension-link'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { TextAlign } from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -18,6 +17,7 @@ import { IconCode, IconImage, IconList, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonMenu, LemonModal } from '@posthog/lemon-ui'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
@@ -126,7 +126,7 @@ export function StepContentEditor({
                   }),
                   TextStyle,
                   Color,
-                  Link.configure({
+                  LinkExtension.configure({
                       openOnClick: false,
                       HTMLAttributes: {
                           class: 'step-content-link',

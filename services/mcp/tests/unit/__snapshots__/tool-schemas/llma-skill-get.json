@@ -1,6 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "body_length": {
+            "description": "Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "body_offset": {
+            "description": "Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).",
+            "minimum": 0,
+            "type": "number"
+        },
         "skill_name": {
             "pattern": "^[^/]+$",
             "type": "string"

@@ -9,10 +9,13 @@ Called by the Celery task; all business logic lives here.
 
 from uuid import UUID
 
+from django.db.models import Q
+
 import structlog
 from blake3 import blake3
 from pixelhog import thumbnail as pixelhog_thumbnail
 
+from .db import WRITER_DB
 from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
 from .diff_metadata import DiffMetadata
 from .facade.enums import ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
@@ -54,7 +57,7 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
 
 def _store_thumbnail(snapshot: RunSnapshot, result: CompareResult) -> None:
     """Store the thumbnail artifact and link it to the current artifact."""
-    from . import logic
+    from .logic import artifact_store
 
     artifact = snapshot.current_artifact
     if artifact is None or artifact.thumbnail_id is not None:
@@ -62,7 +65,7 @@ def _store_thumbnail(snapshot: RunSnapshot, result: CompareResult) -> None:
     if not result.thumbnail:
         return
 
-    thumb_artifact = logic.write_artifact_bytes(
+    thumb_artifact = artifact_store.write_artifact_bytes(
         repo_id=snapshot.run.repo_id,
         content_hash=result.thumbnail_hash,
         content=result.thumbnail,
@@ -81,12 +84,12 @@ def _store_diff(
     change_kind: ChangeKind,
 ) -> None:
     """Upload diff artifact and update snapshot metrics + classification."""
-    from . import logic
+    from .logic import artifact_store, snapshot_diffs
 
     if not result.diff_image:
         return
 
-    diff_artifact = logic.write_artifact_bytes(
+    diff_artifact = artifact_store.write_artifact_bytes(
         repo_id=snapshot.run.repo_id,
         content_hash=result.diff_hash,
         content=result.diff_image,
@@ -100,7 +103,7 @@ def _store_diff(
         size_mismatch=result.size_mismatch,
     )
 
-    logic.update_snapshot_diff(
+    snapshot_diffs.update_snapshot_diff(
         snapshot_id=snapshot.id,
         diff_artifact=diff_artifact,
         diff_percentage=result.diff_percentage,
@@ -124,7 +127,7 @@ def _store_diff(
     )
 
 
-def _diff_snapshot(snapshot: RunSnapshot) -> None:
+def _diff_snapshot(snapshot: RunSnapshot) -> bool:
     """Compare snapshot against baseline; classify and store diff metrics.
 
     Classification (in priority order):
@@ -140,14 +143,14 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     `diff_percentage` and `ssim_score` are recorded faithfully; the categorical
     kind is what callers use to render. No overwriting one signal with another.
     """
-    from . import logic
+    from .logic import artifact_store
 
     repo_id = snapshot.run.repo_id
     assert snapshot.baseline_artifact is not None
     assert snapshot.current_artifact is not None
 
-    baseline_bytes = logic.read_artifact_bytes(repo_id, snapshot.baseline_artifact.content_hash)
-    current_bytes = logic.read_artifact_bytes(repo_id, snapshot.current_artifact.content_hash)
+    baseline_bytes = artifact_store.read_artifact_bytes(repo_id, snapshot.baseline_artifact.content_hash)
+    current_bytes = artifact_store.read_artifact_bytes(repo_id, snapshot.current_artifact.content_hash)
 
     if not baseline_bytes or not current_bytes:
         logger.warning(
@@ -157,7 +160,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
             has_baseline=baseline_bytes is not None,
             has_current=current_bytes is not None,
         )
-        return
+        return False
 
     result = compare_images(baseline_bytes, current_bytes)
 
@@ -166,7 +169,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     kind = classify_compare_result(result)
     if kind is not None:
         _store_diff(snapshot, result, kind)
-        return
+        return True
 
     # Both tiers below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
@@ -201,17 +204,18 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
             "diff_percentage": result.diff_percentage,
         },
     )
+    return True
 
 
 def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
     """Generate thumbnail for NEW snapshots (no baseline to compare against)."""
-    from . import logic
+    from .logic import artifact_store
 
     artifact = snapshot.current_artifact
     if artifact is None or artifact.thumbnail_id is not None:
         return
 
-    current_bytes = logic.read_artifact_bytes(snapshot.run.repo_id, artifact.content_hash)
+    current_bytes = artifact_store.read_artifact_bytes(snapshot.run.repo_id, artifact.content_hash)
     if not current_bytes:
         return
 
@@ -226,7 +230,7 @@ def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
         return
 
     thumb_hash = blake3(webp_bytes).hexdigest()
-    thumb_artifact = logic.write_artifact_bytes(
+    thumb_artifact = artifact_store.write_artifact_bytes(
         repo_id=snapshot.run.repo_id,
         content_hash=thumb_hash,
         content=webp_bytes,
@@ -239,16 +243,43 @@ def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
     artifact.save(update_fields=["thumbnail"])
 
 
-def process_diffs(run_id: UUID) -> None:
+def count_processed_diffs(run_id: UUID) -> int:
+    return (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run_id=run_id)
+        .filter(
+            ~Q(change_kind="")
+            | Q(
+                result=SnapshotResult.UNCHANGED,
+                classification_reason=ClassificationReason.BELOW_THRESHOLD,
+            )
+        )
+        .count()
+    )
+
+
+def process_diffs(run_id: UUID) -> int:
     """
     Process diffs for all changed snapshots in a run.
 
     Uses single-pass comparison (pixelmatch + SSIM + thumbnail) to classify
     each snapshot and generate thumbnails for the grid view.
     """
-    from . import logic
-
-    snapshots = logic.get_run_snapshots(run_id)
+    snapshots = (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run_id=run_id)
+        .filter(
+            Q(
+                result=SnapshotResult.NEW,
+                current_artifact__isnull=False,
+                current_artifact__thumbnail__isnull=True,
+            )
+            | Q(result=SnapshotResult.CHANGED, change_kind="", diff_artifact__isnull=True)
+        )
+        .select_related("run", "current_artifact", "baseline_artifact")
+        .iterator(chunk_size=100)
+    )
+    diffed_count = 0
 
     for snapshot in snapshots:
         if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:
@@ -261,7 +292,8 @@ def process_diffs(run_id: UUID) -> None:
             continue
 
         try:
-            _diff_snapshot(snapshot)
+            if _diff_snapshot(snapshot):
+                diffed_count += 1
         except Exception as e:
             logger.warning(
                 "visual_review.snapshot_diff_failed",
@@ -269,3 +301,5 @@ def process_diffs(run_id: UUID) -> None:
                 identifier=snapshot.identifier,
                 error=str(e),
             )
+
+    return diffed_count

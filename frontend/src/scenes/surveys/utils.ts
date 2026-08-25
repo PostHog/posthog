@@ -5,7 +5,13 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
+import {
+    MAX_ITERATION_COUNT,
+    NEW_SURVEY,
+    NewSurvey,
+    SURVEY_CREATED_SOURCE,
+    SURVEY_RATING_SCALE,
+} from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
@@ -509,6 +515,17 @@ export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return !!(survey.start_date && !survey.end_date)
 }
 
+// Auto-submit only makes sense for questions where a single selection is a complete
+// answer: any rating, or a single-choice question without a free-text "open" option.
+export function canQuestionSkipSubmitButton(
+    question: SurveyQuestion
+): question is RatingSurveyQuestion | MultipleSurveyQuestion {
+    return (
+        question.type === SurveyQuestionType.Rating ||
+        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
+    )
+}
+
 // Some fields can only be edited in the full editor — opening such a survey
 // in the wizard would hide those values from the user, so we route them to
 // the full editor regardless of their general editor preference. Keep this
@@ -538,6 +555,46 @@ export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
 
 export function doesSurveyRepeatOnEveryEvent(survey: Pick<Survey, 'conditions'>): boolean {
     return !!(survey.conditions?.events?.repeatedActivation && (survey.conditions?.events?.values?.length ?? 0) > 0)
+}
+
+export interface RecurringSurveyScheduleInfo {
+    /** Total number of days the survey runs from its launch date before auto-closing. */
+    totalDurationDays: number
+    /** The date the survey will automatically close, or null if it hasn't been launched yet. */
+    autoCloseDate: dayjs.Dayjs | null
+}
+
+/**
+ * A recurring survey ("Repeat on a schedule") auto-closes once its final iteration window has passed.
+ * The last iteration starts on `start_date + (count - 1) * frequency` days and lasts `frequency` more days,
+ * so the survey runs for `count * frequency` days total and closes at the end of that span.
+ * Mirrors the backend logic in posthog/tasks/update_survey_iteration.py, which computes iteration windows
+ * on the UTC calendar day — so we do the arithmetic in UTC too.
+ *
+ * Returns null once the survey has already ended: it then shows its real end date, so a projected one would
+ * only contradict it.
+ */
+export function getRecurringSurveyScheduleInfo(
+    survey: Pick<Survey, 'schedule' | 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
+): RecurringSurveyScheduleInfo | null {
+    const count = survey.iteration_count
+    const frequency = survey.iteration_frequency_days
+    if (
+        survey.schedule !== SurveySchedule.Recurring ||
+        survey.end_date ||
+        !count ||
+        !frequency ||
+        count < 1 ||
+        frequency < 1
+    ) {
+        return null
+    }
+    // The backend caps the generated iteration windows at MAX_ITERATION_COUNT, so anything above that never
+    // extends the schedule — mirror the cap here to match the real close date.
+    const effectiveCount = Math.min(count, MAX_ITERATION_COUNT)
+    const totalDurationDays = effectiveCount * frequency
+    const autoCloseDate = survey.start_date ? dayjs.utc(survey.start_date).add(totalDurationDays, 'day') : null
+    return { totalDurationDays, autoCloseDate }
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
@@ -788,6 +845,11 @@ export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurvey
             ) {
                 sanitized.choices = sanitized.choices.map((choice) => choice.trim())
             }
+            // Drop a stale auto-submit flag if the question is no longer eligible for it
+            // (e.g. an open-ended choice was added, or the type was switched).
+            if ('skipSubmitButton' in sanitized && !canQuestionSkipSubmitButton(sanitized)) {
+                delete (sanitized as { skipSubmitButton?: boolean }).skipSubmitButton
+            }
             return sanitized
         }) || []
 
@@ -930,8 +992,12 @@ export function getExpressionCommentForQuestion(
     q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion,
     questionIndex: number
 ): string {
-    if (q.question.trim().length > 0) {
-        return q.question
+    const question = q.question.trim()
+    if (question.length > 0) {
+        // This is appended after `--` in the generated HogQL, and HogQL `--` comments are
+        // single-line. Collapse any newlines so multi-line question text can't leak past the
+        // comment and break the query (e.g. a stray non-ASCII char -> "Unexpected character").
+        return question.replace(/\s*[\r\n]+\s*/g, ' ')
     }
     return `Question ${questionIndex + 1}`
 }
@@ -1174,22 +1240,57 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
+/**
+ * True when posthog-js emits an intermediate `survey sent` event per answered question, sharing one
+ * `$survey_submission_id`, with only the last carrying `$survey_completed: true`. Requiring the
+ * property to be `true` is what keeps a notification from firing once per question, so it is only
+ * worth requiring here.
+ *
+ * An API survey has no posthog-js rendering it. The integrator sends one event per submission from
+ * their own code and marks a partial one with an explicit `$survey_completed: false`, the way
+ * posthog-js does, so absent means completed there whatever `enable_partial_responses` says.
+ */
+export function surveyEmitsPartialSentEvents(survey: Pick<Survey, 'type' | 'enable_partial_responses'>): boolean {
+    return (survey.enable_partial_responses ?? false) && survey.type !== SurveyType.API
+}
+
+/**
+ * Without intermediate partial events, posthog-js has no partial submission to distinguish a
+ * complete one from, so it never sets `$survey_completed` and requiring `= true` matches nothing.
+ * Accept the property being absent as completed too, the same way the response summary counts them
+ * (`enable_partial_responses` branch in `ee/surveys/summaries/headline_summary.py`). An explicit
+ * `false` stays excluded: a survey switched from partial to non-partial keeps its old partials.
+ */
 export function getSurveyNotificationFilters(
     surveyId: string,
+    emitsPartialSentEvents: boolean,
     extraSentEventProperties: EventPropertyFilter[] = []
 ): CyclotronJobFiltersType {
+    const surveyIdProperty: EventPropertyFilter = {
+        key: SurveyEventProperties.SURVEY_ID,
+        type: PropertyFilterType.Event,
+        value: surveyId,
+        operator: PropertyOperator.Exact,
+    }
     const sentEventProperties: EventPropertyFilter[] = [
-        {
-            key: SurveyEventProperties.SURVEY_ID,
-            type: PropertyFilterType.Event,
-            value: surveyId,
-            operator: PropertyOperator.Exact,
-        },
+        surveyIdProperty,
         {
             key: SurveyEventProperties.SURVEY_COMPLETED,
             type: PropertyFilterType.Event,
             value: true,
             operator: PropertyOperator.Exact,
+        },
+        ...extraSentEventProperties,
+    ]
+    // Event entries are OR'd, so a second branch is how "absent or true" is expressed with
+    // plain property filters rather than a hand-written HogQL predicate.
+    const completedUnsetEventProperties: EventPropertyFilter[] = [
+        surveyIdProperty,
+        {
+            key: SurveyEventProperties.SURVEY_COMPLETED,
+            type: PropertyFilterType.Event,
+            value: PropertyOperator.IsNotSet,
+            operator: PropertyOperator.IsNotSet,
         },
         ...extraSentEventProperties,
     ]
@@ -1201,6 +1302,15 @@ export function getSurveyNotificationFilters(
                 type: 'events',
                 properties: sentEventProperties,
             },
+            ...(emitsPartialSentEvents
+                ? []
+                : [
+                      {
+                          id: SurveyEventName.SENT,
+                          type: 'events' as const,
+                          properties: completedUnsetEventProperties,
+                      },
+                  ]),
             {
                 id: SurveyEventName.DISMISSED,
                 type: 'events',

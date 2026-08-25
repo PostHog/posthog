@@ -74,6 +74,24 @@ class TestAssistantContextManager(BaseTest):
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_build_and_execute_insight_links_to_saved_insight(self, mock_execute):
+        mock_execute.return_value = "Trend results: 100 users"
+
+        insight = MaxInsightContext(
+            id="123",
+            name="User Trends",
+            description=None,
+            query=TrendsQuery(series=[EventsNode(event="pageview")]),
+        )
+
+        insight_ctx = self.context_manager._build_insight_context(insight, dashboard_filters=None)
+        result = await self.context_manager._execute_and_format_insight(insight_ctx)
+        assert result is not None
+        # A UI-attached insight is always saved, so Max gets a real link rather than the unsaved-artifact warning
+        self.assertIn("Insight URL: /insights/123", result)
+        self.assertNotIn("cannot be accessed via a URL", result)
+
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_build_and_execute_insight_funnel_query(self, mock_execute):
         mock_execute.return_value = "Funnel results: 50% conversion"
 
@@ -368,6 +386,7 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("use create_notebook with content containing the complete final notebook markdown", result)
         self.assertIn("Full-notebook replacement content must omit", result)
         self.assertIn("single ph-markdown-notebook node", result)
+        self.assertIn("render a `title` prop in their block header", result)
         mock_from_short_id.assert_not_called()
 
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")

@@ -9,6 +9,8 @@ query transforms live in ``products.endpoints.backend.materialization_transforms
 import dataclasses
 from typing import cast
 
+from django.db import transaction
+
 import structlog
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
@@ -26,7 +28,13 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
-from products.data_modeling.backend.facade.api import delete_node_from_dag, sync_saved_query_to_dag
+from products.data_modeling.backend.facade.api import (
+    UnsatisfiableFrequencyError,
+    UnsupportedFrequencyTargetError,
+    delete_node_from_dag,
+    saved_query_materialized_at,
+    sync_saved_query_to_dag,
+)
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.logic.activity import EndpointContext
@@ -74,22 +82,31 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
     saved_query.save(update_fields=["query", "updated_at"])
 
 
+ELIGIBILITY_CHECK_FAILED_REASON = (
+    "Couldn't check whether this query can be materialized. Try again, and if it keeps happening contact support."
+)
+
+
 def build_materialization_info(version: EndpointVersion, endpoint_name: str | None = None) -> dict:
     """Build the materialization status dict for a version."""
     if version.saved_query:
+        # v2 never writes saved_query.last_run_at; derive freshness from DataModelingJob.
+        materialized_at = saved_query_materialized_at(version.saved_query)
         result = {
             "status": version.saved_query.status or "Unknown",
             "can_materialize": True,
-            "last_materialized_at": (
-                version.saved_query.last_run_at.isoformat() if version.saved_query.last_run_at else None
-            ),
+            "last_materialized_at": materialized_at.isoformat() if materialized_at else None,
             "error": (version.saved_query.latest_error or "")
             if version.saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED
             else "",
             "saved_query_id": str(version.saved_query.id),
         }
     else:
-        can_mat, reason = version.can_materialize()
+        try:
+            can_mat, reason = version.can_materialize()
+        except Exception as e:
+            capture_exception(e, {"endpoint_version_id": str(version.id), "team_id": version.endpoint.team_id})
+            can_mat, reason = False, ELIGIBILITY_CHECK_FAILED_REASON
         result = {
             "can_materialize": can_mat,
             "reason": reason if not can_mat else None,
@@ -193,31 +210,63 @@ class EndpointMaterializationService:
         if not can_mat:
             raise ValidationError(f"Cannot materialize endpoint. Reason: {reason}")
 
-        saved_query = self._get_or_build_saved_query(version)
-        self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
-        version.enable_materialization(saved_query, bucket_overrides)
+        # Atomic so a rejected freshness target unwinds the whole enable (saved query, version link,
+        # node) instead of leaving a dangling materialization. schedule_materialization's side effect
+        # is deferred to on_commit (tiered) or terminal (v1), so nothing rolls back after it fires.
+        with transaction.atomic():
+            saved_query = self._get_or_build_saved_query(version)
+            # No live saved query row means materialization is being stood up fresh (first
+            # enable, re-enable after disable, or a version bump). Only that case gets an
+            # immediate first run; a retained enable (e.g. a metadata-only endpoint update
+            # re-reconciling materialization) must not restart the workflow.
+            newly_materialized = saved_query._state.adding
+            self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
+            version.enable_materialization(saved_query, bucket_overrides)
 
-        # NOTE: schedule_materialization only triggers an immediate run when it CREATES the
-        # Temporal schedule; re-enabling an existing materialization just (re)syncs the schedule.
-        saved_query.schedule_materialization()
+            # The DAG node must exist before scheduling: the v2 detection and the freshness-target
+            # write-through both resolve this saved query through its Node row.
+            sync_error: Exception | None = None
+            try:
+                sync_saved_query_to_dag(saved_query)
+            except Exception as e:
+                sync_error = e
+                logger.exception(
+                    "Failed to sync endpoint node to DAG",
+                    endpoint_name=endpoint.name,
+                    saved_query_id=saved_query.id,
+                )
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "endpoint_name": endpoint.name,
+                        "saved_query_id": saved_query.id,
+                    },
+                )
 
-        try:
-            sync_saved_query_to_dag(saved_query)
-        except Exception as e:
-            logger.exception(
-                "Failed to sync endpoint node to DAG",
-                endpoint_name=endpoint.name,
-                saved_query_id=saved_query.id,
-            )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "endpoint_name": endpoint.name,
-                    "saved_query_id": saved_query.id,
-                },
-            )
+            # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
+            # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
+            # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
+            # query (deferred to on_commit, so it sees the version link above).
+            try:
+                saved_query.schedule_materialization(trigger_immediate_run=newly_materialized)
+            except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+                # The chosen data freshness can't be honored (e.g. finer than an upstream import
+                # delivers) — a request problem, not a server one.
+                raise ValidationError(str(e))
+
+            # schedule_materialization applies a disable-on-failure contract rather than raising,
+            # so a failure to schedule shows up only as is_materialized flipping back. Checking it
+            # is what stops the enable reporting success on an endpoint nothing will ever refresh.
+            saved_query.refresh_from_db(fields=["is_materialized"])
+            if not saved_query.is_materialized:
+                if sync_error is not None:
+                    # The node is missing because the query's dependencies did not resolve, which
+                    # the author fixes by editing the query. Reporting that as a server error would
+                    # tell them to retry, and would page on-call through the status="error" metric.
+                    raise ValidationError(f"Cannot materialize endpoint. Reason: {sync_error}")
+                raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.")
 
     def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
         """Find this version's saved query, or build a new (unsaved) one.

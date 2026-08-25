@@ -21,12 +21,9 @@ from llm_gateway.metrics.prometheus import (
 )
 from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
-    RequestContext,
-    get_posthog_flags,
-    get_posthog_properties,
-    get_request_id,
+    rebuild_request_context,
     set_auth_user,
-    set_request_context,
+    set_effort,
     set_time_to_first_token,
 )
 from llm_gateway.streaming.sse import format_sse_stream
@@ -34,21 +31,116 @@ from llm_gateway.streaming.sse import format_sse_stream
 logger = structlog.get_logger(__name__)
 
 
+def _clean_effort(value: Any) -> str | None:
+    if isinstance(value, str) and (stripped := value.strip()):
+        return stripped
+    return None
+
+
+def effort_from_output_config(request_data: dict[str, Any]) -> str | None:
+    """Anthropic Messages: ``output_config: {"effort": "..."}``."""
+    output_config = request_data.get("output_config")
+    return _clean_effort(output_config.get("effort")) if isinstance(output_config, dict) else None
+
+
+def effort_from_reasoning_effort(request_data: dict[str, Any]) -> str | None:
+    """OpenAI chat completions: top-level ``reasoning_effort``."""
+    return _clean_effort(request_data.get("reasoning_effort"))
+
+
+def effort_from_reasoning(request_data: dict[str, Any]) -> str | None:
+    """OpenAI Responses: ``reasoning: {"effort": "..."}``."""
+    reasoning = request_data.get("reasoning")
+    return _clean_effort(reasoning.get("effort")) if isinstance(reasoning, dict) else None
+
+
+def no_effort(request_data: dict[str, Any]) -> str | None:
+    """Endpoints with no reasoning-effort parameter (e.g. transcription)."""
+    return None
+
+
 @dataclass
 class ProviderConfig:
     name: str
     endpoint_name: str
+    # Where reasoning effort lives varies per API surface. Required (no default) so a new
+    # provider can't be added without deciding; see the effort_from_* functions above.
+    extract_effort: Callable[[dict[str, Any]], str | None]
 
 
-ANTHROPIC_CONFIG = ProviderConfig(name="anthropic", endpoint_name="anthropic_messages")
-BEDROCK_CONFIG = ProviderConfig(name="bedrock", endpoint_name="bedrock_messages")
-OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
-OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
-OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
+ANTHROPIC_CONFIG = ProviderConfig(
+    name="anthropic",
+    endpoint_name="anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+BEDROCK_CONFIG = ProviderConfig(
+    name="bedrock",
+    endpoint_name="bedrock_messages",
+    extract_effort=effort_from_output_config,
+)
+OPENAI_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="responses",
+    extract_effort=effort_from_reasoning,
+)
+OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="audio_transcriptions",
+    extract_effort=no_effort,
+)
 # Split endpoint labels so an adapter-specific regression is distinguishable in metrics.
-CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_anthropic_messages")
-CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_chat_completions")
-CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_responses")
+CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_responses",
+    extract_effort=effort_from_reasoning,
+)
+# Modal-served GLM (OpenAI-compatible vLLM endpoint). Same per-surface split as Cloudflare so a
+# Modal-specific regression is distinguishable in metrics during the migration.
+MODAL_ANTHROPIC_CONFIG = ProviderConfig(
+    name="modal",
+    endpoint_name="modal_anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+MODAL_OPENAI_CONFIG = ProviderConfig(
+    name="modal",
+    endpoint_name="modal_chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+MODAL_OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="modal",
+    endpoint_name="modal_responses",
+    extract_effort=effort_from_reasoning,
+)
+BASETEN_ANTHROPIC_CONFIG = ProviderConfig(
+    name="baseten",
+    endpoint_name="baseten_anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+BASETEN_OPENAI_CONFIG = ProviderConfig(
+    name="baseten",
+    endpoint_name="baseten_chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+BASETEN_OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="baseten",
+    endpoint_name="baseten_responses",
+    extract_effort=effort_from_reasoning,
+)
 
 _KNOWN_LITELLM_PROVIDER_PREFIXES = (
     "anthropic/",
@@ -145,15 +237,13 @@ async def handle_llm_request(
     settings = get_settings()
     start_time = time.monotonic()
 
-    set_request_context(
-        RequestContext(
-            request_id=get_request_id(),
-            product=product,
-            posthog_properties=get_posthog_properties(),
-            posthog_flags=get_posthog_flags(),
-        )
-    )
+    rebuild_request_context(product)
     set_auth_user(user)
+
+    # Stash effort for the PostHog callback to stamp on the $ai_generation event (mirrors
+    # time_to_first_token). Set unconditionally so a stale value can't leak if the context
+    # is reused.
+    set_effort(provider_config.extract_effort(request_data))
 
     structlog.contextvars.bind_contextvars(
         user_id=user.user_id,

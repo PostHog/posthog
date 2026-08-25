@@ -3,33 +3,45 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import type { Layout, LayoutItem } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
 
+import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import {
+    BREAKPOINTS,
+    BREAKPOINT_COLUMN_COUNTS,
+    getInsightQueryError,
+    isWidgetTileVisibleOnPlacement,
+} from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
+import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
+import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
+
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
+import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
@@ -39,7 +51,35 @@ const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
-export function DashboardItems(): JSX.Element {
+interface DashboardItemsProps {
+    showCreateAnomalyAlertButton?: boolean
+}
+
+/**
+ * Shallow prop compare, except: `style` by value (react-grid-layout rebuilds it every drag/resize mousemove even
+ * for tiles that haven't moved) and `children` ignored (the RGL-injected resize handles, recreated each render
+ * with identical content). Lets untouched tiles skip re-rendering during gestures.
+ */
+function gridTilePropsEqual(prevProps: Record<string, any>, nextProps: Record<string, any>): boolean {
+    return [...new Set([...Object.keys(prevProps), ...Object.keys(nextProps)])].every(
+        (key) =>
+            key === 'children' ||
+            (key === 'style'
+                ? objectsEqual(prevProps.style, nextProps.style)
+                : Object.is(prevProps[key], nextProps[key]))
+    )
+}
+
+const MemoizedInsightCard = memo(InsightCard, gridTilePropsEqual) as typeof InsightCard
+const MemoizedDashboardTextItem = memo(DashboardTextItem, gridTilePropsEqual) as typeof DashboardTextItem
+const MemoizedDashboardButtonTileItem = memo(
+    DashboardButtonTileItem,
+    gridTilePropsEqual
+) as typeof DashboardButtonTileItem
+const MemoizedDashboardErrorTileItem = memo(DashboardErrorTileItem, gridTilePropsEqual) as typeof DashboardErrorTileItem
+const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
+
+export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
     const {
         dashboard,
         tiles,
@@ -52,13 +92,13 @@ export function DashboardItems(): JSX.Element {
         highlightedInsightId,
         refreshStatus,
         dashboardStreaming,
+        dashboardLoading,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
-        temporaryBreakdownColors,
+        effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
-        inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -72,6 +112,7 @@ export function DashboardItems(): JSX.Element {
         removeTile,
         duplicateTile,
         refreshDashboardItem,
+        loadDashboard,
         refreshDashboardWidgets,
         scheduleRefreshDashboardWidgets,
         applyWidgetIssueMetadataChange,
@@ -85,13 +126,17 @@ export function DashboardItems(): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
-    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
+    const { reportDashboardAddMenuOpened, reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+    const retryFailedDashboardTile = isSharedView()
+        ? undefined
+        : () => loadDashboard({ action: DashboardLoadAction.Update })
+    const refreshDashboardTile = isSharedView() ? undefined : refreshDashboardItem
 
     // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
@@ -103,8 +148,6 @@ export function DashboardItems(): JSX.Element {
     // While a drag/resize is in progress the grid drives itself from its own internal state and ignores the
     // `layouts` prop, so pushing layout updates to the store mid-gesture only triggers expensive full re-renders
     // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
-    const interactionInProgress = useRef(false)
-    const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
@@ -155,6 +198,12 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
+    const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
+        useDashboardLayoutInteraction({
+            layoutEditMode,
+            layoutCompaction: dashboard?.customization?.layout_compaction,
+            updateLayouts,
+        })
 
     // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
     // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
@@ -206,15 +255,19 @@ export function DashboardItems(): JSX.Element {
     const effectiveZoom = layoutEditMode ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
-    const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+    const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
+    const margin = useMemo(
+        () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
+        [gridGap, spacingFactor]
+    )
 
     const getInsertMenuItems = useCallback(
-        (targetX: number, targetY: number, targetW?: number): LemonMenuItem[] =>
+        (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
             dashboard
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
                       dashboardWidgetsEnabled,
-                      showAddInsightToDashboardModal,
+                      onAddInsight: showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
                       onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
@@ -254,6 +307,8 @@ export function DashboardItems(): JSX.Element {
         }),
         [layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
+
+    useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
 
     const onEnterEditModeFromEdge = useMemo(
         () =>
@@ -309,34 +364,16 @@ export function DashboardItems(): JSX.Element {
         [dashboard]
     )
 
-    const handleLayoutChange = useCallback(
-        (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (!layoutEditMode) {
-                return
-            }
-            // Defer commits while dragging/resizing — the final layout is flushed on gesture stop.
-            if (interactionInProgress.current) {
-                pendingLayouts.current = newLayouts
-                return
-            }
-            updateLayouts(newLayouts)
-        },
-        [layoutEditMode, updateLayouts]
-    )
-
     const flushPendingLayouts = useCallback(() => {
-        interactionInProgress.current = false
-        if (pendingLayouts.current) {
-            updateLayouts(pendingLayouts.current)
-            pendingLayouts.current = null
-        }
+        finishInteraction()
         // Remeasure once the gesture settles, since height updates were suppressed during it.
         requestAnimationFrame(() => {
             if (containerRef.current) {
                 setContainerHeight(containerRef.current.clientHeight)
             }
         })
-    }, [updateLayouts])
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
+    }, [finishInteraction])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -345,9 +382,15 @@ export function DashboardItems(): JSX.Element {
         [updateContainerWidth]
     )
 
-    const handleResizeStart = useCallback(() => {
-        interactionInProgress.current = true
-    }, [])
+    const handleResizeStart = useCallback(
+        (layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+            if (!newItem) {
+                return
+            }
+            startInteraction(layout, newItem, 'resize')
+        },
+        [startInteraction]
+    )
 
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
         // Setting state to the same id bails out of re-rendering, so this only re-renders once per gesture.
@@ -362,11 +405,17 @@ export function DashboardItems(): JSX.Element {
         }
     }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
-    const handleDragStart = useCallback(() => {
-        interactionInProgress.current = true
-        scrollContainerRef.current = document.getElementById('main-content')
-        scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
-    }, [])
+    const handleDragStart = useCallback(
+        (layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+            if (!newItem) {
+                return
+            }
+            startInteraction(layout, newItem, 'drag')
+            scrollContainerRef.current = document.getElementById('main-content')
+            scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
+        },
+        [startInteraction]
+    )
 
     const handleDrag = useCallback(
         (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: unknown) => {
@@ -460,6 +509,7 @@ export function DashboardItems(): JSX.Element {
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
+                        compactor={gridCompactor}
                         rowHeight={rowHeight}
                         margin={margin}
                         containerPadding={CONTAINER_PADDING}
@@ -496,18 +546,42 @@ export function DashboardItems(): JSX.Element {
                                 removeFromDashboard: () => removeTile(tile),
                             }
 
+                            if (tile.error && !insight) {
+                                return (
+                                    <MemoizedDashboardErrorTileItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        onRetry={retryFailedDashboardTile}
+                                        retryLoading={dashboardLoading}
+                                        placement={placement}
+                                        onRemove={commonTileProps.removeFromDashboard}
+                                        showResizeHandles={showResizeHandles}
+                                        canEnterEditModeFromEdge={canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={onDragHandleMouseDown}
+                                        showEditingControls={showEditingControls}
+                                    />
+                                )
+                            }
+
                             if (insight) {
                                 // Check if this insight has an error from the server
                                 const isErrorTile = !!tile.error
-                                const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
+                                const queryError = getInsightQueryError(insight)
+                                const apiErrored =
+                                    isErrorTile || !!queryError || refreshStatus[insight.short_id]?.errored || false
+                                const refreshError = refreshStatus[insight.short_id]?.error
                                 const apiError = isErrorTile
-                                    ? ({ status: 400, detail: `${tile.error!.type}: ${tile.error!.message}` } as any)
-                                    : refreshStatus[insight.short_id]?.error
+                                    ? new ApiError(undefined, 500, undefined, {
+                                          detail: tile.error!.message,
+                                          code: 'dashboard_tile_error',
+                                      })
+                                    : refreshError || queryError || undefined
                                 const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 
                                 return (
-                                    <InsightCard
+                                    <MemoizedInsightCard
                                         key={tile.id}
                                         tile={tile}
                                         insight={insight}
@@ -515,11 +589,14 @@ export function DashboardItems(): JSX.Element {
                                         loading={loading}
                                         apiErrored={apiErrored}
                                         apiError={apiError}
+                                        queryId={insight.query_status?.id}
                                         highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                         updateColor={(color) => updateTileColor(tile.id, color)}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
-                                        refresh={() => refreshDashboardItem({ tile })}
+                                        refresh={
+                                            refreshDashboardTile ? () => refreshDashboardTile({ tile }) : undefined
+                                        }
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}
@@ -530,9 +607,10 @@ export function DashboardItems(): JSX.Element {
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={effectiveDashboardVariableOverrides}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                                        breakdownColorOverride={temporaryBreakdownColors}
+                                        breakdownColorOverride={effectiveBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                                         {...commonTileProps}
                                     />
                                 )
@@ -540,7 +618,7 @@ export function DashboardItems(): JSX.Element {
 
                             if (text) {
                                 return (
-                                    <DashboardTextItem
+                                    <MemoizedDashboardTextItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -565,7 +643,7 @@ export function DashboardItems(): JSX.Element {
 
                             if (button_tile) {
                                 return (
-                                    <DashboardButtonTileItem
+                                    <MemoizedDashboardButtonTileItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -593,7 +671,7 @@ export function DashboardItems(): JSX.Element {
                                 const refreshState = widgetRefreshStatus[tile.id]
 
                                 return (
-                                    <DashboardWidgetItem
+                                    <MemoizedDashboardWidgetItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -636,7 +714,7 @@ export function DashboardItems(): JSX.Element {
                             }
                         })}
                     </ReactGridLayout>
-                    {isEditablePlacement && inlineTileInsertionEnabled && (
+                    {isEditablePlacement && (
                         <InsertTileOverlay
                             layout={layouts['sm']}
                             gridWidth={gridWidth}
@@ -648,6 +726,11 @@ export function DashboardItems(): JSX.Element {
                             isMobileView={isMobileView}
                             disabled={resizingTileId !== null}
                             getMenuItems={getInsertMenuItems}
+                            onMenuOpen={() => {
+                                if (dashboard?.id) {
+                                    reportDashboardAddMenuOpened('inline', dashboard.id)
+                                }
+                            }}
                         />
                     )}
                 </div>

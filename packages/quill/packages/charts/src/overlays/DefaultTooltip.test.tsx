@@ -129,6 +129,22 @@ describe('DefaultTooltip', () => {
             expect(screen.queryByText((1035).toLocaleString())).toBeNull()
         })
 
+        it('excludes visibility.total: false series from the sum but still renders its row', () => {
+            // A percentage column alongside counts: its 2.4 must not leak into the counts' total.
+            const withPercent: TooltipContext['seriesData'] = [
+                ...TWO_SERIES,
+                {
+                    series: { key: 'pct', label: 'Rate', data: [], visibility: { total: false } },
+                    value: 2.4,
+                    color: '#222',
+                },
+            ]
+            renderTooltip({ showTotal: true }, withPercent)
+            expect(screen.getAllByText('Rate').length).toBeGreaterThan(0)
+            screen.getByText((35).toLocaleString())
+            expect(screen.queryByText((37.4).toLocaleString())).toBeNull()
+        })
+
         it('is suppressed when only one non-overlay series remains', () => {
             const oneRealOneOverlay: TooltipContext['seriesData'] = [
                 { series: { key: 'a', label: 'A', data: [] }, value: 10, color: '#000' },
@@ -219,6 +235,17 @@ describe('DefaultTooltip', () => {
             expect(onRowClick.mock.calls[0][0].series.key).toBe('b')
         })
 
+        it('onRowClick does not fire when the click completes a text selection', () => {
+            const onRowClick = jest.fn()
+            renderTooltip({ onRowClick }, TWO_SERIES)
+            const spy = jest
+                .spyOn(window, 'getSelection')
+                .mockReturnValue({ toString: () => 'copied text' } as Selection)
+            fireEvent.click(document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-tooltip-row"]')[1])
+            expect(onRowClick).not.toHaveBeenCalled()
+            spy.mockRestore()
+        })
+
         it('sorts rows by yPixel ascending (visual top-to-bottom) when not sortedByValue', () => {
             const withYPixel: TooltipContext['seriesData'] = [
                 { series: { key: 'low', label: 'Low', data: [] }, value: 5, color: '#000', yPixel: 300 },
@@ -235,6 +262,17 @@ describe('DefaultTooltip', () => {
                 { series: { key: 'b', label: 'Beta', data: [] }, value: 5, color: '#111', yPixel: 300 },
             ]
             renderTooltip({}, withYPixel, { hoverPosition: { x: 0, y: 290 } })
+            const closest = document.querySelectorAll<HTMLElement>('[data-closest="true"]')
+            expect(closest).toHaveLength(1)
+            expect(closest[0].querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).toBe('Beta')
+        })
+
+        it('marks the hovered series row before using the cursor position', () => {
+            const withYPixel: TooltipContext['seriesData'] = [
+                { ...TWO_SERIES[0], yPixel: 0 },
+                { ...TWO_SERIES[1], yPixel: 300 },
+            ]
+            renderTooltip({}, withYPixel, { hoveredSeriesKey: 'b', hoverPosition: { x: 0, y: 0 } })
             const closest = document.querySelectorAll<HTMLElement>('[data-closest="true"]')
             expect(closest).toHaveLength(1)
             expect(closest[0].querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).toBe('Beta')

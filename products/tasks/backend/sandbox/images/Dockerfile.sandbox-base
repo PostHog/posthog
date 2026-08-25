@@ -26,6 +26,8 @@ RUN apt-get update && \
     # Build tools
     build-essential \
     pkg-config \
+    # Loader for the musl-linked @openai/codex binary bundled with @posthog/agent
+    musl \
     # Languages and runtimes
     python3 \
     python3-pip \
@@ -38,6 +40,8 @@ RUN apt-get update && \
     redis-tools \
     # System libraries often needed by Python packages
     libssl-dev \
+    libcurl4-gnutls-dev \
+    libexpat1-dev \
     libffi-dev \
     libbz2-dev \
     libreadline-dev \
@@ -47,11 +51,26 @@ RUN apt-get update && \
     tk-dev \
     libxml2-dev \
     libxmlsec1-dev \
+    zlib1g-dev \
     # Other useful tools
     ca-certificates \
     gnupg \
     sudo \
     && rm -rf /var/lib/apt/lists/*
+
+ARG GIT_VERSION=2.49.1
+ARG GIT_SHA256=310831de967f1c8c5e8ff55f92807dea89f83dc3d3d2a5d16c209bd01a31def1
+RUN set -eux; \
+    curl -fsSL -o /tmp/git.tar.xz \
+      "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.xz"; \
+    echo "${GIT_SHA256}  /tmp/git.tar.xz" | sha256sum -c -; \
+    mkdir /tmp/git; \
+    tar -xf /tmp/git.tar.xz -C /tmp/git --strip-components=1; \
+    make -C /tmp/git prefix=/usr NO_GETTEXT=YesPlease NO_TCLTK=YesPlease -j"$(nproc)" all; \
+    make -C /tmp/git prefix=/usr NO_GETTEXT=YesPlease NO_TCLTK=YesPlease install; \
+    rm -rf /tmp/git /tmp/git.tar.xz; \
+    git --version; \
+    git help -a | grep -q '[[:space:]]backfill'
 
 # Install Node.js 24.x
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
@@ -64,7 +83,7 @@ RUN npm install -g yarn pnpm typescript ts-node nodemon
 # Install ruff and ty
 # uv comes from its pinned, registry-verified official image (same pattern as the
 # main Dockerfile) rather than piping a remote installer script to a shell.
-COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
 ARG RUFF_VERSION=0.14.11
 ARG TY_VERSION=0.0.29
 RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
@@ -73,7 +92,7 @@ RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
     ty --version
 
 # Install GitHub CLI without adding another apt repository refresh.
-ARG GH_CLI_VERSION=2.93.0
+ARG GH_CLI_VERSION=2.97.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     curl -fsSL -o /tmp/gh.deb \
@@ -102,17 +121,42 @@ RUN set -eux; \
 
 ENV AGENTSH_SERVER=http://127.0.0.1:18080
 
+# Install rtk (https://github.com/rtk-ai/rtk), a proxy that compresses the output of
+# common dev commands before it reaches the model. Claude runs auto-detect it on PATH
+# and route eligible Bash commands through it via a PreToolUse rewrite hook; Codex has
+# no command-rewrite channel, so its runs are told to prefix eligible commands in the
+# developer instructions instead. POSTHOG_RTK=0 (set per run from the task processing
+# context) opts a run out of both.
+ARG RTK_VERSION=0.43.0
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) rtk_asset="rtk-x86_64-unknown-linux-musl.tar.gz"; \
+             rtk_sha256="ff8a1e7766496e175291a85aeca1dc97c9ff6df33e51e5893d1fbc78fea2a609" ;; \
+      arm64) rtk_asset="rtk-aarch64-unknown-linux-gnu.tar.gz"; \
+             rtk_sha256="5519f7ca12e5c143a609f0d28a0a77b97413a8dce31c2681f1a41c24519a8731" ;; \
+      *) echo "Unsupported architecture for rtk: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/rtk.tar.gz \
+      "https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}/${rtk_asset}" && \
+    echo "${rtk_sha256}  /tmp/rtk.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/rtk.tar.gz -C /usr/local/bin rtk && \
+    rm /tmp/rtk.tar.gz && \
+    rtk --version
+
 ###
 # Agent SDK
 ###
 
-# Set up /scripts as a Node.js project and install @posthog/agent
-# COMMIT_HASH changes every build, busting the cache so each build pulls @latest
+# Set up /scripts as a Node.js project and install @posthog/agent.
+# AGENT_VERSION changes on agent releases; COMMIT_HASH invalidates the layer for
+# PostHog-side image changes that keep the agent version unchanged.
+ARG AGENT_VERSION=latest
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
+    CACHE_BUST=${COMMIT_HASH} npm install "@posthog/agent@${AGENT_VERSION}"
 
 # Install pre-built skills (PostHog + context-mill) into the plugin directory.
 # The dist/skills/ directory is populated by the CD workflow's build_skills job.
@@ -126,11 +170,17 @@ RUN chmod +x /tmp/install-skills.sh && \
 # Runs configured for user-authored pull requests receive
 # GIT_AUTHOR_*/GIT_COMMITTER_* env vars that override these defaults.
 RUN git config --global user.email "code@posthog.com" && \
-    git config --global user.name "PostHog Code"
+    git config --global user.name "PostHog Desktop"
 
 # Block `git commit`/`git push` so unsigned commits cannot leave the sandbox
 COPY products/tasks/backend/sandbox/images/git-guard.sh /opt/posthog/bin/git
 RUN chmod +x /opt/posthog/bin/git
+# Inject the per-actor GitHub token into every `gh` call (BASH_ENV only reaches
+# non-interactive `bash -c`; the agent's interactive shell needs this shim).
+COPY products/tasks/backend/sandbox/images/gh-guard.sh /opt/posthog/bin/gh
+RUN chmod +x /opt/posthog/bin/gh
+COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
+RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
 ENV PATH="/opt/posthog/bin:${PATH}"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user

@@ -11,9 +11,9 @@ export function FilteredStackTrace({
     onShowAllFrames: () => void
 }): JSX.Element {
     return (
-        <div className="border-1 rounded flex justify-between items-center p-1 text-secondary">
-            <p className="text-xs font-medium my-0 pl-1 text-secondary">{framesCount} vendor frames</p>
-            <ButtonPrimitive onClick={onShowAllFrames} size="xs" className="text-secondary">
+        <div className="border-1 flex items-center justify-between rounded border-border p-1 text-muted-foreground">
+            <p className="my-0 pl-1 text-xs font-medium text-muted-foreground">{framesCount} vendor frames</p>
+            <ButtonPrimitive onClick={onShowAllFrames} size="xs" className="text-muted-foreground">
                 <IconBox />
                 Show all frames
             </ButtonPrimitive>

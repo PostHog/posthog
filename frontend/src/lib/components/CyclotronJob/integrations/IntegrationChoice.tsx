@@ -1,5 +1,8 @@
+// Side-effect import: register all integration setups
+import './integrationSetups'
+
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
@@ -8,13 +11,11 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
-
-// Side-effect import: register all integration setups
-import './integrationSetups'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -23,6 +24,7 @@ export type IntegrationConfigureProps = {
     schema?: { requiredScopes?: string }
     integration?: string
     beforeRedirect?: () => void
+    allowClear?: boolean
 }
 
 export function IntegrationChoice({
@@ -32,10 +34,12 @@ export function IntegrationChoice({
     integration,
     redirectUrl,
     beforeRedirect,
+    allowClear = true,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -47,8 +51,13 @@ export function IntegrationChoice({
     // saves. The UI surfaces a warning below instead so the user picks explicitly.
     const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
 
+    // Fire at most once: the consumer's write may take a full state round-trip before it flows
+    // back into `value`, and re-dispatching on every render in that window can amplify into an
+    // infinite update loop (React #185).
+    const autoSelected = useRef(false)
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+        if (!integrationsLoading && !value && integrationsOfKind?.length && !autoSelected.current) {
+            autoSelected.current = true
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
@@ -93,13 +102,17 @@ export function IntegrationChoice({
         : oauthUnavailable
           ? {
                 to: urls.settings('project-integrations'),
+                targetBlank: true,
                 sideIcon: <IconExternal />,
                 label: `${kindName} is not configured on this instance`,
             }
           : {
                 to: api.integrations.authorizeUrl({ kind, next: redirectUrl }),
                 disableClientSideRouting: true,
-                onClick: beforeRedirect,
+                onClick: () => {
+                    reportIntegrationConnectClicked(kind, kind, 'pipeline_config')
+                    beforeRedirect?.()
+                },
                 label: integrationsOfKind?.length
                     ? `Connect to a different integration for ${kindName}`
                     : `Connect to ${kindName}`,
@@ -131,10 +144,11 @@ export function IntegrationChoice({
                     items: [
                         {
                             to: urls.settings('project-integrations'),
+                            targetBlank: true,
                             label: 'Manage integrations',
                             sideIcon: <IconExternal />,
                         },
-                        value
+                        value && allowClear
                             ? {
                                   onClick: () => onChange?.(null),
                                   label: 'Clear selection',

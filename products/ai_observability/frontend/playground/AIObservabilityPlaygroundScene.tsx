@@ -30,6 +30,7 @@ import {
     LemonDivider,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -43,10 +44,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
-import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
+import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
@@ -163,23 +165,28 @@ function PlaygroundHeaderActions(): JSX.Element {
             >
                 Add prompt
             </LemonButton>
-            <LemonButton
-                type={playgroundSubmitting ? 'secondary' : 'primary'}
-                size="small"
-                icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
-                status={playgroundSubmitting ? 'danger' : undefined}
-                onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
-                disabledReason={
-                    playgroundSubmitting
-                        ? undefined
-                        : !hasRunnablePrompts
-                          ? 'Add messages to at least one prompt'
-                          : undefined
-                }
-                data-attr="llma-playground-run-button"
+            <AccessControlAction
+                resourceType={AccessControlResourceType.LlmPlayground}
+                minAccessLevel={AccessControlLevel.Editor}
             >
-                {playgroundSubmitting ? 'Stop' : 'Run'}
-            </LemonButton>
+                <LemonButton
+                    type={playgroundSubmitting ? 'secondary' : 'primary'}
+                    size="small"
+                    icon={playgroundSubmitting ? <Spinner textColored /> : <IconPlay />}
+                    status={playgroundSubmitting ? 'danger' : undefined}
+                    onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
+                    disabledReason={
+                        playgroundSubmitting
+                            ? undefined
+                            : !hasRunnablePrompts
+                              ? 'Add messages to at least one prompt'
+                              : undefined
+                    }
+                    data-attr="llma-playground-run-button"
+                >
+                    {playgroundSubmitting ? 'Stop' : 'Run'}
+                </LemonButton>
+            </AccessControlAction>
         </>
     )
 }
@@ -455,7 +462,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     )
 }
 
-function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
+function getPlaygroundModelsErrorMessage(errorStatus: number | null): string | null {
     if (errorStatus === null) {
         return null
     }
@@ -467,16 +474,16 @@ function getTrialModelsErrorMessage(errorStatus: number | null): string | null {
 
 function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
-    const { effectiveModelOptions, trialModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
+    const { effectiveModelOptions, playgroundModelsErrorStatus } = useValues(llmPlaygroundModelLogic)
     const {
         hasByokKeys,
         providerModelGroups,
-        trialProviderModelGroups,
+        playgroundProviderModelGroups,
         byokModelsLoading,
-        trialModelsLoading,
+        playgroundModelsLoading,
         providerKeysLoading,
     } = useValues(modelPickerLogic)
-    const { loadTrialModels } = useActions(modelPickerLogic)
+    const { loadPlaygroundModels } = useActions(modelPickerLogic)
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
 
     if (!prompt) {
@@ -484,10 +491,10 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     }
 
     const selectedModel = effectiveModelOptions.find((m) => m.id === prompt.model)
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
-    const errorMessage = !hasByokKeys ? getTrialModelsErrorMessage(trialModelsErrorStatus) : null
-    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !trialModelsLoading
+    const groups = hasByokKeys ? providerModelGroups : playgroundProviderModelGroups
+    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : playgroundModelsLoading
+    const errorMessage = !hasByokKeys ? getPlaygroundModelsErrorMessage(playgroundModelsErrorStatus) : null
+    const showError = !hasByokKeys && effectiveModelOptions.length === 0 && !playgroundModelsLoading
 
     return (
         <>
@@ -495,12 +502,12 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 model={prompt.model}
                 selectedProviderKeyId={prompt.selectedProviderKeyId}
                 onSelect={(modelId, providerKeyId) => {
-                    const trialProvider = parseTrialProviderKeyId(providerKeyId)
+                    const playgroundProvider = parsePlaygroundProviderKeyId(providerKeyId)
                     posthog.capture('llma playground model changed', {
                         model: modelId,
-                        is_byok: !trialProvider,
+                        is_byok: !playgroundProvider,
                     })
-                    setModel(modelId, trialProvider ? undefined : providerKeyId, promptId)
+                    setModel(modelId, playgroundProvider ? undefined : providerKeyId, promptId)
                 }}
                 groups={groups}
                 loading={loading}
@@ -514,7 +521,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                     <button
                         type="button"
                         className="text-xs text-link mt-1 underline"
-                        onClick={() => loadTrialModels()}
+                        onClick={() => loadPlaygroundModels()}
                     >
                         Retry
                     </button>

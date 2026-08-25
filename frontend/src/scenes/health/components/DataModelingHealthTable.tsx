@@ -3,14 +3,16 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import type { HealthIssue } from '../types'
 import { getErrorLabelForMaterializedView } from '../utils/materializedViewErrors'
-import { dismissActionColumn, severityColumn } from './healthTableColumns'
+import { issueActionsColumn, severityColumn } from './healthTableColumns'
 
 export function DataModelingHealthTable({
     issues,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     issues: HealthIssue[]
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -51,7 +53,7 @@ export function DataModelingHealthTable({
             },
             sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
         },
-        dismissActionColumn(onDismiss, onUndismiss),
+        issueActionsColumn(onSnooze, onDismiss, onUndismiss),
     ]
 
     return (

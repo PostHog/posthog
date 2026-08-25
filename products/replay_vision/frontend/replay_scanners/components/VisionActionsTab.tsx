@@ -1,25 +1,40 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { cloneElement, ReactElement } from 'react'
 
-import { HedgehogXRay } from '@posthog/brand/hoggies'
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
+import { visionDocsUrl } from '../../components/DocsLink'
+import { DeliveryTargetTypeEnumApi } from '../../generated/api.schemas'
 import type { VisionActionApi } from '../../generated/api.schemas'
+import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
-import { VisionActionForm } from './VisionActionForm'
+
+const HedgehogXRay = pngHoggie(xRayPng)
 
 function humanizeSchedule(action: VisionActionApi): string {
+    // Alerts don't run on their stored rrule: every_match checks ride each scanner sweep, and
+    // on_breach thresholds are re-checked hourly.
+    if (action.mode === 'alert') {
+        return action.alert_config?.frequency === 'every_match'
+            ? 'Continuous (checked every few minutes)'
+            : 'Continuous (hourly checks)'
+    }
     const rrule = action.trigger_config?.rrule
     if (!rrule) {
         return '—'
@@ -31,71 +46,124 @@ function humanizeSchedule(action: VisionActionApi): string {
     if (freq !== 'DAILY' && freq !== 'WEEKLY') {
         return rrule
     }
-    return humanizeCadence(parseRruleToCadence(rrule))
+    return humanizeCadence(parseRruleToCadence(rrule), action.trigger_config?.timezone)
 }
 
-// Every write control on this tab gates on the same session-recording Editor access — wrap once.
-function EditorGate({ children }: { children: JSX.Element }): JSX.Element {
-    return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.SessionRecording}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            {children}
-        </AccessControlAction>
-    )
+// Every write control on this tab needs replay_scanner editor access; all but delete also need
+// session_recording viewer access, since they configure or trigger processing of recording-derived
+// data (delete doesn't). Pass `userAccessLevel` when a specific action's effective level is known, for
+// object-level overrides. Can't use `AccessControlAction` here since it only checks one resource.
+function EditorGate({
+    children,
+    userAccessLevel,
+    requireSessionRecording = true,
+}: {
+    children: ReactElement<AccessControlActionChildrenProps>
+    userAccessLevel?: AccessControlLevel
+    requireSessionRecording?: boolean
+}): JSX.Element {
+    const disabledReason = requireSessionRecording
+        ? getReplayVisionEditDisabledReason(userAccessLevel)
+        : getReplayVisionDeleteDisabledReason(userAccessLevel)
+    return cloneElement(children, {
+        disabled: children.props.disabled ?? !!disabledReason,
+        disabledReason: children.props.disabledReason ?? disabledReason,
+    })
 }
 
-function deliverySummary(action: VisionActionApi): string {
+export function deliverySummary(action: VisionActionApi): string {
     const targets = action.delivery_config ?? []
     if (!targets.length) {
         return '—'
     }
     return targets
         .map((t) => {
+            if (t.type === DeliveryTargetTypeEnumApi.Webhook) {
+                return 'Webhook'
+            }
             // channel is the `${id}|#${name}` picker composite for actions saved with a friendly name;
             // fall back to "Slack" rather than exposing a bare channel id (older rows, id-only input).
-            const name = slackChannelDisplayName(t.channel)
+            const name = slackChannelDisplayName(t.channel ?? '')
             return name.startsWith('#') ? name : 'Slack'
         })
         .join(', ')
 }
 
-export function VisionActionsTab({ scannerId }: { scannerId: string }): JSX.Element {
+export function VisionActionsTab({
+    scannerId,
+    scannerUserAccessLevel,
+}: {
+    scannerId: string
+    scannerUserAccessLevel?: AccessControlLevel | null
+}): JSX.Element {
     return (
         <BindLogic logic={visionActionsLogic} props={{ scannerId }}>
-            <VisionActionsTable />
-            <VisionActionForm scannerId={scannerId} />
+            <VisionActionsTable scannerId={scannerId} scannerUserAccessLevel={scannerUserAccessLevel} />
         </BindLogic>
     )
 }
 
-function VisionActionsTable(): JSX.Element {
+function VisionActionsTable({
+    scannerId,
+    scannerUserAccessLevel,
+}: {
+    scannerId: string
+    scannerUserAccessLevel?: AccessControlLevel | null
+}): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
-    const { toggleActionEnabled, deleteAction, openCreateForm, openEditForm } = useActions(visionActionsLogic)
+    const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // When on, digests live on the scanner's own Scouts tab; vision actions then only carry alerts
+    // (plus any legacy digests awaiting migration).
+    const scoutDigests = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]
 
-    if (!visionActionsLoading && visionActions.length === 0) {
-        return (
+    // The scanner's built-in featured digest is listed here alongside user-created digests and alerts
+    // (marked with a "Featured digest" chip), so this page is the one place to see and manage every
+    // automation on the scanner. It also has its own hero surface on the Observations tab.
+    const rows = visionActions
+
+    if (!visionActionsLoading && rows.length === 0) {
+        const emptyState = (
             <ProductIntroduction
-                productName="Scheduled summaries"
-                thingName="action"
+                productName={scoutDigests ? 'Alerts' : 'Digests and alerts'}
+                thingName={scoutDigests ? 'alert' : 'digest or alert'}
                 isEmpty
                 customHog={HedgehogXRay}
-                description="Set up scheduled summaries of this scanner's observations — synthesized by AI and delivered to Slack on the cadence you choose. Great for a daily digest of what the scanner has been finding."
+                docsURL={visionDocsUrl('actions')}
+                description={
+                    scoutDigests
+                        ? 'Set alerts that notify you when new matches appear or a threshold is reached. Alerts can deliver to Slack.'
+                        : "Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                }
                 actionElementOverride={
-                    <EditorGate>
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            onClick={() => openCreateForm()}
-                            data-attr="vision-action-new-empty"
-                        >
-                            New action
-                        </LemonButton>
-                    </EditorGate>
+                    <div className="flex gap-2">
+                        {!scoutDigests && (
+                            <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                                    data-attr="vision-action-new-empty"
+                                >
+                                    New digest
+                                </LemonButton>
+                            </EditorGate>
+                        )}
+                        <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlus />}
+                                to={urls.replayVisionActionNew(scannerId, 'alert')}
+                                data-attr="vision-action-new-alert-empty"
+                            >
+                                New alert
+                            </LemonButton>
+                        </EditorGate>
+                    </div>
                 }
             />
         )
+        return emptyState
     }
 
     const columns: LemonTableColumns<VisionActionApi> = [
@@ -103,13 +171,17 @@ function VisionActionsTable(): JSX.Element {
             title: 'Name',
             key: 'name',
             render: (_, action) => (
-                <Link
-                    className="font-semibold"
-                    to={urls.replayVisionAction(action.id)}
-                    data-attr="vision-action-view-runs"
-                >
-                    {action.name}
-                </Link>
+                <span className="flex items-center gap-2">
+                    <Link
+                        className="font-semibold"
+                        to={urls.replayVisionAction(action.id)}
+                        data-attr="vision-action-view-runs"
+                    >
+                        {action.name}
+                    </Link>
+                    {action.is_scanner_digest && <LemonTag type="highlight">Featured digest</LemonTag>}
+                    {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
+                </span>
             ),
         },
         {
@@ -127,7 +199,7 @@ function VisionActionsTable(): JSX.Element {
             key: 'enabled',
             render: (_, action) => (
                 <div className="flex items-center gap-2">
-                    <EditorGate>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                         <LemonSwitch
                             checked={!!action.enabled}
                             onChange={() => toggleActionEnabled(action.id)}
@@ -166,17 +238,17 @@ function VisionActionsTable(): JSX.Element {
             width: 0, // shrink to content so the buttons hug the right instead of floating in a wide column
             render: (_, action) => (
                 <div className="flex gap-1">
-                    <EditorGate>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                         <LemonButton
                             size="small"
                             type="secondary"
                             icon={<IconPencil />}
                             tooltip="Edit"
                             data-attr="vision-action-edit"
-                            onClick={() => openEditForm(action)}
+                            to={urls.replayVisionActionEdit(action.id)}
                         />
                     </EditorGate>
-                    <EditorGate>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined} requireSessionRecording={false}>
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -188,7 +260,7 @@ function VisionActionsTable(): JSX.Element {
                                 LemonDialog.open({
                                     title: `Delete "${action.name}"?`,
                                     description:
-                                        'This stops its scheduled summaries and removes its delivery destinations. This cannot be undone.',
+                                        'This stops its scheduled runs and removes its delivery destinations. This cannot be undone.',
                                     primaryButton: {
                                         children: 'Delete',
                                         status: 'danger',
@@ -206,25 +278,41 @@ function VisionActionsTable(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
-                <EditorGate>
+            <div className="flex justify-end gap-2">
+                {!scoutDigests && (
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                            data-attr="vision-action-new"
+                        >
+                            New digest
+                        </LemonButton>
+                    </EditorGate>
+                )}
+                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                     <LemonButton
-                        type="primary"
+                        type="secondary"
                         icon={<IconPlus />}
-                        onClick={() => openCreateForm()}
-                        data-attr="vision-action-new"
+                        to={urls.replayVisionActionNew(scannerId, 'alert')}
+                        data-attr="vision-action-new-alert"
                     >
-                        New action
+                        New alert
                     </LemonButton>
                 </EditorGate>
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={visionActions}
+                dataSource={rows}
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
-                emptyState="No actions yet — this scanner has no scheduled summaries."
+                emptyState={
+                    scoutDigests
+                        ? 'No alerts set up for this scanner yet.'
+                        : 'No digests or alerts set up for this scanner yet.'
+                }
             />
         </div>
     )

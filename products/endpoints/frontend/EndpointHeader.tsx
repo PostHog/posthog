@@ -15,7 +15,7 @@ import { isInsightVizNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
-import { endpointSceneLogic } from './endpointSceneLogic'
+import { endpointSceneLogic, extractBreakdownPropertyNames } from './endpointSceneLogic'
 
 export const EndpointSceneHeader = (): JSX.Element => {
     const {
@@ -27,11 +27,18 @@ export const EndpointSceneHeader = (): JSX.Element => {
         bucketOverrides,
         debugInfoExpanded,
         dataFreshness,
+        optionalBreakdownProperties,
     } = useValues(endpointSceneLogic)
-    const { endpointName, endpointDescription } = useValues(endpointLogic)
+    const { endpointName, endpointDescription, updatingEndpoint } = useValues(endpointLogic)
     const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic)
-    const { setLocalQuery, setDataFreshness, setIsMaterialized, resetBucketOverrides, setDebugInfoExpanded } =
-        useActions(endpointSceneLogic)
+    const {
+        setLocalQuery,
+        setDataFreshness,
+        setIsMaterialized,
+        resetBucketOverrides,
+        resetOptionalBreakdownProperties,
+        setDebugInfoExpanded,
+    } = useActions(endpointSceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
 
     // SceneTitleSection takes a boolean `canEdit` rather than disabled/disabledReason, so we can't
@@ -57,13 +64,20 @@ export const EndpointSceneHeader = (): JSX.Element => {
     const hasIsMaterializedChange = isMaterialized !== null && isMaterialized !== baseIsMaterialized
     const baseBucketOverrides = viewingVersion?.bucket_overrides ?? endpoint?.bucket_overrides ?? {}
     const hasBucketOverridesChange = !objectsEqual(bucketOverrides, baseBucketOverrides)
+    const baseOptionalBreakdowns =
+        viewingVersion?.optional_breakdown_properties ?? endpoint?.optional_breakdown_properties ?? []
+    const hasOptionalBreakdownChange = !objectsEqual(
+        [...optionalBreakdownProperties].sort(),
+        [...baseOptionalBreakdowns].sort()
+    )
     const hasChanges =
         hasNameChange ||
         hasDescriptionChange ||
         hasQueryChange ||
         hasDataFreshnessChange ||
         hasIsMaterializedChange ||
-        hasBucketOverridesChange
+        hasBucketOverridesChange ||
+        hasOptionalBreakdownChange
 
     const handleSave = (): void => {
         let queryToSave = (localQuery || endpoint?.query) as any
@@ -76,12 +90,20 @@ export const EndpointSceneHeader = (): JSX.Element => {
             return
         }
 
+        // Prune the optional list against the query actually being saved — a query edit can
+        // remove a breakdown after it was marked optional, and the backend rejects unknown names.
+        const savedQueryBreakdowns = extractBreakdownPropertyNames(
+            hasQueryChange ? queryToSave : (viewingVersion?.query ?? endpoint.query)
+        )
+        const prunedOptionalBreakdowns = optionalBreakdownProperties.filter((p) => savedQueryBreakdowns.includes(p))
+
         const updatePayload: Partial<EndpointRequest> = {
             description: hasDescriptionChange ? endpointDescription : undefined,
             data_freshness_seconds: hasDataFreshnessChange ? dataFreshness : undefined,
             query: hasQueryChange ? queryToSave : undefined,
             is_materialized: hasIsMaterializedChange ? isMaterialized : undefined,
             bucket_overrides: hasBucketOverridesChange ? bucketOverrides : undefined,
+            optional_breakdown_properties: hasOptionalBreakdownChange ? prunedOptionalBreakdowns : undefined,
         }
 
         updateEndpoint(endpoint.name, updatePayload, targetVersion ? { version: targetVersion } : undefined)
@@ -99,6 +121,9 @@ export const EndpointSceneHeader = (): JSX.Element => {
         setIsMaterialized(null)
         setLocalQuery(null)
         resetBucketOverrides(viewingVersion?.bucket_overrides ?? endpoint.bucket_overrides ?? {})
+        resetOptionalBreakdownProperties(
+            viewingVersion?.optional_breakdown_properties ?? endpoint.optional_breakdown_properties ?? []
+        )
     }
 
     return (
@@ -144,14 +169,17 @@ export const EndpointSceneHeader = (): JSX.Element => {
                             <LemonButton
                                 type="primary"
                                 onClick={handleSave}
+                                loading={updatingEndpoint}
                                 disabledReason={
                                     !endpoint
                                         ? 'Endpoint not loaded'
-                                        : !hasChanges
-                                          ? 'No changes to save'
-                                          : hasQueryChange && targetVersion
-                                            ? 'Query can only be changed when on the latest version'
-                                            : undefined
+                                        : updatingEndpoint
+                                          ? 'Update in progress'
+                                          : !hasChanges
+                                            ? 'No changes to save'
+                                            : hasQueryChange && targetVersion
+                                              ? 'Query can only be changed when on the latest version'
+                                              : undefined
                                 }
                             >
                                 Update

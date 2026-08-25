@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconNotification } from '@posthog/icons'
+import { IconArchive, IconArrowRight, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -20,16 +20,28 @@ export function NotificationsPanel(): JSX.Element {
     const { setActiveTab } = useActions(notificationsMenuLogic)
     const {
         groups,
+        archivedGroups,
+        archivedLoaded,
         loadedUnreadCount,
         inAppUnreadCount,
         importantChangesLoading,
         hasMoreNotifications,
+        hasMoreArchived,
         isLoadingMore,
+        isLoadingMoreArchived,
+        hasArchivableNotifications,
+        archivingEnabled,
     } = useValues(sidePanelNotificationsLogic)
-    const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
+    const { markAllAsRead, loadMoreNotifications, loadMoreArchived, archiveAll } =
+        useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
-    const filteredGroups = activeTab === 'unread' ? groups.filter((g: NotificationGroup) => g.has_unread) : groups
+    const isArchivedTab = archivingEnabled && activeTab === 'archived'
+    const filteredGroups = isArchivedTab
+        ? archivedGroups
+        : activeTab === 'unread'
+          ? groups.filter((g: NotificationGroup) => g.has_unread)
+          : groups
 
     const header = (
         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -56,10 +68,15 @@ export function NotificationsPanel(): JSX.Element {
                         <span className="ml-1 text-[10px] text-danger font-bold">{loadedUnreadCount}</span>
                     )}
                 </button>
+                {isArchivedTab && (
+                    <span className="px-2 py-1 text-xs font-medium rounded bg-fill-highlight-100 text-primary">
+                        Archived
+                    </span>
+                )}
             </div>
             {/* Only surface "Mark all read" when unread items sit on not-yet-loaded pages — the ones
                 already loaded get cleared by the 3s auto-mark-on-view as the user scrolls. */}
-            {hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
+            {!isArchivedTab && hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
                 <LemonButton
                     size="xsmall"
                     type="secondary"
@@ -73,30 +90,73 @@ export function NotificationsPanel(): JSX.Element {
         </div>
     )
 
+    const panelActions =
+        !archivingEnabled || isArchivedTab
+            ? undefined
+            : [
+                  {
+                      'data-attr': 'notifications-view-archived',
+                      onClick: () => setActiveTab('archived'),
+                      children: (
+                          <>
+                              <IconArrowRight />
+                              View archived
+                          </>
+                      ),
+                  },
+                  hasArchivableNotifications
+                      ? {
+                            'data-attr': 'notifications-archive-all',
+                            onClick: () => archiveAll(),
+                            children: (
+                                <>
+                                    <IconArchive />
+                                    Archive all
+                                </>
+                            ),
+                        }
+                      : null,
+              ]
+
     return (
-        <PanelLayoutPanel searchField={header}>
+        <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars
                 className="flex-1 overflow-hidden"
                 innerClassName="p-1"
             >
-                {importantChangesLoading && groups.length === 0 ? (
+                {(isArchivedTab ? !archivedLoaded : importantChangesLoading && groups.length === 0) ? (
                     <div className="p-2">
                         <LemonSkeleton className="h-10 my-1" repeat={5} fade />
                     </div>
                 ) : filteredGroups.length > 0 ? (
                     <>
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-px">
                             {filteredGroups.map((group: NotificationGroup) => (
                                 <NotificationGroupRow
                                     key={group.group_key}
                                     group={group}
                                     onNavigate={() => closePanel()}
+                                    readOnly={isArchivedTab}
                                 />
                             ))}
                         </div>
-                        {hasMoreNotifications && activeTab === 'all' && (
+                        {isArchivedTab && hasMoreArchived && (
+                            <div className="p-2">
+                                <LemonButton
+                                    type="secondary"
+                                    fullWidth
+                                    center
+                                    size="small"
+                                    loading={isLoadingMoreArchived}
+                                    onClick={() => loadMoreArchived()}
+                                >
+                                    Load more
+                                </LemonButton>
+                            </div>
+                        )}
+                        {!isArchivedTab && hasMoreNotifications && activeTab === 'all' && (
                             <div className="p-2">
                                 <LemonButton
                                     type="secondary"
@@ -115,7 +175,11 @@ export function NotificationsPanel(): JSX.Element {
                     <div className="flex flex-col items-center justify-center p-6 text-center">
                         <IconNotification className="size-8 text-muted mb-2" />
                         <span className="text-sm text-secondary">
-                            {activeTab === 'unread' ? "You're all caught up!" : 'No notifications yet'}
+                            {isArchivedTab
+                                ? 'No archived notifications'
+                                : activeTab === 'unread'
+                                  ? "You're all caught up!"
+                                  : 'No notifications yet'}
                         </span>
                     </div>
                 )}

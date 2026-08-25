@@ -87,6 +87,7 @@ async def aupsert_notebook(
     last_modified_by_id: int | None,
     title: str,
     content: dict[str, Any],
+    text_content: str | None = None,
 ) -> tuple[Notebook, bool]:
     notebook, created = await Notebook.objects.aget_or_create(
         team_id=team_id,
@@ -96,6 +97,7 @@ async def aupsert_notebook(
             "last_modified_by_id": last_modified_by_id,
             "title": title,
             "content": content,
+            "text_content": text_content,
         },
     )
     if not created:
@@ -103,7 +105,11 @@ async def aupsert_notebook(
         notebook.title = title
         notebook.version += 1
         notebook.last_modified_by_id = last_modified_by_id
-        await notebook.asave(update_fields=["content", "title", "version", "last_modified_by", "last_modified_at"])
+        update_fields = ["content", "title", "version", "last_modified_by", "last_modified_at"]
+        if text_content is not None:
+            notebook.text_content = text_content
+            update_fields.append("text_content")
+        await notebook.asave(update_fields=update_fields)
     return notebook, created
 
 

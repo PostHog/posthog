@@ -108,6 +108,20 @@ class TestOAuthApplicationActivityLogging(BaseTest):
 
         self.assertEqual(self._scope_logs(application).count(), 0)
 
+    def test_provisioning_config_change_is_logged(self):
+        # Rate-limit overrides and capabilities are admin-authored security state,
+        # so a change must leave an audit trail like a scope-ceiling change does.
+        application = self._create_application(scopes=["insight:read"])
+        self._scope_logs(application).delete()
+
+        application.update_provisioning_rate_limits(account_requests=250)
+
+        log = self._scope_logs(application, "updated").first()
+        assert log is not None
+        assert log.detail is not None
+        fields = [change["field"] for change in log.detail["changes"]]
+        self.assertEqual(fields, ["provisioning config"])
+
     def test_only_scopes_change_appears_when_other_fields_change_in_same_save(self):
         application = self._create_application(scopes=["insight:read"])
         self._scope_logs(application).delete()
@@ -133,12 +147,12 @@ class TestOAuthApplicationActivityLogging(BaseTest):
 
         self.assertEqual(self._scope_logs(application).count(), 0)
 
-    def test_save_with_update_fields_excluding_scopes_logs_nothing(self):
+    def test_save_with_update_fields_excluding_audited_fields_logs_nothing(self):
         application = self._create_application(scopes=["insight:read"])
         self._scope_logs(application).delete()
 
-        application.provisioning_active = True
-        application.save(update_fields=["provisioning_active"])
+        application.name = "Renamed App"
+        application.save(update_fields=["name"])
 
         self.assertEqual(self._scope_logs(application).count(), 0)
 

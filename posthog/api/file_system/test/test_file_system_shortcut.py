@@ -7,7 +7,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.facade.models import Insight
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestFileSystemShortcutAPI(APIBaseTest):
@@ -170,64 +176,49 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class TestFileSystemShortcutSurface(APIBaseTest):
+class TestFileSystemShortcutAccessLevels(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.web_url = f"/api/projects/{self.team.id}/file_system_shortcut/"
-        self.desktop_url = f"/api/projects/{self.team.id}/desktop_file_system_shortcut/"
+        self.organization.available_product_features = [
+            {"key": "access_control", "name": "access_control"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+        self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
 
-    def test_routes_serve_isolated_shortcuts(self):
-        self.client.post(self.web_url, {"path": "Web pin", "type": "doc"})
-        self.client.post(self.desktop_url, {"path": "Desktop pin", "type": "doc"})
-
-        web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
-        desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
-
-        self.assertEqual(web_paths, {"Web pin"})
-        self.assertEqual(desktop_paths, {"Desktop pin"})
-
-    def test_web_create_stamps_web_surface(self):
-        self.client.post(self.web_url, {"path": "Web pin", "type": "doc"})
-        self.assertEqual(
-            FileSystemShortcut.objects.get(team=self.team, path="Web pin").surface,
-            "web",
+    def test_annotates_resolved_access_level_and_fetches_object_creator(self):
+        mine = Dashboard.objects.create(team=self.team, name="Mine", created_by=self.user)
+        theirs = Dashboard.objects.create(team=self.team, name="Theirs", created_by=self.other_user)
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Mine", type="dashboard", ref=str(mine.pk)
         )
-
-    def test_desktop_create_stamps_desktop_surface(self):
-        self.client.post(self.desktop_url, {"path": "Desktop pin", "type": "doc"})
-        self.assertEqual(
-            FileSystemShortcut.objects.get(team=self.team, path="Desktop pin").surface,
-            "desktop",
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Theirs", type="dashboard", ref=str(theirs.pk)
         )
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=None, access_level="none")
 
-    def test_legacy_null_shortcut_appears_on_web_route_only(self):
-        FileSystemShortcut.objects.create(team=self.team, path="Legacy pin", type="doc", user=self.user, surface=None)
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
 
-        web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
-        desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        # Shortcut rows don't store the object's creator - it is resolved from the target model,
+        # so the user's own dashboard stays accessible while the blocked one is marked "none"
+        self.assertEqual(levels, {"Mine": "manager", "Theirs": "none"})
 
-        self.assertIn("Legacy pin", web_paths)
-        self.assertNotIn("Legacy pin", desktop_paths)
-
-    def test_reorder_is_scoped_to_surface(self):
-        web = FileSystemShortcut.objects.create(team=self.team, path="Web", type="t", user=self.user, surface="web")
-        desktop = FileSystemShortcut.objects.create(
-            team=self.team, path="Desktop", type="t", user=self.user, surface="desktop"
+    def test_unresolved_refs_indistinguishable_from_blocked_objects(self):
+        # Shortcuts accept arbitrary refs, so a guessed ref must not reveal via its access
+        # level whether a protected object exists
+        insight = Insight.objects.create(team=self.team, name="Real", created_by=self.other_user)
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Real", type="insight", ref=insight.short_id
         )
-
-        # A desktop reorder must not recognise (or touch) a web shortcut id.
-        response = self.client.post(
-            f"{self.desktop_url}reorder/",
-            {"ordered_ids": [str(web.id)]},
-            format="json",
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Guessed", type="insight", ref="nonexistent"
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        self.assertIn(str(web.id), response.json()["unknown_ids"])
+        AccessControl.objects.create(team=self.team, resource="insight", resource_id=None, access_level="none")
 
-        # But it accepts its own surface's shortcut.
-        ok = self.client.post(
-            f"{self.desktop_url}reorder/",
-            {"ordered_ids": [str(desktop.id)]},
-            format="json",
-        )
-        self.assertEqual(ok.status_code, status.HTTP_200_OK, ok.json())
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels, {"Real": "none", "Guessed": "none"})

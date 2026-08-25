@@ -1,6 +1,9 @@
+import posthoganalytics
+
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -17,6 +20,13 @@ DEFAULT_COLUMNS = (NAME_COLUMN, "created_at")
 
 DEFAULT_ORDER_BY = "created_at DESC"
 
+# The query is bound by federated Postgres scans (one per merged lazy-join branch), not
+# CPU; the cluster's effective thread cap keeps those branches from running wide, so ask
+# for enough threads that the scans overlap.
+PERF_QUERY_SETTINGS = HogQLGlobalSettings(max_threads=16)
+
+PERF_FLAG = "customer-analytics-accounts-perf"
+
 
 def _normalize_order_clause(raw: str) -> str:
     """Allow Django-style `-col` shorthand alongside native HogQL `col DESC`."""
@@ -26,22 +36,16 @@ def _normalize_order_clause(raw: str) -> str:
     return stripped
 
 
-# Account-properties JSON keys for the three assignable roles. The
-# `allRolesUnassigned` filter ("Unassigned only") requires every one of these to
-# be empty.
-ROLE_JSON_KEYS = ("csm", "account_executive", "account_owner")
-
-# Roles that count as "assigned" for the `assignedToUserIds` filter — an account
-# is assigned to a user if they are its CSM or account executive.
-ASSIGNED_ROLE_KEYS = ("csm", "account_executive")
-
-
 class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     query: AccountsQuery
     cached_response: CachedAccountsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self._perf_enabled = self._perf_flag_enabled()
+        if self._perf_enabled:
+            self.modifiers.mergeFederatedAggregateJoins = True
 
         # Metrics-only callers (just aggregations, no `select`) skip column
         # resolution. A combined query carries both `select` and `metrics`.
@@ -68,6 +72,29 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             limit=self.query.limit,
             offset=self.query.offset,
         )
+
+    def _perf_flag_enabled(self) -> bool:
+        # only_evaluate_locally keeps this flag check off the network: it runs on the query
+        # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    PERF_FLAG,
+                    str(self.team.uuid),
+                    groups={
+                        "organization": str(self.team.organization_id),
+                        "project": str(self.team.pk),
+                    },
+                    group_properties={
+                        "organization": {"id": str(self.team.organization_id)},
+                        "project": {"id": str(self.team.pk)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            return False
 
     def validate_query_runner_access(self, user: User) -> bool:
         return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource(
@@ -101,6 +128,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def _build_where_exprs(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
 
+        if not self.query.includeIgnored:
+            where_exprs.append(parse_expr("isNull(accounts.ignored_at)"))
+
         if self.query.search and self.query.search.strip():
             pattern = f"%{self.query.search.strip()}%"
             where_exprs.append(
@@ -114,11 +144,17 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             where_exprs.append(self._tag_filter_expr(self.query.tagNames))
 
         if self.query.allRolesUnassigned:
-            for json_key in ROLE_JSON_KEYS:
-                where_exprs.append(self._role_id_isnull(json_key))
+            where_exprs.append(
+                parse_expr("id NOT IN {subquery}", {"subquery": self._active_relationship_account_ids()})
+            )
 
         if self.query.assignedToUserIds:
-            where_exprs.append(self._assigned_to_users_expr(self.query.assignedToUserIds))
+            where_exprs.append(
+                parse_expr(
+                    "id IN {subquery}",
+                    {"subquery": self._active_relationship_account_ids(self.query.assignedToUserIds)},
+                )
+            )
 
         if self.query.filterExpression and self.query.filterExpression.strip():
             where_exprs.append(parse_expr(self.query.filterExpression))
@@ -163,47 +199,21 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         )
         return parse_expr("id IN {subquery}", {"subquery": subquery})
 
-    def _role_filter_expr(self, json_key: str, value: object) -> ast.Expr | None:
-        if not value:
-            return None
-        raw_values = value if isinstance(value, list) else [value]
-        user_ids: list[int] = []
-        for raw in raw_values:
-            if isinstance(raw, int):
-                user_ids.append(raw)
-            elif isinstance(raw, str):
-                try:
-                    user_ids.append(int(raw))
-                except ValueError:
-                    continue
-        if not user_ids:
-            return None
-        return parse_expr(
-            "JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)') IN {user_ids}",
-            {
-                "role_key": ast.Constant(value=json_key),
-                "user_ids": ast.Constant(value=user_ids),
-            },
-        )
-
-    def _role_id_isnull(self, json_key: str) -> ast.Expr:
-        return parse_expr(
-            "isNull(JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)'))",
-            {"role_key": ast.Constant(value=json_key)},
-        )
-
-    def _assigned_to_users_expr(self, user_ids: list[int]) -> ast.Expr:
-        # OR over the CSM/AE roles: an account is "assigned to" a user if they
-        # hold either role. Explicit ids (not the requester) so a shared URL
+    def _active_relationship_account_ids(
+        self, user_ids: list[int] | None = None
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        # An account is "assigned" when someone actively holds any relationship on
+        # it (CSM, Account executive, or a custom definition) — optionally narrowed
+        # to the given holders. Explicit ids (not the requester) so a shared URL
         # filtered by "my accounts" resolves to the same accounts for every viewer.
-        role_exprs: list[ast.Expr] = []
-        for json_key in ASSIGNED_ROLE_KEYS:
-            role_expr = self._role_filter_expr(json_key, user_ids)
-            if role_expr is not None:
-                role_exprs.append(role_expr)
-        if not role_exprs:
-            return ast.Constant(value=False)
-        return ast.Or(exprs=role_exprs)
+        if user_ids is not None:
+            return parse_select(
+                "SELECT account_id FROM system.account_relationships WHERE isNull(ended_at) AND user_id IN {user_ids}",
+                {"user_ids": ast.Constant(value=user_ids)},
+            )
+        return parse_select(
+            "SELECT account_id FROM system.account_relationships WHERE isNull(ended_at) AND isNotNull(user_id)"
+        )
 
     def _calculate(self) -> AccountsQueryResponse:
         metrics_results = self._compute_metrics_results(self.query.metrics) if self.query.metrics else None
@@ -228,6 +238,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=PERF_QUERY_SETTINGS if self._perf_enabled else None,
         )
 
         name_index = self.columns.index(NAME_COLUMN)
@@ -273,6 +284,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=PERF_QUERY_SETTINGS if self._perf_enabled else None,
         )
 
     def _metric_evaluation_error(self, metrics: list[str], error: Exception) -> ExposedHogQLError:

@@ -74,8 +74,7 @@
     <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Notes</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.notes }}</td></tr>
     {% endif %}
     <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Created by</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.created_by|default:"—" }}</td></tr>
-    <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Created at</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.created_at }}</td></tr>
-    <tr><th style="text-align: left; padding: 8px;">Requires approval</th><td style="padding: 8px;">{{ obj.requires_approval|yesno:"Yes,No" }}</td></tr>
+    <tr><th style="text-align: left; padding: 8px;">Created at</th><td style="padding: 8px;">{{ obj.created_at }}</td></tr>
 </table>
 
 {% if missing_properties %}
@@ -94,8 +93,35 @@
 </div>
 {% endif %}
 
+{% if can_submit %}
+    {% if auto_approve_candidate %}
+    <div style="margin: 16px 0; padding: 12px 16px; border: 1px solid #f0ad4e; border-radius: 4px; background: #fcf8e3; color: #8a6d3b;">
+        <strong>This request may be approved automatically.</strong>
+        A job checks pending event removals every {{ auto_approve_interval_minutes }} minutes. It refreshes the
+        ClickHouse stats, and if the request
+        matches fewer than {{ auto_approve_max_events }} events and its time range has already ended, it approves the
+        request and queues it for the scheduled deletes job. Anything larger, or still collecting events, waits for the
+        ClickHouse Team.
+    </div>
+    {% else %}
+    <p style="margin: 16px 0; color: #666;">
+        Only event removal requests can be approved automatically. This is a
+        {{ obj.get_request_type_display|lower }} request, so submitting sends it to the ClickHouse Team for manual
+        approval.
+    </p>
+    {% endif %}
+{% endif %}
+
 <form method="post">
     {% csrf_token %}
+    {% if can_submit and auto_approve_candidate %}
+    <div style="margin-top: 16px;">
+        <label>
+            <input type="checkbox" name="requires_approval" />
+            Do not auto-approve. Send this to the ClickHouse Team for manual review instead.
+        </label>
+    </div>
+    {% endif %}
     <div style="margin-top: 20px; display: flex; gap: 10px; align-items: center;">
         <input type="submit" value="Confirm &amp; Submit" class="default" style="padding: 10px 15px;"{% if not can_submit %} disabled{% endif %} />
         <a href="{% url 'admin:posthog_datadeletionrequest_change' obj.pk %}" style="padding: 10px 15px;">Back</a>

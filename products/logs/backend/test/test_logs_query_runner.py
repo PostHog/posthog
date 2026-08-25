@@ -1,5 +1,6 @@
 import os
 import json
+from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -20,12 +21,16 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.models import Team
+from posthog.test.persons import create_person
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.models import TeamLogsConfig
 
 
 class TestAttributeFilters(APIBaseTest):
@@ -82,6 +87,134 @@ class TestAttributeFilters(APIBaseTest):
         # Log attributes DO NOT use resource_fingerprint filtering for optimization
         # this optimization was premature and needs more thought, and probably has very little benefit anyway
         self.assertNotIn("in(resource_fingerprint", query_str)
+
+    def _to_clickhouse_sql(self, query: LogsQuery) -> str:
+        runner = LogsQueryRunner(query=query, team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        return executor.clickhouse_prepared_ast.to_hogql()
+
+    def test_nested_or_group_ors_across_attribute_keys(self):
+        # The person profile Logs tab pins an OR group so one person's distinct_ids
+        # match against every configured distinct-id attribute key. A regression that
+        # drops nested groups would silently return unfiltered logs.
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.OR_,
+                                values=[
+                                    LogPropertyFilter(
+                                        key="posthogDistinctId",
+                                        operator=PropertyOperator.EXACT,
+                                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                        value=["distinct-1", "distinct-2"],
+                                    ),
+                                    LogPropertyFilter(
+                                        key="user.id",
+                                        operator=PropertyOperator.EXACT,
+                                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                        value=["distinct-1", "distinct-2"],
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        query_str = self._to_clickhouse_sql(query)
+
+        self.assertIn("posthogDistinctId", query_str)
+        self.assertIn("user.id", query_str)
+        self.assertIn("or(", query_str.lower())
+
+    def test_nested_group_with_single_filter_needs_no_or(self):
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.OR_,
+                                values=[
+                                    LogPropertyFilter(
+                                        key="posthogDistinctId",
+                                        operator=PropertyOperator.EXACT,
+                                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                        value="distinct-1",
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        query_str = self._to_clickhouse_sql(query)
+
+        self.assertIn("posthogDistinctId", query_str)
+
+    def test_nested_group_rejects_non_attribute_filters(self):
+        # Only log_attribute leaves are supported inside nested groups; anything else
+        # must fail loudly rather than be silently dropped from the WHERE clause.
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.OR_,
+                                values=[
+                                    LogPropertyFilter(
+                                        key="message",
+                                        operator=PropertyOperator.ICONTAINS,
+                                        type=LogPropertyFilterType.LOG,
+                                        value="error",
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        with self.assertRaises(QueryError):
+            LogsQueryRunner(query=query, team=self.team).to_query()
 
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""
@@ -245,6 +378,46 @@ class TestAttributeFilters(APIBaseTest):
         self.assertNotIn("service.name__str", query_str)
         self.assertNotIn("message__str", query_str)
         self.assertIn("in(resource_fingerprint", query_str)
+
+    def test_same_key_positive_and_negative_resource_attribute_filters(self):
+        # The facet rail emits an exact + is_not filter pair on the same key (include some values,
+        # exclude others) — both polarities must survive into their own fingerprint subquery.
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(
+                                key="k8s.namespace.name",
+                                operator=PropertyOperator.EXACT,
+                                type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                                value=["argocd", "default"],
+                            ),
+                            LogPropertyFilter(
+                                key="k8s.namespace.name",
+                                operator=PropertyOperator.IS_NOT,
+                                type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                                value=["kube-system"],
+                            ),
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+
+        query_str = self._to_clickhouse_sql(query)
+
+        self.assertIn("notIn(resource_fingerprint", query_str)
+        # the include subquery must survive alongside the exclude one
+        self.assertIn("in(resource_fingerprint", query_str.replace("notIn(resource_fingerprint", ""))
+        for value in ("argocd", "default", "kube-system"):
+            self.assertIn(value, query_str)
 
     def test_positive_and_negative_resource_attribute_filters(self):
         """Test combinations of log attributes and resource attributes"""
@@ -949,6 +1122,17 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("boundary-log-dec17-afternoon", bodies)
         self.assertNotIn("boundary-log-dec18-early", bodies)
 
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_relative_date_from_keeps_exact_window(self):
+        # "-1d" must mean exactly 24 hours back, not "since midnight yesterday": the count and
+        # sparkline runners resolve day-level presets exactly, so a midnight-snapped list would
+        # show logs the sparkline and header count say don't exist
+        bodies = self._boundary_bodies(self._boundary_query("-1d"))
+        self.assertIn("boundary-log-dec17-afternoon", bodies)
+        self.assertIn("boundary-log-dec18-early", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-exact", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-plus1us", bodies)
+
     # ── _normalize_filter_group tests ──────────────────────────────────
 
     _FLAT_FILTERS = [
@@ -1003,3 +1187,201 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         response = self._make_logs_api_request(query_params)
         self.assertGreater(len(response["results"]), 0)
+
+
+class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
+    # `personId` on LogsQuery is expanded server-side to the person's distinct ids. Person
+    # pages cap how many distinct ids they load client-side, so a client-built distinct-id
+    # filter silently misses logs for id-heavy persons — the bug this class guards against.
+    # Tests share one ClickHouse team; each uses unique distinct-id values for isolation.
+
+    def _insert_logs(self, rows: list[dict]) -> None:
+        payload = "\n".join(json.dumps({**row, "team_id": self.team.id}) for row in rows)
+        sync_execute(f"""
+            INSERT INTO logs
+            FORMAT JSONEachRow
+            {payload}
+        """)
+
+    def _log_row(
+        self, distinct_id_value: str, attribute_key: str = "posthogDistinctId", *, resource: bool = False
+    ) -> dict:
+        row: dict = {
+            "uuid": str(uuid4()),
+            "timestamp": "2026-03-01 10:00:00.000000",
+            "observed_timestamp": "2026-03-01 10:00:01.000000",
+            "body": f"log for {distinct_id_value}",
+            "severity_text": "info",
+            "severity_number": 9,
+            "service_name": "person-id-test-svc",
+            "resource_attributes": {"service.name": "person-id-test-svc"},
+            "attributes_map_str": {},
+        }
+        # Place the distinct id under a resource attribute or a log attribute.
+        if resource:
+            row["resource_attributes"][attribute_key] = distinct_id_value
+        else:
+            row["attributes_map_str"][f"{attribute_key}__str"] = distinct_id_value
+        return row
+
+    def _person_query(self, person_id: str) -> LogsQuery:
+        return LogsQuery(
+            kind="LogsQuery",
+            dateRange=DateRange(date_from="2026-03-01T00:00:00Z", date_to="2026-03-02T00:00:00Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+            personId=person_id,
+        )
+
+    def _run(self, person_id: str) -> list:
+        return LogsQueryRunner(query=self._person_query(person_id), team=self.team).calculate().results
+
+    def test_person_id_expands_to_all_distinct_ids(self):
+        person = create_person(team=self.team, distinct_ids=["person-id-test-a1", "person-id-test-a2"])
+        create_person(team=self.team, distinct_ids=["person-id-test-other"])
+        self._insert_logs(
+            [
+                self._log_row("person-id-test-a1"),
+                self._log_row("person-id-test-a2"),
+                self._log_row("person-id-test-other"),
+            ]
+        )
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual(
+            sorted(r["attributes"]["posthogDistinctId"] for r in results),
+            ["person-id-test-a1", "person-id-test-a2"],
+        )
+
+    @parameterized.expand([("unknown_person",), ("person_from_another_team",)])
+    def test_person_id_without_matching_person_matches_nothing(self, case: str):
+        # An empty distinct-id list must never reach property_to_expr: it treats an empty
+        # value list as always-true, which would leak every log in the project onto the tab.
+        self._insert_logs([self._log_row("person-id-test-leak")])
+        if case == "unknown_person":
+            person_id = str(uuid4())
+        else:
+            other_team = Team.objects.create(organization=self.organization)
+            person_id = str(create_person(team=other_team, distinct_ids=["person-id-test-leak"]).uuid)
+
+        self.assertEqual(self._run(person_id), [])
+
+    @parameterized.expand(
+        [
+            ("single_key", ["team_ref"], {"team_ref"}),
+            ("multiple_keys", ["team_ref", "account_ref"], {"team_ref", "account_ref"}),
+        ]
+    )
+    def test_person_id_respects_configured_attribute_keys(
+        self, _name: str, configured_keys: list[str], matching_keys: set[str]
+    ):
+        # Matching only the first configured key (or the legacy singular column) would
+        # silently drop logs linked via the other keys. Custom keys (not built-in
+        # conventions) isolate configured-key handling from the convention fallback.
+        TeamLogsConfig.objects.update_or_create(
+            team=self.team, defaults={"logs_distinct_id_attribute_keys": configured_keys}
+        )
+        person = create_person(team=self.team, distinct_ids=["person-id-test-cfg"])
+        self._insert_logs(
+            [
+                self._log_row("person-id-test-cfg", attribute_key="team_ref"),
+                self._log_row("person-id-test-cfg", attribute_key="account_ref"),
+            ]
+        )
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual({key for r in results for key in r["attributes"]}, matching_keys)
+        self.assertEqual(len(results), len(matching_keys))
+
+    def test_person_id_matches_builtin_convention_keys(self):
+        # A log stamped under a built-in distinct-id convention key (e.g. `distinct_id`) is
+        # rendered as a clickable person link in the logs UI (isDistinctIdKey), so it must also
+        # appear on that person's Logs tab even when the team never configured that key. Here
+        # only the default `posthogDistinctId` is configured; `distinct_id` is convention-only.
+        person = create_person(team=self.team, distinct_ids=["person-id-test-conv"])
+        self._insert_logs(
+            [
+                self._log_row("person-id-test-conv", attribute_key="distinct_id"),
+                self._log_row("person-id-test-conv", attribute_key="posthogDistinctId"),
+            ]
+        )
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual(
+            {key for r in results for key in r["attributes"]},
+            {"distinct_id", "posthogDistinctId"},
+        )
+
+    def test_person_id_matches_distinct_id_in_resource_attributes(self):
+        # The logs UI renders a distinct-id convention key as a clickable person link whether the
+        # value sits in attributes or resource_attributes (LogAttributes.tsx), so a distinct id
+        # under resource_attributes must link the log to the person's tab too — not just log
+        # attributes.
+        person = create_person(team=self.team, distinct_ids=["person-id-test-res"])
+        self._insert_logs([self._log_row("person-id-test-res", attribute_key="distinct_id", resource=True)])
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["resource_attributes"]["distinct_id"], "person-id-test-res")
+
+    def test_person_id_filter_targets_string_attribute_map_for_numeric_ids(self):
+        # All-numeric distinct ids must not route to the float attribute map — only the
+        # string map is guaranteed to hold every attribute value.
+        person = create_person(team=self.team, distinct_ids=["12345", "67890"])
+        runner = LogsQueryRunner(query=self._person_query(str(person.uuid)), team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        query_str = executor.clickhouse_prepared_ast.to_hogql()
+
+        self.assertIn("posthogDistinctId__str", query_str)
+        self.assertNotIn("posthogDistinctId__float", query_str)
+        self.assertIn("12345", query_str)
+        self.assertIn("67890", query_str)
+
+    def test_person_id_via_query_sparkline_and_facet_values_apis(self):
+        # The logs endpoints hand-build LogsQuery from request data — a personId omitted
+        # from that whitelist silently un-scopes the person tab.
+        person = create_person(team=self.team, distinct_ids=["person-id-test-api"])
+        self._insert_logs([self._log_row("person-id-test-api"), self._log_row("person-id-test-api-unrelated")])
+        query_params = {
+            "dateRange": {"date_from": "2026-03-01T00:00:00Z", "date_to": "2026-03-02T00:00:00Z"},
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "personId": str(person.uuid),
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/logs/query", data={"query": query_params})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual([r["attributes"]["posthogDistinctId"] for r in results], ["person-id-test-api"])
+
+        sparkline_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/sparkline", data={"query": query_params}
+        )
+        self.assertEqual(sparkline_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sum(bucket["count"] for bucket in sparkline_response.json()), 1)
+
+        facet_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/facet_values",
+            data={"query": {**query_params, "facetField": "severity_text"}},
+        )
+        self.assertEqual(facet_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(facet_response.json()["results"], [{"value": "info", "count": 1}])

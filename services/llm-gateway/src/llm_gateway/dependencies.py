@@ -9,23 +9,35 @@ import structlog
 from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.auth.service import AuthService, get_auth_service
+from llm_gateway.auth.service import (
+    AuthService,
+    InvalidProjectScopeError,
+    UnauthorizedProjectScopeError,
+    get_auth_service,
+    upstream_auth_header,
+)
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
+from llm_gateway.config import get_settings
+from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
+    INTERNAL_RUN_SCOPE,
+    check_free_tier_model_access,
     check_product_access,
     get_product_config,
+    get_required_model_flag,
     resolve_product_alias,
 )
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
-from llm_gateway.rate_limiting.throttles import ThrottleContext
+from llm_gateway.rate_limiting.throttles import ThrottleContext, is_usage_unlimited
 from llm_gateway.request_context import (
     extract_posthog_provider_from_headers,
     get_request_id,
     set_throttle_context,
 )
-from llm_gateway.services.plan_resolver import PlanInfo, resolve_plan_info
+from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, PlanInfo, resolve_plan_info
 from llm_gateway.services.quota_resolver import QuotaResourceStatus, resolve_quota_status
 
 logger = structlog.get_logger(__name__)
@@ -49,7 +61,12 @@ async def get_authenticated_user(
     db_pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthenticatedUser:
-    user = await auth_service.authenticate_request(request, db_pool)
+    try:
+        user = await auth_service.authenticate_request(request, db_pool)
+    except InvalidProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid project scope") from exc
+    except UnauthorizedProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied") from exc
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return user
@@ -76,18 +93,35 @@ async def get_cached_body(request: Request) -> bytes | None:
 
 
 async def get_request_json(request: Request) -> dict[str, Any] | None:
+    """Parse the JSON body as a dict, caching the result for reuse — the
+    access-check chain reads it several times per request."""
+    if hasattr(request.state, "_cached_json"):
+        return request.state._cached_json
+    parsed: dict[str, Any] | None = None
     body = await get_cached_body(request)
-    if not body:
-        return None
-    try:
-        data = json.loads(body)
-        return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, TypeError):
-        return None
+    if body:
+        try:
+            data = json.loads(body)
+            parsed = data if isinstance(data, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+    request.state._cached_json = parsed
+    return parsed
 
 
 async def get_model_from_request(request: Request) -> str | None:
-    """Extract model name from request body if present."""
+    """Extract the model from the request body (JSON, or form for the
+    transcription routes). None is safe: every route requires a model at
+    validation, so such a request never reaches an upstream."""
+    content_type = request.headers.get("content-type", "").lower()
+    if content_type.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
+        try:
+            form = await request.form()
+        except Exception:
+            # malformed forms fail the endpoint's own parsing too
+            return None
+        model = form.get("model")
+        return model if isinstance(model, str) else None
     data = await get_request_json(request)
     if data is None:
         return None
@@ -120,11 +154,66 @@ async def enforce_product_access(
         application_id=user.application_id,
         model=model,
         provider=provider,
+        scopes=user.scopes,
     )
 
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
+
+    await enforce_desktop_access(request, user, product)
     return user
+
+
+async def enforce_desktop_access(request: Request, user: AuthenticatedUser, product: str) -> None:
+    settings = get_settings()
+    if not settings.desktop_access_gate_enabled or settings.debug:
+        return
+    if product != POSTHOG_CODE_PRODUCT:
+        return
+    if user.auth_method != "oauth_access_token":
+        return
+    if INTERNAL_RUN_SCOPE in (user.scopes or []):
+        return
+
+    if user.team_id is None:
+        logger.warning("desktop_access_missing_team", user_id=user.user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "message": "We couldn't verify PostHog Desktop access. Try again.",
+                    "type": "service_unavailable",
+                    "code": "desktop_access_unavailable",
+                }
+            },
+        )
+
+    resolver: DesktopAccessResolver = request.app.state.desktop_access_resolver
+    decision = await resolver.resolve_access(user.user_id, user.team_id, upstream_auth_header(request))
+    if decision.allowed:
+        return
+    if decision.resolution_failed:
+        logger.warning("desktop_access_resolution_failed", user_id=user.user_id, team_id=user.team_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "message": "We couldn't verify PostHog Desktop access. Try again.",
+                    "type": "service_unavailable",
+                    "code": "desktop_access_unavailable",
+                }
+            },
+        )
+
+    logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id, reason=decision.reason)
+    error: dict[str, object] = {
+        "message": "PostHog Desktop access is required to use this product.",
+        "type": "permission_error",
+        "code": "code_access_required",
+    }
+    if decision.reason is not None:
+        error["reason"] = decision.reason
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": error})
 
 
 async def _extract_end_user_id_from_body(request: Request) -> str | None:
@@ -133,14 +222,8 @@ async def _extract_end_user_id_from_body(request: Request) -> str | None:
     For OpenAI-compatible endpoints, this is the top-level `user` field.
     For Anthropic endpoints, this is `metadata.user_id`.
     """
-    body = await get_cached_body(request)
-    if not body:
-        return None
-    try:
-        data = json.loads(body)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(data, dict):
+    data = await get_request_json(request)
+    if data is None:
         return None
 
     user_id = data.get("user")
@@ -163,22 +246,36 @@ async def resolve_plan_and_quota(
     team_id: int | None,
     product: str,
 ) -> tuple[PlanInfo, QuotaResourceStatus]:
-    """Fetch plan info and (for billable products) AI credits quota in parallel.
+    """Fetch plan info and (for bucket-billed products) the bucket's quota in parallel.
 
-    Both calls are independent Django roundtrips on cache miss, so for billable
-    products we overlap them. For non-billable products the throttle stack
-    short-circuits regardless of quota state, so we skip the resolver entirely
+    Both calls are independent Django roundtrips on cache miss, so for products
+    billing into a credit bucket we overlap them. Unbilled products short-circuit
+    the throttle stack regardless of quota state, so we skip the resolver entirely
     rather than paying for the Redis GET (and the HTTP fallback on cache miss).
+
+    Caveat: ``code_usage_billing_active`` rides the quota fetch, so a product
+    without a credit bucket always reads as unbilled — removing or repointing
+    posthog_code's bucket would silently turn off the org-billed cap bypass.
     """
     product_config = get_product_config(product)
-    if product_config and product_config.billable:
+    if product_config and product_config.credit_bucket is not None:
         plan_info, quota_status = await asyncio.gather(
             resolve_plan_info(request, user_id, product),
-            resolve_quota_status(request, team_id),
+            resolve_quota_status(request, team_id, product_config.credit_bucket.value),
         )
         return plan_info, quota_status
     plan_info = await resolve_plan_info(request, user_id, product)
     return plan_info, QuotaResourceStatus(limited=False)
+
+
+def _format_retry_delay(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+    if seconds < 3600:
+        minutes = (seconds + 59) // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours = (seconds + 3599) // 3600
+    return f"{hours} hour{'s' if hours != 1 else ''}"
 
 
 async def enforce_throttles(
@@ -202,6 +299,57 @@ async def enforce_throttles(
         product=product,
     )
 
+    model = await get_model_from_request(request)
+
+    model_allowed, model_error = check_free_tier_model_access(
+        product=product,
+        model=model,
+        provider=await get_provider_from_request(request),
+        code_usage_billed=quota_status.code_usage_billing_active,
+        usage_unlimited=is_usage_unlimited(user),
+    )
+    if not model_allowed:
+        logger.warning(
+            "free_tier_model_blocked",
+            user_id=user.user_id,
+            team_id=user.team_id,
+            product=product,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "message": f"{model_error} (rate_limit)",
+                    "type": "permission_error",
+                    "code": "model_gate",
+                }
+            },
+        )
+
+    # Entitlement gate for models not cleared for general use on this path (e.g. Kimi K3,
+    # Baseten-only DeepSeek). Each maps to its own access flag. Fails closed (a None eval outage
+    # blocks) since these decide spend / backend rollout.
+    access_flag = get_required_model_flag(model)
+    if access_flag is not None and not get_settings().debug:
+        if not await evaluate_flag(access_flag, user.distinct_id):
+            logger.warning(
+                "model_access_blocked",
+                user_id=user.user_id,
+                team_id=user.team_id,
+                product=product,
+                flag=access_flag,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": {
+                        "message": f"Model '{model}' is not available. Choose another model. (rate_limit)",
+                        "type": "permission_error",
+                        "code": "model_gate",
+                    }
+                },
+            )
+
     context = ThrottleContext(
         user=user,
         product=product,
@@ -209,8 +357,11 @@ async def enforce_throttles(
         end_user_id=end_user_id,
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
+        seat_missing=plan_info.seat_missing,
+        code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
-        ai_credits_exhausted=quota_status.limited,
+        credits_exhausted=quota_status.limited,
+        sandbox_task_id=user.sandbox_task_id,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)
@@ -227,11 +378,23 @@ async def enforce_throttles(
             status_code=result.status_code,
         )
         headers = {"Retry-After": str(result.retry_after)} if result.retry_after is not None else None
+        reason = result.detail
+        message = (
+            f"Rate limit exceeded: {reason}" if reason and reason != "Rate limit exceeded" else "Rate limit exceeded"
+        )
+        # Surfaces like the Slack agent relay only error.message, so the retry
+        # time must live in the text, not just the Retry-After header. Skipped
+        # when retry_after is only a back-off hint (exhausted credits) — those
+        # details already carry their own next step.
+        if result.retry_after is not None and result.retry_after > 0 and result.retry_after_resets_limit:
+            message += f". Try again in about {_format_retry_delay(result.retry_after)}."
         detail = {
             "error": {
-                "message": "Rate limit exceeded",
+                "message": message,
                 "type": "rate_limit_error",
-                "reason": result.detail,
+                "reason": reason,
+                **({"retry_after": result.retry_after} if result.retry_after is not None else {}),
+                **({"code": result.scope} if result.scope else {}),
             }
         }
         raise HTTPException(status_code=result.status_code, detail=detail, headers=headers)

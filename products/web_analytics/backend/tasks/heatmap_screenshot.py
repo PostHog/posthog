@@ -4,6 +4,7 @@ from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 import requests
@@ -19,7 +20,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.utils import CeleryQueue
 
-from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
+from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 logger = structlog.get_logger(__name__)
@@ -76,6 +77,10 @@ class BrowserlessPermanentError(BrowserlessError):
     """A failure that will not be fixed by retrying (4xx, misconfiguration, oversized output)."""
 
 
+class PageHttpStatusError(BrowserlessPermanentError):
+    """The customer's page answered the render with a non-2xx, so the capture is a picture of that."""
+
+
 def _width_bucket(width: int) -> str:
     if width < 500:
         return "mobile"
@@ -89,6 +94,8 @@ def _width_bucket(width: int) -> str:
 def _classify_failure(e: BaseException) -> str:
     if isinstance(e, SoftTimeLimitExceeded):
         return "soft_time_limit"
+    if isinstance(e, PageHttpStatusError):
+        return "page_http_status"
     if isinstance(e, BrowserlessError):
         if e.cause == "not_configured":
             return "not_configured"
@@ -222,8 +229,24 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
             width_count = _generate_screenshots(screenshot)
             duration_seconds = round(time.monotonic() - started_at, 2)
 
-            screenshot.status = SavedHeatmap.Status.COMPLETED
-            screenshot.save()
+            # If a create expanded target_widths mid-render, finish the new widths in a follow-up run
+            # rather than marking complete. The row lock keeps this in step with the create's enqueue check.
+            with transaction.atomic():
+                locked = SavedHeatmap.objects.select_for_update().get(id=screenshot.id)
+                remaining = _unrendered_widths(locked)
+                if not remaining:
+                    locked.status = SavedHeatmap.Status.COMPLETED
+                    locked.save(update_fields=["status", "updated_at"])
+
+            if remaining:
+                logger.info(
+                    "heatmap_screenshot.followup_enqueued",
+                    screenshot_id=screenshot.id,
+                    team_id=screenshot.team_id,
+                    remaining=remaining,
+                )
+                generate_heatmap_screenshot.delay(screenshot.id)
+                return
 
             HEATMAP_SCREENSHOT_SUCCEEDED.inc()
             HEATMAP_SCREENSHOT_TIMER.labels(outcome="succeeded").observe(duration_seconds)
@@ -346,7 +369,20 @@ def _validate_screenshot_response(response: requests.Response, endpoint_url: str
     return content
 
 
-def _browserless_screenshot(endpoint_url: str, page_url: str, width: int, block_consent_modals: bool) -> bytes:
+def _page_status_from(response: requests.Response) -> int | None:
+    # Browserless answers 200 with a valid JPEG even when the page it rendered returned 429 or 403,
+    # so this header is the only thing separating a heatmap from a picture of the customer's error
+    # page. It is documented under Browserless' Request Configuration rather than on the Screenshot
+    # API page. Absent or unparseable means we don't know, which must not fail an otherwise fine render.
+    try:
+        return int(response.headers["x-response-code"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _browserless_screenshot(
+    endpoint_url: str, page_url: str, width: int, block_consent_modals: bool
+) -> tuple[bytes, int | None]:
     # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
     # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
     body: dict[str, object] = {
@@ -433,16 +469,18 @@ def _browserless_screenshot(endpoint_url: str, page_url: str, width: int, block_
         )
         raise
 
+    page_status = _page_status_from(response)
     HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="ok", width_bucket=width_bucket).observe(elapsed)
     logger.info(
         "heatmap_screenshot.browserless_request",
         width=width,
         browserless_status=status_code,
+        page_status=page_status,
         latency_ms=round(elapsed * 1000),
         bytes=len(content),
         outcome="ok",
     )
-    return content
+    return content, page_status
 
 
 def _resolve_widths(screenshot: SavedHeatmap) -> list[int]:
@@ -481,6 +519,20 @@ def _persist_snapshot(screenshot: SavedHeatmap, width: int, image_data: bytes) -
     snapshot.save()
 
 
+def _rendered_widths(screenshot: SavedHeatmap, widths: list[int]) -> set[int]:
+    return set(
+        HeatmapSnapshot.objects.filter(heatmap=screenshot, width__in=widths, content__isnull=False).values_list(
+            "width", flat=True
+        )
+    )
+
+
+def _unrendered_widths(screenshot: SavedHeatmap) -> list[int]:
+    widths = _resolve_widths(screenshot)
+    rendered = _rendered_widths(screenshot, widths)
+    return [w for w in widths if w not in rendered]
+
+
 def _generate_screenshots(screenshot: SavedHeatmap) -> int:
     widths = _resolve_widths(screenshot)
     return _generate_browserless_screenshots(screenshot, widths)
@@ -492,19 +544,35 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
     endpoint_url = _build_browserless_screenshot_url()
     if not endpoint_url:
         raise BrowserlessPermanentError("Browserless screenshot URL is not configured", cause="not_configured")
+    # Skip widths already rendered, so promoting a prewarm only renders the still-missing widths.
+    already_rendered = _rendered_widths(screenshot, widths)
+    pending = [w for w in widths if w not in already_rendered]
     logger.info(
         "heatmap_screenshot.rendering_widths",
         screenshot_id=screenshot.id,
         team_id=screenshot.team_id,
-        width_count=len(widths),
-        widths=widths,
+        width_count=len(pending),
+        widths=pending,
+        reused_widths=sorted(already_rendered),
     )
     count = 0
-    for w in widths:
-        image_data = _browserless_screenshot(endpoint_url, screenshot.url, w, screenshot.block_consent_modals)
+    for w in pending:
+        image_data, page_status = _browserless_screenshot(
+            endpoint_url, screenshot.url, w, screenshot.block_consent_modals
+        )
+        if page_status is not None and not 200 <= page_status < 300:
+            raise PageHttpStatusError(
+                f"{_host_of(screenshot.url)} returned {page_status} when we loaded the page, so the capture "
+                f"is a picture of that response. This comes from the site's host or CDN, not from PostHog.",
+                cause="page_http_status",
+            )
         _persist_snapshot(screenshot, w, image_data)
         count += 1
     return count
+
+
+def _host_of(url: str) -> str:
+    return urlsplit(url).hostname or "The page"
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.EXPORTS.value)
@@ -535,3 +603,44 @@ def report_stuck_heatmap_screenshots() -> int:
             ],
         )
     return count
+
+
+def _capture_prewarm_wasted(rows: list[SavedHeatmap]) -> None:
+    # A prewarm reaped without being promoted is a cache miss — a speculative render the user never
+    # turned into a heatmap. `rendered` marks the ones that actually paid the Browserless cost.
+    rendered_ids = set(
+        HeatmapSnapshot.objects.filter(heatmap__in=rows, content__isnull=False).values_list("heatmap_id", flat=True)
+    )
+    now = timezone.now()
+    try:
+        with ph_scoped_capture() as capture:
+            for row in rows:
+                team = row.team
+                capture(
+                    distinct_id=str(team.uuid),
+                    event="heatmap prewarm wasted",
+                    properties={
+                        "team_id": team.id,
+                        "url": row.url,
+                        "rendered": row.id in rendered_ids,
+                        "status": row.status,
+                        "age_seconds": round((now - row.created_at).total_seconds()),
+                        "screenshot_id": str(row.id),
+                    },
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                )
+    except Exception:
+        logger.warning("heatmap_screenshot.prewarm_wasted_capture_failed", exc_info=True)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.EXPORTS.value)
+@skip_team_scope_audit
+def reap_stale_prewarm_heatmaps() -> int:
+    cutoff = timezone.now() - PREWARM_TTL
+    stale = list(SavedHeatmap.objects.filter(is_prewarm=True, created_at__lt=cutoff).select_related("team"))
+    if not stale:
+        return 0
+    _capture_prewarm_wasted(stale)
+    SavedHeatmap.objects.filter(id__in=[row.id for row in stale], is_prewarm=True, created_at__lt=cutoff).delete()
+    logger.info("heatmap_screenshot.reaped_prewarm", reaped_count=len(stale))
+    return len(stale)

@@ -44,6 +44,7 @@ Possible values:
 - `E2E` for **e2e tests**.
 - Unset for **self-hosted** environments.
 """
+COMPACT_IN_REGION: str = get_from_env("COMPACT_IN_REGION", "US")
 SELF_CAPTURE: bool = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING: bool = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool
@@ -62,15 +63,25 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
 
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
-# `$ai_embedding` events emitted by PostHog products (PostHog Code,
+# `$ai_embedding` events emitted by PostHog products (PostHog Desktop,
 # background agents, etc). Used by /api/llm_analytics/personal_spend/.
 # Override in tests via @override_settings to point at a per-test team.
 LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
+
+# Shared secret for EU→US personal-spend proxy calls (products/ai_observability).
+# Must hold the same value in both regions; unset disables the proxy.
+PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REGION_SECRET", "")
 
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
 DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
+MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS: float = get_from_env(
+    "MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", 0.5, type_cast=float
+)
+MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_READ_TIMEOUT_SECONDS: float = get_from_env(
+    "MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_READ_TIMEOUT_SECONDS", 0.5, type_cast=float
+)
 
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)

@@ -4,10 +4,9 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { getBarColorFromStatus } from 'lib/colors'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,6 +20,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
@@ -31,7 +31,6 @@ import {
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
@@ -41,7 +40,6 @@ interface TrendsLifecycleChartProps {
 
 const EMPTY_LABELS: string[] = []
 const LIFECYCLE_TOOLTIP_CONFIG = { placement: 'cursor' as const }
-const LIFECYCLE_TOOLTIP_CONFIG_LEGACY = { pinnable: true, placement: 'top' as const }
 
 const handleChartError = makeChartErrorHandler('trends-lifecycle-chart')
 
@@ -53,8 +51,6 @@ const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datu
 
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useChartTheme()
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
@@ -79,22 +75,31 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     // Lifecycle statuses all share the same resultCustomizationKey (same action.order), so
     // useInsightsLegendConfig can't distinguish them — build the config inline and let the
     // chart manage toggle state internally.
+    const legendRenderItem = useChartLegendSeriesMenu({ surface: 'lifecycle', seriesCount: indexedResults.length })
     const legendConfig = useMemo<ChartLegendConfig>(
-        () => buildBaseLegendConfig({ show: !!showLegend, legendPosition, canEditInsight, inSharedMode }),
-        [showLegend, legendPosition, canEditInsight, inSharedMode]
+        () =>
+            buildBaseLegendConfig({
+                show: !!showLegend,
+                legendPosition,
+                canEditInsight,
+                inSharedMode,
+                renderItem: legendRenderItem,
+            }),
+        [showLegend, legendPosition, canEditInsight, inSharedMode, legendRenderItem]
     )
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
-    const hasData =
-        !!indexedResults?.[0] &&
-        !!indexedResults[0].data &&
-        indexedResults.some((r: IndexedTrendResult) => r.count !== 0)
+    const hasData = hasTrendsChartData(indexedResults)
 
     const formatValue = useCallback(
         (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
         [trendsFilter, baseCurrency]
     )
+
+    // Dormant counts are emitted negative so they stack below the zero baseline, but the tooltip
+    // shows the magnitude — the "Dormant" label already carries the direction.
+    const renderTooltipCount = useCallback((value: number) => formatValue(Math.abs(value)), [formatValue])
 
     const valueLabelFormatter = useMemo(
         () =>
@@ -114,7 +119,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
                 buildMeta: buildTrendsSeriesMeta,
-                labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+                // Bands are keyed by these strings, so they must be unique per point. Display
+                // labels are not (week and hour labels omit the year, so multi-year ranges
+                // repeat them); use the ISO days, which ticks and tooltips format from.
+                labels: currentPeriodResult?.days?.length
+                    ? currentPeriodResult.days
+                    : (currentPeriodResult?.labels ?? EMPTY_LABELS),
                 isStacked,
                 trendsFilter,
                 baseCurrency,
@@ -123,7 +133,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
                 valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: quillTooltipEnabled ? LIFECYCLE_TOOLTIP_CONFIG : LIFECYCLE_TOOLTIP_CONFIG_LEGACY,
+                tooltip: LIFECYCLE_TOOLTIP_CONFIG,
                 legend: legendConfig,
             }),
         [
@@ -140,7 +150,6 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             showPercentagesOnSeries,
             valueLabelFormatter,
             legendConfig,
-            quillTooltipEnabled,
         ]
     )
     const config = useChartConfig(() => baseConfig, [baseConfig])
@@ -183,6 +192,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         [clickDeps]
     )
 
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
             const sharedProps = {
@@ -196,6 +207,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 baseCurrency,
                 groupTypeLabel: 'Users' as const,
                 renderSeriesOverride: renderLifecycleSeriesLabel,
+                renderCount: renderTooltipCount,
             }
             const onRowClick = canHandleClick
                 ? (datum: SeriesDatum) => {
@@ -203,11 +215,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                       handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps, LIFECYCLE_PERSONS_MODAL_OPTIONS)
                   }
                 : undefined
-            return quillTooltipEnabled ? (
-                <InsightSeriesTooltip {...sharedProps} sortedByValue={false} hideZeroRows onRowClick={onRowClick} />
-            ) : (
-                <TrendsTooltip {...sharedProps} onRowClick={onRowClick} />
-            )
+            return <InsightSeriesTooltip {...sharedProps} sortedByValue={false} hideZeroRows onRowClick={onRowClick} />
         },
         [
             timezone,
@@ -217,7 +225,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             trendsFilter,
             formula,
             baseCurrency,
-            quillTooltipEnabled,
+            renderTooltipCount,
             canHandleClick,
             clickDeps,
         ]
@@ -244,6 +252,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-lifecycle-graph"
             onError={handleChartError}

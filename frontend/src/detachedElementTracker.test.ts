@@ -1,4 +1,9 @@
-import { mapToTopN, shouldCaptureDetachedElements } from './detachedElementTracker'
+import {
+    createDetachedElementTrackingState,
+    getDetachedElementTrackingContext,
+    mapToTopN,
+    shouldCaptureDetachedElements,
+} from './detachedElementTracker'
 
 describe('mapToTopN', () => {
     it.each([
@@ -110,5 +115,42 @@ describe('shouldCaptureDetachedElements', () => {
         },
     ])('$label', ({ currentCount, previousCount, expected }) => {
         expect(shouldCaptureDetachedElements(currentCount, previousCount)).toBe(expected)
+    })
+})
+
+describe('getDetachedElementTrackingContext', () => {
+    it('resets the route baseline when the path changes', () => {
+        const firstScan = getDetachedElementTrackingContext(createDetachedElementTrackingState(), 100, '/groups')
+        const sameRouteScan = getDetachedElementTrackingContext(firstScan.nextState, 130, '/groups')
+        const nextRouteScan = getDetachedElementTrackingContext(sameRouteScan.nextState, 50, '/pipeline/new/source')
+        const nextRouteGrowthScan = getDetachedElementTrackingContext(
+            nextRouteScan.nextState,
+            70,
+            '/pipeline/new/source'
+        )
+
+        expect(firstScan).toMatchObject({
+            detachedElementsDelta: null,
+            pathChanged: false,
+            routeBaselineDetachedElements: 100,
+            routeDetachedElementsDelta: 0,
+        })
+        expect(sameRouteScan).toMatchObject({
+            detachedElementsDelta: 30,
+            routeBaselineDetachedElements: 100,
+            routeDetachedElementsDelta: 30,
+        })
+        expect(nextRouteScan).toMatchObject({
+            detachedElementsDelta: -80,
+            pathChanged: true,
+            routeBaselineDetachedElements: 50,
+            routeDetachedElementsDelta: 0,
+        })
+        expect(nextRouteGrowthScan).toMatchObject({
+            detachedElementsDelta: 20,
+            pathChanged: false,
+            routeBaselineDetachedElements: 50,
+            routeDetachedElementsDelta: 20,
+        })
     })
 })

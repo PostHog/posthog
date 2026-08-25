@@ -42,6 +42,27 @@ export function getEventsWithPrimaryProperty<T extends { event: string }>(
     return events.filter((e) => getPrimaryPropertyForEvent(e.event, overrides) !== null)
 }
 
+/**
+ * The distinct set of primary properties promoted for a list of event names
+ * (taxonomy default first, then team override). Pure client-side — shared by
+ * `taxonomicFilterLogic`'s `eventNamesWithPrimaryProperties` selector and
+ * `useTaxonomicGroupsContext`'s headless equivalent so both express
+ * "taxonomy default first, then team override, distinct" once.
+ */
+export function distinctPrimaryPropertiesForEvents(
+    eventNames: string[],
+    overrides?: Record<string, string | null | undefined>
+): string[] {
+    const distinct = new Set<string>()
+    for (const eventName of eventNames) {
+        const primary = getPrimaryPropertyForEvent(eventName, overrides)
+        if (primary) {
+            distinct.add(primary)
+        }
+    }
+    return Array.from(distinct)
+}
+
 export function eventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
@@ -90,23 +111,32 @@ export function autoCaptureEventToDescription(
     }
 
     const getVerb = (): string => eventTypeToVerb[event.properties.$event_type] || 'interacted with'
+    const targetElement = event.elements?.[0]
+    const describedElement =
+        event.properties.$event_type === 'click' && targetElement?.tag_name === 'svg'
+            ? (event.elements?.find(({ tag_name }) => tag_name === 'a' || tag_name === 'button') ?? targetElement)
+            : targetElement
 
     const getTag = (): string => {
-        if (event.elements?.[0]?.tag_name === 'a') {
+        if (describedElement?.tag_name === 'a') {
             return 'link'
-        } else if (event.elements?.[0]?.tag_name === 'img') {
+        } else if (describedElement?.tag_name === 'img') {
             return 'image'
         }
-        return event.elements?.[0]?.tag_name ?? 'element'
+        return describedElement?.tag_name ?? 'element'
     }
 
     const getValue = (): string | null => {
         if (event.properties.$el_text) {
             return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
-        } else if (event.elements?.[0]?.text) {
-            return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
-        } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
-            return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
+        } else if (describedElement?.text) {
+            return `${shortForm ? '' : 'with text '}"${describedElement.text}"`
+        } else if (describedElement?.attributes?.['attr__aria-label']) {
+            return `${shortForm ? '' : 'with aria label '}"${describedElement.attributes['attr__aria-label']}"`
+        } else if (describedElement !== targetElement && targetElement?.text) {
+            return `${shortForm ? '' : 'with text '}"${targetElement.text}"`
+        } else if (describedElement !== targetElement && targetElement?.attributes?.['attr__aria-label']) {
+            return `${shortForm ? '' : 'with aria label '}"${targetElement.attributes['attr__aria-label']}"`
         }
         return null
     }

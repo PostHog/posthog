@@ -3,6 +3,10 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# Harvest embeds the API version as the first path segment (`/v1/candidates`, `/v3/candidates`).
+GREENHOUSE_V1 = "v1"
+GREENHOUSE_V3 = "v3"
+
 
 @dataclass
 class GreenhouseEndpointConfig:
@@ -14,10 +18,18 @@ class GreenhouseEndpointConfig:
     # object's lifetime (so `created_at`, never `updated_at`). Left as ``None`` for the small
     # reference endpoints whose objects don't expose a creation timestamp.
     partition_key: Optional[str] = None
-    # Maps an advertised incremental field name to the Harvest query param that filters it
+    # Maps an advertised incremental field name to the Harvest v1 query param that filters it
     # server-side (e.g. `updated_at` -> `updated_after`). Only populated for endpoints with a
-    # genuine documented server-side timestamp filter.
+    # genuine documented server-side timestamp filter. v3 filters on the field name itself, so
+    # it needs no mapping.
     incremental_filter_params: dict[str, str] = field(default_factory=dict)
+    # Harvest v3 path, where v3 renamed the collection. ``None`` means v3 kept the v1 name.
+    v3_path: Optional[str] = None
+
+    def path_for_version(self, api_version: str) -> str:
+        if api_version == GREENHOUSE_V3 and self.v3_path is not None:
+            return self.v3_path
+        return self.path
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -126,6 +138,9 @@ GREENHOUSE_ENDPOINTS: dict[str, GreenhouseEndpointConfig] = {
     "scheduled_interviews": GreenhouseEndpointConfig(
         name="scheduled_interviews",
         path="/scheduled_interviews",
+        # v3 renamed this collection to `interviews`. The schema (and so the warehouse table) keeps
+        # its v1 name so the table set is identical on both versions and a repin can't orphan a table.
+        v3_path="/interviews",
         primary_keys=["id"],
         partition_key="created_at",
         incremental_fields=[

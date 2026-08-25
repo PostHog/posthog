@@ -141,10 +141,10 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id,
-                                                               (SELECT events.`$session_id` AS `$session_id`
-                                                                FROM events
-                                                                WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example.com%'), 0)))))
+  WHERE and(equals(session_replay_events.team_id, 99999), globalIn(session_replay_events.session_id,
+                                                                     (SELECT events.`$session_id` AS `$session_id`
+                                                                      FROM events
+                                                                      WHERE and(equals(events.team_id, 99999), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), '%example.com%'), 0)))))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,

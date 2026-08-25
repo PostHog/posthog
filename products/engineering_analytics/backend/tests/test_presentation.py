@@ -3,13 +3,45 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
-from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.engineering_analytics.backend.logic.ci_signals_config import (
+    AUTHORIZED_SOURCES_CONFIG_KEY,
+    CI_SIGNAL_SOURCE_TYPES,
+)
+from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT
+from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    connect_github_source_without_data,
+    create_github_source,
+)
+from products.signals.backend.models import SignalSourceConfig
 
-_VIEWS = "products.engineering_analytics.backend.presentation.views.api"
+
+class TestScopeEnrollment(SimpleTestCase):
+    def test_every_action_is_enrolled_in_a_scope_list(self) -> None:
+        # An action's extra HTTP methods (`@action.mapping.<verb>`) dispatch under the mapped
+        # handler's name, so each mapped name needs its own scope enrollment too.
+        actions = {
+            name
+            for a in EngineeringAnalyticsViewSet.get_extra_actions()
+            # DRF's @action attaches `mapping` at runtime; its type stubs don't declare it.
+            for name in a.mapping.values()  # type: ignore[attr-defined]
+        }
+        enrolled = set(EngineeringAnalyticsViewSet.scope_object_read_actions) | set(
+            EngineeringAnalyticsViewSet.scope_object_write_actions
+        )
+        assert actions == enrolled, (
+            f"unenrolled actions (personal API keys get 403): {sorted(actions - enrolled)}; "
+            f"stale scope entries: {sorted(enrolled - actions)}"
+        )
+
+
+_VIEWS = "products.engineering_analytics.backend.facade.api"
 
 
 def _pr_lifecycle() -> contracts.PRLifecycle:
@@ -36,6 +68,15 @@ def _cards() -> contracts.CICardSummary:
     return contracts.CICardSummary(open_prs=5, repos=2, stuck=1, failing_ci=1)
 
 
+def _current_branch_health() -> contracts.CurrentBranchHealth:
+    return contracts.CurrentBranchHealth(
+        default_branch="main",
+        settled_workflows=101,
+        failing_workflows=1,
+        failing_workflow_names=["Low-volume failure"],
+    )
+
+
 def _pr_list_item() -> contracts.PullRequestListItem:
     return contracts.PullRequestListItem(
         number=10,
@@ -47,6 +88,7 @@ def _pr_list_item() -> contracts.PullRequestListItem:
         created_at=datetime(2026, 1, 10, tzinfo=UTC),
         merged_at=None,
         open_to_merge_seconds=None,
+        ready_to_merge_seconds=None,
         labels=["bug"],
         ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0),
         pushes=4,
@@ -60,18 +102,57 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
         repo=contracts.RepoRef(provider="github", owner="PostHog", name="posthog"),
         workflow_name="CI",
         run_count=10,
+        successful_run_count=9,
+        conclusive_run_count=9,
         success_rate=0.9,
         p50_seconds=120.0,
         p95_seconds=600.0,
         last_failure_at=datetime(2026, 1, 20, tzinfo=UTC),
         latest_run_failed=False,
         latest_run_conclusion="success",
+        latest_run_id=123,
+        latest_run_attempt=1,
         granularity="day",
         buckets=[
             contracts.WorkflowHealthBucket(
                 bucket_start=datetime(2026, 1, 20, tzinfo=UTC), run_count=10, completed=8, successes=7, failures=1
             )
         ],
+    )
+
+
+def _repo_overview() -> contracts.RepoOverview:
+    return contracts.RepoOverview(
+        run_count=10,
+        run_count_prev=8,
+        success_rate=0.9,
+        success_rate_prev=0.85,
+        rerun_cycles=2,
+        rerun_cycles_prev=1,
+        merged_pr_count=42,
+        merged_pr_count_prev=40,
+        median_open_to_merge_seconds=3600.0,
+        median_open_to_merge_seconds_prev=4000.0,
+        median_ready_to_merge_seconds=3000.0,
+        median_ready_to_merge_seconds_prev=3500.0,
+        billable_minutes=100.0,
+        billable_minutes_prev=90.0,
+        estimated_cost_usd=12.5,
+        estimated_cost_usd_prev=11.0,
+        merge_queue_billable_minutes=30.0,
+        merge_queue_billable_minutes_prev=0.0,
+        jobs_available=True,
+        default_branch="master",
+        cost_series=[],
+        cost_series_granularity="day",
+        time_to_green_series=[],
+        time_to_green_series_granularity="day",
+        success_rate_series=[],
+        success_rate_series_granularity="day",
+        open_to_merge_series=[],
+        open_to_merge_series_granularity="day",
+        ready_to_merge_series=[],
+        ready_to_merge_series_granularity="day",
     )
 
 
@@ -89,6 +170,7 @@ def _workflow_run() -> contracts.WorkflowRunDetail:
         duration_seconds=120,
         run_attempt=2,
         pr_number=42,
+        commit_pr_number=None,
     )
 
 
@@ -109,19 +191,23 @@ def _workflow_job() -> contracts.WorkflowJob:
 
 
 class TestEngineeringAnalyticsAPI(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
         # Source resolution precedes input validation, so the non-mocked bad-input tests below
         # (window too large, malformed repo) need a connected source for those errors to surface
         # rather than the no-source error. The mocked tests bypass resolution entirely.
-        connect_github_source_without_data(self.team, prefix="presentation")
+        # Class-level: no test mutates the source, so per-test creation is redundant writes.
+        connect_github_source_without_data(cls.team, prefix="presentation")
 
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/engineering_analytics/{action}/"
 
     def test_sources_serializes(self) -> None:
         sources = [
-            contracts.GitHubSource(id="0192f000-0000-7000-8000-000000000000", repo="PostHog/posthog", prefix="older"),
+            contracts.GitHubSource(
+                id="0192f000-0000-7000-8000-000000000000", repo="PostHog/posthog", prefix="older", synced=True
+            ),
             contracts.GitHubSource(
                 id="0192f000-0000-7000-8000-000000000001", repo="PostHog/posthog.com", prefix="website"
             ),
@@ -132,7 +218,32 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert [s["id"] for s in body] == [sources[0].id, sources[1].id]
-        assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older"}
+        assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older", "synced": True}
+        # synced defaults to False when the repo isn't fully synced yet.
+        assert body[1]["synced"] is False
+
+    def test_ci_signals_config_updates_the_detector_bundle(self) -> None:
+        source = create_github_source(self.team)
+
+        response = self.client.put(self._url("ci-signals-config"), {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["enabled"] is True
+        rows = SignalSourceConfig.objects.filter(team=self.team, source_product=SOURCE_PRODUCT, enabled=True)
+        assert set(rows.values_list("source_type", flat=True)) == set(CI_SIGNAL_SOURCE_TYPES)
+        # Wiring guard: exact snapshot semantics are covered in test_ci_signals.py.
+        for row in rows:
+            assert str(source.id) in row.config[AUTHORIZED_SOURCES_CONFIG_KEY]
+
+        response = self.client.put(self._url("ci-signals-config"), {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["enabled"] is False
+        assert not SignalSourceConfig.objects.filter(
+            team=self.team,
+            source_product=SOURCE_PRODUCT,
+            enabled=True,
+        ).exists()
 
     def test_ci_cards_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_ci_cards", return_value=_cards()):
@@ -191,12 +302,81 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["workflow_name"] == "CI"
 
-    def test_workflow_health_passes_branch_through(self) -> None:
+    def test_workflow_health_passes_filters_through(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_health", return_value=[]) as list_health:
-            response = self.client.get(self._url("workflow_health"), {"branch": "main"})
+            response = self.client.get(
+                self._url("workflow_health"),
+                {"branch": "main", "run_scope": "pull_request"},
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert list_health.call_args.kwargs["branch"] == "main"
+        assert list_health.call_args.kwargs["run_scope"] == "pull_request"
+
+    @parameterized.expand(
+        [
+            ("default_true", {}, True),
+            ("explicit_false", {"include_series": "false"}, False),
+            ("explicit_true", {"include_series": "true"}, True),
+        ]
+    )
+    def test_repo_overview_serializes_and_forwards_include_series(self, _name, params, expected) -> None:
+        # The weekly digest depends on this param actually reaching the facade — a rename or
+        # parse regression silently restores the full chart-query cost it exists to skip.
+        with mock.patch(f"{_VIEWS}.get_repo_overview", return_value=_repo_overview()) as get:
+            response = self.client.get(self._url("repo_overview"), params)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert get.call_args.kwargs["include_series"] is expected
+        data = response.json()
+        assert data["merged_pr_count"] == 42
+        assert data["merged_pr_count_prev"] == 40
+        assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
+        assert data["cost_series"] == []
+
+    def test_repo_overview_400_on_bad_include_series(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_repo_overview", return_value=_repo_overview()):
+            response = self.client.get(self._url("repo_overview"), {"include_series": "maybe"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "include_series" in response.json()["detail"]
+
+    def test_current_branch_health_serializes(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_current_branch_health", return_value=_current_branch_health()):
+            response = self.client.get(self._url("current_branch_health"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "default_branch": "main",
+            "settled_workflows": 101,
+            "failing_workflows": 1,
+            "failing_workflow_names": ["Low-volume failure"],
+        }
+
+    def test_repo_run_activity_serializes_and_forwards_branch(self) -> None:
+        result = contracts.WorkflowRunActivity(
+            points=[
+                contracts.WorkflowRunActivityPoint(
+                    run_id=9601,
+                    conclusion="success",
+                    run_started_at=datetime(2026, 1, 20, tzinfo=UTC),
+                    duration_seconds=180,
+                    head_branch="main",
+                    pr_number=0,
+                    head_sha="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+                )
+            ],
+            truncated=False,
+            limit=2000,
+        )
+        with mock.patch(f"{_VIEWS}.get_repo_run_activity", return_value=result) as get_activity:
+            response = self.client.get(self._url("repo_run_activity"), {"branch": "main"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["points"][0]["run_id"] == 9601
+        assert body["points"][0]["conclusion"] == "success"
+        assert get_activity.call_args.kwargs["branch"] == "main"
 
     def test_pr_lifecycle_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_pr_lifecycle", return_value=_pr_lifecycle()) as get:
@@ -216,16 +396,22 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_pr_lifecycle_400_when_pr_number_invalid(self) -> None:
-        response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "not-a-number"})
+    def test_resolve_branch_serializes(self) -> None:
+        matches = [
+            contracts.BranchPRMatch(repo="PostHog/posthog", number=42, title="Fix bug", state="merged"),
+            contracts.BranchPRMatch(repo="PostHog/posthog", number=7, title=None, state=None),
+        ]
+        with mock.patch(f"{_VIEWS}.resolve_branch", return_value=matches) as resolve:
+            response = self.client.get(self._url("resolve_branch"), {"branch": "feat/x", "repo": "PostHog/posthog"})
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_pr_lifecycle_400_when_repo_missing(self) -> None:
-        # repo is required (a PR number is repo-scoped), consistent with pr_runs/pr_cost.
-        response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "10"})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [(m["number"], m["repo"], m["title"], m["state"]) for m in body] == [
+            (42, "PostHog/posthog", "Fix bug", "merged"),
+            (7, "PostHog/posthog", None, None),
+        ]
+        assert resolve.call_args.kwargs["branch"] == "feat/x"
+        assert resolve.call_args.kwargs["repo"] == "PostHog/posthog"
 
     def test_workflow_run_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_workflow_run", return_value=_workflow_run()) as get:
@@ -246,11 +432,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_workflow_run_400_when_run_id_invalid(self) -> None:
-        response = self.client.get(self._url("workflow_run"), {"run_id": "not-a-number"})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
     def test_workflow_runs_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_runs", return_value=[_workflow_run()]) as listing:
             response = self.client.get(
@@ -265,11 +446,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert listing.call_args.kwargs["repo"] == "PostHog/posthog"
         # The detail page's branch scope must reach the read layer, or the runs list widens to all branches.
         assert listing.call_args.kwargs["branch"] == "main"
-
-    def test_workflow_runs_400_when_params_missing(self) -> None:
-        response = self.client.get(self._url("workflow_runs"), {"workflow_name": "CI"})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_workflow_runner_costs_passes_branch_through(self) -> None:
         # The cost breakdown shares the detail page's branch scope, so the branch must reach the read layer.
@@ -292,11 +468,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert listing.call_args.kwargs["pr_number"] == 9100
         assert listing.call_args.kwargs["repo"] == "PostHog/posthog"
 
-    def test_pr_runs_400_when_params_missing(self) -> None:
-        response = self.client.get(self._url("pr_runs"), {"pr_number": "10"})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
     def test_pr_cost_serializes(self) -> None:
         summary = contracts.PRCostSummary(
             jobs_available=True,
@@ -318,6 +489,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             by_run=[
                 contracts.RunCost(run_id=9100, run_attempt=1, billable_minutes=2510.0, estimated_cost_usd=61.2),
             ],
+            llm_spend=contracts.PRLLMSpend(cost_usd=1.5, input_tokens=1200, output_tokens=340, generations=4),
         )
         with mock.patch(f"{_VIEWS}.get_pr_cost", return_value=summary) as getter:
             response = self.client.get(self._url("pr_cost"), {"pr_number": "10", "repo": "PostHog/posthog"})
@@ -326,13 +498,14 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         body = response.json()
         assert body["billable_minutes"] == 2510.0 and body["unsettled_jobs"] == 2
         assert body["by_run"][0]["run_id"] == 9100 and body["by_run"][0]["estimated_cost_usd"] == 61.2
+        assert body["llm_spend"] == {
+            "cost_usd": 1.5,
+            "input_tokens": 1200,
+            "output_tokens": 340,
+            "generations": 4,
+        }
         assert getter.call_args.kwargs["pr_number"] == 10
         assert getter.call_args.kwargs["repo"] == "PostHog/posthog"
-
-    def test_pr_cost_400_when_params_missing(self) -> None:
-        response = self.client.get(self._url("pr_cost"), {"pr_number": "10"})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_workflow_jobs_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_jobs", return_value=[_workflow_job()]) as listing:
@@ -345,14 +518,24 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body[0]["runner_label"] == "16-core"
         assert listing.call_args.kwargs["run_id"] == 9100
 
-    def test_workflow_jobs_400_when_run_id_invalid(self) -> None:
-        response = self.client.get(self._url("workflow_jobs"), {"run_id": "nope"})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_pr_lifecycle_400_on_malformed_repo(self) -> None:
-        # Bare org (no '/name') would otherwise silently match the wrong repo.
-        response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "10", "repo": "PostHog"})
+    @parameterized.expand(
+        [
+            ("pr_lifecycle_pr_number_invalid", "pr_lifecycle", {"pr_number": "not-a-number"}),
+            # repo is required (a PR number is repo-scoped), consistent with pr_runs/pr_cost.
+            ("pr_lifecycle_repo_missing", "pr_lifecycle", {"pr_number": "10"}),
+            # Bare org (no '/name') would otherwise silently match the wrong repo.
+            ("pr_lifecycle_repo_malformed", "pr_lifecycle", {"pr_number": "10", "repo": "PostHog"}),
+            ("resolve_branch_branch_missing", "resolve_branch", {}),
+            ("workflow_run_run_id_invalid", "workflow_run", {"run_id": "not-a-number"}),
+            ("workflow_runs_repo_missing", "workflow_runs", {"workflow_name": "CI"}),
+            ("pr_runs_repo_missing", "pr_runs", {"pr_number": "10"}),
+            ("pr_cost_repo_missing", "pr_cost", {"pr_number": "10"}),
+            ("workflow_jobs_run_id_invalid", "workflow_jobs", {"run_id": "nope"}),
+        ]
+    )
+    def test_bad_params_400(self, _name: str, action: str, params: dict[str, str]) -> None:
+        # Each action carries its own ValueError guard, so every action keeps a row here.
+        response = self.client.get(self._url(action), params)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -362,9 +545,27 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
 
-    @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
+    def test_workflow_health_400_on_invalid_run_scope(self) -> None:
+        # A typo'd scope must 400, not silently return the all-runs population as a 200.
+        response = self.client.get(self._url("workflow_health"), {"run_scope": "bogus"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "run_scope must be one of" in response.json()["detail"]
+
+    @parameterized.expand(["sources", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:
+        # permission_classes live once on the shared viewset base and per-action scope drift is
+        # TestScopeEnrollment's job, so one read and one write action prove the wiring.
         self.client.logout()
         response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_requires_rollout_feature_flag(self) -> None:
+        # The whole viewset is gated on the engineering-analytics rollout flag (which the
+        # conftest fixture enables); with the flag off, every endpoint must 403.
+        with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(self._url("sources"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "engineering-analytics" in response.json()["detail"]

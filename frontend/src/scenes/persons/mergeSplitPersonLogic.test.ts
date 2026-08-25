@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -31,6 +33,9 @@ describe('mergeSplitPersonLogic', () => {
         })
         initKeaTests()
 
+        // execute() reports through eventUsageLogic, which must be mounted (in the app it always is)
+        eventUsageLogic.mount()
+
         personsLogicInstance = personsLogic({ syncWithUrl: true, urlId: URL_DISTINCT_ID })
         personsLogicInstance.mount()
 
@@ -38,9 +43,13 @@ describe('mergeSplitPersonLogic', () => {
         logic.mount()
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+        // Drain in-flight execute() calls before unmounting so their success path
+        // doesn't dispatch into an unmounted logic
+        await expectLogic(logic).toFinishAllListeners()
         logic.unmount()
         personsLogicInstance.unmount()
+        eventUsageLogic.unmount()
     })
 
     describe('cancel', () => {

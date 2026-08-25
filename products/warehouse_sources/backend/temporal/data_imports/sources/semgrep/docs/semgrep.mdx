@@ -1,0 +1,76 @@
+---
+title: Linking Semgrep as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Semgrep
+---
+
+<!--
+This is the user-facing posthog.com source doc. It lives here only because no posthog.com
+checkout was available when the source was implemented. Move it to
+`posthog.com/contents/docs/cdp/sources/semgrep.mdx` and delete this copy, then run
+`python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
+-->
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Semgrep](https://semgrep.dev) is a static analysis and application security platform that scans your
+repositories for code (SAST) findings, supply chain (SCA) vulnerabilities, and leaked secrets. Linking
+it as a source syncs your deployment, projects, and findings history into the PostHog Data warehouse so
+you can trend your vulnerability backlog, fix rates, and scan coverage alongside your product data.
+
+## Prerequisites
+
+To connect Semgrep, you need:
+
+- A Semgrep AppSec Platform account on a **Team or Enterprise** plan (the web API isn't available on
+  the free tier).
+- An API token created under **Settings → Tokens** with the **Web API** scope.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+1. Open [Semgrep AppSec Platform](https://semgrep.dev) and go to **Settings → Tokens**.
+2. Create a new token and make sure the **Web API** scope is selected.
+3. Copy the token and paste it into the **API token** field in PostHog.
+
+The token is scoped to a single Semgrep deployment (organization); PostHog syncs the data of the
+deployment the token can access.
+
+## Sync modes
+
+<SyncModes />
+
+Semgrep's API has no server-side "updated since" filter (findings' statuses and triage states change
+without moving their detection timestamp), so every table syncs as a **full refresh** — each sync
+re-reads the resource and merges on the primary key. Findings are deduplicated across refs/branches
+(`dedup=true`) so row counts match the Semgrep UI.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+Rows in the `projects`, `sast_findings`, `sca_findings`, and `secrets` tables carry an extra
+`deployment_id` and `deployment_slug` column added by PostHog so you can join them back to the
+`deployments` table.
+
+## Troubleshooting
+
+- **"Invalid Semgrep API token"** when connecting: the token is wrong, has been revoked, or is missing
+  the **Web API** scope. Create a new token under **Settings → Tokens** and re-enter it.
+- **Sync fails with a 403**: your plan may not include API access to a synced resource (for example,
+  the `secrets` table requires the Semgrep Secrets product). Deselect the affected table or upgrade
+  your Semgrep plan.
+
+<TroubleshootingLink />

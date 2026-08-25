@@ -1,18 +1,22 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { evaluationReportLogic } from '../evaluationReportLogic'
 import type { EvaluationReportRun } from '../types'
-import { EvaluationReportViewer } from './EvaluationReportViewer'
+import { EvaluationReportViewer, summarizeEvaluationReportResults } from './EvaluationReportViewer'
 
 interface EvaluationReportsTabProps {
     evaluationId: string
+    userAccessLevel?: AccessControlLevel
     /** Called when the user clicks the "Set up scheduled reports" CTA in the empty state. */
-    onConfigureClick?: () => void
+    onConfigureClick: () => void
 }
 
 const STATUS_STYLES: Record<
@@ -20,12 +24,17 @@ const STATUS_STYLES: Record<
     { label: string; type: 'success' | 'warning' | 'danger' | 'muted' }
 > = {
     delivered: { label: 'Delivered', type: 'success' },
+    generated: { label: 'Generated', type: 'success' },
     pending: { label: 'Pending', type: 'muted' },
     partial_failure: { label: 'Partial failure', type: 'warning' },
     failed: { label: 'Failed', type: 'danger' },
 }
 
-export function EvaluationReportsTab({ evaluationId, onConfigureClick }: EvaluationReportsTabProps): JSX.Element {
+export function EvaluationReportsTab({
+    evaluationId,
+    userAccessLevel,
+    onConfigureClick,
+}: EvaluationReportsTabProps): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
     const { reportRuns, reportRunsLoading, reportsLoading, activeReport, generateResultLoading } = useValues(logic)
     const { generateReport, loadReportRuns } = useActions(logic)
@@ -41,11 +50,9 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         Scheduled reports deliver AI-generated analysis of this evaluation's results to email or Slack
                         on a recurring basis.
                     </p>
-                    {onConfigureClick && (
-                        <LemonButton type="primary" onClick={onConfigureClick}>
-                            Set up scheduled reports
-                        </LemonButton>
-                    )}
+                    <LemonButton type="primary" onClick={onConfigureClick}>
+                        Set up scheduled reports
+                    </LemonButton>
                 </div>
             </div>
         )
@@ -53,13 +60,14 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
 
     return (
         <div className="max-w-6xl">
-            <div className="flex items-center justify-between mb-4">
-                <p className="text-muted text-sm m-0">
+            <div className="flex items-start justify-between gap-6 mb-4">
+                <p className="min-w-0 text-muted text-sm m-0">
                     History of AI-generated reports for this evaluation. Click a row to expand the full report. Schedule
-                    and delivery targets are configured in the Configuration tab.
+                    and delivery targets are configured in the <Link onClick={onConfigureClick}>Configuration tab</Link>
+                    .
                 </p>
                 {activeReport && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                         <LemonButton
                             type="secondary"
                             size="small"
@@ -68,14 +76,20 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         >
                             Refresh
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => generateReport(activeReport.id)}
-                            loading={generateResultLoading}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Evaluation}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={userAccessLevel}
                         >
-                            Generate now
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => generateReport(activeReport.id)}
+                                loading={generateResultLoading}
+                            >
+                                Generate now
+                            </LemonButton>
+                        </AccessControlAction>
                     </div>
                 )}
             </div>
@@ -100,11 +114,14 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         ),
                     },
                     {
-                        title: 'Pass rate',
-                        key: 'pass_rate',
+                        title: 'Results',
+                        key: 'results',
                         render: (_, run: EvaluationReportRun) => {
-                            const pct = run.content?.metrics?.pass_rate ?? run.metadata?.pass_rate
-                            return typeof pct === 'number' ? `${pct.toFixed(1)}%` : '–'
+                            if (run.content?.generation_status === 'metrics_unavailable') {
+                                return 'Metrics unavailable'
+                            }
+                            const metrics = run.content?.metrics ?? run.metadata
+                            return metrics ? summarizeEvaluationReportResults(metrics) : '–'
                         },
                     },
                     {

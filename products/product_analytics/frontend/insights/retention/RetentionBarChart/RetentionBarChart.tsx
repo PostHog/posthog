@@ -6,8 +6,6 @@ import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -19,14 +17,13 @@ import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
-import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import {
     buildRetentionBarChartConfig,
     buildRetentionSeries,
     type RetentionSeriesMeta,
     type RetentionTrendSeriesEntry,
 } from '../shared/retentionChartTransforms'
-import { RetentionTooltip } from '../shared/RetentionTooltip'
 
 interface RetentionBarChartProps {
     inSharedMode?: boolean
@@ -55,9 +52,6 @@ function resolveGroupTypeLabel(
 
 export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
     const theme = useChartTheme()
 
     const {
@@ -67,8 +61,10 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
         labelGroupType,
         shouldShowMeanPerBreakdown,
         xAxisLabels,
+        getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
+    const { canOpenPersonModal } = useValues(retentionModalLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
@@ -76,15 +72,16 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
     const isIntervalView = selectedInterval !== null
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
-    const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
+    const canClick = !shouldShowMeanPerBreakdown && !inSharedMode && canOpenPersonModal
 
     // Legacy parity: in-progress stroke is line-only.
     const series = useMemo(
         () =>
             buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
                 isIntervalView,
+                getColor: (entry, index) => getRetentionColor(entry.rawBreakdownValue, index),
             }),
-        [filteredTrendSeries, isIntervalView]
+        [filteredTrendSeries, isIntervalView, getRetentionColor]
     )
 
     const groupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
@@ -106,42 +103,25 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<RetentionSeriesMeta>) => {
-            if (quillTooltipEnabled) {
-                const altTitle =
-                    selectedInterval !== null
-                        ? `${period ?? ''} ${selectedInterval}`
-                        : (xAxisLabels[ctx.dataIndex] ?? ctx.label)
-                return (
-                    <InsightSeriesTooltip
-                        context={ctx}
-                        altTitle={altTitle}
-                        renderCount={(value) =>
-                            isPercentage ? `${roundToDecimal(value)}%` : `${roundToDecimal(value)}`
-                        }
-                        renderSeriesOverride={(datum) => {
-                            const showCohortPrefix = selectedInterval !== null || !shouldShowMeanPerBreakdown
-                            return showCohortPrefix ? `Cohort ${datum.label ?? ''}` : (datum.label ?? '')
-                        }}
-                        groupTypeLabel={groupTypeLabel}
-                        onRowClick={canClick ? onRowClick : undefined}
-                    />
-                )
-            }
+            const altTitle =
+                selectedInterval !== null
+                    ? `${period ?? ''} ${selectedInterval}`
+                    : (xAxisLabels[ctx.dataIndex] ?? ctx.label)
             return (
-                <RetentionTooltip
+                <InsightSeriesTooltip
                     context={ctx}
-                    xAxisLabels={xAxisLabels}
-                    period={period}
-                    selectedInterval={selectedInterval}
-                    shouldShowMeanPerBreakdown={shouldShowMeanPerBreakdown}
-                    isPercentage={isPercentage}
+                    altTitle={altTitle}
+                    renderCount={(value) => (isPercentage ? `${roundToDecimal(value)}%` : `${roundToDecimal(value)}`)}
+                    renderSeriesOverride={(datum) => {
+                        const showCohortPrefix = selectedInterval !== null || !shouldShowMeanPerBreakdown
+                        return showCohortPrefix ? `Cohort ${datum.label ?? ''}` : (datum.label ?? '')
+                    }}
                     groupTypeLabel={groupTypeLabel}
                     onRowClick={canClick ? onRowClick : undefined}
                 />
             )
         },
         [
-            quillTooltipEnabled,
             xAxisLabels,
             period,
             selectedInterval,
@@ -171,8 +151,8 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
     const barConfig = useChartConfig(
-        () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: TOOLTIP_CONFIG }),
-        [isPercentage, goalLines, series, TOOLTIP_CONFIG]
+        () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: INSIGHT_TOOLTIP_CONFIG }),
+        [isPercentage, goalLines, series]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

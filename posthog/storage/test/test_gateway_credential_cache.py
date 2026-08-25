@@ -76,7 +76,7 @@ class GatewayCredentialTestMixin(BaseTest):
     ) -> OAuthAccessToken:
         token = token or f"pha_{generate_random_token()}"
         app = OAuthApplication.objects.create(
-            name="PostHog Code",
+            name="PostHog Desktop",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",

@@ -8,9 +8,15 @@ import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'
-import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
+import {
+    CDP_TEST_ID,
+    createAddLogFunction,
+    getSensitiveValues,
+    isSegmentPluginHogFunction,
+    redactSensitiveValues,
+} from '../utils'
+import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',
@@ -38,6 +44,44 @@ export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'>
     headers: Headers & {
         toJSON: () => Record<string, string>
     }
+}
+
+// Guards against recursing into a cyclic or pathologically deep payload
+const MAX_OMIT_EMPTY_VALUES_DEPTH = 10
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false
+    }
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === Object.prototype || prototype === null
+}
+
+/**
+ * Recursively drops keys whose value is null, undefined or an empty string.
+ * Only plain objects are traversed so things like Date instances survive intact.
+ */
+const omitEmptyValues = (value: unknown, depth = 0): unknown => {
+    if (depth >= MAX_OMIT_EMPTY_VALUES_DEPTH) {
+        return value
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => omitEmptyValues(item, depth + 1))
+    }
+
+    if (!isPlainObject(value)) {
+        return value
+    }
+
+    const result: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value)) {
+        if (item === null || item === undefined || item === '') {
+            continue
+        }
+        result[key] = omitEmptyValues(item, depth + 1)
+    }
+    return result
 }
 
 const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: string): ModifiedResponse<Data> => {
@@ -130,6 +174,7 @@ export class SegmentDestinationExecutorService {
 
             // All segment options are done as inputs
             const config = invocation.state.globals.inputs
+            const sensitiveValues = getSensitiveValues(invocation.hogFunction, config)
 
             if (config.debug_mode) {
                 addLog('debug', 'config', config)
@@ -182,6 +227,10 @@ export class SegmentDestinationExecutorService {
                             if (id === null || id === '') {
                                 jsonData = rest
                             }
+                        }
+
+                        if (config.internal_omit_empty_values) {
+                            jsonData = omitEmptyValues(jsonData) as typeof jsonData
                         }
 
                         body = JSON.stringify(jsonData)
@@ -251,6 +300,8 @@ export class SegmentDestinationExecutorService {
                         url,
                         fetchParams: fetchOptions,
                         templateId: invocation.hogFunction.template_id ?? '',
+                        teamId: invocation.teamId,
+                        hogFunctionId: invocation.hogFunction.id,
                     })
 
                     const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
@@ -265,11 +316,18 @@ export class SegmentDestinationExecutorService {
                         ) {
                             retriesPossible = false
                         }
+                        // Only the copies that get surfaced are masked. The destination's own code
+                        // still receives the raw body below, so it can branch on what came back.
+                        const reportableResponseText = redactSensitiveValues(
+                            fetchResponseText ?? 'unknown',
+                            sensitiveValues
+                        )
+
                         addLog(
                             'warn',
-                            `HTTP request failed with status ${fetchResponse?.status} (${
-                                fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
+                            `HTTP request failed with status ${
+                                fetchResponse?.status
+                            } (${reportableResponseText}). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
                         // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
@@ -277,9 +335,7 @@ export class SegmentDestinationExecutorService {
                             throw new SegmentFetchError(
                                 `Error executing function on event ${
                                     invocation.state.globals.event.uuid
-                                }: Request failed with status ${fetchResponse?.status} (${
-                                    fetchResponseText ?? 'unknown'
-                                })`
+                                }: Request failed with status ${fetchResponse?.status} (${reportableResponseText})`
                             )
                         }
                     }

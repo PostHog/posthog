@@ -16,7 +16,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.models import DashboardPrivilege
@@ -679,6 +679,8 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
 
         self.maxDiff = None
         assert activity == expected

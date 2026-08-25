@@ -3,18 +3,22 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
+from temporalio.exceptions import CancelledError
+
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.facade.pipelines import LOCK_TAKEOVER_LATEST_ERROR
 
 pytestmark = [
     pytest.mark.django_db,
 ]
 
 
-def _create_org_team_source_schema_job() -> tuple[Team, ExternalDataSource, ExternalDataSchema, ExternalDataJob]:
+def _create_org_team_source_schema_job(
+    pipeline_version: ExternalDataJob.PipelineVersion | None = None,
+) -> tuple[Team, ExternalDataSource, ExternalDataSchema, ExternalDataJob]:
     org = Organization.objects.create(name="Test Org")
     team = Team.objects.create(organization=org, name="Test Team")
     source = ExternalDataSource.objects.create(
@@ -32,6 +36,7 @@ def _create_org_team_source_schema_job() -> tuple[Team, ExternalDataSource, Exte
         schema=schema,
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=100,
+        pipeline_version=pipeline_version,
     )
     return team, source, schema, job
 
@@ -174,8 +179,8 @@ class TestUpdateExternalJobStatus:
         with (
             patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
             patch(
-                "products.data_warehouse.backend.logic.external_data_source.jobs.send_external_data_failure_digest_task"
-            ) as mock_notify_task,
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ) as mock_schedule_digest,
         ):
             update_external_job_status(
                 job_id=str(job.id),
@@ -186,11 +191,9 @@ class TestUpdateExternalJobStatus:
             )
 
         if expect_notify:
-            mock_notify_task.apply_async.assert_called_once()
-            assert mock_notify_task.apply_async.call_args.kwargs["args"] == [team.pk]
-            assert mock_notify_task.apply_async.call_args.kwargs["countdown"] > 0
+            mock_schedule_digest.assert_called_once_with(team.pk)
         else:
-            mock_notify_task.apply_async.assert_not_called()
+            mock_schedule_digest.assert_not_called()
 
     def test_failure_notification_not_repeated_on_retried_terminal_transition(self):
         team, _source, _schema, job = _create_org_team_source_schema_job()
@@ -198,8 +201,8 @@ class TestUpdateExternalJobStatus:
         with (
             patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
             patch(
-                "products.data_warehouse.backend.logic.external_data_source.jobs.send_external_data_failure_digest_task"
-            ) as mock_notify_task,
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ) as mock_schedule_digest,
         ):
             for _ in range(2):
                 update_external_job_status(
@@ -210,7 +213,7 @@ class TestUpdateExternalJobStatus:
                     latest_error="boom",
                 )
 
-        mock_notify_task.apply_async.assert_called_once()
+        mock_schedule_digest.assert_called_once()
 
     def test_failed_digest_scheduling_error_does_not_fail_status_update(self):
         team, _source, _schema, job = _create_org_team_source_schema_job()
@@ -218,10 +221,10 @@ class TestUpdateExternalJobStatus:
         with (
             patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
             patch(
-                "products.data_warehouse.backend.logic.external_data_source.jobs.send_external_data_failure_digest_task"
-            ) as mock_notify_task,
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ) as mock_schedule_digest,
         ):
-            mock_notify_task.apply_async.side_effect = Exception("broker down")
+            mock_schedule_digest.side_effect = Exception("broker down")
             updated = update_external_job_status(
                 job_id=str(job.id),
                 team_id=team.pk,
@@ -266,6 +269,35 @@ class TestUpdateExternalJobStatus:
         expected_error = "first error" if first_status == ExternalDataJob.Status.FAILED else None
         assert db_job.latest_error == expected_error
 
+    def test_terminal_error_not_clobbered_by_later_cancelled_finalization(self):
+        # A schema auto-disable force-fails a still-running sibling job with the real reason, then
+        # cancels its workflow; Temporal re-finalizes that job as FAILED with a bare "Cancelled".
+        # That later same-status write must not overwrite the actionable error on the job or schema.
+        team, _source, schema, job = _create_org_team_source_schema_job()
+
+        with patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error="Tenant or user not found",
+            )
+
+            updated = update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error="Cancelled",
+            )
+
+        assert updated.latest_error == "Tenant or user not found"
+        db_job = ExternalDataJob.objects.get(id=job.id)
+        assert db_job.latest_error == "Tenant or user not found"
+        schema.refresh_from_db()
+        assert schema.latest_error == "Tenant or user not found"
+
     def test_completed_after_lock_takeover_failure_is_allowed(self):
         # A job force-failed by lock takeover while the loader was still working its run
         # must accept the loader's completion instead of rejecting Failed -> Completed.
@@ -300,6 +332,37 @@ class TestUpdateExternalJobStatus:
         assert schema.status == ExternalDataSchema.Status.COMPLETED
         assert schema.latest_error is None
 
+    @pytest.mark.parametrize(
+        "halting_marker",
+        [
+            {"cdc_broken": {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}},
+            {"cdc_extraction_paused": {"reason": "auth_failed", "at": "2026-06-29T10:40:00+00:00"}},
+        ],
+    )
+    def test_cdc_halted_schema_status_is_not_overwritten(self, halting_marker):
+        # A loader finishing an in-flight batch after `mark_cdc_broken` (or after a non-retryable
+        # error paused extraction) must not repaint the schema healthy while syncing is stopped —
+        # the job completes, the schema stays FAILED until the marker is cleared.
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.sync_type_config = halting_marker
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.latest_error = "The replication slot no longer exists on the source database."
+        schema.save()
+
+        with patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"):
+            updated = update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
+                latest_error=None,
+            )
+
+        assert updated.status == ExternalDataJob.Status.COMPLETED
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        assert schema.latest_error == "The replication slot no longer exists on the source database."
+
     def test_rejected_transition_does_not_overwrite_schema_status(self):
         team, _source, schema, job = _create_org_team_source_schema_job()
 
@@ -326,3 +389,179 @@ class TestUpdateExternalJobStatus:
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.COMPLETED
         assert schema.latest_error is None
+
+
+class TestFinalizeQueueSweep:
+    @pytest.mark.parametrize(
+        "status",
+        [
+            ExternalDataJob.Status.FAILED,
+            ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+            ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW,
+        ],
+    )
+    def test_v3_risky_terminal_sweeps_queue_batches(self, status, django_capture_on_commit_callbacks):
+        # Any non-Completed terminal can leave enqueued batches behind; the sweep must fire
+        # after commit or the batches stay claimable until the retention prune.
+        team, _source, _schema, job = _create_org_team_source_schema_job(
+            pipeline_version=ExternalDataJob.PipelineVersion.V3
+        )
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs._sweep_v3_queue_batches"
+            ) as mock_sweep,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=status,
+                logger=MagicMock(),
+                latest_error="boom",
+            )
+
+        mock_sweep.assert_called_once()
+        assert mock_sweep.call_args.kwargs["job_id"] == str(job.id)
+
+    @pytest.mark.parametrize(
+        "pipeline_version,status",
+        [
+            # A normally-completed v3 run has drained its queue by construction; the fleet's
+            # hottest status write must not gain a cross-DB call.
+            (ExternalDataJob.PipelineVersion.V3, ExternalDataJob.Status.COMPLETED),
+            # v1/v2 have no batch queue at all.
+            (ExternalDataJob.PipelineVersion.V2, ExternalDataJob.Status.FAILED),
+            (ExternalDataJob.PipelineVersion.V1, ExternalDataJob.Status.FAILED),
+            (None, ExternalDataJob.Status.FAILED),
+        ],
+    )
+    def test_no_queue_sweep_for_normal_completion_or_non_v3(
+        self, pipeline_version, status, django_capture_on_commit_callbacks
+    ):
+        team, _source, _schema, job = _create_org_team_source_schema_job(pipeline_version=pipeline_version)
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs._sweep_v3_queue_batches"
+            ) as mock_sweep,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=status,
+                logger=MagicMock(),
+                latest_error="boom" if status == ExternalDataJob.Status.FAILED else None,
+            )
+
+        mock_sweep.assert_not_called()
+
+    def test_takeover_recovery_completed_flip_sweeps_queue_batches(self, django_capture_on_commit_callbacks):
+        # Failed -> Completed after lock takeover is the one Completed write that can leave
+        # batches behind: a producer may have enqueued after the takeover's own sweep.
+        team, _source, _schema, job = _create_org_team_source_schema_job(
+            pipeline_version=ExternalDataJob.PipelineVersion.V3
+        )
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs._sweep_v3_queue_batches"
+            ) as mock_sweep,
+        ):
+            with django_capture_on_commit_callbacks(execute=True):
+                update_external_job_status(
+                    job_id=str(job.id),
+                    team_id=team.pk,
+                    status=ExternalDataJob.Status.FAILED,
+                    logger=MagicMock(),
+                    latest_error=LOCK_TAKEOVER_LATEST_ERROR,
+                )
+            mock_sweep.reset_mock()
+
+            with django_capture_on_commit_callbacks(execute=True):
+                update_external_job_status(
+                    job_id=str(job.id),
+                    team_id=team.pk,
+                    status=ExternalDataJob.Status.COMPLETED,
+                    logger=MagicMock(),
+                    latest_error=None,
+                )
+
+        mock_sweep.assert_called_once()
+        assert mock_sweep.call_args.kwargs["status"] == ExternalDataJob.Status.COMPLETED
+
+    def test_queue_sweep_error_does_not_fail_status_update(self, django_capture_on_commit_callbacks):
+        # The queue is a separate physical Postgres; an outage there must never fail or roll
+        # back the status write the sweep rides on.
+        team, _source, _schema, job = _create_org_team_source_schema_job(
+            pipeline_version=ExternalDataJob.PipelineVersion.V3
+        )
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs._sweep_v3_queue_batches",
+                side_effect=Exception("queue db down"),
+            ) as mock_sweep,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error="boom",
+            )
+
+        mock_sweep.assert_called_once()
+        db_job = ExternalDataJob.objects.get(id=job.id)
+        assert db_job.status == ExternalDataJob.Status.FAILED
+        assert db_job.finished_at is not None
+
+    def test_queue_sweep_cancellation_propagates_instead_of_being_reported(self, django_capture_on_commit_callbacks):
+        # Temporal can inject a CancelledError into the sweep's thread when the activity that
+        # triggered this status write is itself cancelled mid-sweep. That must propagate so the
+        # caller's own cancellation handling runs, not get swallowed and reported as a sweep bug.
+        team, _source, _schema, job = _create_org_team_source_schema_job(
+            pipeline_version=ExternalDataJob.PipelineVersion.V3
+        )
+
+        with (
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs.schedule_external_data_failure_digest"
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.external_data_source.jobs._sweep_v3_queue_batches",
+                side_effect=CancelledError("Cancelled"),
+            ) as mock_sweep,
+            patch("products.data_warehouse.backend.logic.external_data_source.jobs.capture_exception") as mock_capture,
+            pytest.raises(CancelledError),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error="boom",
+            )
+
+        mock_sweep.assert_called_once()
+        mock_capture.assert_not_called()

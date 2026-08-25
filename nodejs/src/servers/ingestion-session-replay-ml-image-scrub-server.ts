@@ -3,9 +3,14 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
+import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dead-letter-sink'
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
+import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
@@ -32,12 +37,21 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
         autoCommit: true,
         autoOffsetStore: false,
         callEachBatchWhenEmpty: true,
+        // Far below the 500 default, because this lane's batch has no time limit: a busy sidecar is
+        // waited on rather than dropped, so batch duration is set by how many images it holds. A
+        // batch that outlives max.poll.interval.ms (300s) gets the pod evicted mid-batch, and that
+        // is not a clean retry: the evicted pod loses the offsets for work it already did, and the
+        // partition lands on a pod whose sidecar is just as busy and redoes the same images, so
+        // offered load rises while throughput falls. Set here rather than as a deployment value so
+        // the bound cannot drift away from the design that needs it.
+        fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE,
     }
 }
 
 export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
+    private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -65,13 +79,35 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX,
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS
         )
+        // The lane's own producer slot, not the generic one. It is on the replay cluster that holds
+        // the source topic and carries this lane's message.max.bytes, and a parked image is an
+        // original of the same size as the source message. The generic slot points at a different
+        // cluster with librdkafka's 1 MB default, where every park of a normal image would fail
+        // non-retriably.
+        const dlqTopic = this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC
+        let deadLetters: KafkaDeadLetterSink | null = null
+        if (dlqTopic) {
+            this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+            deadLetters = new KafkaDeadLetterSink(
+                this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER),
+                dlqTopic
+            )
+        }
+        // Built after, because whether a dead-letter destination exists changes what the client does
+        // with an image it cannot get scrubbed: park it, or keep waiting on it forever. Clearing the
+        // topic is therefore the rollback, and it reverts to the documented waiting behaviour rather
+        // than to producing at an empty topic name.
         const scrubClient = new ScrubClient(
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL,
             this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS,
-            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES
+            deadLetters !== null
         )
 
-        const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config))
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config), {
+            'fetch.message.max.bytes': maximumRecordBytes,
+            'max.partition.fetch.bytes': maximumRecordBytes,
+        })
         const batcher = new ImageBatcher(
             store,
             consumer,
@@ -81,9 +117,10 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
                 maxImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES,
                 maxBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES,
                 scrubConcurrency: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY,
-                maxBatchScrubMs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS,
+                dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS,
             },
-            Date.now()
+            Date.now(),
+            deadLetters
         )
         await consumer.connect((messages) => {
             const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
@@ -92,10 +129,16 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-scrub',
-            // disconnect() stops the poll loop and commits stored offsets. The un-flushed buffer's offsets were
-            // never stored, so those messages just replay on restart — a final flush here would only race the
-            // still-running loop over the shared buffer.
-            onShutdown: () => consumer.disconnect(),
+            // batcher.stop() first: disconnect() waits on the running batch, and a batch waiting on an
+            // unresponsive sidecar never returns, so without the interrupt a graceful stop runs to the
+            // termination grace period and ends in a SIGKILL. Then disconnect() stops the poll loop and
+            // commits stored offsets. The un-flushed buffer's offsets were never stored, so those
+            // messages just replay on restart — a final flush here would only race the still-running
+            // loop over the shared buffer.
+            onShutdown: async () => {
+                batcher.stop()
+                await consumer.disconnect()
+            },
             healthcheck: () => consumer.isHealthy(),
         })
     }
@@ -103,6 +146,7 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
+            additionalCleanup: () => this.producerRegistry?.disconnectAll(),
             redisPools: [],
         }
     }

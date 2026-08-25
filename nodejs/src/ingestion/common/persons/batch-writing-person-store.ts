@@ -22,6 +22,8 @@ import {
 import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property-utils'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
 import {
+    InternalPersonWithDistinctId,
+    LifecycleMarkPerson,
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
@@ -38,7 +40,13 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { PersonOutputs } from './person-context'
-import { getMetricKey } from './person-update'
+import {
+    EventOps,
+    applyEventPropertyUpdates,
+    computeOpsScalarUpdates,
+    getMetricKey,
+    refineEventOps,
+} from './person-update'
 import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
@@ -52,12 +60,18 @@ type MethodName =
     | 'updatePersonWithPropertiesDiffForUpdate'
     | 'updatePersonForMerge'
     | 'deletePerson'
+    | 'deletePersons'
+    | 'claimLifecycleMarks'
+    | 'releaseLifecycleMarks'
+    | 'isPersonLive'
     | 'addDistinctId'
     | 'moveDistinctIds'
+    | 'moveDistinctIdsFromPersons'
+    | 'fetchPersonsForUpdateByDistinctIds'
+    | 'countDistinctIdsForPersons'
     | 'fetchPersonDistinctIds'
     | 'updateCohortsAndFeatureFlagsForMerge'
-    | 'addPersonlessDistinctId'
-    | 'addPersonlessDistinctIdForMerge'
+    | 'updateCohortsAndFeatureFlagsForMergeBatch'
     | 'addPersonUpdateToBatch'
 
 type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert'
@@ -118,7 +132,6 @@ class BatchWritingPersonsCache {
     private personCheckCache = new Map<string, InternalPerson | null>()
     private distinctIdToPersonId = new Map<string, string>()
     private personUpdateCache = new Map<string, PersonUpdate | null>()
-    private personlessBatchResults = new Map<string, boolean>()
     private batchDistinctKeys = new Map<number, Set<string>>()
     private distinctKeyRefCount = new Map<string, number>()
     private deferredEvictions = new Set<string>()
@@ -145,10 +158,6 @@ class BatchWritingPersonsCache {
 
     getDistinctIdToPersonIdCache(): Map<string, string> {
         return this.distinctIdToPersonId
-    }
-
-    getPersonlessBatchResultsCache(): Map<string, boolean> {
-        return this.personlessBatchResults
     }
 
     getBatchDistinctKeys(): Map<number, Set<string>> {
@@ -331,14 +340,6 @@ class BatchWritingPersonsCache {
         this.personCheckCache.delete(cacheKey)
     }
 
-    setPersonlessBatchResult(teamId: number, distinctId: string, value: boolean): void {
-        this.personlessBatchResults.set(this.getDistinctCacheKey(teamId, distinctId), value)
-    }
-
-    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
-        return this.personlessBatchResults.get(this.getDistinctCacheKey(teamId, distinctId))
-    }
-
     releaseBatchId(batchId: number): void {
         const keys = this.batchDistinctKeys.get(batchId)
         if (this.pendingPrefetchesByBatchId.has(batchId)) {
@@ -432,7 +433,6 @@ class BatchWritingPersonsCache {
         }
 
         this.personCheckCache.delete(distinctKey)
-        this.personlessBatchResults.delete(distinctKey)
     }
 
     private mergeUpdateIntoCachedPersonUpdate(existingPersonUpdate: PersonUpdate, person: PersonUpdate): PersonUpdate {
@@ -514,11 +514,6 @@ class BatchBoundPersonsCache {
         this.cache.trackBatchEntry(this.batchId, teamId, distinctId)
         this.cache.setDistinctIdToPersonId(teamId, distinctId, personId)
     }
-
-    setPersonlessBatchResult(teamId: number, distinctId: string, value: boolean): void {
-        this.cache.trackBatchEntry(this.batchId, teamId, distinctId)
-        this.cache.setPersonlessBatchResult(teamId, distinctId, value)
-    }
 }
 
 /**
@@ -554,7 +549,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             personUpdateCache: { get: () => this.personCache.getUpdateCache() },
             personCheckCache: { get: () => this.personCache.getCheckCache() },
             distinctIdToPersonId: { get: () => this.personCache.getDistinctIdToPersonIdCache() },
-            personlessBatchResults: { get: () => this.personCache.getPersonlessBatchResultsCache() },
             batchDistinctKeys: { get: () => this.personCache.getBatchDistinctKeys() },
             distinctKeyRefCount: { get: () => this.personCache.getDistinctKeyRefCount() },
         })
@@ -788,17 +782,16 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             } else {
                 // Handle specific error types
                 if (result?.error instanceof PersonPropertiesSizeViolationError) {
-                    await emitIngestionWarning(
-                        this.ingestionWarningsOutputs,
-                        update.team_id,
-                        'person_properties_size_violation',
-                        {
-                            personId: update.id,
+                    await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
+                        type: 'person_properties_size_violation',
+                        details: {
+                            personId: update.uuid,
                             distinctId: update.distinct_id,
                             teamId: update.team_id,
                             message: 'Person properties exceeds size limit and was rejected',
-                        }
-                    )
+                        },
+                        pipelineStep: 'person-store',
+                    })
                     personWriteMethodAttemptCounter.inc({
                         db_write_mode: this.options.dbWriteMode,
                         method: 'batch',
@@ -999,15 +992,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private async handleIndividualUpdateError(error: unknown, update: PersonUpdate): Promise<FlushResult[]> {
         // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
         if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(
-                this.ingestionWarningsOutputs,
-                update.team_id,
-                'person_upsert_message_size_too_large',
-                {
-                    personId: update.id,
+            await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
+                type: 'person_upsert_message_size_too_large',
+                details: {
+                    personId: update.uuid,
                     distinctId: update.distinct_id,
-                }
-            )
+                },
+                pipelineStep: 'person-store',
+            })
             personWriteMethodAttemptCounter.inc({
                 db_write_mode: this.options.dbWriteMode,
                 method: this.options.dbWriteMode,
@@ -1017,17 +1009,16 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         if (error instanceof PersonPropertiesSizeViolationError) {
-            await emitIngestionWarning(
-                this.ingestionWarningsOutputs,
-                update.team_id,
-                'person_properties_size_violation',
-                {
-                    personId: update.id,
+            await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
+                type: 'person_properties_size_violation',
+                details: {
+                    personId: update.uuid,
                     distinctId: update.distinct_id,
                     teamId: update.team_id,
                     message: 'Person properties exceeds size limit and was rejected',
-                }
-            )
+                },
+                pipelineStep: 'person-store',
+            })
             personWriteMethodAttemptCounter.inc({
                 db_write_mode: this.options.dbWriteMode,
                 method: this.options.dbWriteMode,
@@ -1332,6 +1323,39 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId, batchId))
     }
 
+    async applyEventOps(
+        person: InternalPerson,
+        ops: EventOps,
+        distinctId: string,
+        batchId: number
+    ): Promise<[InternalPerson, PersonMessage[]]> {
+        person.properties ||= {}
+
+        // Snapshot refinement is this store's write-shape preparation:
+        // set_once resolves against current properties, sets are diffed,
+        // and the ignored-property rules classify the outcome. The
+        // intents refine here too — identification only transitions
+        // false→true, last-seen only advances.
+        const refined = refineEventOps(ops, person.properties, this.options.updateAllProperties)
+        const otherUpdates = computeOpsScalarUpdates(ops, person)
+
+        if (!refined.hasChanges && Object.keys(otherUpdates).length === 0) {
+            const [updatedPerson] = applyEventPropertyUpdates(refined, person)
+            return [updatedPerson, []]
+        }
+
+        const [updatedPerson, kafkaMessages] = await this.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            refined.toSet,
+            refined.toUnset,
+            otherUpdates,
+            distinctId,
+            batchId,
+            refined.shouldForceUpdate
+        )
+        return [updatedPerson, kafkaMessages]
+    }
+
     updatePersonWithPropertiesDiffForUpdate(
         person: InternalPerson,
         propertiesToSet: Properties,
@@ -1396,6 +1420,84 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return response
     }
 
+    async claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        this.incrementDatabaseOperation('claimLifecycleMarks', distinctId)
+        return await (tx || this.personRepository).claimLifecycleMarks(opId, teamId, persons)
+    }
+
+    async releaseLifecycleMarks(
+        opId: string,
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        this.incrementDatabaseOperation('releaseLifecycleMarks', distinctId)
+        return await (tx || this.personRepository).releaseLifecycleMarks(opId, teamId)
+    }
+
+    async isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
+        this.incrementDatabaseOperation('isPersonLive', distinctId)
+        return await (tx || this.personRepository).isPersonLive(person)
+    }
+
+    async fetchPersonsForUpdateByDistinctIds(
+        teamId: Team['id'],
+        distinctIds: string[],
+        batchId: number
+    ): Promise<InternalPersonWithDistinctId[]> {
+        if (distinctIds.length === 0) {
+            return []
+        }
+        this.incrementCount('fetchPersonsForUpdateByDistinctIds', distinctIds[0])
+        this.incrementDatabaseOperation('fetchPersonsForUpdateByDistinctIds', distinctIds[0])
+        const rows = await this.personRepository.fetchPersonsForUpdateByDistinctIds(
+            teamId,
+            distinctIds,
+            'ingestion/merge-fold'
+        )
+
+        // Populate the per-batch update cache so later events for these
+        // distinct ids in the same batch skip their own fetch.
+        const cache = this.personCache.obtainForBatchId(batchId)
+        for (const row of rows) {
+            const { distinct_id, ...person } = row
+            cache.setCachedPersonForUpdate(teamId, distinct_id, fromInternalPerson(person, distinct_id))
+        }
+
+        return rows
+    }
+
+    async deletePersons(
+        persons: InternalPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<PersonMessage[]> {
+        this.incrementCount('deletePersons', distinctId)
+        this.incrementDatabaseOperation('deletePersons', distinctId)
+        const start = performance.now()
+        const personsToDelete = persons.map((person) => {
+            const cachedPersonUpdate = this.getCachedPersonForUpdateByPersonId(person.team_id, person.id)
+            return cachedPersonUpdate ? toInternalPerson(cachedPersonUpdate) : person
+        })
+
+        const response = await (tx || this.personRepository).deletePersons(personsToDelete)
+        if (persons.length > 0) {
+            observeLatencyByVersion(persons[0], start, 'deletePersons')
+        }
+
+        for (const person of persons) {
+            this.clearAllCachesForPersonId(person.team_id, person.id)
+        }
+
+        return response
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,
@@ -1450,6 +1552,51 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return response
     }
 
+    async moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson,
+        distinctId: string,
+        tx: PersonRepositoryTransaction,
+        batchId: number
+    ): Promise<MoveDistinctIdsResult> {
+        this.incrementCount('moveDistinctIdsFromPersons', distinctId)
+        this.incrementDatabaseOperation('moveDistinctIdsFromPersons', distinctId)
+        const start = performance.now()
+        const response = await tx.moveDistinctIdsFromPersons(sources, target)
+        observeLatencyByVersion(target, start, 'moveDistinctIdsFromPersons')
+
+        for (const source of sources) {
+            this.clearAllCachesForPersonId(source.team_id, source.id)
+        }
+
+        // Mirror moveDistinctIds' target-cache handling for the triggering distinct id
+        const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
+        if (existingTargetCache) {
+            const mergedPersonUpdate = { ...existingTargetCache, distinct_id: distinctId }
+            this.setCachedPersonForUpdate(target.team_id, distinctId, mergedPersonUpdate, batchId)
+        } else {
+            this.setCachedPersonForUpdate(target.team_id, distinctId, fromInternalPerson(target, distinctId), batchId)
+        }
+        if (response.success) {
+            for (const movedDistinctId of response.distinctIdsMoved) {
+                this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
+            }
+        }
+
+        return response
+    }
+
+    async countDistinctIdsForPersons(
+        teamID: Team['id'],
+        personIds: InternalPerson['id'][],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<Map<string, number>> {
+        this.incrementCount('countDistinctIdsForPersons', distinctId)
+        this.incrementDatabaseOperation('countDistinctIdsForPersons', distinctId)
+        return await tx.countDistinctIdsForPersons(teamID, personIds)
+    }
+
     async fetchPersonDistinctIds(
         person: InternalPerson,
         distinctId: string,
@@ -1476,55 +1623,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         await (tx || this.personRepository).updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID)
     }
 
-    async addPersonlessDistinctId(teamId: Team['id'], distinctId: string, batchId: number): Promise<boolean> {
-        this.incrementCount('addPersonlessDistinctId', distinctId)
-        const isMerged = await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
-        // Cache the result so later events for this distinct ID in the same batch skip the insert.
-        this.personCache.obtainForBatchId(batchId).setPersonlessBatchResult(teamId, distinctId, isMerged)
-        return isMerged
-    }
-
-    async addPersonlessDistinctIdForMerge(
-        teamId: Team['id'],
+    async updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id'],
         distinctId: string,
-        tx: PersonRepositoryTransaction | undefined,
-        batchId: number
-    ): Promise<boolean> {
-        this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
-        const isMerged = await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
-        // Update the batch results cache so processPersonlessStep knows this was merged
-        if (isMerged) {
-            this.personCache.obtainForBatchId(batchId).setPersonlessBatchResult(teamId, distinctId, true)
-        }
-        return isMerged
-    }
-
-    async processPersonlessDistinctIdsBatch(
-        entries: { teamId: number; distinctId: string }[],
-        batchId: number
+        tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        if (entries.length === 0) {
-            return
-        }
-
-        const cache = this.personCache.obtainForBatchId(batchId)
-
-        const results = await this.personRepository.addPersonlessDistinctIdsBatch(entries)
-        // Only store merged distinct IDs - these need force_upgrade handling.
-        // Iterate entries (not result keys) to use the ':' cache key format consistently.
-        for (const { teamId, distinctId } of entries) {
-            if (results.get(`${teamId}|${distinctId}`)) {
-                cache.setPersonlessBatchResult(teamId, distinctId, true)
-            }
-        }
-    }
-
-    // Returns the cached merge result for a distinct ID inserted earlier this batch:
-    // true if the row was merged, false if addPersonlessDistinctId inserted it without a
-    // merge, undefined if no insert was recorded. The batch and forMerge paths only cache
-    // merged rows, so a non-merged insert from those paths also reads back as undefined.
-    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
-        return this.personCache.getPersonlessBatchResult(teamId, distinctId)
+        this.incrementCount('updateCohortsAndFeatureFlagsForMergeBatch', distinctId)
+        await (tx || this.personRepository).updateCohortsAndFeatureFlagsForMergeBatch(
+            teamID,
+            sourcePersonIDs,
+            targetPersonID
+        )
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {

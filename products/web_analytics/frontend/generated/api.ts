@@ -12,18 +12,27 @@ import type {
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    ApplyPathCleaningSuggestionResponseApi,
+    GeneratePathCleaningSuggestionResponseApi,
     HeatmapEventsResponseApi,
+    HeatmapPreflightRequestApi,
+    HeatmapPreflightResponseApi,
+    HeatmapPrewarmRequestApi,
     HeatmapScreenshotResponseApi,
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
     HeatmapsResponseApi,
+    LlmsTxtFetchRequestApi,
+    LlmsTxtFetchResponseApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
+    PreviewPathCleaningSuggestionResponseApi,
     RecordInteractionRequestApi,
     RecordInteractionResponseApi,
     RecordVisitResponseApi,
+    SavedHeatmapCaptureRequestApi,
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
@@ -269,6 +278,105 @@ export const savedRegenerateCreate = async (
     return apiMutator<HeatmapScreenshotResponseApi>(getSavedRegenerateCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSavedCaptureCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/capture/`
+}
+
+/**
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.
+ */
+export const savedCaptureCreate = async (
+    projectId: string,
+    savedHeatmapCaptureRequestApi: SavedHeatmapCaptureRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    const formData = new FormData()
+    if (savedHeatmapCaptureRequestApi.image !== undefined) {
+        formData.append(`image`, savedHeatmapCaptureRequestApi.image)
+    }
+    if (savedHeatmapCaptureRequestApi.width !== undefined) {
+        formData.append(`width`, savedHeatmapCaptureRequestApi.width.toString())
+    }
+    if (savedHeatmapCaptureRequestApi.images !== undefined) {
+        savedHeatmapCaptureRequestApi.images.forEach((value) => formData.append(`images`, value))
+    }
+    if (savedHeatmapCaptureRequestApi.widths !== undefined) {
+        savedHeatmapCaptureRequestApi.widths.forEach((value) => formData.append(`widths`, value.toString()))
+    }
+    formData.append(`url`, savedHeatmapCaptureRequestApi.url)
+    if (savedHeatmapCaptureRequestApi.name !== undefined) {
+        formData.append(`name`, savedHeatmapCaptureRequestApi.name)
+    }
+
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedCaptureCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getSavedPreflightCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/preflight/`
+}
+
+/**
+ * Fetch a page URL server-side and report whether it allows being embedded in the live preview iframe, plus the HTTP status it returned. The live preview loads the customer's site directly in their browser, so a site that sends X-Frame-Options or a restrictive frame-ancestors will never render, and a 4xx or 5xx from the site's own host or CDN leaves an empty frame with no explanation. This endpoint makes both cases explainable. The fetch comes from PostHog's own network rather than from the screenshot renderer, so a host that varies its response by IP or user agent can answer this differently than it answers a screenshot render. Settled verdicts are cached briefly, so repeat checks for the same URL do not refetch it.
+ * @summary Check whether a page can back a heatmap
+ */
+export const savedPreflightCreate = async (
+    projectId: string,
+    heatmapPreflightRequestApi: HeatmapPreflightRequestApi,
+    options?: RequestInit
+): Promise<HeatmapPreflightResponseApi> => {
+    return apiMutator<HeatmapPreflightResponseApi>(getSavedPreflightCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapPreflightRequestApi),
+    })
+}
+
+export const getSavedPrewarmCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/prewarm/`
+}
+
+/**
+ * Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or closer to ready) by the time the user reaches the generation screen. Renders a single preview width. Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a heatmap is later created for the same URL.
+ */
+export const savedPrewarmCreate = async (
+    projectId: string,
+    heatmapPrewarmRequestApi: HeatmapPrewarmRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedPrewarmCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapPrewarmRequestApi),
+    })
+}
+
+export const getWebAnalyticsFetchLlmsTxtUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics/llms_txt/`
+}
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxt = async (
+    projectId: string,
+    llmsTxtFetchRequestApi: LlmsTxtFetchRequestApi,
+    options?: RequestInit
+): Promise<LlmsTxtFetchResponseApi> => {
+    return apiMutator<LlmsTxtFetchResponseApi>(getWebAnalyticsFetchLlmsTxtUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(llmsTxtFetchRequestApi),
     })
 }
 
@@ -571,4 +679,69 @@ export const webAnalyticsFilterPresetsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getWebAnalyticsPathCleaningSuggestionsApplyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_path_cleaning_suggestions/${id}/apply/`
+}
+
+/**
+ * Merges the suggestion's rules into the team's path_cleaning_filters (never overwrites existing rules) and resolves the underlying health issue. Requires project admin, matching the team API's gate on path_cleaning_filters.
+ * @summary Apply a path-cleaning suggestion
+ */
+export const webAnalyticsPathCleaningSuggestionsApply = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ApplyPathCleaningSuggestionResponseApi> => {
+    return apiMutator<ApplyPathCleaningSuggestionResponseApi>(
+        getWebAnalyticsPathCleaningSuggestionsApplyUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsPathCleaningSuggestionsPreviewUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_path_cleaning_suggestions/${id}/preview/`
+}
+
+/**
+ * Applies the suggestion's rules (in order) to a fresh sample of the team's top paths and returns before/after pairs for the paths that would change. Computed on demand; path samples are never stored. Nothing is modified.
+ * @summary Preview a path-cleaning suggestion on real paths
+ */
+export const webAnalyticsPathCleaningSuggestionsPreview = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PreviewPathCleaningSuggestionResponseApi> => {
+    return apiMutator<PreviewPathCleaningSuggestionResponseApi>(
+        getWebAnalyticsPathCleaningSuggestionsPreviewUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsPathCleaningSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_path_cleaning_suggestions/generate/`
+}
+
+/**
+ * Samples the team's recent paths, asks the LLM for cleaning rules, validates them against the real paths, and stores the result as a `path_cleaning_suggestions` health issue (replacing any previous active one). Runs even if the team already has rules. Returns the suggestion (or a skip status when there aren't enough paths to suggest from).
+ * @summary Generate path-cleaning suggestions on demand
+ */
+export const webAnalyticsPathCleaningSuggestionsGenerate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GeneratePathCleaningSuggestionResponseApi> => {
+    return apiMutator<GeneratePathCleaningSuggestionResponseApi>(
+        getWebAnalyticsPathCleaningSuggestionsGenerateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }

@@ -3,6 +3,7 @@ import React, { useCallback, useMemo, useRef } from 'react'
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { bandCenter, type BarChartPrivate, groupedBarCenter } from '../../core/bar-layout'
+import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
@@ -26,12 +27,14 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     DrawHoverResult,
     PointClickData,
     ResolvedSeries,
     Series,
     TooltipContext,
 } from '../../core/types'
+import { resolveAxisLines } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
 import { computeWrapperMinHeight, HORIZONTAL_MIN_BAND_SIZE_DEFAULT } from './utils/bar-config'
 import { cursorInInertTrackGap, groupedBandSlotAtCursor } from './utils/bars-under-cursor'
@@ -46,6 +49,9 @@ export interface BarChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Enables x-axis drag-to-zoom. Vertical bars only — horizontal bars interact along y,
+     *  where the gesture is disabled by the core. See `ChartProps.onDateRangeZoom`. */
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
     dataAttr?: string
@@ -64,14 +70,16 @@ export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Met
 function BarChartInner<Meta = unknown>({
     series,
     labels,
-    config,
+    config: rawConfig,
     theme,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     className,
     dataAttr,
     children,
 }: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
+    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
         showGrid = false,
@@ -79,15 +87,19 @@ function BarChartInner<Meta = unknown>({
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
+        barCornerRadius = 0,
+        yAxes: configYAxes,
     } = config ?? {}
+    const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
+    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
     const {
-        cornerRadius: barCornerRadius = 0,
         track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,
         maxBandRange,
         bandPadding,
         minBandSize,
+        minBarSize,
         fitToHeight = false,
         valueDomain,
         valuePadding,
@@ -180,8 +192,10 @@ function BarChartInner<Meta = unknown>({
                 bandPadding,
                 fitToHeight,
                 minBandSize: resolvedMinBandSize,
+                minBarSize,
                 valueDomain,
                 valuePadding,
+                axes: configYAxes,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
@@ -253,8 +267,10 @@ function BarChartInner<Meta = unknown>({
             bandPadding,
             fitToHeight,
             resolvedMinBandSize,
+            minBarSize,
             valueDomain,
             valuePadding,
+            configYAxes,
         ]
     )
 
@@ -264,7 +280,7 @@ function BarChartInner<Meta = unknown>({
                 barLayout,
                 isHorizontal,
                 showGrid,
-                showAxisLines,
+                axisLines,
                 xTickFormatter,
                 stackedData,
                 topStackedKeyByAxis,
@@ -276,7 +292,7 @@ function BarChartInner<Meta = unknown>({
             }),
         [
             showGrid,
-            showAxisLines,
+            axisLines,
             stackedData,
             barLayout,
             isHorizontal,
@@ -425,6 +441,7 @@ function BarChartInner<Meta = unknown>({
                 />
             )}
             onPointClick={onPointClick}
+            onDateRangeZoom={onDateRangeZoom}
             wrapClickData={onPointClick ? wrapClickData : undefined}
             resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}
             className={className}

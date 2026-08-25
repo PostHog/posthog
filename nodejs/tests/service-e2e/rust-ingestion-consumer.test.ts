@@ -405,7 +405,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
             const exit = await rustConsumer.waitForExit(60_000)
             expect(exit.exitCode).not.toBe(0)
-            expect(exit.output).toContain('deferred messages could not be flushed within timeout')
+            expect(exit.output).toContain('deferred messages made no progress within the flush timeout')
             await waitForTopicMessageCount(KAFKA_EVENTS_JSON, 0)
         } finally {
             await producer.disconnect()
@@ -557,7 +557,6 @@ function testDependencyEnv(): NodeJS.ProcessEnv {
         PERSONS_DATABASE_URL: `${POSTGRES_URL}/test_persons`,
         PERSONS_READONLY_DATABASE_URL: `${POSTGRES_URL}/test_persons`,
         BEHAVIORAL_COHORTS_DATABASE_URL: `${POSTGRES_URL}/test_behavioral_cohorts`,
-        CYCLOTRON_DATABASE_URL: `${POSTGRES_URL}/test_cyclotron`,
         CYCLOTRON_NODE_DATABASE_URL: `${POSTGRES_URL}/test_cyclotron_node`,
         KAFKA_HOSTS: 'localhost:9092',
         KAFKA_PRODUCER_METADATA_BROKER_LIST: 'localhost:9092',

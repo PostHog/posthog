@@ -1,6 +1,9 @@
 import json
+from collections.abc import Mapping
+from dataclasses import field
 from typing import Literal
 from urllib.parse import urlparse
+from uuid import UUID, uuid5
 
 from django.conf import settings
 
@@ -9,10 +12,13 @@ import structlog
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, OpenAI
 
+from posthog.dataclasses import frozen
+
 logger = structlog.get_logger(__name__)
 
 Product = Literal[
     "llm_gateway",
+    "ci",
     "posthog_code",
     "background_agents",
     "slack_app",
@@ -28,9 +34,13 @@ Product = Literal[
     "product_analytics",
     "subscriptions",
     "signals",
+    "review_hog",
+    "custom_image_scans",
     "conversations",
     "warehouse_semantic_enrichment",
     "warehouse_custom_source_builder",
+    "web_analytics",
+    "stamphog",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 
@@ -38,7 +48,17 @@ def _team_id_header(team_id: int) -> dict[str, str]:
     return {"x-posthog-property-team_id": str(team_id)}
 
 
-def get_llm_client(product: Product = "django", team_id: int | None = None) -> OpenAI:
+def team_distinct_id(team_id: int) -> str:
+    """Namespace team-owned work away from bare numeric user distinct IDs."""
+    return f"team-{team_id}"
+
+
+def get_llm_client(
+    product: Product = "django",
+    team_id: int | None = None,
+    api_key: str | None = None,
+    default_headers: Mapping[str, str] | None = None,
+) -> OpenAI:
     """
     Get an OpenAI-compatible client for the internal LLM gateway.
 
@@ -86,20 +106,33 @@ def get_llm_client(product: Product = "django", team_id: int | None = None) -> O
         team_id: Optional PostHog team to attribute the captured `$ai_generation` event to.
             When provided, sent on every request as the `x-posthog-property-team_id` header;
             when omitted, the event is attributed to the gateway key owner's team.
+        api_key: Optional short-lived credential to use instead of `LLM_GATEWAY_API_KEY`.
+            Server-only products use this to avoid exposing the shared personal API key.
+        default_headers: Optional headers sent with every request. Product-owned headers such as
+            team attribution override values supplied here.
     """
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+    resolved_api_key = api_key or settings.LLM_GATEWAY_API_KEY
+    if not settings.LLM_GATEWAY_URL or not resolved_api_key:
+        raise ValueError("LLM_GATEWAY_URL and an API key must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
+
     return OpenAI(
         base_url=base_url,
-        api_key=settings.LLM_GATEWAY_API_KEY,
-        default_headers=_team_id_header(team_id) if team_id is not None else None,
+        api_key=resolved_api_key,
+        default_headers=headers or None,
         http_client=httpx.Client(trust_env=False),
     )
 
 
-def get_async_llm_client(product: Product = "django", team_id: int | None = None) -> AsyncOpenAI:
+def get_async_llm_client(
+    product: Product = "django",
+    team_id: int | None = None,
+    default_headers: Mapping[str, str] | None = None,
+) -> AsyncOpenAI:
     """
     Async variant of `get_llm_client`. See `get_llm_client` for the rationale on `team_id`
     attribution and how to attach extra per-call event properties.
@@ -108,10 +141,14 @@ def get_async_llm_client(product: Product = "django", team_id: int | None = None
         raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
+
     return AsyncOpenAI(
         base_url=base_url,
         api_key=settings.LLM_GATEWAY_API_KEY,
-        default_headers=_team_id_header(team_id) if team_id is not None else None,
+        default_headers=headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
     )
 
@@ -170,8 +207,14 @@ def _gateway_misconfig(url: str, api_key: str) -> str | None:
     return None
 
 
-def resolve_ai_gateway_config() -> tuple[str, str] | None:
-    """Return the validated (url, api_key) for the internal Go ai-gateway, or None.
+@frozen
+class AIGatewayConfig:
+    url: str
+    api_key: str = field(repr=False)
+
+
+def resolve_ai_gateway_config() -> AIGatewayConfig | None:
+    """Return the validated AIGatewayConfig for the internal Go ai-gateway, or None.
 
     None when neither env var is set (the caller uses its normal path), and ALSO when the config
     is half-applied or the URL is malformed: that logs a warning and returns None so the caller
@@ -185,51 +228,202 @@ def resolve_ai_gateway_config() -> tuple[str, str] | None:
     if misconfig:
         logger.warning("ai_gateway_misconfigured_falling_back", reason=misconfig)
         return None
-    return url, api_key
+    return AIGatewayConfig(url=url, api_key=api_key)
 
 
-def ai_product_headers(ai_product: str | None) -> dict[str, str] | None:
-    """X-PostHog-Properties header tagging the captured generation with its AIO product.
+def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
+    """Build the ``X-PostHog-Properties`` header from caller labels, dropping unset ones.
 
-    The slugless Go gateway has no product route, so callers pass the product here to keep
-    per-product attribution on the shared ``phs_`` token. Don't use a ``$ai_`` prefix — the
-    gateway strips those as reserved.
+    The slugless Go gateway reads event labels only from this JSON blob, not from the
+    ``x-posthog-property-<key>`` per-header form the Python gateway accepts. Don't use a
+    ``$ai_`` prefix on a key: the gateway strips those as reserved. Returns None when no
+    label is set so the client sends no properties header.
     """
-    if not ai_product:
+    set_labels = {key: value for key, value in labels.items() if value}
+    if not set_labels:
         return None
-    return {"X-PostHog-Properties": json.dumps({"ai_product": ai_product})}
+    return {"X-PostHog-Properties": json.dumps(set_labels)}
 
 
-def build_openai_client(product: Product, ai_product: str | None = None) -> OpenAI:
+def ai_gateway_headers(
+    *,
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+) -> dict[str, str] | None:
+    """Build the Go ai-gateway headers that correlate a multi-call AI operation."""
+    labels = dict(properties or {})
+    if ai_product:
+        labels["ai_product"] = ai_product
+
+    headers = _ai_property_headers(**labels) or {}
+    if trace_id:
+        headers["X-PostHog-Trace-Id"] = trace_id
+    if session_id:
+        headers["X-PostHog-Session-Id"] = session_id
+    if distinct_id:
+        headers["X-PostHog-Distinct-Id"] = distinct_id
+    return headers or None
+
+
+# Mirrors the namespace in services/llm-gateway/src/llm_gateway/callbacks/posthog.py. Both must
+# stay equal or a team's trace id changes with whichever gateway serves it.
+_TEAM_TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
+
+
+def _python_gateway_observability_headers(
+    trace_id: str | None,
+    session_id: str | None,
+    properties: Mapping[str, str] | None,
+) -> dict[str, str] | None:
+    headers = {f"x-posthog-property-{key}": value for key, value in (properties or {}).items()}
+    if session_id:
+        headers["x-posthog-property-$ai_session_id"] = session_id
+    if trace_id:
+        try:
+            normalized_trace_id = UUID(trace_id)
+        except ValueError:
+            normalized_trace_id = uuid5(_TEAM_TRACE_ID_NAMESPACE, trace_id)
+        span_id = uuid5(_TEAM_TRACE_ID_NAMESPACE, f"span-{trace_id}").hex[:16]
+        headers["traceparent"] = f"00-{normalized_trace_id.hex}-{span_id}-01"
+    return headers or None
+
+
+def team_trace_id(team_id: int | None) -> str | None:
+    """Deterministic ``$ai_trace_id`` for a team, or None when unattributed.
+
+    Absent an ``X-PostHog-Trace-Id`` header the Go gateway stamps a fresh id per request, leaving
+    every generation in its own trace. Grouping is per team, not per pipeline run.
+    """
+    if team_id is None:
+        return None
+    return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, f"team-{team_id}"))
+
+
+def _ai_trace_headers(team_id: int | None) -> dict[str, str]:
+    """``X-PostHog-Trace-Id`` header for a team; empty (not None) so callers can splat it."""
+    trace_id = team_trace_id(team_id)
+    return {"X-PostHog-Trace-Id": trace_id} if trace_id else {}
+
+
+def _anthropic_gateway_base_url(openai_base_url: str) -> str:
+    """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
+    itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``
+    guarantees the ``/v1`` suffix, so this is the inverse of that validation.
+    """
+    trimmed = openai_base_url.rstrip("/")
+    if trimmed.endswith("/v1"):
+        trimmed = trimmed[: -len("/v1")]
+    return trimmed
+
+
+def build_openai_client(
+    product: Product,
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+) -> OpenAI:
     """Return a raw OpenAI client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_llm_client`.
 
     ``product`` names the Python-gateway route used in the fallback; the slugless Go gateway
     derives the team from its ``phs_`` bearer and ignores it. ``ai_product`` tags the captured
     generation in gateway mode (the Python-gateway fallback derives the tag from ``product``).
+    ``distinct_id`` is a Go-gateway header only. Callers must also pass the same value as ``user``
+    on every completion request so the Python-gateway fallback preserves end-user attribution.
     trust_env=False keeps the in-cluster call off the egress proxy.
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
         return OpenAI(
-            api_key=api_key,
-            base_url=url,
-            default_headers=ai_product_headers(ai_product),
+            api_key=gateway.api_key,
+            base_url=gateway.url,
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=trace_id,
+                session_id=session_id,
+                properties=properties,
+                distinct_id=distinct_id,
+            ),
             http_client=httpx.Client(trust_env=False),
         )
-    return get_llm_client(product)
+    fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
+    return get_llm_client(product, default_headers=fallback_headers)
 
 
-def build_async_openai_client(product: Product, ai_product: str | None = None) -> AsyncOpenAI:
+def build_async_openai_client(
+    product: Product,
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+) -> AsyncOpenAI:
     """Async variant of :func:`build_openai_client`."""
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
         return AsyncOpenAI(
-            api_key=api_key,
-            base_url=url,
-            default_headers=ai_product_headers(ai_product),
+            api_key=gateway.api_key,
+            base_url=gateway.url,
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=trace_id,
+                session_id=session_id,
+                properties=properties,
+                distinct_id=distinct_id,
+            ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
-    return get_async_llm_client(product)
+    fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
+    return get_async_llm_client(product, default_headers=fallback_headers)
+
+
+def build_async_anthropic_client(
+    product: Product,
+    ai_product: str | None = None,
+    ai_stage: str | None = None,
+    team_id: int | None = None,
+    use_bedrock_fallback: bool = False,
+) -> AsyncAnthropic:
+    """Return a raw Anthropic client routed through the internal Go ai-gateway when configured,
+    else the Python LLM gateway via :func:`get_async_anthropic_gateway_client`.
+
+    In gateway mode the ``ai_product``, ``ai_stage``, and ``team_id`` labels ride on the
+    ``X-PostHog-Properties`` JSON blob: the Go gateway ignores the ``x-posthog-property-<key>``
+    per-header form the Python gateway reads, so they would be dropped if passed that way.
+    ``team_id`` is the customer team the generation is attributed to (the usage report reads it as
+    a property); it does not change the event's owning project, which the gateway derives from the
+    ``phs_`` bearer. The Anthropic SDK appends ``/v1/messages``, so the client gets the gateway
+    root rather than the ``/v1`` OpenAI base.
+
+    ``use_bedrock_fallback`` only affects the Python-gateway fallback path; the Go gateway fails
+    over to Bedrock on its own via the host breaker and reads no opt-in header. trust_env=False
+    keeps the in-cluster call off the egress proxy.
+
+    An attributed call also carries ``X-PostHog-Trace-Id`` (see :func:`team_trace_id`); the
+    Python-gateway fallback derives the same id internally and needs no header.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway:
+        default_headers = {
+            **(
+                _ai_property_headers(
+                    ai_product=ai_product,
+                    ai_stage=ai_stage,
+                    team_id=str(team_id) if team_id is not None else None,
+                )
+                or {}
+            ),
+            **_ai_trace_headers(team_id),
+        }
+        return AsyncAnthropic(
+            api_key=gateway.api_key,
+            base_url=_anthropic_gateway_base_url(gateway.url),
+            default_headers=default_headers or None,
+            http_client=httpx.AsyncClient(trust_env=False),
+        )
+    return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)

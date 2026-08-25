@@ -35,7 +35,7 @@ from products.feature_flags.backend.flag_status import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
@@ -549,7 +549,7 @@ class EntitySearchContext:
             case "error_tracking_issue":
                 return f"{base_url}/error_tracking/{result_id}"
             case "alert_configuration":
-                return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
+                return f"{base_url}/alerts?alert_id={result_id}"
             case "account":
                 # Deep-link to the specific account (filtered + expanded) rather than the bare list.
                 return f"{base_url}{build_account_deeplink(account_id=result_id)}"

@@ -7,11 +7,25 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.db import connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
-from posthog.models import Project, Team, User
+from posthog.api.file_system.deletion import undo_delete
+from posthog.api.file_system.file_system import (
+    DELETE_PREVIEW_ENTRY_LIMIT,
+    MAX_META_BYTES,
+    MAX_PATH_LENGTH,
+    MAX_PATH_SEGMENTS,
+    FileSystemSerializer,
+    UndoDeleteItemSerializer,
+)
+from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -24,7 +38,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from ee.models.rbac.access_control import AccessControl
@@ -1146,18 +1160,25 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             created_by=self.user,
         )
 
-    def _create_access_control(self, resource, resource_id, access_level, organization_member=None, role=None):
+    def _create_access_control(
+        self, resource, resource_id, access_level, organization_member=None, role=None, team=None
+    ):
         """
-        Helper to create an AccessControl row. Ensures 'team' is set.
+        Helper to create an AccessControl row. Defaults to self.team.
         """
         return AccessControl.objects.create(
-            team=self.team,
+            team=team or self.team,
             resource=resource,
             resource_id=resource_id,
             access_level=access_level,
             organization_member=organization_member,
             role=role,
         )
+
+    # A second environment in the same project. The tree lists rows from every environment, so
+    # access resolution has to hold across that boundary, not just within self.team.
+    def _create_sibling_team(self) -> Team:
+        return Team.objects.create(project=self.project, organization=self.organization, name="Env-2")
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
@@ -1269,6 +1290,414 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # staff user sees everything
         self.assertIn("Docs/FileA", paths)
         self.assertIn("Docs/FileB", paths)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_list_annotates_resolved_user_access_level(self, mock_flag):
+        blocked_dashboard = Dashboard.objects.create(team=self.team, name="Blocked", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Blocked",
+            depth=2,
+            type="dashboard",
+            ref=str(blocked_dashboard.pk),
+            created_by=self.other_user,
+        )
+        # Resource-level "none" doesn't exclude rows from the tree, so the annotation is
+        # what tells the UI to grey them out
+        self._create_access_control(resource="dashboard", resource_id=None, access_level="none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels["Docs/FileA"], "manager")  # creator keeps access
+        # file_b's tree row was created by someone else, but the user created the dashboard itself
+        self.assertEqual(levels["Docs/FileB"], "manager")
+        self.assertEqual(levels["Docs/Blocked"], "none")
+        self.assertIsNone(levels["Docs"])  # folders have no access controls
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_annotates_short_id_refs_via_pk_keyed_grants(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Granted insight", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Granted insight",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            created_by=self.other_user,
+        )
+        self._create_access_control(resource="insight", resource_id=None, access_level="none")
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        # AccessControl rows are keyed by pk while insight file system refs are short_ids
+        self._create_access_control(
+            resource="insight",
+            resource_id=str(insight.pk),
+            access_level="viewer",
+            organization_member=membership,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels["Docs/Granted insight"], "viewer")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_access_level_annotation_queries_do_not_scale_with_rows(self, mock_flag):
+        def create_entries(suffix: str) -> None:
+            dashboard = Dashboard.objects.create(team=self.team, name=f"D{suffix}", created_by=self.other_user)
+            insight = Insight.objects.create(team=self.team, name=f"I{suffix}", created_by=self.other_user)
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/D{suffix}",
+                depth=2,
+                type="dashboard",
+                ref=str(dashboard.pk),
+                created_by=self.other_user,
+            )
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/I{suffix}",
+                depth=2,
+                type="insight",
+                ref=insight.short_id,
+                created_by=self.other_user,
+            )
+
+        create_entries("1")
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        self.client.get(list_url)  # warm up session-dependent queries
+
+        # Clear the ref->pk cache before each measurement so both runs exercise the cold path
+        # (a single batched translation query) - otherwise a warm cache would skip it entirely
+        # and the counts would differ for cache-warmth reasons rather than row count.
+        cache.clear()
+        with CaptureQueriesContext(connection) as small_ctx:
+            self.client.get(list_url)
+
+        for i in range(2, 6):
+            create_entries(str(i))
+
+        cache.clear()
+        with CaptureQueriesContext(connection) as large_ctx:
+            self.client.get(list_url)
+
+        self.assertEqual(len(small_ctx), len(large_ctx))
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_warm_ref_pk_cache_skips_short_id_translation_query(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Cached insight", created_by=self.other_user)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Cached insight",
+            depth=2,
+            type="insight",
+            ref=insight.short_id,
+            created_by=self.other_user,
+        )
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        # Granted by pk, while the file system ref is the short_id - so resolving it needs the translation
+        self._create_access_control(
+            resource="insight",
+            resource_id=str(insight.pk),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        list_url = f"/api/projects/{self.team.id}/file_system/"
+        self.client.get(list_url)  # warm up session-dependent queries
+
+        cache.clear()
+        with CaptureQueriesContext(connection) as cold_ctx:
+            cold = self.client.get(list_url)
+        with CaptureQueriesContext(connection) as warm_ctx:
+            warm = self.client.get(list_url)
+
+        # Access level is resolved identically whether the pk came from the DB or the cache
+        cold_level = {i["path"]: i["user_access_level"] for i in cold.json()["results"]}["Docs/Cached insight"]
+        warm_level = {i["path"]: i["user_access_level"] for i in warm.json()["results"]}["Docs/Cached insight"]
+        self.assertEqual(cold_level, "viewer")
+        self.assertEqual(warm_level, "viewer")
+        # The warm request skips the short_id->pk translation query the cold request had to run
+        self.assertLess(len(warm_ctx), len(cold_ctx))
+
+    def _grant_to_user(
+        self, resource: str, resource_id: str, access_level: str, team: Team | None = None
+    ) -> AccessControl:
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        return self._create_access_control(
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=membership,
+            team=team,
+        )
+
+    # Replaces the auto-filed tree rows for an object with a single entry, because deleting an
+    # entry only reaches the backing object once it is the last row referencing it.
+    def _sole_entry_for(self, *, file_type: str, ref: str, path: str, team: Team | None = None) -> FileSystem:
+        team = team or self.team
+        FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+        return FileSystem.objects.create(
+            team=team,
+            path=path,
+            depth=len(path.split("/")),
+            type=file_type,
+            ref=ref,
+            created_by=self.other_user,
+        )
+
+    @parameterized.expand([("the_entry_itself",), ("an_ancestor_folder",)])
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_requires_editor_access_to_the_backing_object(self, target, mock_flag):
+        dashboard = Dashboard.objects.create(team=self.team, name="Viewer only", created_by=self.other_user)
+        entry = self._sole_entry_for(file_type="dashboard", ref=str(dashboard.pk), path="Docs/Viewer only")
+        self._grant_to_user("dashboard", str(dashboard.pk), "viewer")
+
+        delete_id = entry.id if target == "the_entry_itself" else self.folder.id
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{delete_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+        self.assertTrue(FileSystem.objects.filter(pk=entry.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_none_access_hides_entries_whose_ref_is_a_short_id(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Denied insight", created_by=self.other_user)
+        entry = self._sole_entry_for(file_type="insight", ref=insight.short_id, path="Docs/Denied insight")
+        # AccessControl rows are always keyed by pk, while insight entries reference the short_id
+        self._create_access_control(resource="insight", resource_id=str(insight.pk), access_level="none")
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.content)
+        paths = {item["path"] for item in list_response.json()["results"]}
+        self.assertNotIn("Docs/Denied insight", paths)
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
+
+    def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="paused-flag",
+            name="Paused flag",
+            active=False,
+            created_by=self.other_user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "feature_flag", "ref": str(flag.pk)}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        flag.refresh_from_db()
+        self.assertFalse(flag.active)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_undo_delete_requires_editor_access_to_the_backing_object(self, mock_flag):
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="Deleted dashboard", created_by=self.other_user, deleted=True
+        )
+        self._grant_to_user("dashboard", str(dashboard.pk), "viewer")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "dashboard", "ref": str(dashboard.pk)}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        dashboard.refresh_from_db()
+        self.assertTrue(dashboard.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_requires_editor_access_in_the_objects_own_environment(self, mock_flag):
+        team2 = self._create_sibling_team()
+        dashboard = Dashboard.objects.create(team=team2, name="Sibling env, viewer only", created_by=self.other_user)
+        entry = self._sole_entry_for(
+            file_type="dashboard", ref=str(dashboard.pk), path="Docs/Sibling env viewer", team=team2
+        )
+        self._grant_to_user("dashboard", str(dashboard.pk), "viewer", team=team2)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+        self.assertTrue(FileSystem.objects.filter(pk=entry.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_none_access_hides_short_id_entries_from_a_sibling_environment(self, mock_flag):
+        team2 = self._create_sibling_team()
+        insight = Insight.objects.create(team=team2, name="Sibling env, denied", created_by=self.other_user)
+        entry = self._sole_entry_for(
+            file_type="insight", ref=insight.short_id, path="Docs/Sibling env denied", team=team2
+        )
+        # AccessControl rows are always keyed by pk, while insight entries reference the short_id
+        self._create_access_control(resource="insight", resource_id=str(insight.pk), access_level="none", team=team2)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.content)
+        paths = {item["path"] for item in list_response.json()["results"]}
+        self.assertNotIn("Docs/Sibling env denied", paths)
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_does_not_collapse_access_levels_across_teams_sharing_a_ref(self, mock_flag):
+        team2 = self._create_sibling_team()
+        dashboard = Dashboard.objects.create(team=team2, name="Victim", created_by=self.other_user)
+        self._grant_to_user("dashboard", str(dashboard.pk), "viewer", team=team2)
+        self._sole_entry_for(file_type="dashboard", ref=str(dashboard.pk), path="Shared/Victim", team=team2)
+        # Planted in the requester's own team, pointing at the victim's object via a caller-supplied ref
+        FileSystem.objects.create(
+            team=self.team,
+            path="Shared/Planted",
+            depth=2,
+            type="dashboard",
+            ref=str(dashboard.pk),
+            created_by=self.user,
+        )
+        folder = FileSystem.objects.create(team=self.team, path="Shared", depth=1, type="folder", created_by=self.user)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_does_not_translate_a_short_id_through_another_teams_object(self, mock_flag):
+        team2 = self._create_sibling_team()
+        victim_notebook = Notebook.objects.create(team=team2, short_id="colliding-id", created_by=self.other_user)
+        self._grant_to_user("notebook", str(victim_notebook.pk), "viewer", team=team2)
+        victim_entry = self._sole_entry_for(
+            file_type="notebook", ref=victim_notebook.short_id, path="Docs/Victim notebook", team=team2
+        )
+        # Planted in the requester's own team: same short_id, but self.user is its creator here
+        Notebook.objects.create(team=self.team, short_id="colliding-id", created_by=self.user)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{victim_entry.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        victim_notebook.refresh_from_db()
+        self.assertFalse(victim_notebook.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_locks_and_deletes_a_shared_reference_once_per_object(self, mock_flag):
+        dashboard = Dashboard.objects.create(team=self.team, name="Shared twice", created_by=self.other_user)
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dashboard.pk)).delete()
+        FileSystem.objects.create(
+            team=self.team, path="Shared/A", depth=2, type="dashboard", ref=str(dashboard.pk), created_by=self.user
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Shared/B", depth=2, type="dashboard", ref=str(dashboard.pk), created_by=self.user
+        )
+        folder = FileSystem.objects.create(team=self.team, path="Shared", depth=1, type="folder", created_by=self.user)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        dashboard.refresh_from_db()
+        self.assertTrue(dashboard.deleted)
+
+        deleted = response.json()["deleted"]
+        dashboard_deletions = [
+            item for item in deleted if item["type"] == "dashboard" and item["ref"] == str(dashboard.pk)
+        ]
+        self.assertEqual(len(dashboard_deletions), 1, deleted)
+
+        lock_queries = [q for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+        self.assertEqual(len(lock_queries), 1, lock_queries)
+
+    def test_undo_delete_function_refuses_to_restore_a_live_object(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="live-flag", name="Live flag", created_by=self.other_user, deleted=False
+        )
+
+        with self.assertRaises(ValueError):
+            undo_delete(type_string="feature_flag", ref=str(flag.pk), user=self.user, team=self.team)
+
+        flag.refresh_from_db()
+        self.assertFalse(flag.deleted)
+
+    @parameterized.expand([("integer_pk", "dashboard"), ("uuid_pk", "hog_function/destination")])
+    def test_undo_delete_refuses_a_ref_the_lookup_field_rejects(self, _name, file_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": file_type, "ref": "not-a-valid-ref"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_ref_the_lookup_field_rejects_does_not_break_list_or_delete(self, mock_flag):
+        # created_by=None is what an unfiled row looks like, and it's what forces the creator
+        # lookup that pushes the raw ref into the query on the list path
+        entry = FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Broken ref",
+            depth=2,
+            type="dashboard",
+            ref="not-a-number",
+            created_by=None,
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.content)
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.content)
+        self.assertFalse(FileSystem.objects.filter(pk=entry.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_environment_denied_at_project_level_is_neither_listed_nor_deletable(self, mock_flag):
+        team2 = self._create_sibling_team()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        self._create_access_control(
+            resource="project",
+            resource_id=str(team2.id),
+            access_level="none",
+            organization_member=membership,
+            team=team2,
+        )
+        dashboard = Dashboard.objects.create(team=team2, name="Denied env", created_by=self.other_user)
+        entry = self._sole_entry_for(file_type="dashboard", ref=str(dashboard.pk), path="Docs/Denied env", team=team2)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.content)
+        paths = {item["path"] for item in list_response.json()["results"]}
+        self.assertNotIn("Docs/Denied env", paths)
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_list_queries_do_not_scale_with_environment_count(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Denied insight", created_by=self.other_user)
+        self._create_access_control(resource="insight", resource_id=str(insight.pk), access_level="none")
+
+        with CaptureQueriesContext(connection) as one_environment:
+            self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        added_environments = 3
+        for _ in range(added_environments):
+            self._create_sibling_team()
+
+        with CaptureQueriesContext(connection) as several_environments:
+            self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        extra = len(several_environments.captured_queries) - len(one_environment.captured_queries)
+        # Each added environment costs one access-control preload. Anything beyond that means an
+        # environment is being resolved more than once per request.
+        self.assertLessEqual(extra, added_environments * 2, several_environments.captured_queries)
 
     def test_created_at_filters(self):
         """
@@ -1938,36 +2367,78 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
         }
 
 
-class TestDesktopFileSystemSurface(APIBaseTest):
+class TestFileSystemSerializerInputValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("meta_null", {"path": "a", "type": "doc", "meta": None}, "meta"),
+            ("meta_list", {"path": "a", "type": "doc", "meta": [1, 2, 3]}, "meta"),
+            ("meta_number", {"path": "a", "type": "doc", "meta": 5}, "meta"),
+            ("meta_string", {"path": "a", "type": "doc", "meta": "nope"}, "meta"),
+            ("meta_too_large", {"path": "a", "type": "doc", "meta": {"k": "x" * (MAX_META_BYTES + 1)}}, "meta"),
+            ("path_too_long", {"path": "x" * (MAX_PATH_LENGTH + 1), "type": "doc"}, "path"),
+            ("path_too_many_segments", {"path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1)), "type": "doc"}, "path"),
+        ]
+    )
+    def test_rejects_out_of_bounds_input(self, _name: str, payload: dict[str, Any], field: str) -> None:
+        serializer = FileSystemSerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("meta_dict", {"path": "a/b", "type": "doc", "meta": {"created_by": 1}}),
+            ("meta_absent", {"path": "a/b", "type": "doc"}),
+            ("meta_empty", {"path": "a/b", "type": "doc", "meta": {}}),
+            ("path_at_segment_limit", {"path": "/".join(["s"] * MAX_PATH_SEGMENTS), "type": "doc"}),
+        ]
+    )
+    def test_accepts_in_bounds_input(self, _name: str, payload: dict[str, Any]) -> None:
+        serializer = FileSystemSerializer(data=payload)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+
+class TestFileSystemInputValidationAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
-        self.web_url = f"/api/projects/{self.team.id}/file_system/"
-        self.desktop_url = f"/api/projects/{self.team.id}/desktop_file_system/"
+        self.url = f"/api/projects/{self.team.id}/file_system/"
 
-    def test_routes_serve_isolated_trees(self):
-        self.client.post(self.web_url, {"path": "Web only", "type": "doc"})
-        self.client.post(self.desktop_url, {"path": "Desktop only", "type": "doc"})
+    def test_create_with_too_many_path_segments_is_rejected_and_writes_nothing(self):
+        response = self.client.post(self.url, {"path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1)), "type": "doc"})
 
-        web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
-        desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(FileSystem.objects.filter(team=self.team).count(), 0)
 
-        self.assertEqual(web_paths, {"Web only"})
-        self.assertEqual(desktop_paths, {"Desktop only"})
+    @parameterized.expand(["move", "link"])
+    def test_action_with_too_many_path_segments_is_rejected_and_writes_nothing(self, action_name: str):
+        item_id = self.client.post(self.url, {"path": "Start", "type": "doc"}).json()["id"]
 
-    def test_desktop_create_stamps_desktop_surface(self):
-        self.client.post(self.desktop_url, {"path": "Folder/Item", "type": "doc"})
+        response = self.client.post(
+            f"{self.url}{item_id}/{action_name}/",
+            {"new_path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1))},
+        )
 
-        surfaces = set(FileSystem.objects.filter(team=self.team).values_list("surface", flat=True))
-        # Both the leaf and the auto-created parent folder are stamped "desktop".
-        self.assertEqual(surfaces, {"desktop"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(FileSystem.objects.filter(team=self.team).count(), 1)
 
-    def test_legacy_null_rows_appear_on_web_route_only(self):
-        FileSystem.objects.create(team=self.team, path="Legacy", type="doc", surface=None, created_by=self.user)
+    @parameterized.expand([("too_many_segments", "s/" * (MAX_PATH_SEGMENTS + 1)), ("too_long", "x" * 4001)])
+    def test_undo_delete_rejects_an_unbounded_restore_path(self, _name: str, path: str):
+        # undo_delete re-creates parent folders through the same per-segment loop as create/move,
+        # so its restore path needs the same bound. Asserted on the serializer rather than the
+        # endpoint because an unresolvable ref would 400 on its own and mask the bound.
+        serializer = UndoDeleteItemSerializer(data={"type": "doc", "ref": "1", "path": path})
 
-        web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
-        desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("path", serializer.errors)
 
-        self.assertIn("Legacy", web_paths)
-        self.assertNotIn("Legacy", desktop_paths)
+    @parameterized.expand([("null", None), ("list", ["poison"]), ("string", "poison")])
+    def test_list_survives_a_row_with_non_object_meta(self, _name: str, meta: Any):
+        FileSystem.objects.create(team=self.team, path="!", type="doc", created_by=self.user, meta=meta)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["path"] for row in response.json()["results"]], ["!"])

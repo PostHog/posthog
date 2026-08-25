@@ -6,8 +6,10 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.ai_observability.backend.api.proxy import models_cache_key
@@ -17,6 +19,8 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
@@ -39,6 +43,36 @@ def _setup_team():
     )
     User.objects.create_and_join(org, f"test-provider-keys-{uuid4()}@posthog.com", "testpassword123")
     return team
+
+
+def _grant_provider_key_management_without_evaluation_access(team: Team, membership: OrganizationMembership) -> None:
+    organization = membership.organization
+    organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+    ]
+    organization.save()
+    membership.level = OrganizationMembership.Level.MEMBER
+    membership.save()
+    AccessControl.objects.create(
+        team=team,
+        resource="project",
+        resource_id=str(team.id),
+        access_level="admin",
+        organization_member=membership,
+    )
+    AccessControl.objects.create(
+        team=team,
+        resource="llm_analytics",
+        access_level="editor",
+        organization_member=membership,
+    )
+    AccessControl.objects.create(
+        team=team,
+        resource="evaluation",
+        access_level="none",
+        organization_member=membership,
+    )
 
 
 class TestLLMProviderKeyViewSet(APIBaseTest):
@@ -90,6 +124,20 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
         config = EvaluationConfig.objects.get(team=self.team)
         self.assertEqual(config.active_provider_key, key)
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_cannot_create_active_provider_key_without_evaluation_access(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "openai", "name": "My Key", "api_key": "sk-test-key-12345", "set_as_active": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(LLMProviderKey.objects.exists())
+        self.assertFalse(EvaluationConfig.objects.exists())
 
     def test_api_key_required_on_create(self):
         response = self.client.post(
@@ -475,6 +523,34 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_zeabur_provider_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "sk-zeabur-test-key-12345"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertEqual(key.provider, "zeabur")
+        self.assertEqual(key.state, LLMProviderKey.State.OK)
+        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key-12345")
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_zeabur_key_rejects_invalid_format(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "no-prefix-key"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("sk-", str(response.data))
+        mock_validate.assert_not_called()
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_azure_openai_provider_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -684,47 +760,6 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(cache.get(cache_key))
 
-    def test_assign_reloads_model_config_dependents(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="My Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test-key"},
-            created_by=self.user,
-        )
-        model_config = LLMModelConfiguration.objects.create(
-            team=self.team,
-            provider="openai",
-            model="gpt-5-mini",
-        )
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Test evaluation",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Is this useful?"},
-            output_type="boolean",
-            output_config={},
-            model_configuration=model_config,
-            created_by=self.user,
-            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
-        )
-
-        with (
-            patch("products.ai_observability.backend.api.provider_keys.reload_evaluations_on_workers") as mock_evals,
-            patch("products.ai_observability.backend.api.provider_keys.reload_taggers_on_workers") as mock_taggers,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-                {"evaluation_ids": [str(evaluation.id)]},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_evals.assert_called_once_with(team_id=self.team.id, evaluation_ids=[str(evaluation.id)])
-        mock_taggers.assert_not_called()
-
     def test_destroy_reloads_tagger_model_config_dependents(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -876,6 +911,18 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
         mock_validate.assert_called_once_with("minimax", "minimax-test-key")
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_pre_validate_zeabur_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
+            {"api_key": "sk-zeabur-test-key", "provider": "zeabur"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["state"], "ok")
+        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key")
 
     def test_pre_validate_requires_api_key(self):
         response = self.client.post(
@@ -1045,6 +1092,253 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(model_config.provider_key, key2)
         self.assertEqual(LLMProviderKey.objects.filter(id=key1.id).count(), 0)
 
+    def test_delete_active_key_with_replacement_switches_active_key(self):
+        key1 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 1",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key1"},
+            created_by=self.user,
+        )
+        key2 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 2",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key2"},
+            created_by=self.user,
+        )
+        config = EvaluationConfig.objects.create(team=self.team, active_provider_key=key1)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key1.id}/?replacement_key_id={key2.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        config.refresh_from_db()
+        self.assertEqual(config.active_provider_key, key2)
+
+    def test_cannot_replace_active_key_without_evaluation_access(self):
+        _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+        active_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-active"},
+            created_by=self.user,
+        )
+        replacement_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Replacement Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-replacement"},
+            created_by=self.user,
+        )
+        config = EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{active_key.id}/"
+            f"?replacement_key_id={replacement_key.id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        config.refresh_from_db()
+        self.assertEqual(config.active_provider_key, active_key)
+        self.assertTrue(LLMProviderKey.objects.filter(id=active_key.id).exists())
+
+    @parameterized.expand([(False,), (True,)])
+    def test_cannot_delete_active_key_pinned_to_denied_evaluation(self, use_replacement: bool):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        active_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-active"},
+            created_by=self.user,
+        )
+        replacement_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Replacement Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-replacement"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=active_key,
+        )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Restricted Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=True,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(evaluation.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        config = EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
+        url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{active_key.id}/"
+        if use_replacement:
+            url = f"{url}?replacement_key_id={replacement_key.id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        config.refresh_from_db()
+        model_config.refresh_from_db()
+        evaluation.refresh_from_db()
+        self.assertEqual(config.active_provider_key, active_key)
+        self.assertEqual(model_config.provider_key, active_key)
+        self.assertEqual(evaluation.status, "active")
+        self.assertTrue(LLMProviderKey.objects.filter(id=active_key.id).exists())
+
+    def test_cannot_replace_key_pinned_to_denied_evaluation(self):
+        _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+        pinned_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Pinned Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-pinned"},
+            created_by=self.user,
+        )
+        replacement_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Replacement Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-replacement"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=pinned_key,
+        )
+        Evaluation.objects.create(
+            team=self.team,
+            name="Restricted Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=True,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{pinned_key.id}/"
+            f"?replacement_key_id={replacement_key.id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        model_config.refresh_from_db()
+        self.assertEqual(model_config.provider_key, pinned_key)
+        self.assertTrue(LLMProviderKey.objects.filter(id=pinned_key.id).exists())
+
+    def test_delete_non_active_key_with_replacement_keeps_active_key(self):
+        active_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-active"},
+            created_by=self.user,
+        )
+        key1 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 1",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key1"},
+            created_by=self.user,
+        )
+        key2 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 2",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key2"},
+            created_by=self.user,
+        )
+        config = EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key1.id}/?replacement_key_id={key2.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        config.refresh_from_db()
+        self.assertEqual(config.active_provider_key, active_key)
+
+    def test_delete_active_key_switches_even_when_replacement_unhealthy(self):
+        key1 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 1",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key1"},
+            created_by=self.user,
+        )
+        key2 = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key 2",
+            state=LLMProviderKey.State.INVALID,
+            encrypted_config={"api_key": "sk-key2"},
+            created_by=self.user,
+        )
+        config = EvaluationConfig.objects.create(team=self.team, active_provider_key=key1)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key1.id}/?replacement_key_id={key2.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # The user explicitly chose the replacement; an unhealthy key surfaces precise runtime
+        # errors, where a NULL active key would only ever say provider_key_required.
+        config.refresh_from_db()
+        self.assertEqual(config.active_provider_key, key2)
+
     def test_delete_without_replacement_disables_evaluations(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -1158,6 +1452,31 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertIn("not found", response.data["detail"])
         self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)
 
+    def test_delete_with_self_as_replacement_fails(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-key"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=key,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/?replacement_key_id={key.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("key being deleted", response.data["detail"])
+        self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)
+        model_config.refresh_from_db()
+        self.assertEqual(model_config.provider_key, key)
+
     def test_delete_with_other_teams_replacement_key_fails(self):
         other_team = _setup_team()
         key = LLMProviderKey.objects.create(
@@ -1182,251 +1501,3 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(LLMProviderKey.objects.filter(id=key.id).count(), 1)
-
-
-class TestTrialEvaluationsEndpoint(APIBaseTest):
-    def _create_trial_eval(self, provider="openai", enabled=True):
-        mc = LLMModelConfiguration.objects.create(team=self.team, provider=provider, model="test-model")
-        return Evaluation.objects.create(
-            team=self.team,
-            name=f"Trial {provider}",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=mc,
-            enabled=enabled,
-        )
-
-    def test_returns_trial_evals_for_provider(self):
-        self._create_trial_eval("openai")
-        self._create_trial_eval("anthropic")
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["evaluations"]), 1)
-        self.assertEqual(response.data["evaluations"][0]["name"], "Trial openai")
-
-    def test_excludes_evals_with_pinned_key(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        mc = LLMModelConfiguration.objects.create(
-            team=self.team,
-            provider="openai",
-            model="test",
-            provider_key=key,
-        )
-        Evaluation.objects.create(
-            team=self.team,
-            name="Pinned",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=mc,
-            enabled=True,
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
-        )
-        self.assertEqual(len(response.data["evaluations"]), 0)
-
-    def test_includes_legacy_evals_for_openai(self):
-        Evaluation.objects.create(
-            team=self.team,
-            name="Legacy",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=None,
-            enabled=True,
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
-        )
-        self.assertEqual(len(response.data["evaluations"]), 1)
-        self.assertEqual(response.data["evaluations"][0]["name"], "Legacy")
-
-    def test_excludes_non_llm_judge_evals(self):
-        # Hog and Sentiment evals have no model_configuration, so the legacy OpenAI clause would
-        # otherwise sweep them in — but they never use a provider key.
-        Evaluation.objects.create(
-            team=self.team,
-            name="Hog eval",
-            evaluation_type="hog",
-            output_type="boolean",
-            model_configuration=None,
-            enabled=True,
-        )
-        Evaluation.objects.create(
-            team=self.team,
-            name="Sentiment eval",
-            evaluation_type="sentiment",
-            output_type="sentiment",
-            model_configuration=None,
-            enabled=True,
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["evaluations"]), 0)
-
-    def test_rejects_invalid_provider(self):
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=invalid"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_requires_provider_param(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-
-class TestAssignKeyEndpoint(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-    def test_assigns_key_to_trial_evaluations(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
-        eval_obj = Evaluation.objects.create(
-            team=self.team,
-            name="Eval",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=mc,
-            enabled=True,
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-            {"evaluation_ids": [str(eval_obj.id)]},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["configs_updated"], 1)
-
-        mc.refresh_from_db()
-        self.assertEqual(mc.provider_key, key)
-
-    def test_assigns_key_and_reenables(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
-        eval_obj = Evaluation.objects.create(
-            team=self.team,
-            name="Eval",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=mc,
-            enabled=False,
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-            {"evaluation_ids": [str(eval_obj.id)], "enable": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evals_enabled"], 1)
-
-        eval_obj.refresh_from_db()
-        self.assertTrue(eval_obj.enabled)
-
-    def test_handles_legacy_evals(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        eval_obj = Evaluation.objects.create(
-            team=self.team,
-            name="Legacy",
-            evaluation_type="llm_judge",
-            output_type="boolean",
-            model_configuration=None,
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-            {"evaluation_ids": [str(eval_obj.id)]},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        eval_obj.refresh_from_db()
-        assert eval_obj.model_configuration is not None
-        self.assertEqual(eval_obj.model_configuration.provider_key, key)
-
-    def test_rejects_empty_evaluation_ids(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-            {"evaluation_ids": []},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_does_not_create_config_for_hog_eval(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
-        )
-        hog_eval = Evaluation.objects.create(
-            team=self.team,
-            name="Hog eval",
-            evaluation_type="hog",
-            output_type="boolean",
-            model_configuration=None,
-            enabled=False,
-        )
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-            {"evaluation_ids": [str(hog_eval.id)], "enable": True},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["evals_enabled"], 0)
-
-        hog_eval.refresh_from_db()
-        self.assertIsNone(hog_eval.model_configuration)
-        self.assertFalse(hog_eval.enabled)
-        self.assertEqual(LLMModelConfiguration.objects.filter(team=self.team).count(), 0)

@@ -14,6 +14,7 @@ axum = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
+common-compression = { path = "../common/compression" }
 limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }
@@ -36,6 +37,8 @@ prost = { workspace = true }
 bytes = { workspace = true }
 tower-http = { workspace = true }
 hex = "0.4"
+snap = { workspace = true }
+prometheus-rw-proto = { path = "../prometheus-rw-proto" }
 
 [dev-dependencies]
 tower = { workspace = true }

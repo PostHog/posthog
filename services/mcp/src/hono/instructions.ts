@@ -1,20 +1,17 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
-import { hasScope } from '@/lib/api'
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import type { QueryToolInfo } from '@/lib/instructions'
-import {
-    type InstructionsContext,
-    InstructionsFormatter,
-    schemaDiscoveryViaSqlEnabled,
-} from '@/lib/instructions-formatter'
+import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
-import type { RequestProperties } from '@/lib/request-properties'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import SCHEMA_DISCOVERY_INFOSCHEMA from '@/templates/sections/schema-discovery-infoschema.md'
-import SCHEMA_DISCOVERY_LEGACY from '@/templates/sections/schema-discovery-legacy.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
+import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { ExecHelpCatalog } from '@/tools/exec-help'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -27,6 +24,10 @@ import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
 
+/** Presence of this tool is the runtime signal that the notebook cell surface
+ *  (the `revamped-py-notebooks` flag) is live for this client. */
+const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
+
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
     private readonly guidelines: string
@@ -36,27 +37,13 @@ export class InstructionsBuilder {
         this.formatter = formatter ?? new InstructionsFormatter()
     }
 
-    async build(props: RequestProperties, state: ResolvedState): Promise<string> {
+    build(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         if (!supportsInstructions) {
             return ''
         }
 
-        const { projectId } = props
-        const resolvedProjectId = projectId || (await state.reqCtx.cache.get('projectId'))
-        const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId && hasScope(state.apiKeyScopes, 'group:read')
-                ? state.context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
-                : undefined,
-            state.context.stateManager.getEnvironmentPrompt(),
-        ])
-
-        const ctx: InstructionsContext = {
-            ...this.buildContext(state),
-            groupTypes,
-            metadata,
-        }
-
+        const ctx = this.buildContext(state)
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)
         }
@@ -80,17 +67,17 @@ export class InstructionsBuilder {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     } as QueryToolInfo
                 }),
-            featureFlags: state.toolFeatureFlags,
             renderUiEnabled: state.renderUiEnabled,
+            metadata: state.metadata,
+            metadataCompact: state.metadataCompact,
+            groupTypes: state.groupTypes,
+            dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
+            notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
         }
     }
 
     buildExecToolEntry(state: ResolvedState): McpTool {
-        const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        const ctx = this.buildContext(state)
-        const commandReference = this.formatter.buildExecCommandReference(ctx, {
-            stripEnvContext: supportsInstructions,
-        })
+        const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
         return {
@@ -125,10 +112,31 @@ export class InstructionsBuilder {
 
     buildExecCommandReference(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
+        // Claude web/desktop report `supportsInstructions` but never surface the
+        // `instructions` payload to the model, so its env-context (tool domains,
+        // project metadata, group types) would be lost. Those chat hosts get their
+        // own smaller-budget reference. (Codex, which reports
+        // `supportsInstructions: false`, gets the full env-context via the
+        // un-stripped path.)
         const ctx = this.buildContext(state)
+        if (state.clientProfile.isClaudeChatHost()) {
+            return this.formatter.buildClaudeExecCommandReference(ctx)
+        }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
+            // Env-context rides here even for clients that honor `instructions`: that
+            // payload is capped at MCP_INSTRUCTIONS_CHAR_BUDGET and is spent entirely
+            // on the tool-domain index, which is the part that can't be recovered by
+            // any later tool call. This description has no such cap.
+            keepEnvContext: true,
         })
+    }
+
+    buildExecHelpCatalog(state: ResolvedState): ExecHelpCatalog | undefined {
+        if (!state.clientProfile.isClaudeChatHost()) {
+            return undefined
+        }
+        return new ExecHelpCatalog(this.formatter.buildClaudeExecHelpEntries(this.buildContext(state)))
     }
 
     buildExecToolDescription(): string {
@@ -139,13 +147,16 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(featureFlags?: EvaluatedFlags): string {
-        const schemaDiscovery = schemaDiscoveryViaSqlEnabled(featureFlags)
-            ? SCHEMA_DISCOVERY_INFOSCHEMA
-            : SCHEMA_DISCOVERY_LEGACY
+    formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
+        const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        // Metric discovery leads the splice so catalog-first routing still precedes
+        // raw schema discovery, without displacing the tool's own intro line.
+        const schemaDiscovery = dataCatalogEnabled
+            ? `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
+            : SCHEMA_DISCOVERY.trim()
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
-            schema_discovery: schemaDiscovery.trim(),
+            schema_discovery: schemaDiscovery,
         })
     }
 }

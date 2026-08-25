@@ -2,14 +2,18 @@ import { generateText } from '@tiptap/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
-import { IconEllipsis, IconEye, IconPencil, IconShare, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconEye, IconPencil, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import {
@@ -17,25 +21,39 @@ import {
     LemonRichContentEditor,
     serializationOptions,
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+import { pluralize } from 'lib/utils/strings'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
 
-import { CommentWithRepliesType, commentsLogic } from './commentsLogic'
+import { CommentComposer } from './CommentComposer'
+import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
 import { getRecordingLinkInfo, isViewingRecording } from './commentUtils'
+import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
+
+// Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
+// rides in item_context.
+export function getCommentAuthorName(comment: CommentType): string {
+    if (comment.created_by) {
+        return comment.created_by.first_name ?? 'Unknown user'
+    }
+    if (comment.item_context?.from_slack) {
+        return comment.item_context.slack_author_name ?? 'Slack user'
+    }
+    return 'Unknown user'
+}
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
+    /** Mounts the inline reply composer at the thread's bottom while it is the reply target */
+    composerLogicProps: CommentsLogicProps
 }
 
-const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, replyingCommentId, emojiReactionsByComment, isMyComment } = useValues(commentsLogic)
+const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element | null => {
+    const { emojiReactionsByComment, isMyComment } = useValues(commentsLogic)
     const { deleteComment, sendEmojiReaction } = useActions(commentsLogic)
 
-    const ref = useRef<HTMLDivElement | null>(null)
-
-    const isHighlighted = replyingCommentId === comment.id || editingComment?.id === comment.id
     const reactions = emojiReactionsByComment[comment.id] || {}
     const recordingLinkInfo = getRecordingLinkInfo(comment)
 
@@ -50,15 +68,14 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
         }
     }
 
-    useEffect(() => {
-        if (isHighlighted) {
-            ref.current?.scrollIntoView()
-        }
-    }, [isHighlighted])
-
     let timeInRecordingLabel: string | null = null
     if (comment.item_context?.milliseconds_into_recording !== undefined) {
         timeInRecordingLabel = colonDelimitedDuration(comment.item_context?.milliseconds_into_recording / 1000, null)
+    }
+
+    // Keep comment cards slim: skip the whole row when there is nothing to show in it
+    if (!recordingLinkInfo && !comment.version && !Object.keys(reactions).length) {
+        return null
     }
 
     return (
@@ -113,11 +130,6 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
                             </div>
                         </LemonButton>
                     ))}
-                    <EmojiPickerPopover
-                        onSelect={(emoji: string): void => {
-                            sendEmojiReaction(emoji, comment.id)
-                        }}
-                    />
                 </div>
             </div>
         </div>
@@ -125,7 +137,7 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
 }
 
 const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, commentsLoading, editingCommentRichContentEditor, isEditingCommentEmpty } =
+    const { editingComment, isSavingEditedComment, editingCommentRichContentEditor, isEditingCommentEmpty } =
         useValues(commentsLogic)
     const {
         setEditingComment,
@@ -138,7 +150,8 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
         <div className="deprecated-space-y-2">
             <LemonRichContentEditor
                 placeholder="Edit comment"
-                initialContent={comment.rich_content}
+                // Seed from the in-progress edit so collapsing/expanding the thread mid-edit loses nothing
+                initialContent={editingComment?.rich_content ?? comment.rich_content}
                 onCreate={setEditingCommentRichContentEditor}
                 onUpdate={(isEmpty) => {
                     if (editingCommentRichContentEditor && editingComment) {
@@ -150,7 +163,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                     }
                 }}
                 onPressCmdEnter={persistEditedComment}
-                disabled={commentsLoading}
+                disabled={isSavingEditedComment}
             />
             <div className="flex justify-end items-center gap-2">
                 <LemonButton
@@ -160,7 +173,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                         setEditingComment(null)
                         setEditingCommentRichContentEditor(null)
                     }}
-                    disabled={commentsLoading}
+                    disabled={isSavingEditedComment}
                 >
                     Cancel
                 </LemonButton>
@@ -168,7 +181,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                     type="primary"
                     size="small"
                     onClick={persistEditedComment}
-                    disabledReason={isEditingCommentEmpty ? 'No message' : commentsLoading ? 'Saving...' : null}
+                    disabledReason={isEditingCommentEmpty ? 'No message' : isSavingEditedComment ? 'Saving...' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                 >
                     Save
@@ -180,16 +193,26 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { disabledReasonFor } = useValues(commentsLogic)
-    const { deleteComment, setEditingComment, setReplyingComment } = useActions(commentsLogic)
+    const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openModal } = useActions(sendCommentToSlackLogic)
 
     const isCompleted = !!comment.completed_at
+    const fromSlack = !!comment.item_context?.from_slack
+    const slackThread = comment.slack_thread
+    // Only an untracked top-level comment (a thread root) can be sent to Slack; replies follow their parent.
+    const canSendToSlack =
+        featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC] && !comment.source_comment && !fromSlack && !slackThread
 
     return (
         <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-                <span className="ph-no-capture flex-1 font-semibold">
-                    {comment.created_by?.first_name ?? 'Unknown user'}
-                </span>
+                <span className="ph-no-capture flex-1 font-semibold">{getCommentAuthorName(comment)}</span>
+                {fromSlack ? (
+                    <LemonTag size="small" type="muted">
+                        via Slack
+                    </LemonTag>
+                ) : null}
                 {comment.is_task ? (
                     <LemonTag size="small" type={isCompleted ? 'success' : 'warning'}>
                         {isCompleted ? 'Completed' : 'Task'}
@@ -197,11 +220,34 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                 ) : null}
             </div>
             <div className="flex items-center gap-1">
+                {slackThread ? (
+                    <LemonButton
+                        icon={<IconSlack />}
+                        size="xsmall"
+                        to={slackThread.url}
+                        targetBlank
+                        tooltip="Open synced Slack discussion"
+                        data-attr="discussions-comment-open-in-slack"
+                    >
+                        {slackThread.channel_name ? `#${slackThread.channel_name}` : 'Open in Slack'}
+                    </LemonButton>
+                ) : null}
                 {comment.created_at ? (
                     <span className="text-xs">
                         <TZLabel time={comment.created_at} />
                     </span>
                 ) : null}
+
+                {/* has-[…active] holds the trigger visible while its picker is open - focus sits in the portal, so focus-within can't */}
+                <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 has-[.LemonButton--active]:opacity-100">
+                    <EmojiPickerPopover
+                        size="xsmall"
+                        onSelect={(emoji: string): void => {
+                            sendEmojiReaction(emoji, comment.id)
+                        }}
+                        data-attr="comment-react-button"
+                    />
+                </span>
 
                 <LemonMenu
                     items={[
@@ -210,6 +256,15 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                             label: 'Reply',
                             onClick: () => setReplyingComment(comment.source_comment ?? comment.id),
                         },
+                        ...(canSendToSlack
+                            ? [
+                                  {
+                                      icon: <IconSlack />,
+                                      label: 'Send to Slack',
+                                      onClick: () => openModal(comment),
+                                  },
+                              ]
+                            : []),
                         {
                             icon: <IconPencil />,
                             label: 'Edit',
@@ -231,7 +286,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
 }
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { editingComment, replyingCommentId, selectedCommentId, commentContexts } = useValues(commentsLogic)
+    const { editingComment, selectedCommentId, commentContexts } = useValues(commentsLogic)
     const { setSelectedComment, completeComment, reopenComment } = useActions(commentsLogic)
     const contextText = commentContexts[comment.id]
     const isInlineComment = comment.item_context?.type === 'mark'
@@ -239,24 +294,25 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const ref = useRef<HTMLDivElement | null>(null)
 
     const isEditing = editingComment?.id === comment.id
-    const isHighlighted = selectedCommentId === comment.id || replyingCommentId === comment.id || isEditing
+    // Selection-driven so deep links can highlight their target even while a reply is open;
+    // the reply target already shows via the card's accent border
+    const isHighlighted = selectedCommentId === comment.id || isEditing
     const threadId = comment.source_comment ?? comment.id
+    // Rendering markdown from tiptap JSON is not free - skip it on unrelated re-renders
+    const text = useMemo(() => getText(comment), [comment])
 
     useEffect(() => {
         if (isHighlighted) {
-            ref.current?.scrollIntoView()
+            ref.current?.scrollIntoView({ block: 'nearest' })
         }
     }, [isHighlighted])
 
     return (
         <div
             ref={ref}
-            className={clsx(
-                'Comment border rounded-lg bg-surface-primary px-2 py-1',
-                isHighlighted && 'border-accent',
-                !isEditing && 'cursor-pointer'
-            )}
+            className={clsx('Comment group px-2 py-1', isHighlighted && 'bg-fill-highlight-50')}
             data-comment-id={comment.id}
+            // Selection is not a visual focus: it drives the notebook mark highlight and deep links
             onClick={isEditing ? undefined : () => setSelectedComment(threadId)}
         >
             <div className="flex items-center gap-3">
@@ -284,7 +340,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                 ) : null}
                 <div className="flex flex-col justify-start gap-2 flex-1 min-w-0">
                     <div className="flex-1 flex justify-start items-start gap-2">
-                        <ProfilePicture size="xl" user={comment.created_by} />
+                        <ProfilePicture size={comment.source_comment ? 'md' : 'xl'} user={comment.created_by} />
 
                         <div className="flex flex-col flex-1 min-w-0">
                             <CommentTopRow comment={comment} />
@@ -297,7 +353,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                 <CommentEditingForm comment={comment} />
                             ) : (
                                 <div className={clsx(comment.completed_at && 'line-through text-secondary')}>
-                                    <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
+                                    <LemonMarkdown lowKeyHeadings>{text}</LemonMarkdown>
                                 </div>
                             )}
                         </div>
@@ -309,33 +365,138 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     )
 }
 
-export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.Element => {
+const InlineReplyComposer = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
+    const ref = useRef<HTMLDivElement | null>(null)
+
+    useOnMountEffect(() => {
+        // In long threads the composer mounts below the fold at the thread's bottom
+        ref.current?.scrollIntoView({ block: 'nearest' })
+    })
+
+    return (
+        <div ref={ref}>
+            <CommentComposer {...logicProps} variant="inline-reply" />
+        </div>
+    )
+}
+
+export const CommentWithReplies = ({ commentWithReplies, composerLogicProps }: CommentProps): JSX.Element => {
     const { comment, replies } = commentWithReplies
+    const { replyingCommentId, expandedThreadIds, editingComment, itemContext } = useValues(commentsLogic)
+    const { setReplyingComment, setThreadExpanded } = useActions(commentsLogic)
+
+    // replyingCommentId always resolves to the thread root, so this only matches top-level threads
+    const isReplyTarget = replyingCommentId === commentWithReplies.id
+    // expandedThreadIds always includes the reply target, so the composer is never collapsed away
+    const isExpanded = expandedThreadIds.has(commentWithReplies.id)
+    const canToggle = editingComment?.id !== commentWithReplies.id
+
+    // Hidden only while the composer is open - the composer takes over as the reply affordance
+    const replyButton = !isReplyTarget ? (
+        <LemonButton
+            size="xsmall"
+            onClick={() => setReplyingComment(commentWithReplies.id)}
+            data-attr="comment-reply-button"
+        >
+            Reply
+        </LemonButton>
+    ) : null
 
     // TODO: Permissions
 
     return (
-        <div className="relative deprecated-space-y-2">
-            {comment ? (
-                <Comment comment={comment} />
-            ) : (
-                <div className="border rounded border-dashed p-2 font-semibold italic bg-surface-primary text-secondary">
-                    Deleted comment
-                </div>
-            )}
+        <div className={clsx('border rounded-lg bg-surface-primary overflow-hidden', isReplyTarget && 'border-accent')}>
+            <div
+                className={canToggle ? 'cursor-pointer' : undefined}
+                data-attr={canToggle ? 'comment-thread-toggle' : undefined}
+                onClick={
+                    canToggle
+                        ? (e) => {
+                              const target = e.target as HTMLElement
+                              // Popover content (emoji picker etc.) bubbles clicks here through its
+                              // portal without being a DOM descendant of the card - never toggle on those
+                              if (!e.currentTarget.contains(target)) {
+                                  return
+                              }
+                              // Leave clicks on inner controls and text selections alone
+                              if (target.closest('button, a, label, input, textarea, [contenteditable="true"]')) {
+                                  return
+                              }
+                              if (window.getSelection()?.toString()) {
+                                  return
+                              }
+                              // Open = replies visible with a focused composer; closing puts both away
+                              if (isExpanded) {
+                                  if (isReplyTarget) {
+                                      setReplyingComment(null)
+                                  }
+                                  setThreadExpanded(commentWithReplies.id, false)
+                              } else if (itemContext) {
+                                  // An in-progress anchored comment survives a peek - only the
+                                  // explicit Reply button trades the anchor for a reply
+                                  setThreadExpanded(commentWithReplies.id, true)
+                              } else {
+                                  setReplyingComment(commentWithReplies.id)
+                              }
+                          }
+                        : undefined
+                }
+            >
+                {comment ? (
+                    <Comment comment={comment} />
+                ) : (
+                    <div className="px-2 py-1 font-semibold italic text-secondary">Deleted comment</div>
+                )}
 
-            <div className="pl-8 deprecated-space-y-2">
-                {replies?.map((x) => (
-                    <CommentWithReplies
-                        key={x.id}
-                        commentWithReplies={{
-                            id: x.id,
-                            comment: x,
-                            replies: [],
-                        }}
-                    />
-                ))}
+                {replies.length > 0 ? (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="flex items-center px-2 py-1 text-xs text-secondary">
+                            {/* Keyboard path to the toggle - Enter/Space expands or collapses without composing */}
+                            <div
+                                className="flex flex-1 items-center gap-1"
+                                role="button"
+                                tabIndex={0}
+                                aria-expanded={isExpanded}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault()
+                                        if (isExpanded && isReplyTarget) {
+                                            // The reply pin keeps the thread open - end the reply so collapse takes effect
+                                            setReplyingComment(null)
+                                        }
+                                        setThreadExpanded(commentWithReplies.id, !isExpanded)
+                                    }
+                                }}
+                            >
+                                <IconChevronRight
+                                    className={clsx('size-3 shrink-0 transition-transform', isExpanded && 'rotate-90')}
+                                />
+                                <span>{pluralize(replies.length, 'reply', 'replies')}</span>
+                            </div>
+                            {/* A sibling of the keyboard toggle, never a descendant - interactive content must not
+                                nest. Once expanded, the reply affordance moves to the thread's bottom */}
+                            {!isExpanded ? replyButton : null}
+                        </div>
+                    </>
+                ) : null}
             </div>
+
+            {isExpanded ? replies.map((reply) => <Comment key={reply.id} comment={reply} />) : null}
+
+            {isReplyTarget ? (
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="p-2">
+                        <InlineReplyComposer logicProps={composerLogicProps} />
+                    </div>
+                </>
+            ) : isExpanded || replies.length === 0 ? (
+                <>
+                    <LemonDivider className="my-0" />
+                    <div className="flex justify-end px-2 py-1">{replyButton}</div>
+                </>
+            ) : null}
         </div>
     )
 }

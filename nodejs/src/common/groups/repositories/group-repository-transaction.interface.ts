@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
 
+import { GroupKey } from './group-repository.interface'
+
 export interface GroupRepositoryTransaction {
     fetchGroup(
         teamId: TeamId,
@@ -11,11 +13,7 @@ export interface GroupRepositoryTransaction {
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<Group | undefined>
 
-    fetchGroupsByKeys(
-        teamIds: TeamId[],
-        groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[]
-    ): Promise<
+    fetchGroupsByKeys(keys: GroupKey[]): Promise<
         {
             team_id: TeamId
             group_type_index: GroupTypeIndex

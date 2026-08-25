@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { PluginEvent } from '~/plugin-scaffold'
 
-type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
+type IngestionWarningCallback = (type: IngestionWarningType, details: Record<string, any>) => void
 
 /**
  * Parse event timestamp from plugin-server event data.

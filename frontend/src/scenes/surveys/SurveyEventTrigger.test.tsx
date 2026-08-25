@@ -100,7 +100,7 @@ describe('Survey event trigger property filters', () => {
         ).toBeInTheDocument()
         expect(screen.getByText('Property filters for signed_up')).toBeInTheDocument()
 
-        await userEvent.click(screen.getByRole('button', { name: 'Apply property filter' }))
+        await userEvent.click(screen.getByText('Apply property filter'))
 
         await waitFor(() => {
             if (!logic.values.survey.conditions?.events?.values?.[0].propertyFilters?.plan) {

@@ -3,18 +3,18 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
     InsightErrorState,
     InsightLoadingState,
@@ -24,11 +24,12 @@ import {
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
+import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { queryVizDefinitelyRendersToCanvas, queryVizRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -38,14 +39,117 @@ import {
     DashboardType,
     InsightColor,
     InsightLogicProps,
+    InsightShortId,
     QueryBasedInsightModel,
 } from '~/types'
+
+import type { AlertType } from 'products/alerts/frontend/types'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+
+export function shouldRenderInsightCardViz({
+    isStorybook,
+    placement,
+    inView,
+    isPageVisible,
+    query,
+}: {
+    isStorybook: boolean
+    placement: DashboardPlacement | 'SavedInsightGrid'
+    inView: boolean
+    isPageVisible: boolean
+    query: QueryBasedInsightModel['query']
+}): boolean {
+    if (isStorybook || placement === DashboardPlacement.Export) {
+        return true
+    }
+
+    if (!inView) {
+        return false
+    }
+
+    return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
+}
+
+const LazyEditAlertModal = React.lazy(() =>
+    import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
+)
+
+const RESIZE_REDRAW_THROTTLE_MS = 33 // ~30x/sec
+
+/**
+ * Throttles a canvas chart's redraws while its dashboard tile is resized, instead of repainting on every frame.
+ * Pinning the inner wrapper to a fixed size means the chart's own ResizeObserver only fires when we push a new
+ * size, which we do at most once per {@link RESIZE_REDRAW_THROTTLE_MS}. Unpinning on resize-stop redraws once
+ * at the exact final size.
+ */
+function ResizeThrottledViz({ throttled, children }: { throttled: boolean; children: React.ReactNode }): JSX.Element {
+    const outerRef = useRef<HTMLDivElement>(null)
+    const innerRef = useRef<HTMLDivElement>(null)
+
+    useLayoutEffect(() => {
+        const outer = outerRef.current
+        const inner = innerRef.current
+        if (!throttled || !outer || !inner) {
+            return
+        }
+
+        let lastPush = 0
+        let trailing: ReturnType<typeof setTimeout> | undefined
+
+        const pushSize = (): void => {
+            lastPush = performance.now()
+            const rect = outer.getBoundingClientRect()
+            inner.style.width = `${rect.width}px`
+            inner.style.height = `${rect.height}px`
+        }
+        pushSize()
+
+        const onOuterResize = (): void => {
+            const elapsed = performance.now() - lastPush
+            if (elapsed >= RESIZE_REDRAW_THROTTLE_MS) {
+                if (trailing) {
+                    clearTimeout(trailing)
+                    trailing = undefined
+                }
+                pushSize()
+            } else if (!trailing) {
+                trailing = setTimeout(() => {
+                    trailing = undefined
+                    pushSize()
+                }, RESIZE_REDRAW_THROTTLE_MS - elapsed)
+            }
+        }
+        const observer = new ResizeObserver(onOuterResize)
+        observer.observe(outer)
+
+        return () => {
+            observer.disconnect()
+            if (trailing) {
+                clearTimeout(trailing)
+            }
+            inner.style.width = ''
+            inner.style.height = ''
+        }
+    }, [throttled])
+
+    return (
+        <div ref={outerRef} className={clsx('InsightCard__viz', throttled && 'InsightCard__viz--resizing')}>
+            <div ref={innerRef} className="InsightCard__vizInner">
+                {children}
+            </div>
+        </div>
+    )
+}
+
+type AlertModalState = {
+    alertId?: AlertType['id']
+    defaultToAnomalyDetection?: boolean
+}
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -60,13 +164,15 @@ export interface InsightCardProps extends Resizeable {
     apiErrored?: boolean
     /** Might contain more information on the error that occurred on the server. */
     apiError?: Error
+    /** Query ID associated with the error, when available from the insight response. */
+    queryId?: string
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
     /** Whether loading timed out. */
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
-    /** While this tile is being resized: unmount the viz so the chart doesn't redraw on every frame. */
+    /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
     isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
@@ -104,6 +210,8 @@ export interface InsightCardProps extends Resizeable {
     tile?: DashboardTile<QueryBasedInsightModel>
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
+    /** Show a direct action for creating an anomaly detection alert for this saved insight. */
+    showCreateAnomalyAlertButton?: boolean
     /** Whether hovering near the card edge should hint that edit mode is available. */
     canEnterEditModeFromEdge?: boolean
     /** Called when the user clicks an edge hint to enter edit mode. */
@@ -122,6 +230,7 @@ function InsightCardInternal(
         loading,
         apiError,
         apiErrored,
+        queryId,
         timedOut,
         highlighted,
         showResizeHandles,
@@ -149,6 +258,7 @@ function InsightCardInternal(
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         surveyOpportunity,
+        showCreateAnomalyAlertButton,
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
@@ -156,19 +266,23 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
     const { isVisible: isPageVisible } = usePageVisibility()
 
-    /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
-     * insight cards that aren't visible. See also https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
-     *
-     * We add an extra check to make sure all insights are visible in Storybook.
+    const rendersToCanvas = queryVizRendersToCanvas(insight.query)
+
+    /**
+     * Hidden canvas visualizations are unmounted to release their backing stores and reduce the risk of context loss.
+     * When the page is hidden, DOM and SVG visualizations stay mounted to preserve state such as table scroll position.
+     * See https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
      */
-    const isVisible =
-        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === false
-            ? true
-            : IS_STORYBOOK || placement === DashboardPlacement.Export || (inView && isPageVisible)
+    const shouldRenderViz = shouldRenderInsightCardViz({
+        isStorybook: IS_STORYBOOK,
+        placement,
+        inView,
+        isPageVisible,
+        query: insight.query,
+    })
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
@@ -211,7 +325,13 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
+    const [alertModal, setAlertModal] = useState<AlertModalState | null>(null)
+    const openCreateAlertModal = useCallback(() => setAlertModal({}), [])
+    const openEditAlertModal = useCallback((alertId: AlertType['id']) => setAlertModal({ alertId }), [])
+    const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])
+    const closeAlertModal = useCallback(() => setAlertModal(null), [])
     const hasResults = !!insight?.result || !!(insight as any)?.results
+    const sharedView = isSharedView()
 
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
@@ -236,6 +356,7 @@ function InsightCardInternal(
                 <InsightErrorState
                     data-attr="insight-access-denied-state"
                     title={errorMessage || "You don't have permission to view this insight."}
+                    titleStatus={403}
                     excludeDetail
                 />
             )
@@ -248,9 +369,29 @@ function InsightCardInternal(
         if (apiErrored) {
             const validationError = extractValidationError(apiError)
             if (validationError) {
-                return <InsightValidationError detail={validationError} />
+                return (
+                    <InsightValidationError
+                        detail={validationError}
+                        validationErrorCode={extractValidationErrorCode(apiError)}
+                        query={insight.query}
+                        excludeActions={sharedView}
+                        placement={placement}
+                    />
+                )
             } else if (apiError instanceof ApiError) {
-                return <InsightErrorState title={apiError?.detail} />
+                return (
+                    <InsightErrorState
+                        title={apiError.detail}
+                        titleStatus={apiError.status}
+                        queryId={apiError.data?.queryId ?? queryId}
+                        retryAfter={apiError.formattedRetryAfter}
+                        retryLoading={loading}
+                        query={insight.query}
+                        excludeActions={sharedView}
+                        placement={placement}
+                        onRetry={sharedView ? undefined : refresh}
+                    />
+                )
             }
             return <InsightErrorState />
         }
@@ -262,39 +403,32 @@ function InsightCardInternal(
         return null
     })()
 
-    // Memoize the viz so the (expensive) chart subtree isn't reconciled when the card re-renders only because
-    // react-grid-layout reflowed it — e.g. while a sibling tile is dragged or resized. React reuses the cached
-    // element when these inputs are unchanged, so only the tiles whose data actually changed redraw.
-    const vizContent = useMemo(() => {
-        if (isResizing) {
-            // Skip the chart while resizing — keeping it mounted would redraw the canvas on every frame as the
-            // tile's dimensions change. Remounts from cached results once resizing stops.
-            return <div className="InsightCard__viz" />
-        }
-        if (!isVisible) {
-            return null
+    // Excludes isResizing from the deps so the element stays referentially stable across resize toggles — that's
+    // what lets ResizeThrottledViz throttle the live chart instead of remounting (and reloading) it.
+    const vizInner = useMemo(() => {
+        if (BlockingEmptyState) {
+            return BlockingEmptyState
         }
         return (
-            <div className="InsightCard__viz">
-                {BlockingEmptyState ? (
-                    BlockingEmptyState
-                ) : (
-                    <Query
-                        query={insight.query}
-                        cachedResults={insight}
-                        context={{
-                            insightProps: insightLogicProps,
-                        }}
-                        readOnly
-                        embedded
-                        inSharedMode={placement === DashboardPlacement.Public}
-                        variablesOverride={variablesOverride}
-                        editMode={false}
-                    />
-                )}
-            </div>
+            <Query
+                query={insight.query}
+                cachedResults={insight}
+                context={{
+                    insightProps: insightLogicProps,
+                }}
+                readOnly
+                embedded
+                inSharedMode={placement === DashboardPlacement.Public}
+                variablesOverride={variablesOverride}
+                editMode={false}
+            />
         )
-    }, [isResizing, isVisible, BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+
+    // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
+    const vizContent = shouldRenderViz ? (
+        <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
+    ) : null
 
     return (
         <div
@@ -339,6 +473,10 @@ function InsightCardInternal(
                         variablesOverride={variablesOverride}
                         placement={placement}
                         surveyOpportunity={surveyOpportunity}
+                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                        onCreateAlert={openCreateAlertModal}
+                        onEditAlert={openEditAlertModal}
+                        onCreateAnomalyAlert={openCreateAnomalyAlertModal}
                         onDragHandleMouseDown={onDragHandleMouseDown}
                     />
                     {vizContent}
@@ -348,6 +486,21 @@ function InsightCardInternal(
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
             )}
+            {alertModal && insight.id && insight.short_id ? (
+                <React.Suspense fallback={<SpinnerOverlay />}>
+                    <LazyEditAlertModal
+                        isOpen
+                        onClose={closeAlertModal}
+                        alertId={alertModal.alertId}
+                        insightId={insight.id}
+                        insightShortId={insight.short_id as InsightShortId}
+                        onEditSuccess={closeAlertModal}
+                        insightLogicProps={insightLogicProps}
+                        defaultToAnomalyDetection={alertModal.defaultToAnomalyDetection}
+                        insightName={insight.name || insight.derived_name}
+                    />
+                </React.Suspense>
+            ) : null}
             {children /* RGL react-resizable-handle nodes injected by react-grid-layout */}
         </div>
     )

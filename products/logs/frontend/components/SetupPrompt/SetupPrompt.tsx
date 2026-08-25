@@ -2,24 +2,26 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useInterval } from 'lib/hooks/useInterval'
-import goImage from 'scenes/onboarding/legacy/sdks/logos/go.svg'
-import javaImage from 'scenes/onboarding/legacy/sdks/logos/java.svg'
-import nextjsImage from 'scenes/onboarding/legacy/sdks/logos/nextjs.svg'
-import nodejsImage from 'scenes/onboarding/legacy/sdks/logos/nodejs.svg'
-import pythonImage from 'scenes/onboarding/legacy/sdks/logos/python.svg'
+import goImage from 'scenes/onboarding/shared/logos/go.svg'
+import javaImage from 'scenes/onboarding/shared/logos/java.svg'
+import nextjsImage from 'scenes/onboarding/shared/logos/nextjs.svg'
+import nodejsImage from 'scenes/onboarding/shared/logos/nodejs.svg'
+import pythonImage from 'scenes/onboarding/shared/logos/python.svg'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { useOpenLogsSettingsPanel } from '../../hooks/useOpenLogsSettingsPanel'
 import { logsIngestionLogic } from './logsIngestionLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
     { name: 'Node.js', image: nodejsImage, docsLink: 'https://posthog.com/docs/logs/installation/nodejs' },
@@ -67,7 +69,6 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
     const { hasLogs } = useValues(logsIngestionLogic)
     const { loadTeamHasLogs } = useActions(logsIngestionLogic)
     const openLogsSettings = useOpenLogsSettingsPanel()
-    const hasLogsSettings = useFeatureFlag('LOGS_SETTINGS')
 
     useEffect(() => {
         posthog.capture('logs setup prompt viewed')
@@ -133,14 +134,12 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
                             </LemonButton>
                         ))}
                     </div>
-                    {hasLogsSettings && (
-                        <p className="text-sm text-secondary m-0">
-                            Already using <code>posthog-js</code>?{' '}
-                            <LemonButton type="tertiary" size="xsmall" icon={<IconGear />} onClick={openLogsSettings}>
-                                Enable console log capture
-                            </LemonButton>
-                        </p>
-                    )}
+                    <p className="text-sm text-secondary m-0">
+                        Already using <code>posthog-js</code>?{' '}
+                        <LemonButton type="tertiary" size="xsmall" icon={<IconGear />} onClick={openLogsSettings}>
+                            Enable console log capture
+                        </LemonButton>
+                    </p>
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 px-3 py-1.5 border border-accent rounded">
                             <div className="relative flex items-center justify-center">
@@ -151,7 +150,12 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
                         </div>
                         <span className="text-sm text-secondary">
                             Missing an integration?{' '}
-                            <button id="logs-feedback-button" className="text-link font-semibold cursor-pointer">
+                            <button
+                                id="logs-missing-integration-button"
+                                type="button"
+                                className="text-link font-semibold cursor-pointer"
+                                onClick={() => posthog.capture('logs missing integration clicked')}
+                            >
                                 Let us know
                             </button>
                         </span>

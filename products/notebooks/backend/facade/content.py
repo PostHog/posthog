@@ -6,6 +6,11 @@ so cross-product callers that build or sanitize notebook content import them fro
 here rather than reaching into ``backend.util``.
 """
 
+from ..markdown_conversion import (
+    build_markdown_notebook_content as build_markdown_notebook_content,
+    convert_notebook_content_to_markdown as convert_notebook_content_to_markdown,
+    is_markdown_notebook_content as is_markdown_notebook_content,
+)
 from ..util import (
     QUERY_NODE_TYPE as QUERY_NODE_TYPE,
     SAVED_INSIGHT_NODE_KIND as SAVED_INSIGHT_NODE_KIND,

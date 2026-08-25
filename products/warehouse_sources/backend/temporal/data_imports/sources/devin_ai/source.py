@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.devin_ai import (
     DevinAIResumeConfig,
     devin_ai_source,
@@ -30,12 +27,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DevinAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.devinai import (
+    DevinAISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://docs.devin.ai/api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -60,6 +63,7 @@ class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
 Create a service user API key (prefixed `cog_`) in your [Devin organization settings](https://app.devin.ai/settings). The service user needs the following organization-level permissions:
 - `ViewOrgSessions` — Sessions
 - `ManageAccountKnowledge` — Playbooks and Knowledge notes
+- `ViewOrgMembership` — Members
 - `ManageOrgSecrets` — Secrets (metadata only; values are never synced)
 
 Your organization ID is the `org-...` identifier shown in your Devin organization settings.""",
@@ -112,6 +116,7 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Devin's v3 list endpoints expose no verified server-side timestamp filter, so every table is
         # full refresh only (see settings.py). Cursor pagination still makes each sync resumable.
@@ -132,7 +137,11 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
         return schemas
 
     def validate_credentials(
-        self, config: DevinAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DevinAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Probe the specific table when checking a schema; otherwise probe Sessions as a cheap token check.
         endpoint = schema_name if schema_name in DEVIN_AI_ENDPOINTS else "sessions"
@@ -171,6 +180,7 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
             api_key=config.api_key,
             org_id=config.org_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

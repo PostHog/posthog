@@ -127,6 +127,25 @@ describe('projectsGridLogic', () => {
             expect(maxInFlight).toBe(1)
         })
 
+        it('re-fetches siblings of loaded rows after a bulk copy finishes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            callOrder = []
+
+            logic.actions.bulkCopyFlagsFinished({
+                copied: [
+                    { key: 'flag_2', projectIds: [2], updatedProjectIds: [] },
+                    { key: 'not_in_grid', projectIds: [2], updatedProjectIds: [] },
+                ],
+                failed: [],
+                warnings: [],
+                skippedFlagCount: 0,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Only the key shown in the grid is re-fetched; keys outside the loaded rows are skipped.
+            expect(callOrder).toEqual(['flag_2'])
+        })
+
         it('resets sibling queue when search changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.siblingQueue).toHaveLength(0)
@@ -206,6 +225,92 @@ describe('projectsGridLogic', () => {
                 'loadFlagsPage',
                 'loadFlagsPageSuccess',
             ])
+        })
+    })
+
+    describe('toggling flags', () => {
+        let patchedUrls: string[]
+
+        beforeEach(() => {
+            patchedUrls = []
+            useMocks({
+                get: {
+                    '/api/organizations/:org/feature_flags/keys/': {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [buildFlag(1)],
+                    },
+                    '/api/organizations/:org/feature_flags/:key/': [],
+                },
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': async ({ request, params }) => {
+                        patchedUrls.push(new URL(request.url).pathname)
+                        if (params.team_id === '99') {
+                            return [403, { detail: "You don't have edit access" }]
+                        }
+                        const body = (await request.json()) as { active: boolean }
+                        return [200, { id: Number(params.id), active: body.active }]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = projectsGridLogic()
+            logic.mount()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it.each([false, true])(
+            'PATCHes the flag in its own project and syncs grid state (active → %s)',
+            async (active) => {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.siblingsLoaded('flag_1', [
+                    { flag_id: 1, team_id: 1, filters: { groups: [] }, active: true, created_by: null, created_at: '' },
+                    {
+                        flag_id: 42,
+                        team_id: 2,
+                        filters: { groups: [] },
+                        active: !active,
+                        created_by: null,
+                        created_at: '',
+                    },
+                ])
+
+                logic.actions.toggleFlagActive('flag_1', 2, 42, active)
+                expect(logic.values.togglingFlagIds).toEqual({ '2:42': true })
+
+                await expectLogic(logic).toDispatchActions(['flagActiveUpdated']).toFinishAllListeners()
+                expect(patchedUrls).toEqual(['/api/projects/2/feature_flags/42/'])
+                expect(logic.values.siblingsByFlagKey['flag_1']).toMatchObject([
+                    { team_id: 1, active: true },
+                    { team_id: 2, active },
+                ])
+                expect(logic.values.togglingFlagIds).toEqual({})
+            }
+        )
+
+        it('syncs the representative row when the toggled flag backs it', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.siblingsLoaded('flag_1', [
+                { flag_id: 1, team_id: 1, filters: { groups: [] }, active: true, created_by: null, created_at: '' },
+            ])
+
+            logic.actions.toggleFlagActive('flag_1', 1, 1, false)
+            await expectLogic(logic).toDispatchActions(['flagActiveUpdated']).toFinishAllListeners()
+            expect(logic.values.flags[0].active).toBe(false)
+        })
+
+        it('clears the in-flight marker and keeps state when the update fails', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.siblingsLoaded('flag_1', [
+                { flag_id: 7, team_id: 99, filters: { groups: [] }, active: true, created_by: null, created_at: '' },
+            ])
+
+            logic.actions.toggleFlagActive('flag_1', 99, 7, false)
+            await expectLogic(logic).toDispatchActions(['flagActiveUpdateFailed']).toFinishAllListeners()
+            expect(logic.values.siblingsByFlagKey['flag_1']).toMatchObject([{ team_id: 99, active: true }])
+            expect(logic.values.togglingFlagIds).toEqual({})
         })
     })
 

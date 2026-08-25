@@ -1,0 +1,17 @@
+# OTLP sink standing in for PostHog ingestion: receives what the agent exports
+# and writes it as OTLP JSON lines for assert.sh to inspect.
+receivers:
+    otlp:
+        protocols:
+            http:
+                endpoint: 0.0.0.0:4318
+
+exporters:
+    file:
+        path: /out/metrics.json
+
+service:
+    pipelines:
+        metrics:
+            receivers: [otlp]
+            exporters: [file]

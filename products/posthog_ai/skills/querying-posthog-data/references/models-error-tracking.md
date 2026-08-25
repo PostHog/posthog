@@ -8,9 +8,10 @@ Error tracking issues represent grouped exceptions captured by PostHog SDKs. Eac
 
 Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key (UUID)
-`team_id` | integer | NOT NULL | FK to `system.teams.id`
+`team_id` | integer | NOT NULL | PostHog project ID; foreign key to `system.teams.id`
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `status` | varchar | NOT NULL | Issue status (see Status Values below)
+`severity` | varchar | NULL | Assigned severity: `low`, `medium`, `high`, or `critical`
 `name` | text | NULL | Issue name (typically the exception type/message)
 `description` | text | NULL | User-provided description
 
@@ -34,6 +35,9 @@ Status | Description
 - Issues group exception events by fingerprint (a hash of exception characteristics)
 - The `name` field is typically auto-populated from the first exception's type/message
 - Use the `events` table with `event = '$exception'` and `issue_id` to query actual exception occurrences
+- Use `system.error_tracking_issues` for all-time issue counts by status or severity
+- Access to `system.error_tracking_issues` follows the connected user's Error tracking permissions and only returns rows from the current project
+- Use `posthog:query-error-tracking-issues-list` for issues observed during a date range or for impact counts
 - Issues can be merged (combining fingerprints) or split (separating fingerprints into new issues)
 
 ---
@@ -47,7 +51,7 @@ Rows can also track missing symbol sets so future uploads know which stack frame
 
 Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key (UUID)
-`team_id` | integer | NOT NULL | FK to `system.teams.id`
+`team_id` | integer | NOT NULL | PostHog project ID; foreign key to `system.teams.id`
 `ref` | text | NOT NULL | Symbol set reference matched from stack frames
 `release_id` | uuid | NULL | Associated error tracking release ID
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
@@ -111,14 +115,24 @@ GROUP BY status
 ORDER BY count DESC
 ```
 
+**Count issues by severity:**
+
+```sql
+SELECT severity, count() AS count
+FROM system.error_tracking_issues
+WHERE severity IS NOT NULL
+GROUP BY severity
+ORDER BY count DESC
+```
+
 **Find exception events for a specific issue:**
 
 ```sql
 SELECT
     timestamp,
-    properties.$exception_type AS exception_type,
-    properties.$exception_message AS exception_message,
-    properties.$exception_source AS source,
+    properties.$exception_types[1] AS exception_type,
+    properties.$exception_values[1] AS exception_message,
+    properties.$exception_sources[1] AS source,
     person.id AS user_id
 FROM events
 WHERE event = '$exception'

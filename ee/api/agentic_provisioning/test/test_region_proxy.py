@@ -2,14 +2,15 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.http import JsonResponse
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
-from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.region_proxy import (
     _proxy_to_region,
     _should_proxy_bearer_lookup,
@@ -17,6 +18,7 @@ from ee.api.agentic_provisioning.region_proxy import (
     _should_proxy_token_lookup,
 )
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.throttling import RegionProxyThrottle
 
 factory = APIRequestFactory()
 
@@ -155,7 +157,7 @@ class TestShouldProxyBearerLookup(BaseTest):
 
 class TestProxyHeaderAllowlist(BaseTest):
     @patch("ee.api.agentic_provisioning.region_proxy.requests")
-    def test_strips_cookies_and_forwarded_headers(self, mock_requests):
+    def test_strips_cookies_and_carries_the_caller_address(self, mock_requests):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.content = b'{"status": "ok"}'
@@ -163,11 +165,11 @@ class TestProxyHeaderAllowlist(BaseTest):
         mock_requests.request.return_value = mock_response
 
         raw = factory.post(
-            "/api/agentic/provisioning/health",
+            "/api/agentic/provisioning/account_requests",
             data={},
             format="json",
             HTTP_COOKIE="sessionid=secret123",
-            HTTP_X_FORWARDED_FOR="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.7, 10.0.0.1",
             HTTP_STRIPE_SIGNATURE="t=123,v1=abc",
             HTTP_AUTHORIZATION="Bearer pha_test",
         )
@@ -180,28 +182,27 @@ class TestProxyHeaderAllowlist(BaseTest):
         header_keys_lower = {k.lower() for k in forwarded_headers}
 
         assert "cookie" not in header_keys_lower
-        assert "x-forwarded-for" not in header_keys_lower
+        assert "stripe-signature" not in header_keys_lower
+        # Carried through, so the other region's per-IP limits key on the caller
+        # rather than on this region's egress address.
+        assert forwarded_headers["X-Forwarded-For"] == "203.0.113.7, 10.0.0.1"
+        assert "authorization" in header_keys_lower
         assert "host" in header_keys_lower
         assert forwarded_headers["Host"] == "eu.posthog.com"
 
 
 class TestDecoratorIntegration(ProvisioningTestBase):
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_hmac_failure_returns_401_without_proxying(self):
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={"email": "test@example.com"},
-            content_type="application/json",
-            headers={"api-version": "0.1d"},
-        )
+    def test_unauthenticated_request_returns_401_without_proxying(self):
+        res = self._post_api("/api/agentic/provisioning/account_requests", data={"email": "test@example.com"})
         assert res.status_code == 401
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
     def test_proxy_success_returns_proxied_response(self, mock_proxy):
-        mock_proxy.return_value = Response({"type": "oauth", "oauth": {"code": "abc"}})
+        mock_proxy.return_value = JsonResponse({"type": "oauth", "oauth": {"code": "abc"}})
         payload = {"email": "test@example.com", "configuration": {"region": "EU"}}
-        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        res = self._post_api("/api/agentic/provisioning/account_requests", data=payload)
         assert mock_proxy.called
         assert res.status_code == 200
 
@@ -212,7 +213,7 @@ class TestDecoratorIntegration(ProvisioningTestBase):
 
         mock_proxy.side_effect = requests.exceptions.ConnectionError("connection refused")
         payload = {"email": "test@example.com", "configuration": {"region": "EU"}}
-        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        res = self._post_api("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 502
         assert res.json()["error"]["code"] == "proxy_failed"
 
@@ -222,9 +223,8 @@ class TestDecoratorIntegration(ProvisioningTestBase):
             "email": "devuser@example.com",
             "configuration": {"region": "EU"},
             "scopes": ["query:read"],
-            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_dev"}},
         }
-        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
@@ -234,9 +234,8 @@ class TestDecoratorIntegration(ProvisioningTestBase):
             "email": "ususer@example.com",
             "configuration": {"region": "US"},
             "scopes": ["query:read"],
-            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_us"}},
         }
-        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
@@ -250,84 +249,119 @@ class TestBearerLookupDecoratorCoverage(ProvisioningTestBase):
         cache.clear()
         self._local_token = self._get_bearer_token()
 
-    def _resource_endpoints(self) -> list[tuple[str, str, str]]:
+    def _resource_endpoints(self) -> list[tuple[str, str]]:
         return [
-            ("POST", f"/api/agentic/provisioning/resources", ""),
-            ("GET", f"/api/agentic/provisioning/resources/{self.team.id}", ""),
-            ("POST", f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials", ""),
-            ("POST", f"/api/agentic/provisioning/resources/{self.team.id}/update_service", "free"),
-            ("POST", f"/api/agentic/provisioning/resources/{self.team.id}/remove", ""),
-            ("POST", f"/api/agentic/provisioning/deep_links", ""),
+            ("POST", "/api/agentic/provisioning/resources"),
+            ("GET", f"/api/agentic/provisioning/resources/{self.team.id}"),
+            ("POST", f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials"),
+            ("POST", f"/api/agentic/provisioning/resources/{self.team.id}/remove"),
+            ("POST", "/api/agentic/provisioning/deep_links"),
         ]
 
-    def _call(self, method: str, url: str, token: str, extra: str):
+    def _call(self, method: str, url: str, token: str):
         data = {}
-        if "update_service" in url:
-            data = {"service_id": extra}
         if "deep_links" in url:
             data = {"purpose": "dashboard"}
 
         if method == "GET":
-            return self._get_signed_with_bearer(url, token=token)
-        return self._post_signed_with_bearer(url, data=data, token=token)
+            return self._get_with_bearer(url, token=token)
+        return self._post_with_bearer(url, data=data, token=token)
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
     def test_unknown_bearer_token_is_proxied_on_every_endpoint(self, mock_proxy):
-        mock_proxy.return_value = Response({"status": "ok"}, status=200)
+        mock_proxy.return_value = JsonResponse({"status": "ok"}, status=200)
 
-        for method, url, extra in self._resource_endpoints():
+        for method, url in self._resource_endpoints():
             mock_proxy.reset_mock()
             cache.clear()
-            self._call(method, url, "totally_unknown_token", extra)
+            self._call(method, url, "totally_unknown_token")
             assert mock_proxy.called, f"{method} {url} should have proxied unknown bearer to other region"
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
     def test_known_bearer_token_is_not_proxied(self, mock_proxy):
-        for method, url, extra in self._resource_endpoints():
+        for method, url in self._resource_endpoints():
             mock_proxy.reset_mock()
             cache.clear()
             # A fresh token per iteration — the /remove handler revokes the token
             # when scope becomes empty, so one call can invalidate the next.
             token = self._get_bearer_token()
-            self._call(method, url, token, extra)
+            self._call(method, url, token)
             assert not mock_proxy.called, f"{method} {url} should not proxy for a locally valid bearer token"
 
 
-class TestDecoratorCoverageContract(BaseTest):
-    """Catches forgotten `@region_proxy` decorators on bearer-auth endpoints.
+class TestRegionProxyThrottle(ProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
 
-    If you add a new endpoint that accepts a bearer access token, either decorate it
-    with `region_proxy(strategy="bearer_lookup")` or add it to the allowlist here
+    @parameterized.expand(
+        [
+            (
+                "typed_envelope",
+                "/api/agentic/provisioning/account_requests",
+                {"email": "throttled@example.com", "configuration": {"region": "EU"}},
+                "type",
+            ),
+            # Any resource id works: bearer_lookup proxies before the handler reads it.
+            ("status_envelope", "/api/agentic/provisioning/resources/1", None, "status"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch.object(RegionProxyThrottle, "rate", "1/minute")
+    @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
+    def test_forwarding_is_capped_per_ip(self, _name, url, data, envelope_key, mock_proxy):
+        mock_proxy.return_value = JsonResponse({"status": "ok"})
+
+        def call():
+            if data is None:
+                return self._get_with_bearer(url, token="unknown_token_from_the_other_region")
+            return self._post_api(url, data=data)
+
+        assert call().status_code == 200
+        assert mock_proxy.called
+
+        mock_proxy.reset_mock()
+        rejected = call()
+
+        assert not mock_proxy.called, "over-budget requests must not reach the other region"
+        assert rejected.status_code == 429
+        assert rejected["Retry-After"]
+        body = rejected.json()
+        assert body[envelope_key] == "error"
+        assert body["error"]["code"] == "rate_limited"
+
+
+class TestRegionProxyCoverageContract(BaseTest):
+    """Catches forgotten ``region_proxy_strategy`` on bearer-auth endpoints.
+
+    If you add a new endpoint that accepts a bearer access token, either declare
+    ``region_proxy_strategy = "bearer_lookup"`` on it (or build on
+    BearerResourceAPIView, which carries it) or add it to the allowlist here
     with a written reason."""
 
     REGION_AWARE_ENDPOINTS = {
-        "provisioning_resources_create": "bearer_lookup",
-        "provisioning_resource_detail": "bearer_lookup",
-        "provisioning_rotate_credentials": "bearer_lookup",
-        "provisioning_update_service": "bearer_lookup",
-        "provisioning_resource_remove": "bearer_lookup",
-        "deep_links": "bearer_lookup",
-        "account_requests": "body_region",
-        "oauth_token": "token_lookup",
+        "ResourcesCreateView": "bearer_lookup",
+        "ResourceDetailView": "bearer_lookup",
+        "RotateCredentialsView": "bearer_lookup",
+        "ResourceRemoveView": "bearer_lookup",
+        "GitHubIntegrationView": "bearer_lookup",
+        "WizardRunsView": "bearer_lookup",
+        "DeepLinksView": "bearer_lookup",
+        "LimitsView": "bearer_lookup",
+        "AccountRequestsView": "body_region",
+        "OAuthTokenView": "token_lookup",
     }
 
-    def test_all_region_aware_endpoints_have_proxy_decorator(self):
+    def test_all_region_aware_endpoints_declare_proxy_strategy(self):
         from ee.api.agentic_provisioning import views
-        from ee.api.agentic_provisioning.region_proxy import REGION_PROXY_REGISTRY
 
         for view_name, expected_strategy in self.REGION_AWARE_ENDPOINTS.items():
-            assert hasattr(views, view_name), f"View {view_name} is missing from views.py"
-            qualname = (
-                getattr(views, view_name).__qualname__
-                if hasattr(getattr(views, view_name), "__qualname__")
-                else view_name
-            )
-            registered_strategy = REGION_PROXY_REGISTRY.get(qualname) or REGION_PROXY_REGISTRY.get(view_name)
-            assert registered_strategy == expected_strategy, (
-                f"{view_name} must be decorated with @region_proxy(strategy={expected_strategy!r}) "
-                f"(registry has: {registered_strategy!r})"
+            assert hasattr(views, view_name), f"View {view_name} is missing from the views package"
+            declared_strategy = getattr(getattr(views, view_name), "region_proxy_strategy", None)
+            assert declared_strategy == expected_strategy, (
+                f"{view_name} must declare region_proxy_strategy = {expected_strategy!r} (found: {declared_strategy!r})"
             )
 
 
@@ -396,10 +430,9 @@ class TestCrossRegionLoopback(ProvisioningTestBase):
             "email": "loopback-eu-user@example.com",
             "configuration": {"region": "EU"},
             "scopes": ["query:read"],
-            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_eu_loop"}},
         }
 
-        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
 
         assert mock_request.called, "US instance should have proxied to EU"
         assert captured["host"] == "eu.posthog.com"
@@ -424,7 +457,7 @@ class TestCrossRegionLoopback(ProvisioningTestBase):
         mock_request.side_effect = side_effect
 
         unknown_token = "pha_totally_bogus_token_not_in_db"
-        res = self._get_signed_with_bearer(
+        res = self._get_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}",
             token=unknown_token,
         )
@@ -480,9 +513,8 @@ class TestCrossRegionLoopback(ProvisioningTestBase):
             "email": "loop-guard@example.com",
             "configuration": {"region": "EU"},
             "scopes": ["query:read"],
-            "orchestrator": {"type": "stripe", "stripe": {"account": "acct_loop_guard"}},
         }
-        self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
 
         assert call_count["n"] == 1, (
             f"proxy should fire exactly once (US→EU); got {call_count['n']} — loop header not respected"

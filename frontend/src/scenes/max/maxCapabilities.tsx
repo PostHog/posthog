@@ -41,7 +41,7 @@ export interface Capability {
     suggestions: CapabilitySuggestion[]
 }
 
-/** Shared across both experiment arms — routes to the PostHog Code beta in the inbox. */
+/** Shared across both experiment arms — routes to the PostHog Desktop beta in the inbox. */
 export const CODE_CAPABILITY = {
     key: 'code',
     label: 'Code',

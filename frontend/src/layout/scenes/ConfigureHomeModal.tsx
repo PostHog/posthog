@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonSegmentedButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { LemonSearchableSelect, LemonSegmentedButton, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -20,6 +20,25 @@ export interface ConfigureHomeModalProps {
     onClose: () => void
 }
 
+type HomepageMode = 'launchpad' | 'search' | 'default_dashboard'
+
+function getHomepageMode(
+    isUsingProjectDefault: boolean,
+    isUsingNewTabHomepage: boolean,
+    isUsingDefaultDashboard: boolean
+): HomepageMode | null {
+    if (isUsingProjectDefault) {
+        return 'launchpad'
+    }
+    if (isUsingNewTabHomepage) {
+        return 'search'
+    }
+    if (isUsingDefaultDashboard) {
+        return 'default_dashboard'
+    }
+    return null
+}
+
 export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps): JSX.Element {
     const { homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -35,14 +54,8 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     // Local UI selection so users can preview the "Default dashboard" picker even
     // when no `primary_dashboard` is set yet — otherwise the picker is hidden behind
     // a disabled tile, and the only place to set it is the same hidden picker.
-    const [pendingMode, setPendingMode] = useState<'launchpad' | 'search' | 'default_dashboard' | null>(null)
-    const currentMode = isUsingProjectDefault
-        ? 'launchpad'
-        : isUsingNewTabHomepage
-          ? 'search'
-          : isUsingDefaultDashboard
-            ? 'default_dashboard'
-            : null
+    const [pendingMode, setPendingMode] = useState<HomepageMode | null>(null)
+    const currentMode = getHomepageMode(isUsingProjectDefault, isUsingNewTabHomepage, isUsingDefaultDashboard)
     useEffect(() => setPendingMode(null), [currentMode])
     const activeMode = pendingMode ?? currentMode
     const showDashboardPicker = activeMode === 'default_dashboard'
@@ -175,11 +188,13 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                     This dashboard opens by default for everyone who has not set a custom homepage.
                                 </p>
                             </div>
-                            <LemonSelect<number | null>
+                            <LemonSearchableSelect<number | null>
                                 className="w-full"
                                 fullWidth
                                 options={projectDefaultDashboardOptions}
                                 value={projectDefaultDashboardId}
+                                searchPlaceholder="Search dashboards…"
+                                searchInputDataAttr="configure-home-modal-default-dashboard-search"
                                 data-attr="configure-home-modal-set-default-dashboard-select"
                                 onChange={(dashboardId) => {
                                     posthog.capture('homepage configure default dashboard changed')

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -11,6 +11,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { issueRateLimitConfigLogic } from './issueRateLimitConfigLogic'
 import { BUCKET_OPTIONS } from './rateLimitConfigLogic'
 import { RateLimitHistoryChart } from './RateLimitHistoryChart'
@@ -31,12 +32,7 @@ export function IssueRateLimitSettings(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-semibold text-base mb-0">Per-issue rate limit</h3>
-                    <LemonTag type="warning" size="small">
-                        Experimental
-                    </LemonTag>
-                </div>
+                <h3 className="font-semibold text-base mb-1">Per-issue rate limit</h3>
                 <p className="text-muted-foreground">
                     This limit applies to each issue per window. Once an issue exceeds the configured rate, further
                     exceptions for it are dropped at ingestion.
@@ -97,7 +93,10 @@ function ConfigColumn(): JSX.Element {
                 <LemonButton
                     type="primary"
                     htmlType="submit"
-                    disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                    disabledReason={
+                        errorTrackingEditAccessDisabledReason() ??
+                        (!configFormChanged ? 'No changes to save' : undefined)
+                    }
                     loading={isConfigFormSubmitting}
                 >
                     Save

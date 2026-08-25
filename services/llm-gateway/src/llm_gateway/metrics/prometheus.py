@@ -178,6 +178,12 @@ STREAMING_CLIENT_DISCONNECT = Counter(
     labelnames=["provider", "model", "product"],
 )
 
+ANTHROPIC_BRIDGE_INVALID_STREAM = Counter(
+    "llm_gateway_anthropic_bridge_invalid_stream_total",
+    "Invalid Anthropic SSE event ordering produced by a compatibility bridge",
+    labelnames=["backend", "violation"],
+)
+
 CONCURRENT_REQUESTS = Gauge(
     "llm_gateway_concurrent_requests",
     "Current in-flight requests",
@@ -249,6 +255,14 @@ BEDROCK_PARAM_STRIPPED = Counter(
     "Bedrock-supported allowlist. A rising rate for a new param means Anthropic shipped a feature "
     "Bedrock doesn't accept yet — alert on it instead of waiting for a 100% fallback failure.",
     labelnames=["param", "product"],
+)
+
+CLEAR_THINKING_EDIT_DROPPED = Counter(
+    "llm_gateway_clear_thinking_edit_dropped_total",
+    "Requests where a clear_thinking_20251015 context-management edit was stripped because the "
+    "request didn't enable thinking. No model label: this fires before the model is validated, so "
+    "a caller-supplied id would be unbounded cardinality.",
+    labelnames=["product"],
 )
 
 BEDROCK_COUNT_TOKENS_ERRORS = Counter(

@@ -16,6 +16,22 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 
+# the filter shape reported in #41687: two different events, the first carrying two of its own properties
+FLAG_CALLED_WITH_PROPERTIES = {
+    "id": "$feature_flag_called",
+    "name": "$feature_flag_called",
+    "type": "events",
+    "properties": [
+        {"key": "$feature_flag_response", "type": "event", "value": ["test"], "operator": "exact"},
+        {"key": "$feature_flag", "type": "event", "value": "onboarding-questionnaire", "operator": "exact"},
+    ],
+}
+ONBOARDING_INITIALIZED = {
+    "id": "onboarding-initialized",
+    "name": "onboarding-initialized",
+    "type": "events",
+}
+
 
 @freeze_time("2021-01-01T13:46:23")
 class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest):
@@ -192,6 +208,78 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                 ],
             },
             [self.non_target_non_vip_session, self.non_target_vip_session, self.target_non_vip_session],
+        )
+
+    def _a_session_with_named_events(self, events: list[tuple[str, dict]], duration_seconds: int = 30) -> str:
+        session_id = str(uuid7())
+        user_id = str(uuid7())
+
+        produce_replay_summary(
+            distinct_id=user_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=duration_seconds),
+            team_id=self.team.id,
+        )
+
+        for event_name, properties in events:
+            create_event(
+                team=self.team,
+                distinct_id=user_id,
+                timestamp=self.an_hour_ago,
+                event_name=event_name,
+                properties={"$session_id": session_id, "$window_id": "1", **properties},
+            )
+
+        return session_id
+
+    def _sessions_for_two_distinct_event_filters(self) -> tuple[str, str, str]:
+        matching_flag_event = (
+            "$feature_flag_called",
+            {"$feature_flag_response": "test", "$feature_flag": "onboarding-questionnaire"},
+        )
+        both = self._a_session_with_named_events([matching_flag_event, ("onboarding-initialized", {})])
+        only_flag = self._a_session_with_named_events([matching_flag_event])
+        only_onboarding = self._a_session_with_named_events([("onboarding-initialized", {})])
+        return both, only_flag, only_onboarding
+
+    def test_two_distinct_event_filters_anded_requires_both_events(self):
+        both, _only_flag, _only_onboarding = self._sessions_for_two_distinct_event_filters()
+
+        self._assert_query_matches_session_ids(
+            {"operand": "AND", "events": [FLAG_CALLED_WITH_PROPERTIES, ONBOARDING_INITIALIZED]},
+            [both],
+        )
+
+    def test_two_distinct_event_filters_ored_accepts_either_event(self):
+        both, only_flag, only_onboarding = self._sessions_for_two_distinct_event_filters()
+
+        self._assert_query_matches_session_ids(
+            {"operand": "OR", "events": [FLAG_CALLED_WITH_PROPERTIES, ONBOARDING_INITIALIZED]},
+            [both, only_flag, only_onboarding],
+        )
+
+    @parameterized.expand([("and_operand", "AND"), ("or_operand", "OR")])
+    def test_duration_control_still_excludes_sessions_matching_event_filters(self, _name: str, operand: str):
+        short_session = self._a_session_with_named_events([("onboarding-initialized", {})], duration_seconds=10)
+        long_session = self._a_session_with_named_events([("onboarding-initialized", {})], duration_seconds=120)
+
+        self._assert_query_matches_session_ids(
+            {
+                "operand": operand,
+                "events": [ONBOARDING_INITIALIZED],
+                "having_predicates": '[{"type":"recording","key":"duration","value":45,"operator":"lt"}]',
+            },
+            [short_session],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "operand": operand,
+                "events": [ONBOARDING_INITIALIZED],
+                "having_predicates": '[{"type":"recording","key":"duration","value":45,"operator":"gt"}]',
+            },
+            [long_session],
         )
 
 

@@ -1,6 +1,6 @@
 import uuid as uuid_lib
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
@@ -8,11 +8,14 @@ from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.test import override_settings
+from django.utils import timezone
 
 from posthog.models import data_deletion_request as ddr
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
+    RequestStatus,
     RequestType,
+    auto_approve_blocker,
     cached_compile_hogql_predicate,
     invalidate_compiled_predicate_cache,
 )
@@ -378,6 +381,51 @@ def test_rendered_count_query_includes_hogql_predicate(team):
     assert "%(" not in rendered
 
 
+def test_property_presence_where_scopes_and_matches_property_columns(team):
+    from posthog.clickhouse.client.escape import substitute_params_for_display
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=["$ip"],
+            person_properties=["email"],
+            start_time=datetime(2026, 4, 1),
+            end_time=datetime(2026, 4, 15),
+        )
+    )
+    predicate, params = ddr._property_presence_where(request)
+    rendered = substitute_params_for_display(predicate, params)
+
+    assert f"team_id = {team.id}" in rendered
+    assert "timestamp >= '2026-04-01 00:00:00'" in rendered
+    assert "timestamp < '2026-04-15 00:00:00'" in rendered
+    assert "JSONHas(properties, '$ip')" in rendered
+    assert "JSONHas(person_properties, 'email')" in rendered
+    assert "%(" not in rendered
+
+
+def test_property_presence_where_includes_materialized_columns(team):
+    from posthog.clickhouse.client.escape import substitute_params_for_display
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=["$ip"],
+            start_time=datetime(2026, 4, 1),
+            end_time=datetime(2026, 4, 15),
+        )
+    )
+    predicate, params = ddr._property_presence_where(request, mat_cols=[("mat_$ip", False)])
+    rendered = substitute_params_for_display(predicate, params)
+
+    assert "JSONHas(properties, '$ip')" in rendered
+    assert "`mat_$ip` != ''" in rendered
+
+
 def _person_kwargs(**overrides) -> dict:
     kwargs = {
         "team_id": TEAM_ID,
@@ -549,3 +597,76 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
     request = DataDeletionRequest(**_base_kwargs(events=["$pageview"], hogql_predicate=""))
     with patch.object(ddr, "compile_hogql_predicate", side_effect=AssertionError("should not compile")):
         assert cached_compile_hogql_predicate(request) == ("", {})
+
+
+@freeze_time("2026-06-17T12:00:00Z")
+@pytest.mark.parametrize(
+    "overrides,expected_fragment",
+    [
+        ({}, None),
+        ({"request_type": RequestType.PROPERTY_REMOVAL}, "event removal"),
+        ({"request_type": RequestType.PERSON_REMOVAL}, "event removal"),
+        ({"end_time": None}, "has not closed"),
+        # An open range keeps matching newly ingested events, so a count taken now can't bound what
+        # the deferred drain deletes when it runs later.
+        ({"end_time": datetime(2026, 6, 18, tzinfo=UTC)}, "has not closed"),
+        ({"count": None}, "no matching event count"),
+        ({"count": 100_000}, "at or above"),
+        ({"count": 200_000}, "at or above"),
+    ],
+)
+def test_auto_approve_blocker(overrides, expected_fragment):
+    fields = {
+        "team_id": TEAM_ID,
+        "request_type": RequestType.EVENT_REMOVAL,
+        "events": ["$pageview"],
+        "start_time": datetime(2026, 6, 10, tzinfo=UTC),
+        "end_time": datetime(2026, 6, 16, tzinfo=UTC),
+        "status": RequestStatus.PENDING,
+        "count": 1_000,
+        **overrides,
+    }
+    blocker = auto_approve_blocker(DataDeletionRequest(**fields))
+    if expected_fragment is None:
+        assert blocker is None
+    else:
+        assert blocker is not None
+        assert expected_fragment in blocker
+
+
+def test_refresh_deletion_stats_does_not_write_over_a_concurrent_criteria_edit(team):
+    request = DataDeletionRequest.objects.create(
+        team_id=team.id,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime(2026, 6, 10, tzinfo=UTC),
+        end_time=datetime(2026, 6, 16, tzinfo=UTC),
+        status=RequestStatus.PENDING,
+    )
+    stale = DataDeletionRequest.objects.get(pk=request.pk)
+    # Another operator broadens the criteria while the count is running. Saving that clears the stats,
+    # because the numbers no longer describe the request.
+    DataDeletionRequest.objects.filter(pk=request.pk).update(
+        delete_all_events=True,
+        events=[],
+        count=None,
+        stats_calculated_at=None,
+        status=RequestStatus.DRAFT,
+        updated_at=timezone.now(),
+    )
+    counted = {
+        "count": 42,
+        "part_count": 1,
+        "parts_size": 1,
+        "parts_row_count": 42,
+        "min_timestamp": None,
+        "max_timestamp": None,
+    }
+
+    with patch.object(ddr, "fetch_deletion_stats", return_value=counted):
+        with pytest.raises(ddr.StaleDeletionRequestError):
+            ddr.refresh_deletion_stats(stale)
+
+    request.refresh_from_db()
+    assert request.count is None
+    assert request.stats_calculated_at is None

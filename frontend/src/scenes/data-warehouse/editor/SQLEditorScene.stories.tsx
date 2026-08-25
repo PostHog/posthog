@@ -80,6 +80,23 @@ const AVAILABLE_SOURCES = {
     },
 }
 
+// A managed warehouse's name is long enough to outgrow the database-tree sidebar, which is what made
+// the connection selector's label wrap and spill over the toolbar (support ticket 65030).
+// ManagedWarehouseConnection below is the visual-regression guard for that truncation.
+const MANAGED_WAREHOUSE_CONNECTION_ID = '01931b3a-0000-0000-0000-000000000001'
+const MANAGED_WAREHOUSE_CONNECTIONS = [
+    {
+        id: MANAGED_WAREHOUSE_CONNECTION_ID,
+        prefix: 'managed_warehouse',
+        engine: 'duckdb',
+        source_type: 'Postgres',
+        access_method: 'direct',
+        supports_hogql: true,
+        is_builtin_managed_warehouse: true,
+        description: null,
+    },
+]
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Data Warehouse/SQL Editor',
@@ -122,3 +139,24 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+// Selecting the managed warehouse puts its long name in the sidebar's connection selector, where it
+// has to ellipsize on one line rather than wrap or overflow into the Run button's toolbar.
+export const ManagedWarehouseConnection: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections': () => [
+                        200,
+                        MANAGED_WAREHOUSE_CONNECTIONS,
+                    ],
+                    '/api/projects/:team_id/external_data_sources/direct_connection_options': () => [200, []],
+                },
+            },
+        },
+        // The `c` hash param preselects the connection, so the selector renders the long label
+        // instead of the default "PostHog (ClickHouse)".
+        pageUrl: urls.sqlEditor({ query: SAMPLE_SQL, connectionId: MANAGED_WAREHOUSE_CONNECTION_ID }),
+    },
+}

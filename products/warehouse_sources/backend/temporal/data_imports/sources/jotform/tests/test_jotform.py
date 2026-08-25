@@ -1,19 +1,19 @@
+import json
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
 from unittest import mock
 
-import requests
+from requests import Response
+from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform import (
     JotformResumeConfig,
-    JotformRetryableError,
-    _build_list_params,
     _format_filter_value,
-    _question_row,
-    get_form_ids,
-    get_rows,
     jotform_source,
     normalize_enterprise_host,
     resolve_base_url,
@@ -26,6 +26,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.se
 
 US_BASE = "https://api.jotform.com"
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the jotform module.
+JOTFORM_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session"
+)
+
+
+def _response(content: Any, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps({"content": content, "responseCode": status_code}).encode()
+    return resp
+
 
 def _make_manager(resume_state: JotformResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
@@ -34,17 +48,36 @@ def _make_manager(resume_state: JotformResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _response(content: Any, status_code: int = 200) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.json.return_value = {"content": content, "responseCode": status_code}
-    response.status_code = status_code
-    response.ok = status_code < 400
-    response.text = ""
-    return response
+class _Capture:
+    """Snapshot each request's URL + params at prepare time (params dict is mutated in place)."""
+
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+        self.params: list[dict[str, Any]] = []
 
 
-def _params(call: mock.Mock) -> dict[str, Any]:
-    return call.kwargs["params"]
+def _wire(session: mock.MagicMock, responses: list[Response]) -> _Capture:
+    session.headers = {}
+    capture = _Capture()
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        capture.urls.append(request.url)
+        capture.params.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return capture
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+    return jotform_source(
+        "key", "us", None, endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
+    )
 
 
 class TestResolveBaseUrl:
@@ -72,7 +105,6 @@ class TestResolveBaseUrl:
         ],
     )
     def test_enterprise_domain_overrides_region(self, domain, expected):
-        # Enterprise domain wins over the region selection and is served under /API.
         assert resolve_base_url("eu", domain) == expected
 
     @pytest.mark.parametrize("domain", ["", "   ", None])
@@ -113,57 +145,133 @@ class TestFormatFilterValue:
         )
 
 
-class TestBuildListParams:
-    def test_full_refresh_endpoint_has_no_params(self):
-        # reports has no incremental fields, so no orderby/filter is sent.
-        assert _build_list_params(JOTFORM_ENDPOINTS["reports"], False, None, None) == {}
+class TestListEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_partial_page_yields_once_and_no_checkpoint(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "1"}, {"id": "2"}])])
 
-    def test_incremental_off_still_orders_by_default_field(self):
-        params = _build_list_params(JOTFORM_ENDPOINTS["submissions"], False, None, None)
-        assert params == {"orderby": "created_at"}
-        assert "filter" not in params
+        manager = _make_manager()
+        rows = _rows(_source("submissions", manager))
 
-    def test_incremental_on_adds_gt_filter_on_chosen_field(self):
-        params = _build_list_params(
-            JOTFORM_ENDPOINTS["submissions"], True, datetime(2024, 1, 15, 10, 30, 45, tzinfo=UTC), "updated_at"
+        assert [r["id"] for r in rows] == ["1", "2"]
+        # A short first page ends pagination; no next page means no checkpoint.
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_until_partial_page_and_checkpoints_next_offset(self, MockSession):
+        session = MockSession.return_value
+        with mock.patch.object(JOTFORM_ENDPOINTS["submissions"], "page_size", 2):
+            capture = _wire(session, [_response([{"id": "1"}, {"id": "2"}]), _response([{"id": "3"}])])
+            manager = _make_manager()
+            rows = _rows(_source("submissions", manager))
+
+        assert [r["id"] for r in rows] == ["1", "2", "3"]
+        assert capture.params[0]["offset"] == 0
+        assert capture.params[0]["limit"] == 2
+        assert capture.params[1]["offset"] == 2
+        # Checkpoint saved after the first full page (points at the next page); short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == JotformResumeConfig(offset=2)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession):
+        session = MockSession.return_value
+        capture = _wire(session, [_response([{"id": "9"}])])
+
+        manager = _make_manager(JotformResumeConfig(offset=200))
+        _rows(_source("submissions", manager))
+
+        assert capture.params[0]["offset"] == 200
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_off_still_orders_by_default_field(self, MockSession):
+        session = MockSession.return_value
+        capture = _wire(session, [_response([{"id": "1"}])])
+
+        _rows(_source("submissions", _make_manager()))
+
+        assert capture.params[0]["orderby"] == "created_at"
+        assert "filter" not in capture.params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_run_sends_gt_filter_on_chosen_field(self, MockSession):
+        session = MockSession.return_value
+        capture = _wire(session, [_response([])])
+
+        _rows(
+            _source(
+                "submissions",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 15, 10, 30, 45, tzinfo=UTC),
+                incremental_field="updated_at",
+            )
         )
-        assert params["orderby"] == "updated_at"
-        assert params["filter"] == '{"updated_at:gt":"2024-01-15 10:30:45"}'
 
-    def test_incremental_on_without_watermark_omits_filter(self):
-        params = _build_list_params(JOTFORM_ENDPOINTS["forms"], True, None, None)
-        assert params == {"orderby": "created_at"}
+        assert capture.params[0]["orderby"] == "updated_at"
+        assert capture.params[0]["filter"] == '{"updated_at:gt":"2024-01-15 10:30:45"}'
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_on_without_watermark_omits_filter(self, MockSession):
+        session = MockSession.return_value
+        capture = _wire(session, [_response([{"id": "1"}])])
+
+        _rows(_source("forms", _make_manager(), should_use_incremental_field=True))
+
+        assert capture.params[0]["orderby"] == "created_at"
+        assert "filter" not in capture.params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_endpoint_has_no_orderby_or_filter(self, MockSession):
+        session = MockSession.return_value
+        capture = _wire(session, [_response([{"id": "1"}])])
+
+        _rows(_source("reports", _make_manager()))
+
+        assert "orderby" not in capture.params[0]
+        assert "filter" not in capture.params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_content_yields_nothing(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        assert _rows(_source("reports", _make_manager())) == []
 
 
-class TestFetchPageRetries:
+class TestRetries:
     @pytest.mark.parametrize("status_code", [429, 500, 503])
     @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_retryable_statuses_eventually_raise(self, mock_session, _sleep, status_code):
-        mock_session.return_value.get.return_value = _response([], status_code)
-        manager = _make_manager()
-        with pytest.raises(JotformRetryableError):
-            list(get_rows("key", "us", None, "forms", mock.MagicMock(), manager))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_eventually_raise(self, MockSession, _sleep, status_code):
+        session = MockSession.return_value
+        # The client re-issues on 429/5xx; exhaust the attempts with the same status.
+        _wire(session, [_response([], status_code) for _ in range(10)])
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source("forms", _make_manager()))
 
     @pytest.mark.parametrize("status_code", [401, 403, 404])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_client_errors_raise_immediately(self, mock_session, status_code):
-        response = _response([], status_code)
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=response)
-        mock_session.return_value.get.return_value = response
-        manager = _make_manager()
-        with pytest.raises(requests.HTTPError):
-            list(get_rows("key", "us", None, "forms", mock.MagicMock(), manager))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_immediately(self, MockSession, status_code):
+        session = MockSession.return_value
+        _wire(session, [_response([], status_code)])
+
+        with pytest.raises(HTTPError):
+            _rows(_source("forms", _make_manager()))
+        # No retry on a 4xx: exactly one request was sent.
+        assert session.send.call_count == 1
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
+    @mock.patch(JOTFORM_SESSION_PATCH)
     def test_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = _response("", status_code)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("key", "us") is expected
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
+    @mock.patch(JOTFORM_SESSION_PATCH)
     def test_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key", "us") is False
@@ -176,188 +284,117 @@ class TestValidateCredentials:
             ("us", "forms.acme.com", "https://forms.acme.com/API/user"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
+    @mock.patch(JOTFORM_SESSION_PATCH)
     def test_targets_correct_host(self, mock_session, region, enterprise_domain, expected_url):
-        mock_session.return_value.get.return_value = _response("", 200)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("key", region, enterprise_domain)
         assert mock_session.return_value.get.call_args.args[0] == expected_url
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
+    @mock.patch(JOTFORM_SESSION_PATCH)
     def test_sends_api_key_header(self, mock_session):
-        mock_session.return_value.get.return_value = _response("", 200)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("key-123", "us")
         assert mock_session.return_value.get.call_args.kwargs["headers"]["APIKEY"] == "key-123"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
+    @mock.patch(JOTFORM_SESSION_PATCH)
     def test_pins_redirects_off_and_redacts_key(self, mock_session):
-        mock_session.return_value.get.return_value = _response("", 200)
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("key-123", "us", "forms.acme.com")
         # User-controlled host: no redirects off the validated host, and the key is value-redacted.
         assert mock_session.call_args.kwargs["allow_redirects"] is False
         assert mock_session.call_args.kwargs["redact_values"] == ("key-123",)
 
 
-class TestGetFormIds:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_paginates_across_offset_pages(self, mock_session):
-        page_size = JOTFORM_ENDPOINTS["forms"].page_size
-        full = [{"id": f"f{i}"} for i in range(page_size)]
-        partial = [{"id": "last"}]
-        mock_session.return_value.get.side_effect = [_response(full), _response(partial)]
-
-        ids = get_form_ids(US_BASE, {"APIKEY": "key"}, mock.MagicMock())
-
-        assert len(ids) == page_size + 1
-        assert ids[-1] == "last"
-        assert _params(mock_session.return_value.get.call_args_list[1])["offset"] == page_size
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_skips_items_without_id_and_stringifies(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": 42}, {"title": "no id"}])
-        assert get_form_ids(US_BASE, {}, mock.MagicMock()) == ["42"]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_pins_redirects_off_and_redacts_key(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "1"}])
-        get_form_ids(US_BASE, {"APIKEY": "secret-key"}, mock.MagicMock())
-        # Page fetches against a potentially user-controlled host must not follow redirects, and the
-        # key carried in the APIKEY header is value-redacted from logs.
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
-
-
-class TestGetRowsListEndpoints:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_single_partial_page_yields_once_and_saves_offset(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "1"}, {"id": "2"}])
-
-        manager = _make_manager()
-        batches = list(get_rows("key", "us", None, "submissions", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["1", "2"]
-        saved = [c.args[0].offset for c in manager.save_state.call_args_list]
-        assert saved == [0]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_paginates_until_partial_page(self, mock_session):
-        with mock.patch.object(JOTFORM_ENDPOINTS["submissions"], "page_size", 2):
-            mock_session.return_value.get.side_effect = [
-                _response([{"id": "1"}, {"id": "2"}]),
-                _response([{"id": "3"}]),
-            ]
-
-            manager = _make_manager()
-            batches = list(get_rows("key", "us", None, "submissions", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["1", "2", "3"]
-        # Offset advances by page_size between pages; state saved after each yielded page.
-        assert _params(mock_session.return_value.get.call_args_list[1])["offset"] == 2
-        assert [c.args[0].offset for c in manager.save_state.call_args_list] == [0, 2]
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_resumes_from_saved_offset(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "9"}])
-
-        manager = _make_manager(JotformResumeConfig(offset=200))
-        list(get_rows("key", "us", None, "submissions", mock.MagicMock(), manager))
-
-        assert _params(mock_session.return_value.get.call_args_list[0])["offset"] == 200
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_incremental_run_sends_gt_filter(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "key",
-                "us",
-                None,
-                "submissions",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 15, 10, 30, 45, tzinfo=UTC),
-                incremental_field="created_at",
-            )
-        )
-
-        params = _params(mock_session.return_value.get.call_args_list[0])
-        assert params["orderby"] == "created_at"
-        assert params["filter"] == '{"created_at:gt":"2024-01-15 10:30:45"}'
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_empty_content_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
-
-        manager = _make_manager()
-        assert list(get_rows("key", "us", None, "reports", mock.MagicMock(), manager)) == []
-
-
-class TestGetRowsQuestionsFanOut:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_fans_out_over_forms_and_injects_form_id(self, mock_session):
+class TestQuestionsFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_forms_and_injects_form_id(self, MockSession):
+        session = MockSession.return_value
         forms_page = [{"id": "f1"}, {"id": "f2"}]
         f1_questions = {"1": {"qid": "1", "text": "Name"}, "2": {"qid": "2", "text": "Email"}}
         f2_questions = {"1": {"qid": "1", "text": "Age"}}
-        mock_session.return_value.get.side_effect = [
-            _response(forms_page),
-            _response(f1_questions),
-            _response(f2_questions),
-        ]
+        capture = _wire(session, [_response(forms_page), _response(f1_questions), _response(f2_questions)])
 
-        manager = _make_manager()
-        batches = list(get_rows("key", "us", None, "questions", mock.MagicMock(), manager))
+        rows = _rows(_source("questions", _make_manager()))
 
-        rows = [row for batch in batches for row in batch]
         assert [(row["form_id"], row["qid"]) for row in rows] == [("f1", "1"), ("f1", "2"), ("f2", "1")]
-        # The form id is fetched then each form's questions endpoint is hit.
-        assert mock_session.return_value.get.call_args_list[1].args[0] == f"{US_BASE}/form/f1/questions"
-        assert [c.args[0].form_id for c in manager.save_state.call_args_list] == ["f1", "f2"]
+        # Forms are listed once, then each form's questions endpoint is hit in turn.
+        assert capture.urls[0] == f"{US_BASE}/user/forms"
+        assert capture.urls[1] == f"{US_BASE}/form/f1/questions"
+        assert capture.urls[2] == f"{US_BASE}/form/f2/questions"
+        assert capture.params[0]["orderby"] == "created_at"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_resumes_from_bookmarked_form(self, mock_session):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_form_id_is_stringified(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 42}]), _response({"1": {"qid": "1"}})])
+
+        rows = _rows(_source("questions", _make_manager()))
+        assert rows == [{"qid": "1", "form_id": "42"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_forms_without_id(self, MockSession):
+        session = MockSession.return_value
+        # The id-less form must not trigger a questions request.
+        _wire(session, [_response([{"id": "f1"}, {"title": "no id"}]), _response({"1": {"qid": "1"}})])
+
+        rows = _rows(_source("questions", _make_manager()))
+        assert [r["form_id"] for r in rows] == ["f1"]
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_questions_form_yields_no_rows(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "f1"}]), _response({})])
+
+        assert _rows(_source("questions", _make_manager())) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_and_skips_completed_forms(self, MockSession):
+        session = MockSession.return_value
         forms_page = [{"id": "f1"}, {"id": "f2"}]
         f2_questions = {"1": {"qid": "1", "text": "Age"}}
-        mock_session.return_value.get.side_effect = [_response(forms_page), _response(f2_questions)]
+        capture = _wire(session, [_response(forms_page), _response(f2_questions)])
 
-        manager = _make_manager(JotformResumeConfig(form_id="f2"))
-        batches = list(get_rows("key", "us", None, "questions", mock.MagicMock(), manager))
+        # f1's questions completed in the prior run; only f2 is re-fetched.
+        resume = JotformResumeConfig(
+            fanout_state={"completed": ["/form/f1/questions"], "current": None, "child_state": None}
+        )
+        rows = _rows(_source("questions", _make_manager(resume)))
 
-        rows = [row for batch in batches for row in batch]
-        # f1 was completed in the prior run; only f2 is re-fetched.
         assert [(row["form_id"], row["qid"]) for row in rows] == [("f2", "1")]
-        assert mock_session.return_value.get.call_args_list[1].args[0] == f"{US_BASE}/form/f2/questions"
+        # Forms are re-listed, but f1's questions endpoint is not hit again.
+        assert capture.urls == [f"{US_BASE}/user/forms", f"{US_BASE}/form/f2/questions"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
-    def test_deleted_bookmark_form_restarts_from_first(self, mock_session):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deleted_bookmark_form_restarts_from_first(self, MockSession):
+        session = MockSession.return_value
         forms_page = [{"id": "f1"}, {"id": "f2"}]
-        mock_session.return_value.get.side_effect = [
-            _response(forms_page),
-            _response({"1": {"qid": "1"}}),
-            _response({"1": {"qid": "1"}}),
-        ]
+        _wire(session, [_response(forms_page), _response({"1": {"qid": "1"}}), _response({"1": {"qid": "1"}})])
 
-        manager = _make_manager(JotformResumeConfig(form_id="deleted-form"))
-        batches = list(get_rows("key", "us", None, "questions", mock.MagicMock(), manager))
-
-        rows = [row for batch in batches for row in batch]
+        resume = JotformResumeConfig(
+            fanout_state={"completed": ["/form/deleted/questions"], "current": None, "child_state": None}
+        )
+        rows = _rows(_source("questions", _make_manager(resume)))
         assert [row["form_id"] for row in rows] == ["f1", "f2"]
 
-    def test_question_row_injects_form_id(self):
-        assert _question_row("f9", {"qid": "3", "text": "Q"}) == {"qid": "3", "text": "Q", "form_id": "f9"}
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_completed_forms(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "f1"}]), _response({"1": {"qid": "1"}})])
 
-    def test_question_row_does_not_mutate_input(self):
-        question = {"qid": "3"}
-        _question_row("f9", question)
-        assert question == {"qid": "3"}
+        manager = _make_manager()
+        _rows(_source("questions", manager))
+
+        # The final checkpoint records f1's questions path as completed.
+        saved_states = [c.args[0].fanout_state for c in manager.save_state.call_args_list]
+        assert any(state and "/form/f1/questions" in (state.get("completed") or []) for state in saved_states)
 
 
 class TestJotformSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = JOTFORM_ENDPOINTS[endpoint]
-        response = jotform_source("key", "us", None, endpoint, mock.MagicMock(), _make_manager())
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -372,10 +409,8 @@ class TestJotformSourceResponse:
 
     @pytest.mark.parametrize("config", list(JOTFORM_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
-        # Partitioning must never key off an updated_at-style field that rewrites on every sync.
         if config.partition_key:
             assert config.partition_key == "created_at"
 
     def test_questions_primary_key_includes_form_id(self):
-        # qid is unique only within a form, so the table-wide key needs form_id.
         assert JOTFORM_ENDPOINTS["questions"].primary_keys == ["form_id", "qid"]

@@ -15,6 +15,7 @@ pub const SYMBOL_SET_DB_MISSES: &str = "cymbal_symbol_set_db_misses";
 pub const SYMBOL_SET_SAVED: &str = "cymbal_symbol_set_saved";
 pub const SAVED_SYMBOL_SET_LOADED: &str = "cymbal_saved_symbol_set_loaded";
 pub const SAVED_SYMBOL_SET_ERROR_RETURNED: &str = "cymbal_saved_symbol_set_error_returned";
+pub const SYMBOL_SET_NEGATIVE_CACHE_HIT: &str = "cymbal_symbol_set_negative_cache_hit";
 pub const SYMBOL_SET_FETCH_RETRY: &str = "cymbal_symbol_set_fetch_retry";
 pub const FRAME_RESOLVED: &str = "cymbal_frame_resolved";
 pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
@@ -22,6 +23,15 @@ pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
+pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
+pub const RELEASE_ID_CACHE_MISSES: &str = "cymbal_release_id_cache_misses";
+// Which source produced an event's release, labeled by `source`:
+// "release_id" / "mobile_hash" / "symbol_set" / "none".
+pub const EVENT_RELEASE_RESOLUTION: &str = "cymbal_event_release_resolution";
+// Client-expanded native inline groups, labeled by outcome: "replaced" when the
+// server expansion of the group's address superseded the client frames, "kept"
+// when resolution failed and the client expansion passed through.
+pub const NATIVE_INLINE_GROUPS: &str = "cymbal_native_inline_groups";
 pub const S3_FETCH: &str = "cymbal_s3_fetch";
 // S3 GET body size, in bytes, taken from the `Content-Length` header on the GET response
 // (so it's recorded before we collect the body — sets us up to enforce a size cap here later).
@@ -60,6 +70,14 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
     1_073_741_824.0, // 1 GiB
 ];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORED: &str =
+    "cymbal_issue_created_event_properties_stored";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED: &str =
+    "cymbal_issue_created_event_properties_store_failed";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED: &str =
+    "cymbal_issue_created_event_properties_store_skipped";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_BYTES: &str =
+    "cymbal_issue_created_event_properties_bytes";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
@@ -72,6 +90,11 @@ pub const ASSIGNMENT_RULES_FOUND: &str = "cymbal_assignment_rules_found";
 pub const ASSIGNMENT_RULES_TRIED: &str = "cymbal_assignment_rules_tried";
 pub const AUTO_ASSIGNMENTS: &str = "cymbal_auto_assignments";
 pub const ASSIGNMENT_RULES_DISABLED: &str = "cymbal_assignment_rules_disabled";
+pub const SEVERITY_RULES_PROCESSING_TIME: &str = "cymbal_severity_rules_processing_time";
+pub const SEVERITY_RULES_FOUND: &str = "cymbal_severity_rules_found";
+pub const SEVERITY_RULES_TRIED: &str = "cymbal_severity_rules_tried";
+pub const SEVERITY_RULES_MATCHED: &str = "cymbal_severity_rules_matched";
+pub const SEVERITY_RULES_DISABLED: &str = "cymbal_severity_rules_disabled";
 pub const GROUPING_RULES_DISABLED: &str = "cymbal_grouping_rules_disabled";
 pub const GROUPING_RULES_PROCESSING_TIME: &str = "cymbal_grouping_rules_processing_time";
 pub const GROUPING_RULES_FOUND: &str = "cymbal_grouping_rules_found";
@@ -93,15 +116,9 @@ pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_iss
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";
 pub const SPIKE_GET_SPIKING_ISSUES_TIME: &str = "cymbal_spike_get_spiking_issues_time";
 pub const SPIKE_ACQUIRE_LOCKS_TIME: &str = "cymbal_spike_acquire_locks_time";
-pub const SPIKE_EMIT_EVENTS_TIME: &str = "cymbal_spike_emit_events_time";
 pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
 pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
 pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_by_cooldown";
-
-// Signal metrics
-pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
-pub const SIGNAL_EMIT_FAILED: &str = "cymbal_signal_emit_failed";
-pub const SIGNAL_EMIT_RESPONSE: &str = "cymbal_signal_emit_response";
 
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
@@ -120,9 +137,11 @@ pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_met
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 
 // Operators
-pub const FRAME_RESOLVER_OPERATOR: &str = "cymbal_frame_batch_time";
-pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolver_operator";
-pub const PROPERTIES_RESOLVER_OPERATOR: &str = "cymbal_exception_properties_resolver_operator";
+pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
+pub const EVENT_RELEASE_RESOLVER_OPERATOR: &str =
+    "cymbal_exception_event_release_resolver_operator";
+pub const LEGACY_ORDER_RESOLVE_FAILED: &str = "cymbal_exception_legacy_order_resolve_failed";
+pub const FINGERPRINT_LEGACY_VERSION_USED: &str = "cymbal_fingerprint_legacy_version_used";
 pub const ISSUE_LINKER_OPERATOR: &str = "cymbal_exception_issue_linker_operator";
 pub const ISSUE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_issue_suppression_operator";
 pub const RULE_SUPPRESSION_OPERATOR: &str = "cymbal_exception_rule_suppression_operator";
@@ -138,7 +157,6 @@ pub const BYPASS_RULES_DISABLED: &str = "cymbal_bypass_rules_disabled";
 // fixed enums rather than free-form messages.
 pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_total";
 pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
-pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
 pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
 pub const REMOTE_RESOLUTION_ENDPOINTS_BY_STATE: &str =
     "cymbal_remote_resolution_endpoints_by_state";
@@ -154,3 +172,12 @@ pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
 pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
 pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";
+
+// `outcome` is either `admitted` or `limited` and never both, so the two series
+// sum to the notifications the limiter judged.
+pub const ISSUE_CREATED_RATE_LIMIT_OUTCOMES: &str = "cymbal_issue_created_rate_limit_outcomes";
+pub const ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN: &str = "cymbal_issue_created_rate_limit_fail_open";
+// Tokens handed back after a charge that started no workflow, labeled `refunded`
+// or `error`. Kept off the `outcomes` counter, because a refund is not a
+// judgment on a notification and would break that counter's two-series sum.
+pub const ISSUE_CREATED_RATE_LIMIT_REFUNDS: &str = "cymbal_issue_created_rate_limit_refunds";

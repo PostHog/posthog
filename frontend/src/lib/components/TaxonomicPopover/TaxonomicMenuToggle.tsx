@@ -1,10 +1,24 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode, createContext, useContext } from 'react'
 
 import { IconClockRewind, IconFlask } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 
 import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
+
+/**
+ * Hides the menu toggle within a subtree without disabling the
+ * `taxonomic-filter-menu-rebuild` experiment: the user's chosen menu still
+ * renders, only the in-context switch badge is suppressed. Backed by React
+ * context, so it propagates through popover portals — wrapping a filter bar
+ * also covers the pickers rendered in its overlays (e.g. web analytics).
+ */
+const MenuToggleSuppressionContext = createContext(false)
+
+export function SuppressTaxonomicMenuToggle({ children }: { children: ReactNode }): JSX.Element {
+    return <MenuToggleSuppressionContext.Provider value={true}>{children}</MenuToggleSuppressionContext.Provider>
+}
 
 /**
  * Floating corner badge rendered over every taxonomic filter trigger
@@ -15,8 +29,17 @@ import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
  * Positioned `absolute` inside the trigger's top-right corner — the parent
  * must be `relative`. Kept inside the trigger box (no negative offset) so
  * an `overflow-hidden` ancestor can't clip it.
+ *
+ * Renders nothing inside a `<SuppressTaxonomicMenuToggle>` subtree.
  */
-export function TaxonomicMenuToggle(): JSX.Element {
+export function TaxonomicMenuToggle(): JSX.Element | null {
+    if (useContext(MenuToggleSuppressionContext)) {
+        return null
+    }
+    return <MenuToggleButton />
+}
+
+function MenuToggleButton(): JSX.Element {
     const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
     const { setUseNewMenu } = useActions(taxonomicMenuPreferenceLogic)
 

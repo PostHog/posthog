@@ -2,10 +2,47 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
-from posthog.schema import DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode
+from posthog.schema import (
+    DataWarehouseNode,
+    EntityType,
+    FunnelsDataWarehouseNode,
+    LifecycleDataWarehouseNode,
+    RetentionEntity,
+)
+
+from posthog.rbac.user_access_control import RESOURCE_FALLBACK_MAP
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+
+# `system.information_schema` tables whose rows/columns are gated behind `data_catalog` read access
+# (see `_can_read_catalog` in information_schema.py): `tables` carries the certification mark,
+# `relationships` carries proposal confidence/reasoning, `metrics` is entirely catalog-governed, and
+# `certifications` / `relationship_proposals` are the fully catalog-governed review queues. A query
+# touching any of these must partition the cache by `data_catalog` access, or an allowed user's cached
+# rows would be served to a denied user on a cache hit.
+_DATA_CATALOG_INFORMATION_SCHEMA_TABLES = frozenset(
+    {
+        "system.information_schema.tables",
+        "system.information_schema.relationships",
+        "system.information_schema.metrics",
+        "system.information_schema.certifications",
+        "system.information_schema.relationship_proposals",
+    }
+)
+
+# `system.information_schema` tables gated behind warehouse read access (see
+# `_can_read_data_quality` in information_schema.py). They carry check definitions, run outcomes, and
+# per-subject health. A query touching any of these must partition the cache by warehouse access,
+# or an allowed user's cached rows would be served to a denied user on a cache hit.
+_DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
+    {
+        "system.information_schema.data_quality_checks",
+        "system.information_schema.data_quality_check_runs",
+        "system.information_schema.data_quality_health",
+    }
+)
 
 
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
@@ -27,6 +64,9 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
+    if getattr(query, "kind", None) == "AccountsTableQuery":
+        return _with_fallback_parents({"account"})
+
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
         sql = getattr(query, "query", None)
@@ -41,6 +81,39 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         system_scopes = {f"system.{name}": scope for name, scope in access_controlled_system_tables().items()}
         scopes: set[str] = {system_scopes[name] for name in table_names if name in system_scopes}
 
+        # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
+        # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.
+        if table_names & _DATA_CATALOG_INFORMATION_SCHEMA_TABLES:
+            scopes.add("data_catalog")
+            # Their row visibility also depends on per-object warehouse denials (`_catalog_table_visible`
+            # and referenced-table filtering hide rows for sources/views the caller can't see), so
+            # partition on warehouse access too. Without this, two `data_catalog` users with different
+            # source grants share a cache key and the denied one is served the allowed one's certification
+            # notes / proposal evidence on a hit. The specific denied object IDs fold into the key via
+            # AnalyticsQueryRunner._get_object_access_restrictions.
+            scopes.add("warehouse_table")
+            scopes.add("warehouse_view")
+
+        # The data-quality information_schema tables are gated on warehouse read access, and their
+        # rows are hidden per the caller's warehouse-object denials (the loaders drop a
+        # check/run/health row whose subject table or view the caller can't see). Without this, two
+        # users with different warehouse grants share a cache key and the denied one is served the
+        # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
+        # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
+        if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
+            scopes.add("warehouse_table")
+            scopes.add("warehouse_view")
+
+        # Connection-scoped queries read the external source's upstream data directly. Their tables
+        # are virtual (named by ExternalDataSchema.name) or physical direct rows, which the
+        # warehouse-table name lookup below can't reliably match — so fail closed and partition the
+        # cache by both gates execution enforces: source viewer access (the connection resolver) and
+        # backing warehouse-table access (the virtual-table build). Without this, a denied user
+        # could be served an allowed user's cached upstream rows on a cache hit.
+        if getattr(query, "connectionId", None):
+            scopes.add("external_data_source")
+            scopes.add("warehouse_table")
+
         # Warehouse tables/views are per-team and dynamic, and the HogQL schema isn't built here (the
         # fingerprint runs before any database), so resolve referenced warehouse objects with a light
         # name lookup. We only add the scope here; the specific denied object IDs are folded into the
@@ -54,7 +127,17 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             for table in (
                 DataWarehouseTable.objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
+                # clear the manager's created_by/schema eager-loads: select_related chains additively,
+                # so without this the .only() below raises FieldError (created_by deferred + traversed)
+                .select_related(None)
+                .prefetch_related(None)
                 .select_related("external_data_source")
+                .only(
+                    "name",
+                    "external_data_source__source_type",
+                    "external_data_source__prefix",
+                    "external_data_source__access_method",
+                )
             ):
                 warehouse_table_names.add(table.name)
                 warehouse_table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
@@ -73,17 +156,29 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
                 # otherwise a user denied an underlying table could be served a cached view result.
                 scopes.add("warehouse_table")
 
-        return scopes
+        return _with_fallback_parents(scopes)
 
     # Structured insight queries (Trends/Funnels/Lifecycle/...) read warehouse data via a
     # DataWarehouseNode in their tree rather than by table name.
-    return {"warehouse_table", "warehouse_view"} if _references_data_warehouse(query) else set()
+    return _with_fallback_parents({"warehouse_table", "warehouse_view"}) if _references_data_warehouse(query) else set()
+
+
+def _with_fallback_parents(scopes: set[str]) -> set[str]:
+    """Add the parent of every scope that resolves through one, since the parent's rules decide the
+    child's access.
+
+    Only RESOURCE_FALLBACK_MAP. RESOURCE_INHERITANCE_MAP substitutes the parent's access for the
+    child's rather than adding rules of its own, so there is nothing extra to partition on.
+    """
+    return scopes | {parent for child, parent in RESOURCE_FALLBACK_MAP.items() if child in scopes}
 
 
 def _references_data_warehouse(value) -> bool:
-    """True if a structured query reads a data-warehouse source via a DataWarehouseNode anywhere in
-    its tree (series, sub-queries, exclusions, ...)"""
+    """True if a structured query reads a data-warehouse source via a DataWarehouseNode — or a
+    data-warehouse RetentionEntity — anywhere in its tree (series, sub-queries, exclusions, ...)"""
     if isinstance(value, (DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode)):
+        return True
+    if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True
     if isinstance(value, BaseModel):
         return any(_references_data_warehouse(field) for field in value.__dict__.values())

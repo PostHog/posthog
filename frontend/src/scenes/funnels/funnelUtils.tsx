@@ -39,6 +39,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
+// Keep in sync with CONVERSION_WINDOW_INTERVAL_BOUNDS in posthog/hogql_queries/insights/funnels/utils.py,
+// which enforces the same bounds server-side for the paths v2 gap.
 export const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],

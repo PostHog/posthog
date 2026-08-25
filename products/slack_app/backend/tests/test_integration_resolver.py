@@ -1,14 +1,16 @@
 import pytest
 
 from django.apps import apps
+from django.test import override_settings
+from django.utils import timezone
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
-from products.slack_app.backend.services.integration_resolver import load_integrations
+from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
 
 WORKSPACE = "T_WS"
 SLACK_USER = "U001"
@@ -457,6 +459,33 @@ class TestResolveIntegration:
         assert result.source == "sole_candidate"
         assert result.integration == self.integration_a
 
+    @override_settings(DEBUG=True)
+    def test_debug_workspace_user_resolution_uses_seeded_local_user(self):
+        local_user = User.objects.create(email="test@posthog.com", distinct_id="u-local")
+        OrganizationMembership.objects.create(user=local_user, organization=self.organization)
+        SlackUserProfileCache.objects.create(
+            integration=self.integration_a,
+            slack_user_id=SLACK_USER,
+            email="chris.v@posthog.com",
+            refreshed_at=timezone.now(),
+        )
+        workspace_result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack"],
+            slack_user_id=SLACK_USER,
+            user=None,
+        )
+
+        result = resolve_user_for_workspace(
+            workspace_result=workspace_result,
+            slack_team_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+        )
+
+        assert result.user == local_user
+        assert result.failure_reason is None
+        assert {c.id for c in result.candidates} == {self.integration_a.id, self.integration_b.id}
+
 
 class TestLoadIntegrationsAuthStateFilter:
     """Covers the eager auth-check + cache-driven ordering in ``load_integrations``.
@@ -496,7 +525,7 @@ class TestLoadIntegrationsAuthStateFilter:
         # to hit the real Slack API every time the cache is cold. Context
         # manager so a failure inside ``yield`` still cleans up (manual
         # ``start()/stop()`` would leak the patch into sibling tests).
-        with patch("posthog.models.integration.WebClient") as mock_webclient_class:
+        with patch("posthog.models.integration.slack.WebClient") as mock_webclient_class:
             mock_client = MagicMock()
             mock_webclient_class.return_value = mock_client
             mock_client.auth_test.return_value = {"user_id": "U_BOT"}

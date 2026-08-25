@@ -4,10 +4,14 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.models import Organization, Project, Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
@@ -42,14 +46,10 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertIn("trial_eval_limit", response.data)
-        self.assertIn("trial_evals_used", response.data)
-        self.assertIn("trial_evals_remaining", response.data)
         self.assertIn("active_provider_key", response.data)
-        self.assertEqual(response.data["trial_eval_limit"], 100)
-        self.assertEqual(response.data["trial_evals_used"], 0)
-        self.assertEqual(response.data["trial_evals_remaining"], 100)
         self.assertIsNone(response.data["active_provider_key"])
+        self.assertIn("created_at", response.data)
+        self.assertIn("updated_at", response.data)
 
     def test_get_creates_config_if_missing(self):
         self.assertEqual(EvaluationConfig.objects.filter(team=self.team).count(), 0)
@@ -60,12 +60,12 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         self.assertEqual(EvaluationConfig.objects.filter(team=self.team).count(), 1)
 
     def test_get_returns_existing_config(self):
-        EvaluationConfig.objects.create(team=self.team, trial_evals_used=50)
+        existing = EvaluationConfig.objects.create(team=self.team)
 
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["trial_evals_used"], 50)
-        self.assertEqual(response.data["trial_evals_remaining"], 50)
+        self.assertEqual(EvaluationConfig.objects.filter(team=self.team).count(), 1)
+        self.assertEqual(EvaluationConfig.objects.get(team=self.team).pk, existing.pk)
 
     def test_can_set_active_key(self):
         key = LLMProviderKey.objects.create(
@@ -155,20 +155,6 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         self.assertEqual(response.data["attr"], "key_id")
         self.assertEqual(response.data["code"], "required")
 
-    def test_trial_evals_remaining_calculated_correctly(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=75)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["trial_evals_remaining"], 25)
-
-    def test_trial_evals_remaining_never_negative(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=150)
-
-        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["trial_evals_remaining"], 0)
-
     def test_can_change_active_key(self):
         key1 = LLMProviderKey.objects.create(
             team=self.team,
@@ -224,3 +210,53 @@ class TestEvaluationConfigViewSet(APIBaseTest):
         self.assertEqual(active_key["provider"], "openai")
         self.assertEqual(active_key["state"], "ok")
         self.assertIn("api_key_masked", active_key)
+
+    def test_evaluation_restrictions_only_allow_read_only_shared_model_config(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        limited_user = User.objects.create_and_join(self.organization, "limited-config@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=limited_user, organization=self.organization)
+        visible_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Evaluation",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+        )
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Team Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            access_level="none",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(visible_evaluation.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.client.force_login(limited_user)
+
+        get_response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/")
+
+        set_active_key_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/evaluation_config/set_active_key/",
+            {"key_id": str(key.id)},
+            format="json",
+        )
+
+        assert get_response.status_code == status.HTTP_200_OK
+        assert set_active_key_response.status_code == status.HTTP_403_FORBIDDEN
+        assert not EvaluationConfig.objects.filter(team=self.team, active_provider_key=key).exists()

@@ -45,6 +45,10 @@ REDACT_FIELD_NAMES: frozenset[str] = frozenset(
         "apikey",
         "password",
         "authorization",
+        # Lambda `/instances` embeds a live JupyterLab access token here (and in `jupyter_url`);
+        # either grants terminal access, so keep them out of captured HTTP samples too.
+        "jupyter_token",
+        "jupyter_url",
     }
 )
 

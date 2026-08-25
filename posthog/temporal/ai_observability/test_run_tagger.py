@@ -8,8 +8,10 @@ from unittest.mock import MagicMock, patch
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
 from .run_tagger import (
@@ -39,6 +41,12 @@ def create_mock_event_data(team_id: int, **overrides: Any) -> dict[str, Any]:
         "distinct_id": "test-user",
     }
     return {**defaults, **overrides}
+
+
+def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
+    """A mocked EvaluationConfig whose active key resolves via DefaultModelSpec (usable, right provider)."""
+    key = MagicMock(provider=provider, state=LLMProviderKey.State.OK)
+    return MagicMock(active_provider_key=key)
 
 
 def make_tagger_config():
@@ -179,10 +187,7 @@ class TestRunTaggerWorkflow:
             mock_client.complete.return_value = mock_response
 
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.active_provider_key = None
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -221,10 +226,7 @@ class TestRunTaggerWorkflow:
             mock_client.complete.return_value = mock_response
 
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.active_provider_key = None
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -264,10 +266,7 @@ class TestRunTaggerWorkflow:
             mock_client.complete.return_value = mock_response
 
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
-                mock_config = MagicMock()
-                mock_config.active_provider_key = None
-                mock_config.trial_evals_used = 0
-                mock_config.trial_eval_limit = 100
+                mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
                 result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
@@ -277,7 +276,7 @@ class TestRunTaggerWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_trial_limit_reached(self, setup_data):
+    async def test_execute_tagger_terminal_team_requires_provider_key(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -293,12 +292,12 @@ class TestRunTaggerWorkflow:
         with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
             mock_config = MagicMock()
             mock_config.active_provider_key = None
-            mock_config.trial_evals_used = 100
-            mock_config.trial_eval_limit = 100
             mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
-            with pytest.raises(ApplicationError, match="Trial evaluation limit"):
+            with pytest.raises(ApplicationError) as exc_info:
                 await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+
+        assert exc_info.value.details[0]["error_type"] == "provider_key_required"
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -383,9 +382,9 @@ class TestRunTaggerWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        with patch("posthog.temporal.ai_observability.run_tagger.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal") as mock_capture:
-                mock_team_get.return_value = team
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_tagger_event_activity(
@@ -427,6 +426,36 @@ class TestRunTaggerWorkflow:
                     assert llm_keys.isdisjoint(set(props)), (
                         f"Hog tagger event leaked LLM-only props: {llm_keys & set(props)}"
                     )
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status_code,should_raise",
+        [
+            pytest.param(402, False, id="billing_limit_is_swallowed"),
+            pytest.param(500, True, id="server_error_still_raises"),
+        ],
+    )
+    async def test_emit_tagger_event_activity_billing_limit(self, setup_data, status_code: int, should_raise: bool):
+        team = setup_data["team"]
+        tagger = {"id": str(setup_data["tagger"].id), "name": "Feature Tagger"}
+        event_data = create_mock_event_data(team.id, properties={})
+        result = {"tags": ["billing"], "reasoning": "matched", "is_hog": True}
+
+        capture_result = MagicMock(
+            raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=status_code))
+        )
+        inputs = EmitTaggerEventInputs(
+            tagger=tagger, event_data=event_data, result=result, start_time=datetime(2024, 1, 1, 12, 0, 0)
+        )
+
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal", return_value=capture_result):
+                if should_raise:
+                    with pytest.raises(CaptureInternalError):
+                        await emit_tagger_event_activity(inputs)
+                else:
+                    await emit_tagger_event_activity(inputs)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

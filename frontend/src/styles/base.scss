@@ -311,12 +311,13 @@
 
     // Product specific colors
     --color-product-data-pipeline-light: rgb(46 162 211);
+    --color-product-data-pipeline-dark: rgb(84 189 235);
     --color-product-product-analytics-light: rgb(47 128 250);
     --color-product-workflows-light: rgb(47 128 250);
     --color-product-web-analytics-light: rgb(52 175 102);
     --color-product-web-analytics-dark: rgb(54 196 111); // original color
-    --color-product-embedded-analytics-light: rgb(243 153 109);
-    --color-product-embedded-analytics-dark: rgb(250 158 120);
+    --color-product-endpoints-light: rgb(243 153 109);
+    --color-product-endpoints-dark: rgb(250 158 120);
     --color-product-session-replay-light: rgb(235 162 18);
     --color-product-session-replay-dark: rgb(247 165 1);
     --color-product-heatmaps-light: rgb(220 152 16);
@@ -329,15 +330,20 @@
     --color-product-error-tracking-light: rgb(211 148 24);
     --color-product-error-tracking-dark: rgb(247 165 1);
     --color-product-surveys-light: rgb(243 84 84);
+    --color-product-product-tours-light: rgb(243 84 84);
+    --color-product-product-tours-dark: rgb(248 121 121);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
+    --color-product-llm-analytics-dark: rgb(212 106 240);
     --color-product-llm-clusters-light: rgb(147 51 234);
     --color-product-llm-datasets-light: rgb(124 58 237);
     --color-product-llm-evaluations-light: rgb(167 139 250);
-    --color-product-llm-prompts-light: rgb(196 181 253);
     --color-product-ai-gateway-light: rgb(99 102 241);
     --color-product-ai-gateway-dark: rgb(129 140 248);
+    --color-product-mcp-analytics-light: rgb(205 48 180);
+    --color-product-mcp-analytics-dark: rgb(229 105 205);
     --color-product-links-light: rgb(143 7 255);
+    --color-product-links-dark: rgb(178 92 255);
     --color-product-tracing-light: rgb(6 182 212);
     --color-product-tracing-dark: rgb(34 211 238);
     --color-product-metrics-light: rgb(234 88 12);
@@ -345,23 +351,20 @@
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
     --color-product-user-interviews-light: rgb(0 140 255);
+    --color-product-user-interviews-dark: rgb(77 171 255);
     --color-product-dashboards-light: rgb(255 139 7);
     --color-product-early-access-features-light: rgb(39 171 151);
     --color-product-early-access-features-dark: rgb(53 213 189);
     --color-product-support-light: rgb(243 84 84);
     --color-product-support-dark: rgb(247 165 1);
-
-    // Insight colors
-    --color-insight-funnel-light: rgb(47 128 250);
-    --color-insight-trends-light: rgb(247 165 1);
-    --color-insight-user-paths-light: rgb(30 179 152);
-    --color-user-paths-dark: rgb(41 219 187);
-    --color-insight-retention-light: rgb(243 84 84);
-    --color-insight-stickiness-light: rgb(247 165 1);
-    --color-insight-lifecycle-light: rgb(48 171 198);
-    --color-insight-calendar-heatmap-light: rgb(12 39 146);
-    --color-insight-calendar-heatmap-dark: rgb(61 91 215);
-    --color-insight-sql-light: rgb(245 78 0);
+    --color-product-visual-review-light: rgb(101 163 13);
+    --color-product-visual-review-dark: rgb(163 230 53);
+    --color-product-actions-light: rgb(47 128 250);
+    --color-product-actions-dark: rgb(96 165 250);
+    --color-product-cohorts-light: rgb(13 148 136);
+    --color-product-cohorts-dark: rgb(45 212 191);
+    --color-product-activity-light: rgb(225 29 72);
+    --color-product-activity-dark: rgb(251 113 133);
 
     // Generic brand color assignments
     // Change these to change the brand colors
@@ -652,7 +655,11 @@
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
-    --z-chart-tooltip: calc(var(--z-modal) - 50);
+
+    // Matches --z-graph-tooltip: charts render inside modals too, so their hover tooltips must
+    // sit above --z-modal. Pinned tooltips dismiss on outside pointer-down, so they can't linger
+    // over a modal opened after pinning.
+    --z-chart-tooltip: var(--z-graph-tooltip);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code
@@ -1101,13 +1108,13 @@
     );
 }
 
-@layer base {
-    // allowing @import to be inside layer
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
-    @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
-
-    // allowing @import to be first
-    /* stylelint-disable-next-line order/order */
+// Restore a real default border color (Tailwind v4 preflight resets it to currentColor).
+// Kept in @layer components — one layer above preflight's @layer base — so it wins by layer
+// order rather than source order. Source order is unreliable: vite 8's rolldown CSS pipeline
+// can emit preflight after this rule, and inside the toolbar's shadow root there is no <html>
+// to raise specificity against. Layer order holds in both places, so a bare `*` still yields
+// to component and utility borders (higher layers / unlayered) as before.
+@layer components {
     *,
     ::after,
     ::before,
@@ -1115,7 +1122,15 @@
     ::file-selector-button {
         border-color: var(--color-border-primary, currentColor);
     }
+}
 
+@layer base {
+    // allowing @import to be inside layer
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
+    @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
+
+    // allowing @import to be first
+    /* stylelint-disable-next-line order/order */
     .rendering-pixelated {
         image-rendering: pixelated;
     }
@@ -1386,6 +1401,7 @@
         margin-bottom: 0.5rem !important;
         font-family: var(--font-sans);
         font-size: 1rem;
+        pointer-events: auto;
         cursor: unset;
         border: 1px solid var(--secondary-3000-button-border);
         border-radius: var(--radius);
@@ -1395,6 +1411,7 @@
 
     .Toastify__toast-container {
         padding: 0;
+        pointer-events: none;
     }
 
     .Toastify__toast-body {
@@ -1972,72 +1989,6 @@
         outline-offset: 2px;
     }
 
-    .animate-logomark-jump {
-        --logomark-jump-height-base: 12px;
-        --logomark-jump-magnitude: 1; // Overidden in code when someone wants a bigger jump
-        --logomark-airtime: 0.4s; // Sync with LOGOMARK_AIRTIME_MS in Intro.tsx
-
-        svg {
-            overflow: visible;
-
-            // Animate each child with a staggered delay
-            > * {
-                // Times 25 because the actual animation is 4% of the keyframes (so 1/25)
-                animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
-            }
-
-            // Delay one after the other to create a nice jump effect
-            // Delay in reverse order because we want the head to jump first (it's last on SVG)
-            @for $i from 1 through 4 {
-                > *:nth-child(#{$i}) {
-                    // Dividing by 15 just because it feels good
-                    animation-delay: calc(
-                        var(--logomark-airtime) / 15 / calc(sqrt(var(--logomark-jump-magnitude))) * (4 - ($i - 1))
-                    );
-                }
-            }
-        }
-
-        @keyframes Logomark__jump {
-            0%,
-            100% {
-                transform: translateY(0);
-            }
-
-            2% {
-                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
-            }
-
-            4% {
-                // Only 4% so that this repeats every now and then nicely
-                transform: translateY(0);
-            }
-        }
-
-        @keyframes Logomark__jump-continuous {
-            0%,
-            44%,
-            100% {
-                transform: translateY(0);
-            }
-
-            22% {
-                transform: translateY(calc(var(--logomark-jump-height-base) * var(--logomark-jump-magnitude) * -1));
-            }
-        }
-
-        /* stylelint-disable-next-line order/order */
-        &-continuous {
-            @extend .animate-logomark-jump;
-
-            /* stylelint-disable-next-line order/order */
-            svg > * {
-                animation-name: Logomark__jump-continuous;
-                animation-duration: 0.9s;
-            }
-        }
-    }
-
     /* stylelint-disable-next-line order/order */
     .animate-fade-in {
         animation: fade-in 0.4s ease-out forwards;
@@ -2093,6 +2044,28 @@
     position: relative !important;
     border-radius: var(--radius);
     animation: setup-highlight-pulse 1s ease-in-out 3 !important;
+}
+
+// One cell is one period along the 135deg axis, so the loop is seamless.
+@keyframes VolumeSparkline__spikeStripes {
+    to {
+        background-position: 0 -12px;
+    }
+}
+
+// A class, not a Tailwind `animate-[…]` utility: the keyframe name's `__` would need
+// underscore-escaping there, and Tailwind's raw-source scanner and the JSX-evaluated
+// class attribute disagree on backslashes, so the utility's selector never matches.
+.VolumeSparkline__spikeStripes {
+    animation: VolumeSparkline__spikeStripes 1.5s linear infinite;
+
+    .storybook-test-runner & {
+        animation: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
 }
 
 /* stylelint-disable-next-line keyframes-name-pattern */

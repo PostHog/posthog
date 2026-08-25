@@ -1,6 +1,6 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { EmailTrackingCodeSigner, trackingCodeMintCounter } from './tracking-code'
+import { EmailTrackingCodeSigner, hasEmailSigningKey, trackingCodeMintCounter } from './tracking-code'
 
 const TRACKING_URL = 'http://localhost:8010'
 
@@ -197,12 +197,77 @@ describe('email tracking code', () => {
                 },
             },
             {
+                // The version sits immediately before the greedy distinctId tail, so a distinctId
+                // containing colons is where an off-by-one in the split would surface — either the
+                // version leaks into distinctId or distinctId loses its leading segment.
+                name: 'roundtrips the workflow version alongside a colon-bearing distinctId',
+                encoded: signer.generate(
+                    {
+                        functionId: 'fn-1',
+                        id: 'inv-2',
+                        teamId: 3,
+                        state: { actionId: 'act-5' },
+                        distinctId: 'urn:user:42',
+                        workflowVersion: 3,
+                    },
+                    false,
+                    true
+                ),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: undefined,
+                    isTest: false,
+                    distinctId: 'urn:user:42',
+                    workflowVersion: 3,
+                    format: 'signed',
+                },
+            },
+            {
+                // Security: same rule as distinct_id above — a version is only honored from a signed
+                // code, so a forged one can't pin another version's engagement metrics onto a chosen
+                // version. The unsigned tag carrier never mints a version, so nothing legitimate is lost.
+                name: 'ignores a workflow version on an unsigned (forged) code',
+                encoded: encodeRaw('v2:fn-1:inv-2:3:act-5:batch-4::9:'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: false,
+                    distinctId: undefined,
+                    workflowVersion: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
                 name: 'returns null when the encoded string is empty',
                 encoded: '',
                 expected: null,
             },
         ])('$name', ({ encoded, expected }) => {
             expect(signer.parse(encoded)).toEqual(expected)
+        })
+    })
+
+    describe('versioned payload rollout', () => {
+        it('does not emit the marker by default, so pods on the old parser still read new codes', () => {
+            // Phase one ships the marker-aware parser only. Emitting the marker before the fleet can
+            // parse it shifts every field for an old pod — functionId becomes the literal marker, the
+            // flow lookup misses, and the engagement metric is dropped for the whole rolling deploy.
+            const decoded = Buffer.from(
+                signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }).split('.')[0],
+                'base64'
+            ).toString('utf8')
+
+            expect(decoded.startsWith('fn-1:')).toBe(true)
+            expect(
+                signer.parse(signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }))
+                    ?.workflowVersion
+            ).toBeUndefined()
         })
     })
 
@@ -275,11 +340,11 @@ describe('email tracking code', () => {
             expect(spacedSigner.parse(code)?.format).toBe('signed')
         })
 
-        it('emits unsigned codes when no signing key is configured', () => {
+        it('fails closed instead of minting an unsigned code when no signing key is configured', () => {
             const unsignedSigner = new EmailTrackingCodeSigner('', TRACKING_URL)
-            const code = unsignedSigner.generate({ functionId: 'fn', id: 'inv', teamId: 1 })
-            expect(code).not.toContain('.')
-            expect(unsignedSigner.parse(code)?.format).toBe('unsigned')
+            expect(() => unsignedSigner.generate({ functionId: 'fn', id: 'inv', teamId: 1 })).toThrow(
+                /no signing key configured/
+            )
         })
     })
 
@@ -289,15 +354,36 @@ describe('email tracking code', () => {
             return metric.values.find((v) => v.labels.format === format)?.value ?? 0
         }
 
-        // The keyless branch is silent without this counter; it is the proof that fail-closed (#62624)
-        // is safe to enable, so guard that generate() labels each minted code correctly.
+        it('counts a signed mint when a key is configured', async () => {
+            const before = await mintCount('signed')
+            new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, TRACKING_URL).generate({
+                functionId: 'fn',
+                id: 'inv',
+                teamId: 1,
+            })
+            expect(await mintCount('signed')).toBe(before + 1)
+        })
+
+        // Fail-closed still records the attempt before throwing, so a bypassed boot guard stays attributable.
+        it('records an unsigned mint before failing closed when no key is configured', async () => {
+            const before = await mintCount('unsigned')
+            expect(() =>
+                new EmailTrackingCodeSigner('', TRACKING_URL).generate({ functionId: 'fn', id: 'inv', teamId: 1 })
+            ).toThrow()
+            expect(await mintCount('unsigned')).toBe(before + 1)
+        })
+    })
+
+    describe('hasEmailSigningKey', () => {
+        // Guards the boot-time check: a whitespace/comma-only value must read as "no key" so a keyless
+        // email deployment refuses to start, while a real (possibly space-padded) key reads as present.
         it.each([
-            { name: 'signed when a key is configured', keys: defaultConfig.ENCRYPTION_SALT_KEYS, format: 'signed' },
-            { name: 'unsigned when no key is configured', keys: '', format: 'unsigned' },
-        ])('counts a mint as $name', async ({ keys, format }) => {
-            const before = await mintCount(format)
-            new EmailTrackingCodeSigner(keys, TRACKING_URL).generate({ functionId: 'fn', id: 'inv', teamId: 1 })
-            expect(await mintCount(format)).toBe(before + 1)
+            { name: 'a configured key', keys: 'a-signing-key-000000000000000000', expected: true },
+            { name: 'a space-padded key in a rotation list', keys: 'first-key-0000, second-key-0000', expected: true },
+            { name: 'an empty string', keys: '', expected: false },
+            { name: 'whitespace and commas only', keys: '  , ', expected: false },
+        ])('is $expected for $name', ({ keys, expected }) => {
+            expect(hasEmailSigningKey(keys)).toBe(expected)
         })
     })
 })

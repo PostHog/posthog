@@ -1,29 +1,44 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { HedgehogPhoneCall } from '@posthog/brand/hoggies'
+import * as phoneCall from '@posthog/brand/hoggies/png/phone-call'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { CommentWithReplies } from './Comment'
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
+import { SendCommentToSlackModal } from './SendCommentToSlackModal'
+
+const HedgehogPhoneCall = pngHoggie(phoneCall)
 
 export interface CommentsListProps extends CommentsLogicProps {
     noun?: string
 }
 
 export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JSX.Element => {
-    const { key, commentsWithReplies, commentsLoading } = useValues(commentsLogic(props))
-    const { loadComments } = useActions(commentsLogic(props))
+    const { key, commentsWithReplies, commentsInitialLoading } = useValues(commentsLogic(props))
+    const { loadComments, setReplyingComment, clearRichContentEditor } = useActions(commentsLogic(props))
 
     // If the comment list focus changes we should load the comments
     useEffect(() => {
         loadComments()
     }, [key]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    useEffect(() => {
+        return () => {
+            // Closing the surface ends any reply flow so reopening starts fresh everywhere (the
+            // reply text survives in its thread's draft slot), and deregisters the dying editor
+            // so nothing waiting for a composer grabs it
+            setReplyingComment(null)
+            clearRichContentEditor()
+        }
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
+
     return (
         <BindLogic logic={commentsLogic} props={props}>
             <div className="flex flex-col">
-                {!commentsWithReplies?.length && commentsLoading ? (
+                {commentsInitialLoading ? (
                     <div className="deprecated-space-y-2">
                         <LemonSkeleton className="h-10 w-full" />
                     </div>
@@ -40,11 +55,12 @@ export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JS
                     </div>
                 ) : null}
 
-                <div className="deprecated-space-y-2">
+                <div className="flex flex-col gap-4">
                     {commentsWithReplies?.map((x) => (
-                        <CommentWithReplies key={x.id} commentWithReplies={x} />
+                        <CommentWithReplies key={x.id} commentWithReplies={x} composerLogicProps={props} />
                     ))}
                 </div>
+                <SendCommentToSlackModal />
             </div>
         </BindLogic>
     )

@@ -467,7 +467,7 @@ def PERSON_DISTINCT_ID_OVERRIDES_WRITABLE_TABLE_SQL():
 
 
 def TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    return f"TRUNCATE TABLE IF EXISTS {PERSON_DISTINCT_ID_OVERRIDES_TABLE} {ON_CLUSTER_CLAUSE()}"
 
 
 # WarpStream Kafka engine tables for person_distinct_id_overrides (coexist alongside MSK tables, same target)
@@ -535,7 +535,7 @@ def PERSON_STATIC_COHORT_TABLE_SQL(on_cluster=True):
 
 
 def TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    return f"TRUNCATE TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} {ON_CLUSTER_CLAUSE()}"
 
 
 INSERT_PERSON_STATIC_COHORT = (
@@ -742,7 +742,7 @@ def CREATE_PERSON_DISTINCT_ID_OVERRIDES_DICTIONARY():
     This must be a function to ensure CLICKHOUSE_DATABASE is evaluated at runtime,
     not at module import time (which causes issues in E2E tests where env vars aren't loaded yet).
     """
-    clickhouse_user, clickhouse_password = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+    dict_reader_creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)
     return """
 CREATE OR REPLACE DICTIONARY {database}.person_distinct_id_overrides_dict ON CLUSTER {cluster} (
     `team_id` Int64, -- team_id could be made hierarchical to save some space.
@@ -760,6 +760,6 @@ LIFETIME(MIN 3600 MAX 18000)
 """.format(
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
-        clickhouse_user=clickhouse_user,
-        clickhouse_password=clickhouse_password,
+        clickhouse_user=dict_reader_creds.user,
+        clickhouse_password=dict_reader_creds.password,
     )

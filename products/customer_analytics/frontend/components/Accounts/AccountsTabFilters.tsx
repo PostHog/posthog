@@ -11,17 +11,27 @@ import {
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import type { AnyPropertyFilter } from '~/types'
 
+import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
+import {
+    ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
+    ACCOUNT_FILTER_OPERATOR_ALLOWLIST,
+    accountFilterStaticValueOptions,
+    type AccountFilter,
+} from './accountsPropertyFilters'
 import { AccountsViewSelector } from './AccountsViewSelector'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { searchInput, tagsFilter, allRolesUnassigned, assignedToCurrentUser, assignedToFilter } =
+    const { searchInput, tagsFilter, allRolesUnassigned, assignedToCurrentUser, assignedToFilter, accountFilters } =
         useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
@@ -30,10 +40,12 @@ export function AccountsTabFilters(): JSX.Element {
         setAllRolesUnassigned,
         setAssignedToCurrentUser,
         setAssignedToFilter,
+        updateAccountFilters,
         refresh,
         reportFilterChange,
     } = useActions(accountsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
+    const { customPropertyTaxonomicOptions } = useValues(accountsColumnConfigLogic)
 
     const tagsButtonLabel =
         tagsFilter.length === 0 ? 'All tags' : tagsFilter.length === 1 ? tagsFilter[0] : `${tagsFilter.length} tags`
@@ -126,6 +138,24 @@ export function AccountsTabFilters(): JSX.Element {
                         info="Shortcut for Assigned to: you — accounts where you are the CSM or account executive"
                         disabledReason={accountsLoading ? 'Loading…' : undefined}
                         data-attr="accounts-my-accounts-filter"
+                    />
+
+                    <PropertyFilters
+                        propertyFilters={accountFilters as unknown as AnyPropertyFilter[]}
+                        onChange={(filters) => updateAccountFilters(filters as unknown as AccountFilter[])}
+                        pageKey="customer-analytics-accounts-custom-properties"
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.AccountFields,
+                            TaxonomicFilterGroupType.AccountCustomProperties,
+                        ]}
+                        taxonomicFilterOptionsFromProp={{
+                            [TaxonomicFilterGroupType.AccountFields]: ACCOUNT_FIELD_TAXONOMIC_OPTIONS,
+                            [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
+                        }}
+                        operatorAllowlist={ACCOUNT_FILTER_OPERATOR_ALLOWLIST}
+                        staticValueOptions={accountFilterStaticValueOptions}
+                        buttonSize="small"
+                        hasRowOperator={false}
                     />
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">

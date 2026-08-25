@@ -361,9 +361,45 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         )
 
     @pytest.mark.parametrize("use_automatic_schema_evolution", [True, False])
+    @pytest.mark.parametrize(
+        "model_name,missing_column,pre_created_table_columns",
+        [
+            pytest.param(
+                "persons",
+                "created_at",
+                [
+                    ("team_id", "BIGINT"),
+                    ("distinct_id", "STRING"),
+                    ("person_id", "STRING"),
+                    ("properties", "VARIANT"),
+                    ("person_distinct_id_version", "BIGINT"),
+                    ("person_version", "BIGINT"),
+                    ("is_deleted", "BOOLEAN"),
+                ],
+                id="persons-missing-created_at",
+            ),
+            pytest.param(
+                "events",
+                "person_properties",
+                [
+                    ("uuid", "STRING"),
+                    ("event", "STRING"),
+                    ("properties", "VARIANT"),
+                    ("distinct_id", "STRING"),
+                    ("team_id", "BIGINT"),
+                    ("timestamp", "TIMESTAMP"),
+                    ("databricks_ingested_timestamp", "TIMESTAMP"),
+                ],
+                id="events-missing-person_properties",
+            ),
+        ],
+    )
     async def test_workflow_handles_model_schema_changes(
         self,
         use_automatic_schema_evolution: bool,
+        model_name: str,
+        missing_column: str,
+        pre_created_table_columns: list[tuple[str, str]],
         destination_test: DatabricksDestinationTest,
         interval: str,
         generate_test_data,
@@ -378,34 +414,29 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
 
         If we update the schema of the model we export, we should still be able to export the data without breaking
         existing exports.
-        To replicate this situation we first export the data with the original schema, then delete a column in the
-        destination and then rerun the export.
+        To replicate this situation we create the destination table with a schema that predates `missing_column`
+        and then run the export.
 
         Databricks supports automatic schema evolution, which means the target table will automatically be updated with
-        the schema of the source table (no columns will ever be dropped from the target table however).
+        the schema of the source table (no columns will ever be dropped from the target table however). For the persons
+        model this happens in the MERGE, for the events model in the COPY INTO.
 
-        If `use_automatic_schema_evolution` is True, we will use `WITH SCHEMA EVOLUTION` to enable automatic schema
-        evolution. In this case, the target table will automatically be updated with the new column.
+        If `use_automatic_schema_evolution` is True, the target table will automatically be updated with the new
+        column.
 
-        If `use_automatic_schema_evolution` is False, we will not use `WITH SCHEMA EVOLUTION` and the target table will
-        not be updated with the new column.
-
+        If `use_automatic_schema_evolution` is False, the target table will not be updated with the new column, and
+        the export should proceed without it.
         """
 
-        # create the table manually, specifically without the created_at column
+        # create the table manually, specifically without `missing_column`
         destination_config = batch_export_for_destination.destination.config
         catalog = destination_config["catalog"]
         schema = destination_config["schema"]
         table_name = destination_config["table_name"]
+        column_ddl = ",\n".join(f"`{name}` {field_type}" for name, field_type in pre_created_table_columns)
         query = f"""
         CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.`{table_name}` (
-            `team_id` BIGINT,
-            `distinct_id` STRING,
-            `person_id` STRING,
-            `properties` VARIANT,
-            `person_distinct_id_version` BIGINT,
-            `person_version` BIGINT,
-            `is_deleted` BOOLEAN
+            {column_ddl}
         )
         USING DELTA
         COMMENT 'PostHog generated table'
@@ -413,7 +444,7 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         with destination_test.cursor(ateam.pk, integration) as cursor:
             cursor.execute(query)
 
-        batch_export_model = BatchExportModel(name="persons", schema=None)
+        batch_export_model = BatchExportModel(name=model_name, schema=None)
 
         inputs = destination_test.create_batch_export_inputs(
             team_id=ateam.pk,
@@ -431,8 +462,9 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         )
 
         assert run.status == "Completed"
-        _, persons_to_export_created = generate_test_data
-        assert run.records_completed == len(persons_to_export_created)
+        events_to_export_created, persons_to_export_created = generate_test_data
+        expected_records = persons_to_export_created if model_name == "persons" else events_to_export_created
+        assert run.records_completed == len(expected_records)
         await assert_clickhouse_records_in_destination(
             destination_test=destination_test,
             team_id=ateam.pk,
@@ -442,20 +474,70 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             exclude_events=None,
             inputs=inputs,
             integration=integration,
-            # if `use_automatic_schema_evolution` is False, we expect the created_at column to be dropped
-            fields_to_exclude=["created_at"] if use_automatic_schema_evolution is False else [],
+            # if `use_automatic_schema_evolution` is False, we expect `missing_column` to be dropped
+            fields_to_exclude=[missing_column] if use_automatic_schema_evolution is False else [],
         )
 
-        # check that the created_at column is present or not in the destination
+        # check that `missing_column` is present or not in the destination
         records_from_destination = await destination_test.get_inserted_records(
             team_id=ateam.pk,
             json_columns=destination_test.get_json_columns(inputs),
             integration=integration,
         )
         if use_automatic_schema_evolution is True:
-            assert "created_at" in records_from_destination[0]
+            assert missing_column in records_from_destination[0]
         else:
-            assert "created_at" not in records_from_destination[0]
+            assert missing_column not in records_from_destination[0]
+
+    async def test_workflow_raises_incompatible_schema_error_when_target_table_schema_is_wrong(
+        self,
+        destination_test: DatabricksDestinationTest,
+        interval: str,
+        generate_test_data,
+        data_interval_start: dt.datetime,
+        data_interval_end: dt.datetime,
+        ateam,
+        batch_export_for_destination,
+        integration: Integration,
+        setup_destination,
+    ):
+        # Pre-create the target table with a schema that doesn't match the persons model. None of
+        # these columns match the merge keys (`team_id`, `distinct_id`), so the MERGE condition
+        # references columns that can't be resolved on the target.
+        destination_config = batch_export_for_destination.destination.config
+        catalog = destination_config["catalog"]
+        schema = destination_config["schema"]
+        table_name = destination_config["table_name"]
+        query = f"""
+        CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.`{table_name}` (
+            `wrong_id` BIGINT,
+            `wrong_data` STRING
+        )
+        USING DELTA
+        COMMENT 'User created table with the wrong schema'
+        """
+        with destination_test.cursor(ateam.pk, integration) as cursor:
+            cursor.execute(query)
+
+        batch_export_model = BatchExportModel(name="persons", schema=None)
+
+        inputs = destination_test.create_batch_export_inputs(
+            team_id=ateam.pk,
+            data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=None,
+            batch_export=batch_export_for_destination,
+        )
+
+        run = await destination_test.run_workflow(
+            batch_export_id=batch_export_for_destination.id,
+            inputs=inputs,
+        )
+
+        assert run.status == "Failed"
+        assert run.latest_error is not None
+        assert "DatabricksIncompatibleSchemaError" in run.latest_error
 
     async def test_workflow_cleans_up_volume_and_stage_table_if_there_is_an_error(
         self,

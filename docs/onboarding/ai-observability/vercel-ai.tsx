@@ -13,12 +13,15 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install the PostHog AI package, the Vercel AI SDK, and the OpenTelemetry SDK.</Markdown>
+                    <Markdown>
+                        Use Node.js 22.22 or later. Install the PostHog AI package, the Vercel AI SDK, its OpenTelemetry
+                        integration, the OpenTelemetry SDK, and Zod for defining tool schemas.
+                    </Markdown>
 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-node @opentelemetry/resources
+                            npm install @posthog/ai@^8.7.0 @ai-sdk/openai @ai-sdk/otel ai @opentelemetry/sdk-node @opentelemetry/resources zod
                         `}
                     />
                 </>
@@ -30,32 +33,85 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             content: (
                 <>
                     <Markdown>
-                        Initialize the OpenTelemetry SDK with PostHog's `PostHogSpanProcessor`. This sends `gen_ai.*`
-                        spans directly to PostHog's OTLP ingestion endpoint. PostHog converts these into
-                        `$ai_generation` events automatically.
+                        Create `instrumentation.ts`. Initialize the OpenTelemetry SDK with PostHog's
+                        `PostHogSpanProcessor`, then register the Vercel AI SDK integration. Both setup calls must
+                        finish before the first AI SDK call. Their relative order does not matter because the
+                        integration obtains a lazy OpenTelemetry tracer.
                     </Markdown>
 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
+                            import { OpenTelemetry } from '@ai-sdk/otel'
                             import { NodeSDK } from '@opentelemetry/sdk-node'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
                             import { PostHogSpanProcessor } from '@posthog/ai/otel'
+                            import { registerTelemetry } from 'ai'
+
+                            export const posthogSpanProcessor = new PostHogSpanProcessor({
+                              projectToken: '<ph_project_token>',
+                              host: '<ph_client_api_host>',
+                            })
 
                             const sdk = new NodeSDK({
                               resource: resourceFromAttributes({
                                 'service.name': 'my-app',
                               }),
-                              spanProcessors: [
-                                new PostHogSpanProcessor({
-                                  apiKey: '<ph_project_token>',
-                                  host: '<ph_client_api_host>',
-                                }),
-                              ],
+                              spanProcessors: [posthogSpanProcessor],
                             })
+
                             sdk.start()
+
+                            registerTelemetry(
+                              new OpenTelemetry({
+                                enrichSpan: ({ runtimeContext }) => ({
+                                  environment:
+                                    typeof runtimeContext?.properties === 'object' &&
+                                    runtimeContext.properties !== null &&
+                                    'environment' in runtimeContext.properties &&
+                                    typeof runtimeContext.properties.environment === 'string'
+                                      ? runtimeContext.properties.environment
+                                      : undefined,
+                                  'posthog.distinct_id':
+                                    typeof runtimeContext?.distinctId === 'string'
+                                      ? runtimeContext.distinctId
+                                      : undefined,
+                                  '$ai_session_id':
+                                    typeof runtimeContext?.sessionId === 'string'
+                                      ? runtimeContext.sessionId
+                                      : undefined,
+                                  '$ai_trace_name':
+                                    typeof runtimeContext?.traceName === 'string'
+                                      ? runtimeContext.traceName
+                                      : undefined,
+                                  '$groups':
+                                    typeof runtimeContext?.groups === 'object' &&
+                                    runtimeContext.groups !== null &&
+                                    !Array.isArray(runtimeContext.groups)
+                                      ? JSON.stringify(runtimeContext.groups)
+                                      : undefined,
+                                }),
+                              })
+                            )
                         `}
                     />
+
+                    <Blockquote>
+                        <Markdown>
+                            **Request-scoped runtimes:** Keep the processor reference and await
+                            `posthogSpanProcessor.forceFlush()` before the request lifecycle ends, or attach the promise
+                            to a supported lifecycle hook such as `waitUntil`. Long-running services can flush during
+                            graceful shutdown instead.
+                        </Markdown>
+                    </Blockquote>
+
+                    <Blockquote>
+                        <Markdown>
+                            **Vercel AI SDK versions:** This OpenTelemetry integration is the supported path for Vercel
+                            AI SDK v7. The legacy PostHog `withTracing` wrapper supports the v5 and v6 provider
+                            interfaces and rejects v7 models.
+                        </Markdown>
+                    </Blockquote>
                 </>
             ),
         },
@@ -65,37 +121,107 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             content: (
                 <>
                     <Markdown>
-                        Pass `experimental_telemetry` to your Vercel AI SDK calls. The `posthog_distinct_id` metadata
-                        field links events to a specific user in PostHog.
+                        {dedent`
+                            Pass request data through \`runtimeContext\`, then select the fields that the telemetry
+                            integration can receive with \`telemetry.includeRuntimeContext\`. Define \`tools\` the same
+                            way you normally would, with an \`execute\` function, as \`get_weather\` does below.
+                        `}
                     </Markdown>
 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            import { generateText } from 'ai'
+                            import { generateText, tool, stepCountIs } from 'ai'
                             import { openai } from '@ai-sdk/openai'
+                            import { z } from 'zod'
+                            import { posthogSpanProcessor } from './instrumentation'
 
-                            const result = await generateText({
-                              model: openai('gpt-5-mini'),
-                              prompt: 'Tell me a fun fact about hedgehogs.',
-                              experimental_telemetry: {
-                                isEnabled: true,
-                                functionId: 'my-ai-function',
-                                metadata: {
-                                  posthog_distinct_id: 'user_123', // optional
+                            async function runWeatherAgent(): Promise<string> {
+                              const result = await generateText({
+                                model: openai('gpt-5-mini'),
+                                prompt: "What's the weather in Paris?",
+                                tools: {
+                                  get_weather: tool({
+                                    description: 'Get the weather for a city',
+                                    inputSchema: z.object({ city: z.string() }),
+                                    execute: async ({ city }) => \`It's always sunny in \${city}!\`,
+                                  }),
                                 },
-                              },
-                            })
+                                stopWhen: stepCountIs(5), // let the model see the tool result and respond
+                                runtimeContext: {
+                                  distinctId: 'user_123',
+                                  sessionId: 'conversation-abc',
+                                  traceName: 'weather-agent',
+                                  groups: {
+                                    company: 'company_123',
+                                  },
+                                  properties: {
+                                    environment: 'production',
+                                  },
+                                },
+                                telemetry: {
+                                  functionId: 'my-ai-function',
+                                  includeRuntimeContext: {
+                                    distinctId: true,
+                                    sessionId: true,
+                                    traceName: true,
+                                    groups: true,
+                                    properties: true,
+                                  },
+                                },
+                              })
 
-                            console.log(result.text)
+                              return result.text
+                            }
+
+                            try {
+                              console.log(await runWeatherAgent())
+                            } finally {
+                              // Spans are still queued in the batch processor when this script exits,
+                              // so without this flush they never reach PostHog.
+                              await posthogSpanProcessor.forceFlush()
+                            }
                         `}
                     />
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog_distinct_id`
-                            metadata field. See our docs on [anonymous vs identified
-                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Identity:** Provide `distinctId` for stable user attribution. Omitting it does not make
+                            capture anonymous. PostHog assigns fallback IDs when no distinct ID is present.
+                        </Markdown>
+                    </Blockquote>
+
+                    <Blockquote>
+                        <Markdown>
+                            **Groups and custom properties:** PostHog ingestion converts the JSON-string `$groups`
+                            attribute into native group associations. Other scalar attributes returned by `enrichSpan`,
+                            such as `environment`, remain filterable custom properties.
+                        </Markdown>
+                    </Blockquote>
+
+                    <Blockquote>
+                        <Markdown>
+                            **Trace and session names:** `$ai_session_id` groups calls in AI observability. Trace names
+                            are not configurable on the v7 OpenTelemetry path yet. PostHog derives the displayed trace
+                            name from the OpenTelemetry span name, which takes precedence over `$ai_trace_name`.
+                            `functionId` is emitted as `gen_ai.agent.name` and does not set the trace name either.
+                        </Markdown>
+                    </Blockquote>
+
+                    <Blockquote>
+                        <Markdown>
+                            **Runtime context support:** Current `@ai-sdk/otel` releases pass `runtimeContext` to
+                            `enrichSpan` for `generateText` and `streamText`. Object generation, embeddings, and
+                            reranking do not pass runtime context yet.
+                        </Markdown>
+                    </Blockquote>
+
+                    <Blockquote>
+                        <Markdown>
+                            **Privacy:** Vercel AI SDK v7 records prompts and outputs by default. Set `recordInputs:
+                            false` or `recordOutputs: false` in `telemetry` to disable either field. The OpenTelemetry
+                            path does not have a separate PostHog privacy switch for text content, so these flags are
+                            the control for prompt and output recording.
                         </Markdown>
                     </Blockquote>
 

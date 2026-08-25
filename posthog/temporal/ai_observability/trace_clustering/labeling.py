@@ -31,6 +31,10 @@ def generate_cluster_labels(
     window_end: datetime,
     batch_run_ids: dict[str, str] | None = None,
     analysis_level: AnalysisLevel = "trace",
+    trace_id: str = "",
+    session_id: str = "",
+    clustering_run_id: str = "",
+    clustering_job_id: str = "",
 ) -> dict[int, ClusterLabel]:
     """Generate titles and descriptions for all clusters using the labeling agent.
 
@@ -81,6 +85,11 @@ def generate_cluster_labels(
         team_id=team.id,
         cluster_data=cluster_data,
         all_trace_summaries=all_summaries,
+        trace_id=trace_id,
+        session_id=session_id,
+        clustering_run_id=clustering_run_id,
+        clustering_job_id=clustering_job_id,
+        analysis_level=analysis_level,
     )
 
     return result_labels

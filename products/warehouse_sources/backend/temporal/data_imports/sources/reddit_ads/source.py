@@ -1,22 +1,20 @@
 from typing import Optional, cast
 
+from requests.exceptions import RequestException
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -25,13 +23,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redditads import (
+    RedditAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import (
+    RedditAdsApiError,
     RedditAdsResumeConfig,
+    list_business_ad_accounts,
+    list_businesses,
     reddit_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
@@ -41,6 +49,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://ads-api.reddit.com/docs/v3/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -61,6 +72,11 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
             # request can never succeed without the user reconnecting, so stop retrying.
             "403 Client Error": "PostHog is not authorized to access this Reddit Ads account. Please make sure the connected Reddit account has access to the ad account, then reconnect.",
             "404 Client Error": None,
+            # `structured_posts` fans out over `profiles` (see REDDIT_ADS_FANOUT in settings.py), so
+            # this parent fetch runs for that schema too. Reddit rejects it with 400 for ad accounts
+            # that don't have the profiles feature enabled — every retry replays the same request
+            # against the same account, so it can never turn into data.
+            "/profiles?page.size=100": "Reddit Ads rejected the request for this account's profiles. This ad account may not have Reddit's community profiles feature enabled.",
             # Raised by OAuthMixin.get_oauth_integration when the connected Reddit Ads
             # account has been deleted or disconnected. The integration row is gone, so
             # retrying can never recover it — stop and ask the user to reconnect.
@@ -80,19 +96,18 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="account_id",
-                        label="Reddit Ads Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="Your Reddit Ads account ID",
-                        secret=False,
-                    ),
                     SourceFieldOauthConfig(
                         name="reddit_integration_id",
                         label="Reddit Ads account",
                         required=True,
                         kind="reddit-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="account_id",
+                        label="Reddit Ads Account ID",
+                        integrationField="reddit_integration_id",
+                        integrationKind="reddit-ads",
+                        required=True,
                     ),
                 ],
             ),
@@ -108,8 +123,80 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
             ],
         )
 
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A Reddit member's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            raise IntegrationAccountListingError(
+                "The linked Reddit Ads integration could not be found. Please reconnect your Reddit Ads integration."
+            ) from e
+
+        # `errors` persists on the row, so a past transient refresh failure must not stop us from
+        # trying again — `refresh_access_token` clears it on entry and usually succeeds.
+        oauth = OauthIntegration(integration)
+        if oauth.access_token_expired():
+            try:
+                oauth.refresh_access_token()
+            except RequestException as e:
+                # A refresh that fails before Reddit returns an HTTP response (timeout, dropped
+                # connection) never reaches the code that records ERROR_TOKEN_REFRESH_FAILED, so it
+                # would escape as an unhandled 500. Map it to the same transient guidance the handled
+                # failures return.
+                raise IntegrationAccountListingError(
+                    "Could not reach Reddit to refresh the credentials for this integration. Please try again."
+                ) from e
+        if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
+            raise IntegrationAccountListingError(
+                "Could not refresh the Reddit Ads credentials. Please reconnect your Reddit Ads integration."
+            )
+
+        access_token = integration.access_token
+        try:
+            return [
+                IntegrationAccount(
+                    value=account["id"],
+                    display_name=account.get("name") or "Unnamed account",
+                    # Sources predating this picker were configured by typing the account id, and
+                    # `group` is not searchable, so surface the id users already know.
+                    secondary_text=account["id"],
+                    badges=("Suspended",) if account.get("suspension_reason") else (),
+                    group=business.get("name"),
+                )
+                for business in list_businesses(access_token)
+                for account in list_business_ad_accounts(access_token, business["id"])
+            ]
+        except RedditAdsApiError as e:
+            if e.api_status_code in (401, 403):
+                raise IntegrationAccountListingError(
+                    "Reddit rejected the credentials for this integration. Please reconnect your Reddit Ads "
+                    "integration and make sure the connected account can access your ad accounts."
+                ) from e
+            if e.api_status_code == 404:
+                # /me/businesses and /businesses/{id}/ad_accounts are both real, static paths, so a 404
+                # here means Reddit found no business or ad account for these credentials, not a bad
+                # request on our end — the user needs a Reddit Ads business account to reconnect with.
+                raise IntegrationAccountListingError(
+                    "Reddit couldn't find any businesses or ad accounts for this integration. Please make "
+                    "sure the connected Reddit account has access to Reddit Ads, then reconnect."
+                ) from e
+            if e.api_status_code == 429 or e.api_status_code >= 500:
+                # The session already retried these; Reddit rate-limits ~1 req/s per advertiser and this
+                # listing fires one call per business, so exhausting the retries is expected under load.
+                raise IntegrationAccountListingError(
+                    "Reddit is rate-limiting or temporarily unavailable for this integration. Please try again."
+                ) from e
+            # Any other status means we built a bad request, which the user cannot fix.
+            raise
+
     def validate_credentials(
-        self, config: RedditAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RedditAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.reddit_integration_id:
             return False, "Account ID and Reddit Ads integration are required"
@@ -133,6 +220,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -140,6 +228,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
                 supports_incremental=endpoint_config.incremental_fields is not None,
                 supports_append=False,
                 incremental_fields=endpoint_config.incremental_fields or [],
+                should_sync_default=endpoint_config.should_sync_default,
             )
             for endpoint_config in REDDIT_ADS_CONFIG.values()
         ]

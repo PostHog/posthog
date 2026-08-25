@@ -5,6 +5,7 @@ import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { GoogleCloudServiceAccountSetupModal } from 'scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal'
 import { PostgreSQLSetupModal } from 'scenes/integrations/postgresql/PostgreSQLSetupModal'
 import { S3CompatibleSetupModal } from 'scenes/integrations/s3-compatible/S3CompatibleSetupModal'
+import { SnowflakeSetupModal } from 'scenes/integrations/snowflake/SnowflakeSetupModal'
 import { urls } from 'scenes/urls'
 
 import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
@@ -119,5 +120,16 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <S3CompatibleSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'snowflake',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new Snowflake connection',
+        onClick: () => openModal('snowflake'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <SnowflakeSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })

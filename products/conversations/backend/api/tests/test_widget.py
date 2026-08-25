@@ -3,14 +3,28 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.api.serializers import WidgetMessageSerializer
+from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
+
+
+def _verification_counter(outcome: str, source: str) -> float:
+    # Process-global, so callers compare deltas rather than absolute values.
+    from prometheus_client import REGISTRY
+
+    return (
+        REGISTRY.get_sample_value("conversations_identity_verification_total", {"outcome": outcome, "source": source})
+        or 0.0
+    )
 
 
 class TestWidgetAPI(BaseTest):
@@ -534,13 +548,29 @@ class TestWidgetAPI(BaseTest):
         response = self.client.post(
             "/api/conversations/v1/widget/message",
             {
-                "message": "x" * 6000,
+                "message": "x" * 10001,
                 "widget_session_id": self.widget_session_id,
                 "distinct_id": self.distinct_id,
             },
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_long_current_url_is_truncated_not_rejected(self):
+        long_url = "https://app.example.com/insights?q=" + "x" * 3000
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hello",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "session_context": {"current_url": long_url},
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.session_context["current_url"], long_url[:2000])
 
 
 class TestWidgetCacheInvalidation(BaseTest):
@@ -642,6 +672,95 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    @parameterized.expand(
+        [
+            # Post-cutover state: with the legacy column gone, the signing secret alone has
+            # to verify. Not reachable in production yet, so this locks in the end state.
+            ("signing_secret_only", True, False),
+            # A stale row (rotation sync missed) must fall back to the legacy token rather
+            # than locking the team out.
+            ("stale_signing_secret_falls_back_to_legacy", False, True),
+        ]
+    )
+    def test_list_tickets_verifies_against_signing_secret(self, _name, row_matches_hash, has_legacy_token):
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret=self.secret if row_matches_hash else "a_stale_secret",
+        )
+        self.team.secret_api_token = self.secret if has_legacy_token else None
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
+        # After the backfill both stores hold the same value, so the response is 200 either
+        # way and only the counter shows which one matched. Without this, reordering the
+        # candidates to put legacy first keeps the suite green while the drift metric —
+        # what gates dropping the plaintext column — silently reports legacy forever.
+        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+        self._create_ticket()
+        before_signing = _verification_counter("verified", "signing_secret")
+        before_legacy = _verification_counter("verified", "legacy_token")
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(_verification_counter("verified", "signing_secret") - before_signing, 1.0)
+        self.assertEqual(_verification_counter("verified", "legacy_token") - before_legacy, 0.0)
+
+    def test_list_tickets_non_hex_identity_hash_is_rejected_not_a_server_error(self):
+        # hmac.compare_digest raises TypeError on non-ASCII str, so a 64-character non-hex
+        # hash used to reach it and surface as a 500 on a publicly reachable endpoint.
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": "é" * 64,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_tickets_stale_signing_secret_cannot_resurrect_revoked_key(self):
+        # Rotating and then deleting the backup revokes the old key. If a rotation sync
+        # didn't land, the signing secret row still holds that key — accepting it would
+        # keep a revoked key signing identities indefinitely.
+        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+        self.team.secret_api_token = "rotated_new_secret"
+        self.team.secret_api_token_backup = None
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_list_tickets_invalid_hash_returns_forbidden(self):
         self._create_ticket()
         response = self.client.get(
@@ -653,6 +772,43 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_list_tickets_without_secret_api_token_is_indistinguishable_from_bad_hash(self):
+        # The widget API is AllowAny, so the "no key configured" response must not reveal
+        # config state to anonymous callers — it stays identical to a signature mismatch.
+        self.team.secret_api_token = None
+        self.team.save()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["error"], "Forbidden")
+
+    def test_list_tickets_with_rotated_backup_token(self):
+        # A hash signed with the old secret keeps verifying after rotation moves it to backup.
+        old_secret = self.secret
+        old_hash = compute_identity_hash(self.distinct_id, old_secret)
+        self.team.secret_api_token = "rotated_new_secret"
+        self.team.secret_api_token_backup = old_secret
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": old_hash,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
 
     def test_list_tickets_missing_identity_fields_uses_session(self):
         self._create_ticket()
@@ -877,3 +1033,81 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestWidgetContextSanitization(SimpleTestCase):
+    def _serializer(self, **overrides):
+        return WidgetMessageSerializer(
+            data={
+                "widget_session_id": str(uuid.uuid4()),
+                "distinct_id": "user-123",
+                "message": "Hello",
+                **overrides,
+            }
+        )
+
+    def _validated(self, **overrides):
+        serializer = self._serializer(**overrides)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        return serializer.validated_data
+
+    @parameterized.expand(
+        [
+            ("session_context", "current_url", 2000),
+            ("traits", "name", 500),
+        ]
+    )
+    def test_oversized_value_is_truncated(self, field, key, max_length):
+        value = "x" * (max_length + 500)
+
+        validated = self._validated(**{field: {key: value}})
+
+        self.assertEqual(validated[field][key], value[:max_length])
+
+    @parameterized.expand(
+        [
+            ("session_context", 20, 100),
+            ("traits", 50, 200),
+        ]
+    )
+    def test_long_keys_and_excess_entries_are_dropped(self, field, max_entries, max_key_length):
+        long_key = "k" * (max_key_length + 1)
+        payload = {long_key: "value", **{f"key_{i}": "value" for i in range(max_entries + 5)}}
+
+        validated = self._validated(**{field: payload})
+
+        self.assertNotIn(long_key, validated[field])
+        self.assertEqual(len(validated[field]), max_entries)
+
+    @parameterized.expand(
+        [
+            (
+                "session_context",
+                {"tab_index": 3, "is_replay": True, "referrer": None},
+                {"tab_index": 3, "is_replay": True, "referrer": None},
+            ),
+            (
+                "traits",
+                {"plan_seats": 3, "is_admin": True, "email": None},
+                {"plan_seats": "3", "is_admin": "True", "email": None},
+            ),
+        ]
+    )
+    def test_non_string_values_are_coerced_per_field(self, field, payload, expected):
+        validated = self._validated(**{field: payload})
+
+        self.assertEqual(validated[field], expected)
+
+    @parameterized.expand(
+        [
+            ("session_context", "not-a-dict"),
+            ("session_context", None),
+            ("traits", "not-a-dict"),
+            ("traits", None),
+        ]
+    )
+    def test_structurally_malformed_context_is_still_rejected(self, field, value):
+        serializer = self._serializer(**{field: value})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)

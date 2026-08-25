@@ -2,6 +2,24 @@
 
 All queries filter by timestamp — adjust the interval to match your analysis window.
 
+## Contents
+
+- Confirm autocapture exists
+- Top clicked tag names
+- Top clicked text values
+- Top clicked hrefs
+- Sample raw elements_chain for a page
+- Find elements with data-attr attributes
+- Find all data-\* attribute keys in use
+- Test selector uniqueness
+- Sample matching events to inspect captures
+- Refine with text filter
+- Refine with URL filter
+- Ad-hoc trends: count matching clicks over time
+- Ad-hoc trends: breakdown by page
+- Ad-hoc funnel: pageview to click
+- Verify an action matches correctly
+
 ## Confirm autocapture exists
 
 ```sql

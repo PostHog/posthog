@@ -8,6 +8,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -26,6 +27,53 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 
 ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
+
+
+def _decode_field_metadata(metadata: dict | None) -> dict[str, str] | None:
+    # PyArrow stores field metadata as bytes keys/values; JSON keys can't be bytes.
+    if not metadata:
+        return None
+    return {
+        (key.decode() if isinstance(key, bytes) else key): (value.decode() if isinstance(value, bytes) else value)
+        for key, value in metadata.items()
+    }
+
+
+def build_schema_dict(schema: pa.Schema) -> dict:
+    return {
+        "fields": [
+            {
+                "name": field.name,
+                "type": str(field.type),
+                "nullable": field.nullable,
+                "metadata": _decode_field_metadata(field.metadata),
+            }
+            for field in schema
+        ],
+        "pandas_metadata": schema.pandas_metadata,
+    }
+
+
+def _is_transient_s3_write_error(exc: BaseException) -> bool:
+    # s3fs translates most S3-side write failures (IncompleteBody, InternalError,
+    # SlowDown/ServiceUnavailable, ...) into a plain OSError. PermissionError,
+    # FileNotFoundError, and TimeoutError are also OSError subclasses but signal
+    # non-transient causes (bad credentials, deleted bucket) that retrying won't fix,
+    # so only the exact base type is treated as retryable here.
+    return type(exc) is OSError
+
+
+@retry(
+    retry=retry_if_exception(_is_transient_s3_write_error),
+    stop=stop_after_attempt(4),
+    wait=wait_exponential_jitter(initial=1, max=10),
+    reraise=True,
+)
+def _write_parquet_to_s3(
+    s3: s3fs.S3FileSystem, s3_path: str, pa_table: pa.Table, compression: ParquetCompression
+) -> None:
+    with s3.open(s3_path, "wb") as f:
+        pq.write_table(pa_table, f, compression=compression)
 
 
 class S3BatchWriter:
@@ -78,8 +126,7 @@ class S3BatchWriter:
         write_start = time.perf_counter()
         try:
             s3_path_without_protocol = strip_s3_protocol(s3_path)
-            with self._s3.open(s3_path_without_protocol, "wb") as f:
-                pq.write_table(pa_table, f, compression=self._compression)
+            _write_parquet_to_s3(self._s3, s3_path_without_protocol, pa_table, self._compression)
         except Exception as e:
             if activity.in_activity():
                 get_s3_write_errors_metric(type(e).__name__).add(1)
@@ -95,7 +142,10 @@ class S3BatchWriter:
         if self._schema is None:
             self._schema = pa_table.schema
         else:
-            self._schema = pa.unify_schemas([self._schema, pa_table.schema])
+            # Batches infer their own types, so one run's column can land int64 in an early batch and
+            # double in a later one (whole vs fractional values). Permissive promotion widens to the
+            # common type instead of raising ArrowTypeError; the default only unifies identical types.
+            self._schema = pa.unify_schemas([self._schema, pa_table.schema], promote_options="permissive")
 
         self._logger.debug(
             f"Batch {batch_index} written successfully",
@@ -120,18 +170,7 @@ class S3BatchWriter:
         schema_path = f"{self._base_folder}/schema.json"
         s3_path_without_protocol = strip_s3_protocol(schema_path)
 
-        schema_dict = {
-            "fields": [
-                {
-                    "name": field.name,
-                    "type": str(field.type),
-                    "nullable": field.nullable,
-                    "metadata": dict(field.metadata) if field.metadata else None,
-                }
-                for field in self._schema
-            ],
-            "pandas_metadata": self._schema.pandas_metadata,
-        }
+        schema_dict = build_schema_dict(self._schema)
 
         self._logger.debug(f"Writing schema to {schema_path}")
 

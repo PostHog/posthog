@@ -62,7 +62,7 @@ describe('MultiQuestionFormInput', () => {
         fireEvent.click(screen.getByText('Activation'))
         expect(screen.getByText('Which area should I focus on?')).toBeInTheDocument()
 
-        fireEvent.click(screen.getAllByRole('button', { name: 'Skip question' }).at(-1)!)
+        fireEvent.click(screen.getAllByText('Skip question').at(-1)!)
 
         expect(continueAfterForm).toHaveBeenCalledWith({ goal: 'Activation' })
     })
@@ -86,7 +86,7 @@ describe('MultiQuestionFormInput', () => {
     it('dismisses the form when requested', () => {
         render(<MultiQuestionFormInput form={form} />)
 
-        fireEvent.click(screen.getAllByRole('button', { name: 'Dismiss form' }).at(-1)!)
+        fireEvent.click(screen.getAllByLabelText('Dismiss form').at(-1)!)
 
         expect(continueAfterFormDismissal).toHaveBeenCalledTimes(1)
         expect(screen.getByText('Dismissing form...')).toBeInTheDocument()
@@ -123,7 +123,7 @@ describe('MultiQuestionFormInput', () => {
         // Add a custom entry
         const input = screen.getByPlaceholderText('Add your own option...')
         fireEvent.change(input, { target: { value: 'Custom insight' } })
-        fireEvent.click(screen.getByRole('button', { name: /Add/ }))
+        fireEvent.click(screen.getByText('Add'))
 
         // Click Next to submit the multi_select answer (button says "Next" because
         // the parent answers state hasn't been updated with this question's value yet)

@@ -2,13 +2,26 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { getColorVar } from 'lib/colors'
-import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
+import { percentage } from 'lib/utils/numbers'
 
-import { EMAIL_METRIC_LOG_FILTERS, EmailMetric, WORKFLOW_EMAIL_METRICS } from './workflowMetricsSummaryLogic'
+import { WorkflowMetricCard } from './WorkflowMetricCard'
+import {
+    EMAIL_METRIC_INVOCATION_FILTERS,
+    EmailMetric,
+    METRIC_COLORS,
+    WORKFLOW_EMAIL_METRICS,
+} from './workflowMetricsSummaryLogic'
 
 const EMAIL_METRIC_KEYS = Object.keys(WORKFLOW_EMAIL_METRICS) as (keyof typeof WORKFLOW_EMAIL_METRICS)[]
+
+function sumTimeSeries(timeSeries: AppMetricsTimeSeriesResponse | null): number {
+    if (!timeSeries) {
+        return 0
+    }
+    return timeSeries.series.reduce((acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0), 0)
+}
 
 export function EmailMetricsSummary({
     logicKey,
@@ -31,21 +44,26 @@ export function EmailMetricsSummary({
                               name:
                                   WORKFLOW_EMAIL_METRICS[series.name as keyof typeof WORKFLOW_EMAIL_METRICS]?.name ??
                                   series.name,
-                              color: WORKFLOW_EMAIL_METRICS[series.name as keyof typeof WORKFLOW_EMAIL_METRICS]?.color,
                           })),
                   }
                 : null,
         [appMetricsTrends]
     )
 
+    const sentTotal = sumTimeSeries(getSingleTrendSeries('email_sent'))
+
     return (
         <>
             <div className="flex flex-row gap-2 flex-wrap justify-center">
                 {EMAIL_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_EMAIL_METRICS[key]
-                    const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_LOG_FILTERS[key]
+                    const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[key]
+                    const shareOfSent =
+                        key !== 'email_sent' && sentTotal > 0
+                            ? percentage(sumTimeSeries(getSingleTrendSeries(key)) / sentTotal, 1)
+                            : null
                     return (
-                        <AppMetricSummary
+                        <WorkflowMetricCard
                             key={key}
                             name={metric.name}
                             description={metric.description}
@@ -56,11 +74,16 @@ export function EmailMetricsSummary({
                             colorIfZero={getColorVar('muted')}
                             onClick={canDrillDown ? () => onMetricClick(key) : undefined}
                             onClickTooltip={`View invocations with a ${metric.name.toLowerCase()} log entry in this timeframe`}
+                            footer={shareOfSent ? <span>{shareOfSent} of sent</span> : null}
                         />
                     )
                 })}
             </div>
-            <AppMetricsTrends appMetricsTrends={emailTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends
+                appMetricsTrends={emailTrends}
+                loading={appMetricsTrendsLoading}
+                seriesColors={METRIC_COLORS}
+            />
         </>
     )
 }

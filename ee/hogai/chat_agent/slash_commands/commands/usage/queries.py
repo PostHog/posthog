@@ -12,11 +12,13 @@ from posthog.schema import MaxBillingContext
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.tasks.usage_report import (
     AI_BILLING_EXCLUDED_TOOLS,
     AI_COST_MARKUP_PERCENT,
     CLOUD_REGION_TO_TEAM_ID,
     CLOUD_REGION_TO_URL,
+    POSTHOG_AI_PRODUCTS,
     build_ai_billing_region_filter,
 )
 from posthog.utils import get_instance_region
@@ -253,6 +255,9 @@ def get_ai_credits(
                     AND timestamp >= %(begin)s
                     AND timestamp < %(end)s
                     AND event = '$ai_generation'
+                    -- Only products that bill into the PostHog AI credit bucket; other billable
+                    -- products (e.g. posthog_code) have their own credit counters.
+                    AND JSONExtractString(properties, 'ai_product') IN %(ai_products)s
                     {session_filter_prewhere}
             )
             WHERE
@@ -269,13 +274,14 @@ def get_ai_credits(
         WHERE t.is_billable = 1 OR t.trace_id IS NULL
         """
 
-        params: dict[str, int | datetime | float | list[str] | str] = {
+        params: dict[str, int | datetime | float | list[str] | tuple[str, ...] | str] = {
             "team_id": team_id,
             "team_to_query": team_to_query,
             "begin": begin,
             "end": end,
             "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
             "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
+            "ai_products": tuple(POSTHOG_AI_PRODUCTS),
             **region_filter_params,
         }
 
@@ -323,19 +329,25 @@ def _parse_period_datetime(value: object) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def _build_billing_period(start_value: object, end_value: object) -> tuple[datetime, datetime] | None:
+@frozen
+class BillingPeriod:
+    start: datetime
+    end: datetime
+
+
+def _build_billing_period(start_value: object, end_value: object) -> BillingPeriod | None:
     start = _parse_period_datetime(start_value)
     end = _parse_period_datetime(end_value)
 
     if start is None or end is None or start >= end:
         return None
 
-    return start, end
+    return BillingPeriod(start=start, end=end)
 
 
 def _get_billing_period_from_context(
     billing_context: MaxBillingContext | dict[str, object] | None,
-) -> tuple[datetime, datetime] | None:
+) -> BillingPeriod | None:
     if not billing_context:
         return None
 
@@ -357,7 +369,7 @@ def _get_billing_period_from_context(
     )
 
 
-def _get_billing_period_from_organization(team: "Team") -> tuple[datetime, datetime] | None:
+def _get_billing_period_from_organization(team: "Team") -> BillingPeriod | None:
     usage = team.organization.usage
     if not isinstance(usage, dict):
         return None
@@ -372,12 +384,11 @@ def _get_billing_period_from_organization(team: "Team") -> tuple[datetime, datet
 def get_ai_usage_period(team: "Team", billing_context: MaxBillingContext | dict[str, object] | None) -> AiUsagePeriod:
     billing_period = _get_billing_period_from_context(billing_context) or _get_billing_period_from_organization(team)
     if billing_period:
-        period_start, period_end = billing_period
         return AiUsagePeriod(
             label="Billing period",
-            start=period_start,
-            end=period_end,
-            query_start=max(period_start, get_ga_launch_date()),
+            start=billing_period.start,
+            end=billing_period.end,
+            query_start=max(billing_period.start, get_ga_launch_date()),
         )
 
     start = get_past_month_start()

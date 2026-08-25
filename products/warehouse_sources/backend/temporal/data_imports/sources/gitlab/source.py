@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GitLabSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitlab import GitLabSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.gitlab import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
@@ -37,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://docs.gitlab.com/ee/api/rest/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -108,6 +109,13 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             HTTP_NOT_ALLOWED_ERROR: "The GitLab host must use HTTPS. Please update the instance URL to use https://.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A GitLabRetryableError (rate limit or transient upstream 5xx) that survives
+        # fetch_page's own tenacity retry still gets picked up by Temporal's activity retry;
+        # classify it as retryable so it's logged as a warning rather than tracked as an
+        # exception. Mirrors GitHub's equivalent case.
+        return {"GitLab API error (retryable)"}
+
     def get_schemas(
         self,
         config: GitLabSourceConfig,
@@ -115,6 +123,7 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -131,7 +140,11 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
         return schemas
 
     def validate_credentials(
-        self, config: GitLabSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GitLabSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_gitlab_credentials(config.gitlab_host, config.personal_access_token, config.project, team_id)
 

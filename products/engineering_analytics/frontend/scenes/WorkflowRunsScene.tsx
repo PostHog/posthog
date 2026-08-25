@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconExternal, IconGear } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
@@ -22,14 +22,15 @@ import { JobAggregatesTable } from '../components/JobAggregatesTable'
 import { MetricTile } from '../components/MetricTile'
 import { RunActivityChart } from '../components/RunActivityChart'
 import { RunConclusionTag } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
-import { Section, SectionNav } from '../components/Section'
+import { RepoScopeChip, ScopeBar, WorkflowScopeChip } from '../components/ScopeBar'
+import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import type { WorkflowRunnerCostApi } from '../generated/api.schemas'
 import { compactCount, compactMinutes, compactUsd, percent } from '../lib/format'
 import { githubCommitUrl, githubWorkflowUrl } from '../lib/github'
 import { jobCacheKey } from '../lib/jobs'
 import { isDecisiveFailure } from '../lib/lifecycle'
+import { withScope } from '../lib/scope'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
 /** Spend by runner tier: tier, job count, cost (or 'free'), share bar scaled to billable spend. */
@@ -85,6 +86,8 @@ export function WorkflowRunsScene(): JSX.Element {
         runRows,
         runsLoading,
         runnerCosts,
+        runnerCostsLoading,
+        runActivityLoading,
         runJobs,
         runJobsLoading,
         expandedRunKeys,
@@ -104,6 +107,7 @@ export function WorkflowRunsScene(): JSX.Element {
         queueP50Seconds,
     } = useValues(workflowRunsLogic)
     const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
+    const { searchParams } = useValues(router)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
     // Master's own verdict when the window has master runs; the overall fleet state otherwise.
@@ -133,12 +137,11 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'run',
             render: (_, run) => (
                 <Link
-                    to={
-                        combineUrl(
-                            urls.engineeringAnalyticsWorkflowRun(run.repoOwner, run.repoName, run.id),
-                            sourceId ? { source: sourceId } : {}
-                        ).url
-                    }
+                    to={withScope(
+                        urls.engineeringAnalyticsWorkflowRun(run.repoOwner, run.repoName, run.id),
+                        searchParams,
+                        sourceId
+                    )}
                     className="font-mono text-xs font-medium tabular-nums"
                     onClick={(e) => e.stopPropagation()}
                 >
@@ -195,14 +198,13 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'pr',
             width: 80,
             render: (_, run) =>
-                run.prNumber > 0 ? (
+                run.prNumber != null ? (
                     <Link
-                        to={
-                            combineUrl(
-                                urls.engineeringAnalyticsPullRequest(run.repoOwner, run.repoName, run.prNumber),
-                                sourceId ? { source: sourceId } : {}
-                            ).url
-                        }
+                        to={withScope(
+                            urls.engineeringAnalyticsPullRequest(run.repoOwner, run.repoName, run.prNumber),
+                            searchParams,
+                            sourceId
+                        )}
                         onClick={(e) => e.stopPropagation()}
                     >
                         #{run.prNumber}
@@ -254,7 +256,7 @@ export function WorkflowRunsScene(): JSX.Element {
 
     if (loadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection name="Workflow" resourceType={{ type: 'health' }} />
                 <div className="flex items-center gap-3">
                     <span className="text-secondary">
@@ -269,9 +271,10 @@ export function WorkflowRunsScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
+            {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
             <SceneTitleSection
-                name={workflowName}
+                name="Workflow"
                 resourceType={{ type: 'health' }}
                 actions={
                     <LemonButton type="secondary" size="small" to={githubUrl} targetBlank sideIcon={<IconExternal />}>
@@ -284,21 +287,28 @@ export function WorkflowRunsScene(): JSX.Element {
                 repoSlot={
                     <RepoScopeChip
                         label={`${repoOwner}/${repoName}`}
-                        to={combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url}
+                        to={withScope(urls.engineeringAnalytics(), searchParams, sourceId)}
                     />
                 }
-                crumbs={[{ label: workflowName }]}
+                crumbs={[
+                    {
+                        label: workflowName,
+                        node: (
+                            <WorkflowScopeChip
+                                repoOwner={repoOwner}
+                                repoName={repoName}
+                                workflowName={workflowName}
+                                sourceId={sourceId}
+                            />
+                        ),
+                    },
+                ]}
                 showBranch
             />
             <EntityHeader
                 icon={<IconGear />}
                 title={workflowName}
-                slug={
-                    <>
-                        {repoOwner}/{repoName}
-                        {runsTruncated && <span> · run stats cover the most recent {runRows.length} runs</span>}
-                    </>
-                }
+                slug={`${repoOwner}/${repoName}`}
                 right={verdictPill}
             />
             <div className="flex flex-wrap gap-2.5">
@@ -308,6 +318,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         healthSummary.completedRuns
                     )} completed runs passed.`}
                     value={percent(healthSummary.passRate)}
+                    loading={runsLoading}
                 />
                 <MetricTile
                     label="Runs"
@@ -317,6 +328,8 @@ export function WorkflowRunsScene(): JSX.Element {
                             : undefined
                     }
                     value={compactCount(healthSummary.totalRuns)}
+                    sub={runsTruncated ? `stats cover the most recent ${runRows.length}` : undefined}
+                    loading={runsLoading}
                 />
                 <MetricTile
                     label="Duration p50"
@@ -324,16 +337,18 @@ export function WorkflowRunsScene(): JSX.Element {
                     value={
                         healthSummary.medianSeconds != null ? humanFriendlyDuration(healthSummary.medianSeconds) : '—'
                     }
-                    valueSuffix={
+                    sub={
                         healthSummary.p95Seconds != null
                             ? `→ ${humanFriendlyDuration(healthSummary.p95Seconds)} p95`
                             : undefined
                     }
+                    loading={runsLoading}
                 />
                 <MetricTile
                     label="Queue time p50"
                     tooltip="From job created to started, weighted across the workflow's jobs."
                     value={queueP50Seconds != null ? humanFriendlyDuration(queueP50Seconds) : '—'}
+                    loading={jobAggregatesLoading}
                 />
                 <MetricTile
                     label="Cost"
@@ -348,17 +363,10 @@ export function WorkflowRunsScene(): JSX.Element {
                     }
                     value={costSummary?.estimatedCostUsd != null ? compactUsd(costSummary.estimatedCostUsd) : '—'}
                     sub={costSummary?.estimatedCostUsd != null ? undefined : 'Job-level source not synced'}
+                    loading={runnerCostsLoading}
                 />
             </div>
-            <SectionNav
-                items={[
-                    { id: 'health', label: 'Health' },
-                    { id: 'jobs', label: 'Jobs' },
-                    { id: 'cost', label: 'Cost' },
-                    { id: 'runs', label: 'Runs' },
-                ]}
-            />
-            <Section id="health" title="Health">
+            <Section id="health" title="Health" busy={runActivityLoading && activityRuns.length > 0}>
                 <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
             </Section>
             <Section id="jobs" title="Jobs">
@@ -368,7 +376,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     totalCostUsd={costSummary?.estimatedCostUsd ?? null}
                 />
             </Section>
-            <Section id="cost" title="Cost">
+            <Section id="cost" title="Cost" busy={runnerCostsLoading && runnerCosts.length > 0}>
                 {runnerCosts.length > 0 ? (
                     <RunnerTierCard costs={runnerCosts} />
                 ) : (
@@ -378,7 +386,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 )}
             </Section>
             <Section id="runs" title="Runs">
-                <LemonCard hoverEffect={false} className="p-0">
+                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <LemonTable<WorkflowRunRow>
                         dataSource={runRows}
                         columns={runColumns}
@@ -388,6 +396,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         rowKey={(run) => `${run.id}-${run.runAttempt}`}
                         useURLForSorting={false}
                         defaultSorting={{ columnKey: 'started', order: -1 }}
+                        pagination={{ pageSize: 25 }}
                         onRow={(run) => ({
                             className: 'cursor-pointer',
                             onClick: () =>

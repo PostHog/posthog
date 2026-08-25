@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rdkafka::error::KafkaError;
+use rdkafka::message::{Headers, OwnedHeaders};
 
 use crate::v1::sinks::kafka::producer::{ProduceError, ProduceRecord};
 use crate::v1::sinks::SinkName;
@@ -18,15 +19,36 @@ pub struct OwnedProduceRecord {
     pub topic: String,
     pub key: Option<String>,
     pub payload: String,
+    pub headers: Vec<(String, Option<String>)>,
+}
+
+impl OwnedProduceRecord {
+    /// The value of a wire header, or `None` when it was not stamped.
+    pub fn header(&self, key: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k == key)
+            .and_then(|(_, v)| v.as_deref())
+    }
+}
+
+/// Headers travel to the broker as bytes, so tests read them back the way a
+/// consumer would rather than trusting the typed struct they came from.
+fn owned_headers(headers: &OwnedHeaders) -> Vec<(String, Option<String>)> {
+    (0..headers.count())
+        .map(|i| {
+            let h = headers.get(i);
+            (
+                h.key.to_owned(),
+                h.value.map(|v| String::from_utf8_lossy(v).into_owned()),
+            )
+        })
+        .collect()
 }
 
 impl<'a> From<ProduceRecord<'a>> for OwnedProduceRecord {
     fn from(r: ProduceRecord<'a>) -> Self {
-        Self {
-            topic: r.topic.to_owned(),
-            key: r.key.map(str::to_owned),
-            payload: String::from_utf8_lossy(r.payload).into_owned(),
-        }
+        Self::from(&r)
     }
 }
 
@@ -36,6 +58,7 @@ impl<'a> From<&ProduceRecord<'a>> for OwnedProduceRecord {
             topic: r.topic.to_owned(),
             key: r.key.map(str::to_owned),
             payload: String::from_utf8_lossy(r.payload).into_owned(),
+            headers: owned_headers(&r.headers),
         }
     }
 }

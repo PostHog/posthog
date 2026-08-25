@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type React from 'react'
 
-import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
+import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -15,6 +16,8 @@ import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+
+const HedgehogConstruction2 = pngHoggie(construction2)
 
 function labelFor(key: string, type: TaxonomicFilterGroupType, fallback: string): string {
     return getCoreFilterDefinition(key, type)?.label ?? fallback
@@ -257,6 +260,7 @@ const DefaultEmptyState = (): JSX.Element | null => {
 const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, React.ComponentType<TaxonomicFilterEmptyStateProps>>> = {
     [TaxonomicFilterGroupType.DataWarehouse]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehouseSourceTables]: DataWarehouseEmptyState,
+    [TaxonomicFilterGroupType.DataWarehouseMaterializedViews]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,

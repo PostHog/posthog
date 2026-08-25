@@ -5,6 +5,9 @@
  * exact regardless of segment size differences — no midpoint dead-zones at boundaries.
  *
  * When only `yPixel` is present (line dots, non-stacked bars), falls back to closest by distance.
+ * Distance ties go to the last tied row: equal-valued lines sit exactly on top of each other and
+ * paint in array order, so the last one is the visible line. This matches the hover dot's own
+ * tie-breaking, keeping the highlighted tooltip row and the dot on the same series.
  */
 export function findClosestSeriesKey(
     rows: Array<{ series: { key: string }; yPixel?: number; yPixelBottom?: number }>,
@@ -28,7 +31,7 @@ export function findClosestSeriesKey(
             continue
         }
         const dist = Math.abs(s.yPixel - cursorY)
-        if (dist < bestDist) {
+        if (dist <= bestDist) {
             bestDist = dist
             bestKey = s.series.key
         }

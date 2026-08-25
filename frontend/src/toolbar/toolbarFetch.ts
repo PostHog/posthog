@@ -5,6 +5,7 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 import { withTokenRefresh } from './toolbarAuth'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
+import { ToolbarRequestError } from './toolbarRequestError'
 import { safeFetch } from './utils'
 
 /**
@@ -147,7 +148,7 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
     // toolbarFetch (which would return a stub 401 and trip tokenExpired
     // telemetry / toasts for a user who was never authenticated).
     if (!toolbarConfigLogic.findMounted()?.values.accessToken) {
-        throw new Error('Toolbar not authenticated')
+        throw new ToolbarRequestError('Toolbar not authenticated', 401)
     }
 
     // Route through toolbarFetch so authenticated uploads share the single
@@ -161,13 +162,13 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
     if (response.status === 401) {
         // Session was valid at start but expired and refresh failed.
         toolbarConfigLogic.findMounted()?.actions.tokenExpired()
-        throw new Error('Authentication expired')
+        throw new ToolbarRequestError('Authentication expired', 401)
     }
 
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         // toolbarFetch already calls tokenExpired() on 403, so no need to repeat it here.
-        throw new Error(errorData.detail || `Upload failed: ${response.status}`)
+        throw new ToolbarRequestError(errorData.detail || `Upload failed: ${response.status}`, response.status)
     }
 
     const data: ToolbarMediaUploadResponse = await response.json()

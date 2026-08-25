@@ -21,7 +21,10 @@ if (not repo) {
     throw Error('Repository is required')
 }
 
-let posthog_issue_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}'
+let posthog_issue_url := inputs.posthog_issue_url
+if (empty(posthog_issue_url)) {
+    posthog_issue_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}'
+}
 let payload := {
     'method': 'POST',
     'headers': {
@@ -86,6 +89,16 @@ if (res.status < 200 or res.status >= 300) {
             hidden: true,
             required: true,
             default: '{event.properties.$exception_issue_id}',
+        },
+        {
+            key: 'posthog_issue_url',
+            type: 'string',
+            label: 'PostHog issue URL',
+            description:
+                'Link back to the PostHog issue. When empty, a link is built from the PostHog issue ID instead.',
+            secret: false,
+            hidden: true,
+            required: false,
         },
     ],
 }

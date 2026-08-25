@@ -9,10 +9,12 @@ from posthog.schema import (
 
 from posthog.event_usage import EventSource
 
+from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryData
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types import AssistantState
 
 
@@ -250,7 +252,7 @@ class TestCreateExperimentTool(APIBaseTest):
         )
 
         assert "Failed to create" in result
-        assert "must have multivariate variants" in result
+        assert "at least 2 variants" in result
         assert artifact is not None
         assert artifact.get("error") is not None
 
@@ -306,6 +308,7 @@ class TestCreateExperimentTool(APIBaseTest):
         assert variants[2]["key"] == "variant_c"
 
     async def test_create_experiment_flag_without_control_variant(self):
+        # No 'control' variant is required; the baseline defaults to the first variant downstream.
         await self._create_multivariate_flag(
             key="no-control-flag",
             name="No Control Flag",
@@ -322,11 +325,14 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="no-control-flag",
         )
 
-        assert "Failed to create" in result
-        assert "must have 'control' as the first variant" in result
-        assert "Found 'baseline' instead" in result
-        assert artifact is not None
-        assert artifact.get("error") is not None
+        assert "Successfully created" in result
+
+        experiment = await Experiment.objects.aget(name="Test Experiment", team=self.team)
+        flag = await FeatureFlag.objects.aget(key="no-control-flag", team=self.team)
+        assert experiment.feature_flag_id == flag.id
+        assert [v["key"] for v in flag.variants] == ["baseline", "test"]
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["baseline_variant_key"] == "baseline"
 
 
 class TestExperimentSummaryTool(APIBaseTest):
@@ -381,19 +387,25 @@ class TestExperimentSummaryTool(APIBaseTest):
             stats_config=stats_config,
         )
 
-    def _build_context(
+    def _patch_data_service(
         self,
-        experiment_id: int,
         exposures: dict[str, float] | None = None,
         primary_metrics: list[MaxExperimentMetricResult] | None = None,
         secondary_metrics: list[MaxExperimentMetricResult] | None = None,
-    ) -> dict:
-        return {
-            "experiment_id": experiment_id,
-            "exposures": exposures,
-            "primary_metrics_results": [m.model_dump() for m in primary_metrics] if primary_metrics else [],
-            "secondary_metrics_results": [m.model_dump() for m in secondary_metrics] if secondary_metrics else [],
-        }
+    ) -> MagicMock:
+        summary_context = MagicMock()
+        summary_context.exposures = exposures
+        summary_context.primary_metrics_results = primary_metrics or []
+        summary_context.secondary_metrics_results = secondary_metrics or []
+        patcher = patch("products.experiments.backend.max_tools.ExperimentSummaryDataService")
+        mock_service_class = patcher.start()
+        self.addCleanup(patcher.stop)
+        mock_service_class.return_value.fetch_experiment_data = AsyncMock(
+            return_value=ExperimentSummaryData(
+                context=summary_context, last_refresh=None, pending_calculation=False, omitted_metric_count=0
+            )
+        )
+        return mock_service_class
 
     async def test_returns_formatted_experiment_data(self):
         experiment = await self._create_experiment(
@@ -401,8 +413,8 @@ class TestExperimentSummaryTool(APIBaseTest):
             description="Testing new pricing page",
             flag_key="pricing-test",
         )
-        context = self._build_context(experiment_id=experiment.id)
-        tool = self._create_tool(context)
+        self._patch_data_service()
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         result, artifact = await tool._arun_impl()
 
@@ -414,11 +426,8 @@ class TestExperimentSummaryTool(APIBaseTest):
 
     async def test_returns_exposure_data(self):
         experiment = await self._create_experiment(flag_key="exposure-test")
-        context = self._build_context(
-            experiment_id=experiment.id,
-            exposures={"control": 5000.0, "test": 5000.0},
-        )
-        tool = self._create_tool(context)
+        self._patch_data_service(exposures={"control": 5000.0, "test": 5000.0})
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         result, artifact = await tool._arun_impl()
 
@@ -429,11 +438,8 @@ class TestExperimentSummaryTool(APIBaseTest):
 
     async def test_warns_on_multiple_exposures(self):
         experiment = await self._create_experiment(flag_key="multiple-exposure-test")
-        context = self._build_context(
-            experiment_id=experiment.id,
-            exposures={"control": 4500.0, "test": 4500.0, "$multiple": 100.0},
-        )
-        tool = self._create_tool(context)
+        self._patch_data_service(exposures={"control": 4500.0, "test": 4500.0, "$multiple": 100.0})
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         result, artifact = await tool._arun_impl()
 
@@ -464,8 +470,8 @@ class TestExperimentSummaryTool(APIBaseTest):
                 ],
             )
         ]
-        context = self._build_context(experiment_id=experiment.id, primary_metrics=primary_metrics)
-        tool = self._create_tool(context)
+        self._patch_data_service(primary_metrics=primary_metrics)
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         result, artifact = await tool._arun_impl()
 
@@ -477,6 +483,20 @@ class TestExperimentSummaryTool(APIBaseTest):
         assert "Delta (effect size): 25.0%" in result
         assert "Significant: Yes" in result
         assert artifact["has_results"] is True
+
+    async def test_includes_more_than_ten_metrics(self):
+        experiment = await self._create_experiment(flag_key="many-metrics-test")
+        primary_metrics = [
+            MaxExperimentMetricResult(name=f"{i}. Metric {i}", goal="increase", variant_results=[])
+            for i in range(1, 13)
+        ]
+        self._patch_data_service(primary_metrics=primary_metrics)
+        tool = self._create_tool({"experiment_id": experiment.id})
+
+        result, _ = await tool._arun_impl()
+
+        assert "**Metric: 11. Metric 11**" in result
+        assert "**Metric: 12. Metric 12**" in result
 
     async def test_returns_frequentist_metrics(self):
         experiment = await self._create_experiment(
@@ -505,8 +525,8 @@ class TestExperimentSummaryTool(APIBaseTest):
                 ],
             )
         ]
-        context = self._build_context(experiment_id=experiment.id, primary_metrics=primary_metrics)
-        tool = self._create_tool(context)
+        self._patch_data_service(primary_metrics=primary_metrics)
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         result, artifact = await tool._arun_impl()
 
@@ -519,8 +539,8 @@ class TestExperimentSummaryTool(APIBaseTest):
 
     async def test_handles_no_metrics_results(self):
         experiment = await self._create_experiment(flag_key="no-metrics-test")
-        context = self._build_context(experiment_id=experiment.id)
-        tool = self._create_tool(context)
+        self._patch_data_service()
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         result, artifact = await tool._arun_impl()
 
@@ -549,8 +569,8 @@ class TestExperimentSummaryTool(APIBaseTest):
                 ],
             )
         ]
-        context = self._build_context(experiment_id=experiment.id, secondary_metrics=secondary_metrics)
-        tool = self._create_tool(context)
+        self._patch_data_service(secondary_metrics=secondary_metrics)
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         result, artifact = await tool._arun_impl()
 
@@ -566,8 +586,7 @@ class TestExperimentSummaryTool(APIBaseTest):
         assert artifact["error"] == "invalid_context"
 
     async def test_handles_nonexistent_experiment(self):
-        context = self._build_context(experiment_id=99999)
-        tool = self._create_tool(context)
+        tool = self._create_tool({"experiment_id": 99999})
 
         result, artifact = await tool._arun_impl()
 
@@ -583,8 +602,8 @@ class TestExperimentSummaryTool(APIBaseTest):
                 {"key": "test-b", "name": "Test B", "rollout_percentage": 34},
             ],
         )
-        context = self._build_context(experiment_id=experiment.id)
-        tool = self._create_tool(context)
+        self._patch_data_service()
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         result, artifact = await tool._arun_impl()
 
@@ -620,37 +639,47 @@ class TestExperimentSummaryTool(APIBaseTest):
 
         with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
             mock_service = mock_service_class.return_value
-            mock_service.fetch_experiment_data = AsyncMock(return_value=(mock_context, None, False))
+            mock_service.fetch_experiment_data = AsyncMock(
+                return_value=ExperimentSummaryData(
+                    context=mock_context, last_refresh=None, pending_calculation=False, omitted_metric_count=2
+                )
+            )
 
             result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
         assert "## Experiment: Agent Discovered Experiment" in result
         assert artifact["experiment_name"] == "Agent Discovered Experiment"
         assert artifact["has_results"] is True
+        assert "**Note:** 2 metrics were omitted from this summary." in result
 
     async def test_fetch_and_format_handles_nonexistent_experiment(self):
         tool = self._create_tool({})
 
-        with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
-            mock_service = mock_service_class.return_value
-            mock_service.fetch_experiment_data = AsyncMock(
-                side_effect=ValueError("Experiment 99999 not found or access denied")
-            )
+        result, artifact = await tool._arun_impl(experiment_id=99999)
 
-            result, artifact = await tool._arun_impl(experiment_id=99999)
-
-        assert "not found or access denied" in result
+        assert "not found" in result
         assert artifact["error"] == "not_found"
+
+    async def test_denies_object_level_restricted_experiment(self):
+        experiment = await self._create_experiment(flag_key="restricted-test")
+
+        # Denied before any metric queries run
+        tool = self._create_tool({})
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await tool._arun_impl(experiment_id=experiment.id)
 
     async def test_context_experiment_id_takes_priority_over_argument(self):
         experiment = await self._create_experiment(
             name="Context Experiment",
             flag_key="priority-test",
         )
-        context = self._build_context(experiment_id=experiment.id)
-        tool = self._create_tool(context)
+        mock_service_class = self._patch_data_service()
+        tool = self._create_tool({"experiment_id": experiment.id})
 
         # Pass a different experiment_id as argument - context should win
         result, artifact = await tool._arun_impl(experiment_id=99999)
 
         assert artifact["experiment_name"] == "Context Experiment"
+        mock_service_class.return_value.fetch_experiment_data.assert_awaited_once_with(experiment.id)

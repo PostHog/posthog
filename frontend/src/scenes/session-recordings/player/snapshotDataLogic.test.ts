@@ -1,8 +1,9 @@
+import { expectLogic } from 'kea-test-utils'
 import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js/rrweb-types'
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 
-import { RecordingDeletedError } from 'lib/api'
+import { ApiError, RecordingDeletedError } from 'lib/api'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
@@ -69,6 +70,73 @@ describe('snapshotDataLogic', () => {
             expect(logic.values.isRecordingDeleted).toBe(true)
             expect(logic.values.recordingDeletedAt).toBe(null)
             expect(logic.values.recordingDeletedBy).toBe(null)
+        })
+    })
+
+    describe('source load give-up', () => {
+        it('dispatches snapshotSourceLoadExhausted once retries are exhausted', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+
+        it('re-arms the retry budget after retrySnapshotLoading, so a later failure is not instantly exhausted', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            // Exhaust the budget; consume the terminal action so it is out of the recording window.
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+
+            logic.actions.retrySnapshotLoading()
+
+            // A single failure now must not re-trigger the terminal action — the budget was reset.
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+            }).toNotHaveDispatchedActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+
+        it('does not grant a permanently-unauthorized source a fresh retry budget on a new seek target', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            const error = new ApiError('Unauthorized', 401)
+            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
+            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
+            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
+
+            // Seeking to a genuinely new target would normally reset the retry budget, letting a
+            // permanently-failing 401 source buffer forever instead of ever reaching the cap.
+            logic.actions.setTargetTimestamp(123456, 1)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Unauthorized', error)
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+    })
+
+    describe('isSnapshotUnauthorized', () => {
+        it('is false when no error', () => {
+            expect(logic.values.isSnapshotUnauthorized).toBe(false)
+        })
+
+        it('is true for a 401', () => {
+            logic.actions.loadSnapshotsForSourceFailure('Unauthorized', new ApiError('Unauthorized', 401))
+
+            expect(logic.values.isSnapshotUnauthorized).toBe(true)
+        })
+
+        it('is false for a non-401 error', () => {
+            logic.actions.loadSnapshotsForSourceFailure('Forbidden', new ApiError('Forbidden', 403))
+
+            expect(logic.values.isSnapshotUnauthorized).toBe(false)
         })
     })
 

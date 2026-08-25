@@ -47,10 +47,10 @@ class ExecuteSQLToolArgs(BaseModel):
     filters: HogQLFilters | None = Field(
         default=None,
         description=(
-            "Optional filters applied through `{filters}` placeholders in the query. "
-            "Use this when editing a SQL editor query that already uses `{filters}` and the user asks to change "
+            "Optional filters applied through `{filters}` or column-bound `{filters(...)}` placeholders in the query. "
+            "Use this when editing a SQL editor query that already uses such a placeholder and the user asks to change "
             "dateRange, property filters, or test-account filtering. Set this to an empty object to clear existing "
-            "SQL editor filters while preserving the `{filters}` placeholder."
+            "SQL editor filters while preserving the placeholder."
         ),
     )
     viz_title: str = Field(
@@ -102,13 +102,20 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         display: AssistantDataVisualizationDisplayType | None = None,
         chart_settings: AssistantDataVisualizationChartSettings | dict[str, object] | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
+        connection_id = self.context.get("connection_id") or None
         parsed_query = self._parse_output({"query": query})
-        try:
-            await self._quality_check_output(
-                output=parsed_query,
-            )
-        except PydanticOutputParserException as e:
-            return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
+        if connection_id:
+            # An external connection's tables aren't in the ClickHouse catalog, so local HogQL
+            # validation would reject them. Tag the query with the connection and defer validation
+            # to the runner, which resolves the connection's schema.
+            parsed_query.query.source = parsed_query.query.source.model_copy(update={"connectionId": connection_id})
+        else:
+            try:
+                await self._quality_check_output(
+                    output=parsed_query,
+                )
+            except PydanticOutputParserException as e:
+                return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
         source_query = (
             parsed_query.query.source.model_copy(update={"filters": filters})
@@ -163,7 +170,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
         tool_payload: str | dict[str, object]
-        if filters is not None:
+        if display or chart_settings:
+            # Full node so the SQL editor can adopt the visualization settings, not just the SQL
+            tool_payload = artifact_query.model_dump(mode="json", exclude_none=True)
+        elif filters is not None:
             tool_payload = source_query.model_dump(mode="json", exclude_none=True)
         else:
             tool_payload = artifact_query.source.query

@@ -16,10 +16,20 @@ their data results.
 """
 
 from datetime import datetime
+from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
+
+
+class DesktopAccessReason(StrEnum):
+    STARTUP_PLAN = "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits"
+
+
+DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
 
 
 @dataclass(frozen=True)
@@ -39,6 +49,37 @@ class TaskDTO:
     created_by_id: int | None = None
     task_number: int | None = None
     slug: str = ""
+
+
+@dataclass(frozen=True)
+class SignalImplementationRunDTO:
+    """Identity of a signals-origin ("self-driving") implementation run that produced a PR.
+
+    Returned by ``find_signal_implementation_run``. Consumers (stamphog's inbox carve-out) use it
+    to confirm a bot-authored PR is a PostHog Code self-driving implementation and to find whose
+    review preferences apply.
+    """
+
+    run_id: UUID
+    task_id: UUID
+    team_id: int
+    signal_report_id: UUID
+    task_created_by_id: int | None = None
+
+
+@dataclass(frozen=True)
+class WizardCloudRunDTO:
+    """A team's active onboarding wizard cloud run.
+
+    Lets the frontend rehydrate the setup-progress FAB from the server when the drop
+    flow started the run server-side (so no client-side localStorage handle exists).
+    Carries only what the FAB's cloud stream needs to reconnect.
+    """
+
+    task_id: UUID
+    run_id: UUID
+    status: str
+    started_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +116,21 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class WizardPrReadyEmailContextDTO:
+    """Everything ``send_wizard_pr_ready_email`` needs to read off a task run's PR-ready state."""
+
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    origin_product: str
+    pr_url: str
+    repository: str | None
+    branch: str | None
+    created_by_id: int | None
+    already_sent: bool
+
+
+@dataclass(frozen=True)
 class WarmRunDTO:
     """Outcome of ensuring a warm sandbox run exists for a task."""
 
@@ -82,6 +138,25 @@ class WarmRunDTO:
     run_id: UUID
     run_status: str
     just_created: bool
+
+
+@dataclass(frozen=True)
+class SlackThreadReferenceDTO:
+    """A passive link from a task to a public Slack discussion."""
+
+    url: str
+    channel: str
+    created_at: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskSlackUnfurlDTO:
+    """The task metadata needed to build a Slack unfurl."""
+
+    id: UUID
+    title: str
+    created_by_id: int | None
+    latest_run_status: str | None
 
 
 @dataclass(frozen=True)
@@ -94,7 +169,8 @@ class TaskDetailDTO:
     ``None``). ``latest_run`` is the most-recent run as a ``TaskRunDetailDTO`` (or ``None``).
     ``latest_run_id`` carries just that run's id for the conversation envelope, which needs the id
     to reconnect to sandbox logs but not the full (presigned-log) run payload. ``created_by``
-    mirrors core ``UserBasicSerializer`` output.
+    mirrors core ``UserBasicSerializer`` output. ``last_activity_at`` is when something last
+    happened in the task, as opposed to ``updated_at``, which is when the row was last written.
     """
 
     id: UUID
@@ -104,7 +180,9 @@ class TaskDetailDTO:
     title_manually_set: bool
     description: str
     origin_product: str
+    runtime: str
     repository: str | None
+    repositories: list[str]
     github_integration: int | None
     github_user_integration: UUID | None
     signal_report: UUID | None
@@ -116,9 +194,11 @@ class TaskDetailDTO:
     latest_run: "TaskRunDetailDTO | None" = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    last_activity_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
     latest_run_id: UUID | None = None
     channel: UUID | None = None
+    slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -128,7 +208,32 @@ class ChannelDTO:
     id: UUID
     name: str
     channel_type: str
+    github_integration: int | None
+    repositories: list[str]
     created_at: datetime
+    created_by: "TaskUserBasicInfo | None" = None
+    starred: bool = False
+    system_role: str | None = None
+
+
+@dataclass(frozen=True)
+class ProvisionedChannelsDTO:
+    channels: list[ChannelDTO]
+    personal_created: bool
+    general_created: bool
+
+
+@dataclass(frozen=True)
+class ChannelInstructionsDTO:
+    """The HTTP representation of a channel's CONTEXT.md instructions version.
+
+    A channel that has never had instructions published reads as a blank
+    version 0 — publish against ``base_version: 0`` to create version 1."""
+
+    channel: UUID
+    content: str
+    version: int
+    created_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
 
 
@@ -138,11 +243,129 @@ class TaskThreadMessageDTO:
 
     id: UUID
     task: UUID
+    author_kind: str
+    event: str
+    payload: dict
     content: str
     created_at: datetime
     author: "TaskUserBasicInfo | None" = None
     forwarded_to_agent_at: datetime | None = None
     forwarded_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class ChannelFeedMessageDTO:
+    """The HTTP representation of one system announcement in a channel's feed."""
+
+    id: UUID
+    channel: UUID
+    author_kind: str
+    event: str
+    payload: dict
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskMentionDTO:
+    """One @-mention of the requesting user in a task's thread, for the mentions feed."""
+
+    id: UUID
+    message_id: UUID
+    task_id: UUID
+    task_title: str
+    channel_id: UUID | None
+    channel_name: str | None
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskActivityDTO:
+    """One entry in the requesting user's task-centric activity feed.
+
+    Lifecycle signals collapse to one row per task, while comment notifications remain
+    separate entries. Source fields describe the message or comment tied
+    to ``activity_at`` and stay empty for task creation.
+    """
+
+    id: UUID
+    task_id: UUID
+    task_title: str
+    channel_id: UUID | None
+    channel_name: str | None
+    activity_at: datetime
+    activity_kind: str
+    snippet: str
+    latest_author: "TaskUserBasicInfo | None" = None
+    latest_message_id: UUID | None = None
+    latest_comment_id: UUID | None = None
+    latest_comment_scope: str | None = None
+    latest_comment_item_id: str | None = None
+    is_unread: bool = True
+
+
+@dataclass(frozen=True)
+class TaskActivityPageDTO:
+    results: list[TaskActivityDTO]
+    unread_count: int
+    next_before: datetime | None = None
+    next_before_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class TaskArtifactDTO:
+    id: str
+    type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskCommentTargetDTO:
+    id: str
+    type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskCommentSummaryDTO:
+    id: UUID
+    target: TaskCommentTargetDTO
+    content: str
+    content_truncated: bool
+    selected_text: str | None
+    created_at: datetime
+    reply_count: int
+    resolved: bool
+
+
+@dataclass(frozen=True)
+class TaskCommentPageDTO:
+    comments: list[TaskCommentSummaryDTO]
+    next: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentEntryDTO:
+    id: UUID
+    content: str
+    content_truncated: bool
+    content_next_offset: int | None
+    author: str | None
+    created_at: datetime
+    anchor: dict | None
+    canvas_version_id: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentDetailDTO:
+    id: UUID
+    target: TaskCommentTargetDTO
+    resolved: bool
+    comments: list[TaskCommentEntryDTO]
+    next: str | None
 
 
 @dataclass(frozen=True)
@@ -166,7 +389,12 @@ class TaskSummaryDTO:
     repository: str | None
     created_at: datetime
     updated_at: datetime
+    origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+
+
+class TaskAnalysisError(Exception):
+    """A task analysis could not be created or recorded; ``message`` is safe to surface."""
 
 
 @dataclass(frozen=True)
@@ -414,8 +642,22 @@ class CreatedTaskDTO:
 
 
 @dataclass(frozen=True)
+class WorkflowTaskDTO:
+    """Outcome of a workflow's "Create AI task" action.
+
+    ``created`` is False when the request replayed an already-used idempotency key and the
+    ids belong to the previously created task. ``run_id`` is ``None`` only for a replayed
+    task whose run has since been deleted.
+    """
+
+    task_id: UUID
+    run_id: UUID | None
+    created: bool
+
+
+@dataclass(frozen=True)
 class CodeInviteRedeemResult:
-    """Outcome of attempting to redeem a PostHog Code invite.
+    """Outcome of attempting to redeem a PostHog Desktop invite.
 
     ``outcome`` is one of ``redeemed`` (or ``already_redeemed``), ``invalid_code``, or
     ``not_redeemable``. The presentation layer maps it to the success/error HTTP response;
@@ -427,129 +669,8 @@ class CodeInviteRedeemResult:
 
 
 @dataclass(frozen=True)
-class TaskAutomationDTO:
-    """A scheduled task automation.
-
-    Mirrors exactly the fields ``TaskAutomationSerializer`` emits. Most read fields are
-    proxied off the underlying ``Task`` (``name``/``prompt``/``repository``/
-    ``github_integration``) or derived from the linked last run (``last_run_at``/
-    ``last_run_status``). ``github_integration`` is the integration's primary key (or
-    ``None``). ``last_task_id`` is always present (the automation's task id as a string);
-    ``last_task_run_id`` is the most recent run's id as a string, or ``None``.
-    """
-
-    id: UUID
-    name: str
-    prompt: str
-    repository: str | None
-    github_integration: int | None
-    cron_expression: str
-    timezone: str
-    template_id: str | None
-    enabled: bool
-    last_run_at: datetime | None
-    last_run_status: str | None
-    last_task_id: str
-    last_task_run_id: str | None
-    last_error: str | None
-    created_at: datetime
-    updated_at: datetime
-
-
-@dataclass(frozen=True)
-class CodeWorkflowConfigDTO:
-    """A user's per-team code-workflow binding configuration.
-
-    Mirrors exactly the JSON shape the code-workflow endpoints emit: ``id`` and
-    ``updatedAt`` are stringified, ``version`` powers optimistic locking, and
-    ``bindings`` is the situation-id → ordered action-list mapping.
-    """
-
-    id: str
-    version: int
-    updated_at: datetime
-    bindings: dict
-
-
-@dataclass(frozen=True)
-class CodeWorkflowDiagnosticDTO:
-    """One binding-validation diagnostic.
-
-    Mirrors a ``ValidationDiagnostic``; ``situation_id`` / ``action_id`` are present only
-    when the diagnostic is scoped to a specific situation or action.
-    """
-
-    severity: str
-    code: str
-    message: str
-    situation_id: str | None = None
-    action_id: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeWorkflowSaveResult:
-    """Outcome of attempting to save code-workflow bindings.
-
-    ``outcome`` is one of ``saved`` (bindings persisted, version bumped), ``conflict``
-    (``expected_version`` did not match the stored version), or ``invalid`` (validation
-    failed). ``config`` is always the resulting/current config; ``diagnostics`` is only
-    populated on the ``invalid`` outcome.
-    """
-
-    outcome: str
-    config: CodeWorkflowConfigDTO
-    diagnostics: list[CodeWorkflowDiagnosticDTO] = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class CodeHomeWorkstreamTaskDTO:
-    """One grouped task inside a workstream card."""
-
-    id: str | None
-    title: str | None
-    status: str | None
-    is_generating: bool = False
-    needs_permission: bool = False
-    quick_action: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeHomeWorkstreamDTO:
-    """A persisted workstream card for the code-home board."""
-
-    id: str
-    repo_name: str | None
-    repo_full_path: str | None
-    branch: str | None
-    pr_url: str | None
-    pr: dict | None
-    primary_situation: str | None
-    last_activity_at: int
-    tasks: list[CodeHomeWorkstreamTaskDTO] = Field(default_factory=list)
-    situations: list = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class CodeHomeActiveAgentDTO:
-    """A live, in-flight agent run shown on the code-home board."""
-
-    task_id: str
-    title: str
-    repo_name: str | None
-    branch: str | None
-    status: str
-    last_activity_at: int
-    needs_permission: bool = False
-    cloud_pr_url: str | None = None
-
-
-@dataclass(frozen=True)
-class CodeHomeDTO:
-    """The full code-home board: live agents plus persisted workstreams by column."""
-
-    active_agents: list[CodeHomeActiveAgentDTO] = Field(default_factory=list)
-    needs_attention: list[CodeHomeWorkstreamDTO] = Field(default_factory=list)
-    in_progress: list[CodeHomeWorkstreamDTO] = Field(default_factory=list)
+class DesktopBetaTermsAcceptanceDTO:
+    is_desktop_beta_terms_accepted: bool
 
 
 @dataclass(frozen=True)
@@ -589,6 +710,33 @@ class SandboxEnvironmentDTO:
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    custom_image_id: UUID | None = None
+    custom_image_name: str | None = None
+    custom_image_status: str | None = None
+
+
+@dataclass(frozen=True)
+class SandboxCustomImageDTO:
+    """A user-defined custom base image for cloud task sandboxes (Modal VM runtime)."""
+
+    id: UUID
+    team_id: int
+    name: str
+    description: str
+    status: str
+    version: int
+    modal_image_name: str
+    error: str
+    repository: str = ""
+    private: bool = False
+    spec: dict = Field(default_factory=dict)
+    spec_yaml: str = ""
+    scan_result: dict = Field(default_factory=dict)
+    build_log: str = ""
+    builder_task_id: UUID | None = None
+    created_by: TaskUserBasicInfo | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -615,6 +763,38 @@ class WarmTaskDTO:
 
     task_id: UUID
     run_id: UUID
+
+
+@dataclass(frozen=True)
+class TaskRunPeerDTO:
+    """One peer agent run visible to a sender run (agent peer messaging discovery)."""
+
+    run_id: str
+    task_id: str
+    task_title: str
+    created_by_email: str | None
+    runtime: str
+    model: str | None
+    repository: str | None
+    stage: str | None
+    status: str
+    sendable: bool
+    updated_at: str | None
+
+
+PeerSendResultKind = Literal["accepted", "target_finished", "rejected"]
+
+
+@dataclass(frozen=True)
+class PeerMessageSendResultDTO:
+    """Synchronous result of a peer-message send. ``result`` is the public contract:
+    ``accepted`` means queued for delivery (never "delivered" — the sandbox handoff
+    happens later inside the workflow), ``target_finished`` means the target's
+    workflow is gone, ``rejected`` covers throttles and validation failures."""
+
+    result: PeerSendResultKind
+    detail: str
+    message_id: str | None = None
 
 
 @dataclass(frozen=True)

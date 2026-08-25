@@ -1,0 +1,9 @@
+# Objects still declared in >=2 composed layers (database.name), sorted.
+# The locate -duplicates guard in check.sh fails on any duplicate NOT listed here.
+# This list only shrinks. Every remaining entry has a named blocker:
+#   - events, raw_sessions_v3, channel_definition: events-family replicas whose
+#     env copies carry mat_ columns; they resolve when the cloud env overlays
+#     move to posthog-cloud-infra (Phase 2), not by a restructure here.
+posthog.channel_definition
+posthog.events
+posthog.raw_sessions_v3

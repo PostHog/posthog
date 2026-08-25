@@ -28,11 +28,12 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSerializedFieldType, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -45,7 +46,6 @@ import {
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
-import { BoxPlotPropertySelector } from './BoxPlotPropertySelector'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
 import { getDefaultMathHogQLExpression } from './mathUtils'
@@ -69,6 +69,17 @@ const DragHandle = ({ listeners }: DragHandleProps): JSX.Element => (
         <SortableDragIcon />
     </span>
 )
+
+// The taxonomic filter's showNumericalPropsOnly flag doesn't filter warehouse schema columns,
+// so numeric-only pickers must not be fed non-numeric columns in the first place.
+const NUMERIC_SCHEMA_FIELD_TYPES: DatabaseSerializedFieldType[] = ['integer', 'float', 'decimal']
+
+// Which warehouse tables a row's picker may offer, by the caller's typeKey. Anything not listed
+// gets the unrestricted data warehouse group.
+const DATA_WAREHOUSE_GROUP_TYPE_BY_TYPE_KEY: Record<string, TaxonomicFilterGroupType> = {
+    'plugin-filters': TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    'plugin-filters-view': TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
+}
 
 export function ActionFilterRow({
     logic,
@@ -136,6 +147,8 @@ export function ActionFilterRow({
     const query = mountedInsightDataLogic?.values?.query
 
     const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
+    // Box plot has no math aggregation to pick — the property selector stands alone in place of the math selector.
+    const isBoxPlotContext = mathAvailability === MathAvailability.BoxPlotOnly
     const isTrendsContext = trendsDisplayCategory != null
     const suggestedFiltersLabel = isFunnelContext ? 'Suggested step' : isTrendsContext ? 'Suggested series' : undefined
 
@@ -329,7 +342,9 @@ export function ActionFilterRow({
         value = action?.id || filter.id
     } else {
         name = filter.name || String(filter.id)
-        value = filter.name || filter.id
+        // `id` is the event actually queried — `name` can be a rename (e.g. set via the API),
+        // and committing it as the taxonomic value would select a non-existent event.
+        value = filter.id != null && filter.id !== '' ? filter.id : (filter.name ?? null)
     }
 
     const seriesIndicator =
@@ -340,12 +355,24 @@ export function ActionFilterRow({
         )
 
     const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
-    // CDP destination/workflow filters (plugin-filters) restrict the picker to external-source tables.
+    // CDP destination/workflow filters restrict the picker to the one warehouse table family their
+    // trigger fires on, so each family gets its own typeKey.
     const dataWarehouseGroupType =
-        typeKey === 'plugin-filters'
-            ? TaxonomicFilterGroupType.DataWarehouseSourceTables
-            : TaxonomicFilterGroupType.DataWarehouse
-    const initialGroupType = isDataWarehouseFilter ? dataWarehouseGroupType : TaxonomicFilterGroupType.SuggestedFilters
+        DATA_WAREHOUSE_GROUP_TYPE_BY_TYPE_KEY[typeKey] ?? TaxonomicFilterGroupType.DataWarehouse
+    // The committed value's real group — it drives the picker's committed-selection
+    // affordance (selected row floats to the top, with the series' rename applied).
+    // The picker still opens on the suggested-filters surface either way. All-events
+    // and inline-group series have no single committed row to promote.
+    const initialGroupType = isDataWarehouseFilter
+        ? dataWarehouseGroupType
+        : filter.type === EntityTypes.ACTIONS
+          ? TaxonomicFilterGroupType.Actions
+          : filter.type === EntityTypes.EVENTS &&
+              !isAllEventsEntityFilter(filter) &&
+              filter.id != null &&
+              filter.id !== ''
+            ? TaxonomicFilterGroupType.Events
+            : TaxonomicFilterGroupType.SuggestedFilters
 
     // DWH events are not supported in inline events yet
     const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
@@ -544,7 +571,7 @@ export function ActionFilterRow({
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (
                                     <>
-                                        {mathAvailability !== MathAvailability.BoxPlotOnly && (
+                                        {!isBoxPlotContext && (
                                             <div className="@min-[0px]/editor-panel:shrink @min-[0px]/editor-panel:min-w-28 @min-[0px]/editor-panel:overflow-hidden">
                                                 <MathSelector
                                                     math={math}
@@ -562,50 +589,53 @@ export function ActionFilterRow({
                                                 />
                                             </div>
                                         )}
-                                        {mathAvailability === MathAvailability.BoxPlotOnly && (
-                                            <BoxPlotPropertySelector
-                                                mathPropertyType={mathPropertyType}
+                                        {(isBoxPlotContext ||
+                                            mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                                MathCategory.PropertyValue) && (
+                                            <PropertyValueMathSelector
+                                                mathPropertyType={
+                                                    // For warehouse series, don't trust mathPropertyType — a swap from an
+                                                    // event series can leave a stale non-warehouse group on the filter.
+                                                    isDataWarehouseFilter
+                                                        ? TaxonomicFilterGroupType.DataWarehouseProperties
+                                                        : mathPropertyType ||
+                                                          TaxonomicFilterGroupType.NumericalEventProperties
+                                                }
+                                                mathPropertyTypes={
+                                                    isDataWarehouseFilter
+                                                        ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                                        : [
+                                                              TaxonomicFilterGroupType.NumericalEventProperties,
+                                                              TaxonomicFilterGroupType.SessionProperties,
+                                                              TaxonomicFilterGroupType.PersonProperties,
+                                                              TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                          ]
+                                                }
                                                 mathProperty={mathProperty}
+                                                mathName={name}
                                                 index={index}
                                                 onMathPropertySelect={onMathPropertySelect}
-                                                mathName={name}
+                                                showNumericalPropsOnly={isBoxPlotContext || showNumericalPropsOnly}
+                                                schemaColumns={
+                                                    isDataWarehouseFilter && filter.name
+                                                        ? Object.values(
+                                                              dataWarehouseTablesMap[filter.name]?.fields ?? []
+                                                          ).filter(
+                                                              (field) =>
+                                                                  !(isBoxPlotContext || showNumericalPropsOnly) ||
+                                                                  NUMERIC_SCHEMA_FIELD_TYPES.includes(field.type)
+                                                          )
+                                                        : []
+                                                }
+                                                mathDisplayName={
+                                                    isBoxPlotContext
+                                                        ? undefined
+                                                        : mathDefinitions[math ?? '']?.name.toLowerCase()
+                                                }
+                                                placeholder={isBoxPlotContext ? 'Select numeric property' : undefined}
+                                                dataAttr={isBoxPlotContext ? 'box-plot-property-select' : undefined}
                                             />
                                         )}
-                                        {mathAvailability !== MathAvailability.BoxPlotOnly &&
-                                            mathDefinitions[math || BaseMathType.TotalCount]?.category ===
-                                                MathCategory.PropertyValue && (
-                                                <PropertyValueMathSelector
-                                                    mathPropertyType={
-                                                        mathPropertyType ||
-                                                        (isDataWarehouseFilter
-                                                            ? TaxonomicFilterGroupType.DataWarehouseProperties
-                                                            : TaxonomicFilterGroupType.NumericalEventProperties)
-                                                    }
-                                                    mathPropertyTypes={
-                                                        isDataWarehouseFilter
-                                                            ? [TaxonomicFilterGroupType.DataWarehouseProperties]
-                                                            : [
-                                                                  TaxonomicFilterGroupType.NumericalEventProperties,
-                                                                  TaxonomicFilterGroupType.SessionProperties,
-                                                                  TaxonomicFilterGroupType.PersonProperties,
-                                                                  TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                                                              ]
-                                                    }
-                                                    mathProperty={mathProperty}
-                                                    mathName={name}
-                                                    index={index}
-                                                    onMathPropertySelect={onMathPropertySelect}
-                                                    showNumericalPropsOnly={showNumericalPropsOnly}
-                                                    schemaColumns={
-                                                        isDataWarehouseFilter && filter.name
-                                                            ? Object.values(
-                                                                  dataWarehouseTablesMap[filter.name]?.fields ?? []
-                                                              )
-                                                            : []
-                                                    }
-                                                    mathDisplayName={mathDefinitions[math ?? '']?.name.toLowerCase()}
-                                                />
-                                            )}
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.HogQLExpression && (
                                             <HogQLMathEditorDropdown

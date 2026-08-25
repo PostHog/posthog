@@ -67,6 +67,22 @@ export const Standalone: Story = {
     args: { label: undefined },
 }
 
+export const Indeterminate: Story = {
+    render: function IndeterminateStory() {
+        const [value, setValue] = useState<boolean | 'indeterminate'>('indeterminate')
+        return (
+            <div className="deprecated-space-y-2">
+                <RawLemonSwitch label="Interactive (click resolves to checked)" checked={value} onChange={setValue} />
+                <LemonSwitch label="Unchecked" checked={false} />
+                <RawLemonSwitch label="Indeterminate" checked="indeterminate" onChange={() => {}} />
+                <LemonSwitch label="Checked" checked />
+                <RawLemonSwitch label="Indeterminate bordered" checked="indeterminate" onChange={() => {}} bordered />
+                <RawLemonSwitch label="Indeterminate small" size="small" checked="indeterminate" onChange={() => {}} />
+            </div>
+        )
+    },
+}
+
 export const Bordered: Story = {
     args: { bordered: true },
 }

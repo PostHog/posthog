@@ -5,10 +5,12 @@ import {
     IconDatabase,
     IconGear,
     IconLeave,
+    IconPeople,
     IconPlusSmall,
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconToggle,
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,6 +18,7 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
@@ -24,7 +27,6 @@ import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -63,7 +65,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { canAccessBilling } = useValues(billingLogic)
+    const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
@@ -166,6 +168,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 {isAuthenticatedTeam(currentTeam) && (
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
+                                            openOnHover={false}
                                             render={
                                                 <ButtonPrimitive
                                                     menuItem
@@ -264,6 +267,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <DropdownMenuSeparator />
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger
+                                        openOnHover={false}
                                         render={
                                             <ButtonPrimitive
                                                 menuItem
@@ -303,16 +307,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
 
-                                {isCloudOrDev && canAccessBilling ? (
+                                {isCloudOrDev && billingEntryUrl ? (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link
                                                 {...props}
-                                                to={
-                                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                                        ? urls.organizationBillingSection('overview')
-                                                        : urls.organizationBilling()
-                                                }
+                                                to={billingEntryUrl}
                                                 buttonProps={{
                                                     className: 'flex items-center gap-2',
                                                     menuItem: true,
@@ -387,14 +387,45 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             render={(props) => (
                                                 <Link
                                                     {...props}
-                                                    to={urls.queryPerformance()}
+                                                    to={urls.featureFlagsStaffTools()}
                                                     buttonProps={{
                                                         menuItem: true,
                                                     }}
+                                                    data-attr="new-account-menu-flags-staff-tools"
+                                                >
+                                                    <IconToggle />
+                                                    Flags staff tools
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.cohortsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-cohorts-staff-tools"
+                                                >
+                                                    <IconPeople />
+                                                    Cohorts staff tools
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.experimentsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    // Stable autocapture contract: name stays query-performance even though the label and route are now experiments staff tools
                                                     data-attr="new-account-menu-query-performance"
                                                 >
                                                     <IconDatabase />
-                                                    Query performance
+                                                    Experiments staff tools
                                                 </Link>
                                             )}
                                         />

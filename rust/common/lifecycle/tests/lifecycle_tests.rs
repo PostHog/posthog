@@ -1387,6 +1387,94 @@ async fn advisory_rejects_graceful_shutdown() {
     );
 }
 
+/// Advisory handle dropped during normal operation — the app keeps running.
+/// The existing stall tests only drop advisory handles after shutdown has
+/// begun, where any drop is treated as completion; this covers the drop that
+/// actually produces a Died event. A best-effort component that fails to
+/// build, or whose task exits early, must not take the process down with it.
+#[tokio::test]
+async fn advisory_handle_drop_during_normal_operation_does_not_trigger_shutdown() {
+    let mut manager = fast_poll_manager(50);
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let advisory_handle = manager.register("kafka-health", advisory_opts());
+    let guard = manager.monitor_background();
+
+    drop(advisory_handle);
+
+    // Several poll intervals, so a Died-driven cancel would have landed.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !std_handle.is_shutting_down(),
+        "advisory handle drop must not initiate global shutdown"
+    );
+
+    std_handle.request_shutdown();
+    drop(std_handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(
+        result.is_ok(),
+        "advisory drop must not surface as a lifecycle error, got {result:?}"
+    );
+}
+
+/// A panic in the task owning an advisory handle unwinds and drops the handle
+/// during normal operation. This is the production shape of the case above:
+/// the warnings emitter's background task panicking must not shut capture down.
+#[tokio::test]
+async fn panic_in_advisory_task_does_not_trigger_shutdown() {
+    let mut manager = fast_poll_manager(50);
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let advisory_handle = manager.register("kafka-health", advisory_opts());
+    let guard = manager.monitor_background();
+
+    let panicked = tokio::spawn(async move {
+        advisory_handle.report_healthy();
+        panic!("boom");
+    })
+    .await;
+    assert!(panicked.is_err(), "task was expected to panic");
+
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !std_handle.is_shutting_down(),
+        "advisory task panic must not initiate global shutdown"
+    );
+
+    std_handle.request_shutdown();
+    drop(std_handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok(), "expected clean shutdown, got {result:?}");
+}
+
+/// Regression guard for the advisory exemption: a standard handle dropped
+/// during normal operation must still trigger shutdown even when an advisory
+/// component is registered alongside it. Catches an exemption predicate that
+/// matches too broadly.
+#[tokio::test]
+async fn standard_handle_drop_still_triggers_shutdown_when_advisory_registered() {
+    let mut manager = fast_poll_manager(50);
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let advisory_handle = manager.register("kafka-health", advisory_opts());
+    let guard = manager.monitor_background();
+
+    advisory_handle.report_healthy();
+    drop(std_handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(
+        matches!(&result, Err(LifecycleError::ComponentDied { tag }) if tag == "worker"),
+        "expected ComponentDied for the standard component, got {result:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Section 9: is_healthy() on non-liveness handles
 //
@@ -1583,4 +1671,211 @@ async fn advisory_handle_stall_threshold_gates_is_healthy() {
         .await
         .expect("timed out");
     assert!(result.is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Shutdown phases
+// ---------------------------------------------------------------------------
+
+/// A phase-1 component must not see shutdown until every phase-0 component
+/// has finished — the ordering that lets a coordination drain complete its
+/// handoffs through a still-serving gRPC server and producer.
+#[tokio::test]
+async fn later_phase_not_signalled_until_earlier_phase_completes() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let early = manager.register("early", ComponentOptions::new());
+    let late = manager.register("late", ComponentOptions::new().with_shutdown_phase(1));
+    let guard = manager.monitor_background();
+
+    let early_exited = Arc::new(AtomicBool::new(false));
+    let ordering_held = Arc::new(AtomicBool::new(false));
+    let early_exited_writer = early_exited.clone();
+    let early_exited_reader = early_exited.clone();
+    let ordering_held_writer = ordering_held.clone();
+
+    tokio::spawn(async move {
+        let _guard = early.process_scope();
+        early.shutdown_recv().await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        early_exited_writer.store(true, Ordering::SeqCst);
+    });
+
+    tokio::spawn(async move {
+        let _guard = late.process_scope();
+        late.shutdown_recv().await;
+        ordering_held_writer.store(early_exited_reader.load(Ordering::SeqCst), Ordering::SeqCst);
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+    assert!(
+        ordering_held.load(Ordering::SeqCst),
+        "phase 1 was signalled before phase 0 finished"
+    );
+}
+
+/// A later-phase component that reports work_completed during an earlier
+/// phase's drain (the one-shot pattern: finish, then idle holding the
+/// handle) must be recorded then — otherwise its own phase waits forever
+/// for a component that already finished.
+#[tokio::test]
+async fn later_phase_completion_during_earlier_drain_does_not_wedge() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let early = manager.register("early", ComponentOptions::new());
+    let late = manager.register("late", ComponentOptions::new().with_shutdown_phase(1));
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        let _guard = early.process_scope();
+        early.shutdown_recv().await;
+        // Hold phase 0 open long enough for the phase-1 completion to
+        // arrive mid-drain.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    });
+
+    let root = shutdown_token.clone();
+    tokio::spawn(async move {
+        let _guard = late.process_scope();
+        root.cancelled().await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        late.work_completed();
+        // Idle forever: completion must come from the event above, not
+        // from this task exiting.
+        std::future::pending::<()>().await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let start = std::time::Instant::now();
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+    assert!(
+        start.elapsed() < Duration::from_secs(3),
+        "shutdown waited on an already-completed phase-1 component"
+    );
+}
+
+/// A phase that times out its graceful window still advances the sequence:
+/// later phases must be signalled rather than wedging behind it.
+#[tokio::test]
+async fn phase_timeout_advances_to_next_phase() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let stuck = manager.register(
+        "stuck",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_millis(100)),
+    );
+    let late = manager.register("late", ComponentOptions::new().with_shutdown_phase(1));
+    let guard = manager.monitor_background();
+
+    let late_signalled = Arc::new(AtomicBool::new(false));
+    let late_signalled_writer = late_signalled.clone();
+
+    tokio::spawn(async move {
+        let _guard = stuck.process_scope();
+        std::future::pending::<()>().await;
+    });
+
+    tokio::spawn(async move {
+        let _guard = late.process_scope();
+        late.shutdown_recv().await;
+        late_signalled_writer.store(true, Ordering::SeqCst);
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    // A graceful-window timeout is not a failure, matching single-phase
+    // semantics; the sequence must have reached and drained phase 1.
+    assert!(result.is_ok());
+    assert!(
+        late_signalled.load(Ordering::SeqCst),
+        "phase 1 was never signalled after phase 0 timed out"
+    );
+}
+
+/// A later-phase component's graceful window is measured from when its
+/// phase begins, not from the start of shutdown — so windows do not need
+/// to be successively reduced to survive being enqueued behind earlier
+/// phases. If the deadline were computed from the shutdown clock, phase
+/// 0's 300ms drain would exhaust the phase-1 component's 200ms window
+/// before it was ever signalled, and shutdown would finish without it.
+#[tokio::test]
+async fn later_phase_graceful_window_starts_at_its_phase() {
+    let shutdown_token = CancellationToken::new();
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_shutdown_token(shutdown_token.clone())
+        .build();
+
+    let early = manager.register("early", ComponentOptions::new());
+    let late = manager.register(
+        "late",
+        ComponentOptions::new()
+            .with_shutdown_phase(1)
+            .with_graceful_shutdown(Duration::from_millis(200)),
+    );
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        let _guard = early.process_scope();
+        early.shutdown_recv().await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    });
+
+    let late_finished = Arc::new(AtomicBool::new(false));
+    let late_finished_writer = late_finished.clone();
+    tokio::spawn(async move {
+        let _guard = late.process_scope();
+        late.shutdown_recv().await;
+        // Well inside the 200ms window relative to the phase-1 signal,
+        // far outside it relative to shutdown start.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        late_finished_writer.store(true, Ordering::SeqCst);
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    shutdown_token.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+    assert!(
+        late_finished.load(Ordering::SeqCst),
+        "phase-1 component was timed out against a window measured from shutdown start"
+    );
 }

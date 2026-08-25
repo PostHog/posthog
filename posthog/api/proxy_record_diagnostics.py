@@ -11,9 +11,9 @@ on-demand only.
 """
 
 import ssl as ssl_module
-import json
 import socket
 import datetime as dt
+import urllib.parse as urlparse
 from dataclasses import dataclass, field
 from typing import Final, Literal, Optional
 
@@ -25,12 +25,22 @@ import dns.exception
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
+from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.security.pinned_requests import SSRFBlockedError, pinned_request, select_pinned_ip
+from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.proxy_service.cloudflare import (
+    BLOCKED_HOSTNAME_STATUSES,
+    CLOUDFLARE_ERROR_CROSS_USER_BANNED,
     CloudflareAPIError,
-    CustomHostnameInfo,
+    CustomHostname,
     CustomHostnameSSLStatus,
+    CustomHostnameStatus,
+    describe_blocked_hostname_status,
+    describe_cross_user_banned,
     get_custom_hostname_by_domain,
+    parse_cloudflare_error_code,
 )
+from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
 
 # --- Customer-facing message helpers ---
 # All user-visible strings live here so copy can be reviewed in one place. Functions
@@ -61,6 +71,14 @@ def _msg_caa_blocking(domain: str, restricting_zone: str, allowed: list[str], re
         f"Your DNS provider's CAA records on `{restricting_zone}` allow only {allowed_str}, "
         f"which prevents our certificate authority from issuing a certificate for `{domain}`. "
         f"Add a CAA record authorizing `{required_issuer}` to your DNS to unblock issuance."
+    )
+
+
+def _msg_domain_not_a_hostname(domain: str) -> str:
+    return (
+        f"`{domain}` isn't a valid domain name, so we can't run any checks against it. "
+        "Delete this proxy and create it again using just the domain, like `e.example.com`, "
+        "with no protocol, port, or path."
     )
 
 
@@ -160,7 +178,19 @@ class DiagnosticReport:
 
 
 def diagnose(record: ProxyRecord) -> DiagnosticReport:
-    """Run the full diagnostic pipeline against a proxy record."""
+    """Run the full diagnostic pipeline against a proxy record.
+
+    The proxy's own endpoint is the source of truth: if it serves HTTPS and accepts a test
+    event, the certificate is issued and deployed and the proxy is healthy — whatever any
+    certificate-provider API reports. So the live-event probe runs first and, on success,
+    short-circuits to healthy.
+
+    Provider-specific checks only run when the endpoint *isn't* serving, and only for the
+    path the proxy was actually provisioned on — detected from `target_cname`, never a
+    global flag. This keeps the Cloudflare checks from misfiring on legacy proxies that
+    predate the Cloudflare path (where a Cloudflare lookup always comes back empty and would
+    otherwise read as a false "we don't have a record of this proxy").
+    """
     log = LOGGER.bind(
         proxy_record_id=str(record.id),
         organization_id=str(record.organization_id),
@@ -168,38 +198,94 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
     )
     log.info("Starting proxy diagnostics")
 
-    checks: list[CheckResult] = []
+    # Every check below feeds `record.domain` to a resolver, a URL, or a socket. Records
+    # created before the field was validated can hold a value that those parsers disagree
+    # about, so a record that isn't a plain hostname fails here rather than being probed.
+    if not is_valid_proxy_domain(record.domain):
+        log.warning("Proxy diagnostics refused a domain that is not a hostname")
+        domain_checks: list[CheckResult] = [
+            CheckResult(
+                id="domain",
+                name="Domain name",
+                status="failed",
+                detail=_msg_domain_not_a_hostname(record.domain),
+                remediation=Remediation(
+                    type="config",
+                    summary="Delete this proxy and create it again using just the domain name.",
+                ),
+            )
+        ]
+        return DiagnosticReport(
+            ran_at=dt.datetime.now(dt.UTC), summary=_build_summary(domain_checks), checks=domain_checks
+        )
+
+    is_cloudflare = is_cloudflare_proxy_by_cname(record.target_cname)
 
     cname_check = _check_cname(record)
-    checks.append(cname_check)
+    checks: list[CheckResult] = [cname_check]
 
-    cloudflare_check, hostname_info = _check_cloudflare(record)
-    checks.append(cloudflare_check)
-
-    ssl_active = hostname_info is not None and hostname_info.ssl.status == CustomHostnameSSLStatus.ACTIVE
-
-    if ssl_active:
-        checks.append(_skip("caa", "CAA records", "Skipped — certificate is already active."))
-    else:
-        checks.append(_check_caa(record, hostname_info))
-
-    if ssl_active:
-        checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — certificate is already active."))
-    elif hostname_info is None or not hostname_info.ssl.http_url:
-        checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — no challenge URL available."))
-    else:
-        checks.append(_check_http_challenge(record, hostname_info))
-
-    if not ssl_active:
-        checks.append(_skip("live_event", "Live event probe", "Skipped — certificate is not active yet."))
-        checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — certificate is not active yet."))
-    else:
+    # Primary signal: does the proxy actually serve HTTPS and accept an event? A pass means
+    # the cert is live and deployed, regardless of what the provider API says.
+    #
+    # The CNAME gate below is a relevance check, not a security boundary: a failed CNAME is
+    # the actionable issue anyway, so the probe would only add noise. It cannot stand in for
+    # SSRF protection, because it proves nothing about where the probe will connect. The two
+    # lookups are independent, so a low-TTL record can answer the CNAME query from a public
+    # address and the probe's own resolution from an internal one. The probe carries its own
+    # protection by validating and pinning the address it connects to.
+    if cname_check.status == "passed":
         live_check = _check_live_event(record)
-        checks.append(live_check)
-        if live_check.status == "passed":
-            checks.append(_check_cert_expiry(record))
+    else:
+        live_check = _skip("live_event", "Live event probe", "Skipped — DNS isn't pointing at the proxy yet.")
+    checks.append(live_check)
+
+    if live_check.status == "passed":
+        # Healthy — the endpoint works. The only remaining concern is renewal, read from the
+        # certificate the proxy is actually serving.
+        checks.append(_check_cert_expiry(record, is_cloudflare=is_cloudflare))
+    elif is_cloudflare and cname_check.status == "passed":
+        # Not serving, DNS resolves, and provisioned on the Cloudflare path — the custom hostname
+        # should exist by now, so inspect it.
+        cloudflare_check, hostname_info = _check_cloudflare(record)
+        checks.append(cloudflare_check)
+        checks.append(_check_caa(record, hostname_info, is_cloudflare=True))
+        if hostname_info is not None and hostname_info.ssl.http_url:
+            checks.append(_check_http_challenge(record, hostname_info))
         else:
-            checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — live event probe failed."))
+            checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — no challenge URL available."))
+        checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — certificate is not active yet."))
+    elif is_cloudflare:
+        # Cloudflare path, but DNS isn't pointing at us. The custom hostname is validated against
+        # the CNAME, so with DNS broken the hostname lookup can't tell us anything actionable —
+        # whether the proxy was never provisioned (DNS not yet set) or was provisioned and its DNS
+        # later regressed, the fix is the same: repair the CNAME. Skip the Cloudflare checks and
+        # point at the failed CNAME above rather than asserting a provisioning state we don't know
+        # (the old "we don't have a record of this proxy → Hit Retry" was wrong in both cases).
+        # CAA still matters pre-issuance.
+        checks.append(
+            _skip(
+                "cloudflare",
+                "Cloudflare custom hostname",
+                "Skipped — we can't check the certificate until the CNAME resolves. Fix the DNS record above first.",
+            )
+        )
+        checks.append(_check_caa(record, None, is_cloudflare=True))
+        checks.append(
+            _skip("http_challenge", "HTTP-01 challenge", "Skipped — we can't check this until the CNAME resolves.")
+        )
+        checks.append(
+            _skip("cert_expiry", "Certificate expiry", "Skipped — we can't check this until the CNAME resolves.")
+        )
+    else:
+        # Not serving, and provisioned on the legacy path — there is no Cloudflare custom
+        # hostname by design, so the Cloudflare check would only ever produce a false
+        # "missing" result. CAA still matters for the legacy (Let's Encrypt) issuer.
+        checks.append(
+            _skip("cloudflare", "Certificate provider", "Skipped — this proxy uses the legacy certificate path.")
+        )
+        checks.append(_check_caa(record, None, is_cloudflare=False))
+        checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — not applicable for this proxy."))
+        checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — proxy isn't serving traffic yet."))
 
     summary = _build_summary(checks)
     log.info("Diagnostics complete", primary_issue=summary.primary_issue, status=summary.status)
@@ -221,7 +307,9 @@ def _build_summary(checks: list[CheckResult]) -> ReportSummary:
         return ReportSummary(status="healthy", primary_issue=None, next_action=None)
 
     # Walk in priority order: things the customer can act on first, then fallthrough.
-    priority = ("cname", "caa", "http_challenge", "cloudflare", "live_event", "cert_expiry")
+    # Every check id must appear here. An id missing from this tuple is never matched, so
+    # the walk falls through and reports a failing check as an overall healthy proxy.
+    priority = ("domain", "cname", "caa", "http_challenge", "cloudflare", "live_event", "cert_expiry")
     for check_id in priority:
         c = by_id.get(check_id)
         if c is None or c.status not in ("failed", "warned"):
@@ -281,7 +369,7 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
         )
 
 
-def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[CustomHostnameInfo]]:
+def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[CustomHostname]]:
     try:
         info = get_custom_hostname_by_domain(record.domain)
     except CloudflareAPIError as e:
@@ -326,6 +414,27 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
                 remediation=Remediation(type="retry", summary="Hit Retry to recreate the proxy."),
             ),
             None,
+        )
+
+    # A blocked or moved hostname rejects traffic at the edge even when the certificate is
+    # active. Check the hostname status before the SSL status, or an active certificate masks
+    # the block.
+    if info.status in BLOCKED_HOSTNAME_STATUSES:
+        moved = info.status in (CustomHostnameStatus.MOVED, CustomHostnameStatus.PENDING_MIGRATION)
+        return (
+            CheckResult(
+                id="cloudflare",
+                name="Cloudflare custom hostname",
+                status="failed",
+                detail=describe_blocked_hostname_status(info.status, record.domain),
+                remediation=Remediation(
+                    type="config",
+                    summary="Contact support to restore this domain."
+                    if moved
+                    else "Check for a Cloudflare zone hold on this domain, or contact support.",
+                ),
+            ),
+            info,
         )
 
     ssl_status = info.ssl.status
@@ -390,18 +499,24 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
     )
 
 
-def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostnameInfo]) -> CheckResult:
+def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostname], *, is_cloudflare: bool) -> CheckResult:
     """
     Walk up the DNS tree from `record.domain` to apex, looking for the first non-empty
     set of CAA records. Per RFC 8659, the first non-empty CAA result wins — climbing
-    stops there. If those records don't authorize the CA Cloudflare uses, surface a
-    remediation block listing CAA records the customer should add.
+    stops there. If those records don't authorize the CA that issues this proxy's
+    certificate, surface a remediation block listing CAA records the customer should add.
+
+    The required issuer depends on the provisioning path: Cloudflare-path certs come from
+    the CA in the hostname info (Google by default), legacy-path certs come from Let's
+    Encrypt.
     """
     if hostname_info is not None and hostname_info.ssl.certificate_authority:
         ca_field = hostname_info.ssl.certificate_authority
         required_issuer = CA_TO_CAA_ISSUER.get(ca_field, "pki.goog")
-    else:
+    elif is_cloudflare:
         required_issuer = "pki.goog"
+    else:
+        required_issuer = "letsencrypt.org"
 
     name = dns.name.from_text(record.domain)
     resolver = dns.resolver.Resolver()
@@ -463,7 +578,7 @@ def _extract_caa_issuers(answer: dns.resolver.Answer) -> list[str]:
     return issuers
 
 
-def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostnameInfo) -> CheckResult:
+def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostname) -> CheckResult:
     challenge_url = hostname_info.ssl.http_url
     expected_body = hostname_info.ssl.http_body
     if not challenge_url or not expected_body:
@@ -507,20 +622,46 @@ def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostnameInfo
     )
 
 
+def _probe_url(domain: str, path: str) -> str:
+    """Build a URL whose authority is exactly `domain` and nothing else.
+
+    Interpolating into an f-string lets any authority-terminating byte in `domain` push the
+    real host into the path, so the host that gets validated is not the host that gets
+    connected to. Assembling from parsed components keeps `domain` in the authority slot.
+    Callers must have cleared `domain` through `is_valid_proxy_domain` first.
+    """
+    return urlparse.urlunparse(("https", domain, path, "", "", ""))
+
+
 def _check_live_event(record: ProxyRecord) -> CheckResult:
     try:
         # Same dummy payload the daily monitor uses (posthog/temporal/proxy_service/monitor.py
         # check_proxy_is_live). PostHog's capture endpoint accepts unknown api_keys and returns
-        # 2xx — team_id resolution happens later in the ingestion pipeline — so a working proxy
-        # forwards this to a 2xx response. allow_redirects=False is a security boundary: an org
-        # admin controlling the customer's domain could otherwise redirect us to internal
-        # targets (cloud metadata, management APIs). Same protection as _check_http_challenge.
-        response = requests.post(
-            f"https://{record.domain}/i/v0/e/",
-            headers={"Content-Type": "application/json"},
-            data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
+        # 2xx, because team_id resolution happens later in the ingestion pipeline, so a working
+        # proxy forwards this to a 2xx response.
+        #
+        # `record.domain` is org-admin-supplied, so the request goes through pinned_request:
+        # it rejects hosts that resolve to non-public addresses, then connects to the address
+        # it validated instead of re-resolving. Re-resolving is what makes a low-TTL record
+        # exploitable, because the name can point somewhere public when it is checked and
+        # somewhere internal a moment later when it is fetched. pinned_request also never
+        # follows redirects, which would otherwise let the customer's server point us at an
+        # internal target after the connection succeeds.
+        response = pinned_request(
+            "POST",
+            _probe_url(record.domain, "/i/v0/e/"),
+            json={"event": "test", "api_key": "test", "distinct_id": "test"},
             timeout=CHECK_TIMEOUT_S,
-            allow_redirects=False,
+        )
+    except SSRFBlockedError:
+        return CheckResult(
+            id="live_event",
+            name="Live event probe",
+            status="failed",
+            detail=(
+                f"`{record.domain}` doesn't resolve to a public address, so we didn't send a test event. "
+                "Point the domain at a publicly reachable host and run diagnostics again."
+            ),
         )
     except requests.exceptions.SSLError:
         return CheckResult(
@@ -552,6 +693,19 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
             detail=f"Live probe got HTTP {response.status_code} — proxy is up but failing.",
         )
     if response.status_code >= 400:
+        # A 403 that carries Cloudflare error 1014 is a hostname authorization problem, not a
+        # transient failure. Report it as failed with the remediation message.
+        if parse_cloudflare_error_code(response.text) == CLOUDFLARE_ERROR_CROSS_USER_BANNED:
+            return CheckResult(
+                id="live_event",
+                name="Live event probe",
+                status="failed",
+                detail=describe_cross_user_banned(record.domain),
+                remediation=Remediation(
+                    type="config",
+                    summary="Check the domain's Cloudflare zone for a hold, or contact support.",
+                ),
+            )
         return CheckResult(
             id="live_event",
             name="Live event probe",
@@ -567,14 +721,32 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
     )
 
 
-def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
+def _check_cert_expiry(record: ProxyRecord, *, is_cloudflare: bool) -> CheckResult:
+    # A second connection to the same org-supplied host. The detail strings below name the
+    # exception class, which tells a filtered port from a closed one from a TLS failure, so
+    # connecting without validation would report the state of whatever address the name
+    # points at. This resolution is its own, separate from the one the live probe pinned, so
+    # it has to be validated and pinned here too. SNI stays on the hostname so certificate
+    # verification still checks the name the customer configured.
+    verdict = validate_url_and_pin_ips(_probe_url(record.domain, "/"))
+    if not verdict.allowed:
+        return CheckResult(
+            id="cert_expiry",
+            name="Certificate expiry",
+            status="warned",
+            detail=f"Couldn't check the certificate because `{record.domain}` doesn't resolve to a public address.",
+        )
+    chosen_ip = select_pinned_ip(verdict.pinned_ips)
+    # An empty set means validation was bypassed (dev mode), so fall back to the hostname.
+    connect_host = str(chosen_ip) if chosen_ip is not None else record.domain
+
     try:
         ctx = ssl_module.create_default_context()
         ctx.minimum_version = ssl_module.TLSVersion.TLSv1_2
         # Outer `with` on the raw socket guarantees the file descriptor closes
         # even if wrap_socket() raises before the inner context manager takes
         # ownership; closing twice is safe.
-        with socket.create_connection((record.domain, 443), timeout=CHECK_TIMEOUT_S) as sock:
+        with socket.create_connection((connect_host, 443), timeout=CHECK_TIMEOUT_S) as sock:
             with ctx.wrap_socket(sock, server_hostname=record.domain) as wrapped:
                 cert = wrapped.getpeercert()
     except (TimeoutError, OSError, ssl_module.SSLError) as e:
@@ -613,12 +785,20 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
     days_remaining = (expires_at - dt.datetime.now(dt.UTC)).days
 
     if days_remaining < CERT_EXPIRY_WARN_DAYS:
+        # Retry re-runs provisioning, which is only safe to suggest for Cloudflare-path
+        # proxies. For a legacy proxy, retry would migrate it onto Cloudflare and break a
+        # working setup, so point at support rather than offering a "recreate".
+        remediation = (
+            Remediation(type="retry", summary="Hit Retry to start a fresh issuance.")
+            if is_cloudflare
+            else Remediation(type="config", summary="The certificate isn't auto-renewing — contact support.")
+        )
         return CheckResult(
             id="cert_expiry",
             name="Certificate expiry",
             status="failed",
             detail=_msg_cert_expiring_soon(record.domain, days_remaining),
-            remediation=Remediation(type="retry", summary="Hit Retry to start a fresh issuance."),
+            remediation=remediation,
         )
 
     return CheckResult(

@@ -5,8 +5,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import MONDAY_ENDPOINTS
 
 MONDAY_API_URL = "https://api.monday.com/v2"
@@ -137,7 +137,11 @@ def _execute(
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
-    if response.status_code == 429 or response.status_code >= 500:
+    # MONDAY_API_URL is a fixed constant, never derived from customer input, so a 404 on it can't
+    # mean "this resource doesn't exist" — it's the edge/gateway dropping the request before it
+    # reaches the GraphQL engine (monday.com's own docs don't list 404 as a GraphQL response code).
+    # Treat it like the other transport-layer blips (429/5xx) instead of failing the sync outright.
+    if response.status_code in (404, 429) or response.status_code >= 500:
         raise MondayRetryableError(f"monday.com API error (retryable): status={response.status_code}")
 
     if not response.ok:
@@ -148,9 +152,13 @@ def _execute(
     errors = body.get("errors")
     if errors:
         message = "; ".join(str(error.get("message", error)) for error in errors)
-        # Complexity-budget exhaustion comes back as a GraphQL error, not a 429.
-        if "complexity" in message.lower():
+        message_lower = message.lower()
+        # Complexity-budget exhaustion and transient backend failures both come back
+        # as a 200 with a GraphQL error, not a 429/5xx status.
+        if "complexity" in message_lower:
             raise MondayRetryableError(f"monday.com complexity budget exhausted: {message}")
+        if "internal server error" in message_lower:
+            raise MondayRetryableError(f"monday.com internal server error (retryable): {message}")
         raise MondayGraphQLError(f"monday.com GraphQL error: {message}")
 
     return body.get("data") or {}

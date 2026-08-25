@@ -63,30 +63,29 @@ describe('Playlist', () => {
         )
     }
 
-    it('does not show the selected sessions banner when no session_ids filter is set', () => {
+    it('does not show the selected sessions notice when no session_ids filter is set', () => {
         renderPlaylist()
 
-        expect(screen.queryByText(/Only showing/)).not.toBeInTheDocument()
-        expect(screen.queryByText('Show all recordings')).not.toBeInTheDocument()
+        expect(screen.queryByText(/selected recording/)).not.toBeInTheDocument()
+        expect(screen.queryByText('Show all')).not.toBeInTheDocument()
     })
 
-    it('shows the selected sessions banner and clears session_ids via "Show all recordings"', async () => {
+    it('shows the selected sessions notice and clears session_ids via "Show all"', async () => {
         logic.actions.setFilters({ session_ids: ['s1', 's2'] })
 
         renderPlaylist()
 
-        expect(screen.getByText('Only showing 2 selected recordings')).toBeInTheDocument()
+        expect(screen.getByText('Showing 2 selected recordings')).toBeInTheDocument()
 
         await waitFor(() => {
             expect(logic.values.sessionRecordingsResponseLoading).toBe(false)
         })
 
-        // LemonBanner renders the action twice (wide and narrow responsive variants)
-        userEvent.click(screen.getAllByRole('button', { name: 'Show all recordings' })[0])
+        userEvent.click(screen.getByText('Show all'))
 
         await waitFor(() => {
             expect(logic.values.filters.session_ids).toBeUndefined()
         })
-        expect(screen.queryByText(/Only showing/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/selected recording/)).not.toBeInTheDocument()
     })
 })

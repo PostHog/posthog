@@ -25,6 +25,7 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "filters",
             "created_at",
             "created_by",
             "updated_at",
@@ -50,3 +51,22 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = team_id
 
         return super().create(validated_data=validated_data)
+
+
+class HogFlowBatchJobCancelResponseSerializer(serializers.Serializer):
+    """
+    Response from the batch job cancel endpoint. Stopping is asynchronous: this call flags the
+    run's audience fan-out and its in-flight child runs, and the workflow workers terminate
+    them shortly after. Messages already sent are not recalled.
+    """
+
+    status = serializers.ChoiceField(
+        choices=HogFlowBatchJob.State.choices,
+        help_text="The batch run's status after this request. 'cancelled' once every in-flight run is flagged; "
+        "a completion that raced the stop wins and is reported instead.",
+    )
+    marked = serializers.IntegerField(help_text="In-flight runs newly flagged for cancellation by this request.")
+    remaining = serializers.IntegerField(
+        help_text="In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again."
+    )
+    done = serializers.BooleanField(help_text="True when no in-flight runs of this batch remain unflagged.")

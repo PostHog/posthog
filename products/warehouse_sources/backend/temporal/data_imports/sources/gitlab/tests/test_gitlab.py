@@ -251,6 +251,23 @@ class TestValidateCredentials:
             else:
                 assert expected_msg_substr in (msg or "")
 
+    def test_403_maps_to_scope_guidance_without_echoing_raw_body(self):
+        # GitLab answers an under-scoped token with a raw OAuth JSON body that has no "message" field;
+        # it must be replaced with actionable scope guidance, never echoed back verbatim.
+        body = {"error": "insufficient_scope", "error_description": "requires higher privileges"}
+        with self._patch_session(_response(status_code=403, json_data=body, text=str(body))):
+            valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
+            assert valid is False
+            assert "read_api" in (msg or "")
+            assert "insufficient_scope" not in (msg or "")
+
+    def test_unmapped_error_does_not_echo_raw_response_body(self):
+        with self._patch_session(_response(status_code=500, json_data={}, text="<html>internal details</html>")):
+            valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
+            assert valid is False
+            assert "internal details" not in (msg or "")
+            assert "HTTP 500" in (msg or "")
+
     @pytest.mark.parametrize(
         "host, token, project, expected_msg",
         [
@@ -262,6 +279,29 @@ class TestValidateCredentials:
         valid, msg = validate_credentials(host, token, project)
         assert valid is False
         assert msg == expected_msg
+
+    @pytest.mark.parametrize(
+        "project",
+        [
+            "https://gitlab.com/mygroup/",  # pasted URL
+            "mygroup",  # bare group, no project and not a numeric id
+            "some-dashboard",  # bare name
+        ],
+    )
+    def test_malformed_project_gets_format_guidance(self, project):
+        # Guards the pre-request format check: without it these URL-encode into a nonsense path,
+        # 404, and get the misleading "not found or not accessible" message.
+        valid, msg = validate_credentials("https://gitlab.com", "tok", project)
+        assert valid is False
+        assert "group/project" in (msg or "")
+
+    def test_numeric_project_id_is_not_rejected_as_malformed(self):
+        # A bare numeric id is a valid GitLab project reference, so it must reach the API rather
+        # than trip the format check for bare names.
+        with self._patch_session(_response(status_code=200)) as patched:
+            valid, _ = validate_credentials("https://gitlab.com", "tok", "114682853")
+            assert valid is True
+            patched.return_value.get.assert_called_once()
 
     def test_request_exception_returns_failure(self):
         import requests

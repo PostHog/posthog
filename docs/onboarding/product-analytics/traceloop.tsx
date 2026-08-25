@@ -58,6 +58,29 @@ export const getTraceloopSteps = (ctx: OnboardingComponentsContext): StepDefinit
                 </>
             ),
         },
+        {
+            title: 'Send custom properties (optional)',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        Prefix any Traceloop association property with `posthog_` to attach it to the exported event as
+                        a custom property. The prefix is stripped, so `posthog_environment` becomes an `environment`
+                        property you can filter and break down by in PostHog.
+                    </Markdown>
+                    <CodeBlock
+                        language="typescript"
+                        code={dedent`
+                            import { withAssociationProperties } from '@traceloop/node-server-sdk'
+
+                            withAssociationProperties({ posthog_environment: 'production' }, () => {
+                              // your LLM calls here
+                            })
+                        `}
+                    />
+                </>
+            ),
+        },
     ]
 }
 

@@ -4,9 +4,9 @@ import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as accoilTemplate } from './_destinations/accoil/accoil.template'
 import { template as appcuesTemplate } from './_destinations/appcues/appcues.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
+import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
-import { template as firebasePushTemplate } from './_destinations/firebase_push/firebase_push.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
 import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
 import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
@@ -16,18 +16,27 @@ import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubs
 import { template as klimeTemplate } from './_destinations/klime/klime.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
+import { template as metaAdsTemplate } from './_destinations/meta_ads/meta.template'
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
+import { template as openaiAdsTemplate } from './_destinations/openai_ads/openai.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
+import { template as posthogCreateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-create-account.template'
 import { template as posthogGetAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-get-account.template'
+import { template as posthogTagAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-tag-account.template'
 import { template as posthogUpdateAccountPropertyTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-property.template'
+import { template as posthogUpdateAccountRelationshipsTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-relationships.template'
 import { template as posthogUpdateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account.template'
+import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
+import { template as pushTemplate } from './_destinations/push/push.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
+import { template as retainTemplate } from './_destinations/retain/retain.template'
+import { template as slackTemplate } from './_destinations/slack/slack.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
@@ -49,10 +58,15 @@ import { template as piiHashingTemplate } from './_transformations/pii-hashing/p
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
+import { template as logDefaultTemplate } from './_transformations_log/default/default.template'
+import { template as logDropBySeverityTemplate } from './_transformations_log/drop-by-severity/drop-by-severity.template'
+import { template as logPiiScrubTemplate } from './_transformations_log/pii-scrub/pii-scrub.template'
+import { template as logRedactAttributesTemplate } from './_transformations_log/redact-attributes/redact-attributes.template'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
+    slackTemplate,
     webhookTemplate,
     tiktokAdsTemplate,
     snapchatAdsTemplate,
@@ -60,15 +74,17 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     githubTemplate,
     gitlabTemplate,
     googleAdsTemplate,
+    metaAdsTemplate,
     linkedinAdsTemplate,
     microsoftAdsTemplate,
+    openaiAdsTemplate,
     redditAdsTemplate,
     twilioTemplate,
     whatsappTemplate,
     googleSheetsTemplate,
     googleTagManagerTemplate,
     emailTemplate,
-    firebasePushTemplate,
+    pushTemplate,
     clickupTemplate,
     posthogCaptureTemplate,
     posthogGroupIdentifyTemplate,
@@ -76,7 +92,11 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogSetHogflowVariableTemplate,
     posthogGetTicketTemplate,
     posthogUpdateTicketTemplate,
+    posthogCreateTaskTemplate,
+    posthogCreateAccountTemplate,
     posthogGetAccountTemplate,
+    posthogTagAccountTemplate,
+    posthogUpdateAccountRelationshipsTemplate,
     posthogUpdateAccountTemplate,
     posthogUpdateAccountPropertyTemplate,
     hubspotCompanyTemplate,
@@ -84,6 +104,8 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     appcuesTemplate,
     klimeTemplate,
     unifyTemplate,
+    closeTemplate,
+    retainTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
@@ -98,6 +120,13 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     filterPropertiesTemplate,
     hashPropertiesTemplate,
     urlNormalizationTemplate,
+]
+
+export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [
+    logDefaultTemplate,
+    logPiiScrubTemplate,
+    logDropBySeverityTemplate,
+    logRedactAttributesTemplate,
 ]
 
 export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [nativeWebhookTemplate].map((plugin) => ({
@@ -149,6 +178,7 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
+    ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
     ...NATIVE_HOG_FUNCTIONS,

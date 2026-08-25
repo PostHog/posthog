@@ -1,252 +1,145 @@
+import json
 from typing import Any
 
 import pytest
 from unittest import mock
 
-import pyarrow as pa
-import requests
-from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset import apify_dataset
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.apify_dataset import (
     ApifyResumeConfig,
-    ApifyRetryableError,
-    _fetch_page,
-    _items_url,
     apify_dataset_source,
-    get_rows,
     validate_credentials,
 )
 
-
-def _response(status_code: int, *, json_body: Any = None, headers: dict[str, str] | None = None) -> mock.Mock:
-    response = mock.Mock(spec=requests.Response)
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.text = ""
-    response.headers = headers or {}
-    response.json.return_value = json_body
-    response.raise_for_status.side_effect = (
-        None if response.ok else requests.HTTPError(f"{status_code} Client Error", response=response)
-    )
-    return response
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+APIFY_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.apify_dataset.make_tracked_session"
+)
 
 
-def _small_batcher(**kwargs: Any) -> Batcher:
-    # Force a tiny chunk so a yield fires after a couple of rows without building thousands of dicts.
-    return Batcher(logger=kwargs["logger"], chunk_size=2, chunk_size_bytes=kwargs["chunk_size_bytes"])
+def _response(body: Any, *, total: int | None = None) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    if total is not None:
+        resp.headers["X-Apify-Pagination-Total"] = str(total)
+    return resp
 
 
-@pytest.fixture(autouse=True)
-def _no_sleep():
-    # The tenacity retry decorator sleeps between attempts; zero it so retry tests stay instant.
-    with mock.patch("time.sleep", return_value=None):
-        yield
-
-
-class TestItemsUrl:
-    @parameterized.expand(
-        [
-            ("first_page", "ds1", 0, 1000),
-            ("offset_page", "ds1", 2000, 500),
-        ]
-    )
-    def test_items_url_contains_pagination_params(self, _name: str, dataset_id: str, offset: int, limit: int) -> None:
-        url = _items_url(dataset_id, offset, limit)
-        assert url.startswith(f"https://api.apify.com/v2/datasets/{dataset_id}/items?")
-        assert f"offset={offset}" in url
-        assert f"limit={limit}" in url
-        assert "format=json" in url
-
-    def test_items_url_encodes_dataset_id_as_path_segment(self) -> None:
-        # A crafted dataset_id must not be able to inject extra path segments or query params
-        # (e.g. dropping the enforced offset/limit); it has to stay a single encoded path segment.
-        url = _items_url("evil/items?format=json#", 0, 1000)
-        assert url.startswith("https://api.apify.com/v2/datasets/evil%2Fitems%3Fformat%3Djson%23/items?")
-        assert "offset=0" in url
-        assert "limit=1000" in url
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("not_found", 404, False),
-            ("unexpected", 500, False),
-        ]
-    )
-    def test_status_code_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
-        session = mock.Mock()
-        session.get.return_value = _response(status_code)
-        with mock.patch.object(apify_dataset, "make_tracked_session", return_value=session):
-            ok, error = validate_credentials("token", "ds1")
-        assert ok is expected_ok
-        assert (error is None) is expected_ok
-
-    def test_network_error_is_not_valid(self) -> None:
-        session = mock.Mock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch.object(apify_dataset, "make_tracked_session", return_value=session):
-            ok, error = validate_credentials("token", "ds1")
-        assert ok is False
-        assert error is not None
-
-
-class TestFetchPage:
-    def test_reads_total_from_pagination_header(self) -> None:
-        session = mock.Mock()
-        session.get.return_value = _response(200, json_body=[{"a": 1}], headers={"X-Apify-Pagination-Total": "42"})
-        items, total = _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
-        assert items == [{"a": 1}]
-        assert total == 42
-
-    def test_total_falls_back_to_item_count_without_header(self) -> None:
-        session = mock.Mock()
-        session.get.return_value = _response(200, json_body=[{"a": 1}, {"a": 2}], headers={})
-        items, total = _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
-        assert total == 2
-
-    @parameterized.expand([("empty", ""), ("non_numeric", "abc")])
-    def test_total_falls_back_to_item_count_for_malformed_header(self, _name: str, header_value: str) -> None:
-        session = mock.Mock()
-        session.get.return_value = _response(
-            200, json_body=[{"a": 1}, {"a": 2}], headers={"X-Apify-Pagination-Total": header_value}
-        )
-        items, total = _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
-        assert total == 2
-
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_eventually_reraise(self, _name: str, status_code: int) -> None:
-        session = mock.Mock()
-        session.get.return_value = _response(status_code)
-        with pytest.raises(ApifyRetryableError):
-            _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
-        assert session.get.call_count == 5
-
-    def test_retries_then_succeeds(self) -> None:
-        session = mock.Mock()
-        session.get.side_effect = [
-            _response(503),
-            _response(200, json_body=[{"a": 1}], headers={"X-Apify-Pagination-Total": "1"}),
-        ]
-        items, total = _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
-        assert items == [{"a": 1}]
-        assert session.get.call_count == 2
-
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_immediately(self, _name: str, status_code: int) -> None:
-        session = mock.Mock()
-        session.get.return_value = _response(status_code)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
-        assert session.get.call_count == 1
-
-    def test_non_list_body_raises_without_retrying(self) -> None:
-        session = mock.Mock()
-        session.get.return_value = _response(200, json_body={"error": "nope"})
-        # A non-list 200 body is a permanent contract violation, so it raises ValueError (not a
-        # retryable error) and exits immediately rather than waiting through all retry attempts.
-        with pytest.raises(ValueError):
-            _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
-        assert session.get.call_count == 1
-
-
-def _resume_manager(saved: ApifyResumeConfig | None = None) -> mock.Mock:
-    manager = mock.Mock()
-    manager.can_resume.return_value = saved is not None
-    manager.load_state.return_value = saved
+def _make_manager(resume_state: ApifyResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
     return manager
 
 
-def _collect_rows(tables: list[pa.Table]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for table in tables:
-        rows.extend(table.to_pylist())
-    return rows
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    session.headers = {}
+    params: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        params.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return params
 
 
-class TestGetRows:
-    def test_paginates_until_offset_reaches_total(self) -> None:
-        manager = _resume_manager()
-        pages = [
-            ([{"i": 0}, {"i": 1}], 5),
-            ([{"i": 2}, {"i": 3}], 5),
-            ([{"i": 4}], 5),
-        ]
-        with (
-            mock.patch.object(apify_dataset, "make_tracked_session", return_value=mock.Mock()),
-            mock.patch.object(apify_dataset, "PAGE_SIZE", 2),
-            mock.patch.object(apify_dataset, "_fetch_page", side_effect=pages) as fetch,
-        ):
-            rows = _collect_rows(list(get_rows("token", "ds1", mock.Mock(), manager)))
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
-        assert fetch.call_count == 3
-        assert [r["i"] for r in rows] == [0, 1, 2, 3, 4]
-        # The offset advances on each request: 0 -> 2 -> 4.
-        offsets = [call.args[1] for call in fetch.call_args_list]
-        assert "offset=0" in offsets[0]
-        assert "offset=2" in offsets[1]
-        assert "offset=4" in offsets[2]
 
-    def test_resumes_from_saved_offset(self) -> None:
-        manager = _resume_manager(ApifyResumeConfig(offset=2))
-        with (
-            mock.patch.object(apify_dataset, "make_tracked_session", return_value=mock.Mock()),
-            mock.patch.object(apify_dataset, "PAGE_SIZE", 2),
-            mock.patch.object(apify_dataset, "_fetch_page", side_effect=[([{"i": 2}], 3)]) as fetch,
-        ):
-            list(get_rows("token", "ds1", mock.Mock(), manager))
+def _run(manager, responses):
+    return apify_dataset_source(
+        api_token="tok",
+        dataset_id="ds1",
+        endpoint="dataset_items",
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
 
-        assert "offset=2" in fetch.call_args_list[0].args[1]
 
-    def test_saves_state_after_yield_with_next_offset(self) -> None:
-        manager = _resume_manager()
-        pages = [
-            ([{"i": 0}, {"i": 1}], 4),
-            ([{"i": 2}, {"i": 3}], 4),
-        ]
-        with (
-            mock.patch.object(apify_dataset, "make_tracked_session", return_value=mock.Mock()),
-            mock.patch.object(apify_dataset, "PAGE_SIZE", 2),
-            mock.patch.object(apify_dataset, "Batcher", _small_batcher),
-            mock.patch.object(apify_dataset, "_fetch_page", side_effect=pages),
-        ):
-            list(get_rows("token", "ds1", mock.Mock(), manager))
+class TestPagination:
+    @mock.patch.object(apify_dataset, "PAGE_SIZE", 2)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_progresses_offset_and_terminates_on_header_total(self, MockSession) -> None:
+        session = MockSession.return_value
+        # total=3: page 1 (2 rows, full) -> continue; page 2 (offset 2, 1 row) -> offset 4 >= 3 -> stop.
+        params = _wire(session, [_response([{"i": 0}, {"i": 1}], total=3), _response([{"i": 2}], total=3)])
 
-        # After the first page (offset advanced to 2) more rows remain, so state is saved at offset 2.
-        saved_offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
-        assert 2 in saved_offsets
+        manager = _make_manager()
+        rows = _rows(_run(manager, None))
 
-    def test_does_not_save_state_on_final_page(self) -> None:
-        manager = _resume_manager()
-        with (
-            mock.patch.object(apify_dataset, "make_tracked_session", return_value=mock.Mock()),
-            mock.patch.object(apify_dataset, "PAGE_SIZE", 2),
-            mock.patch.object(apify_dataset, "Batcher", _small_batcher),
-            mock.patch.object(apify_dataset, "_fetch_page", side_effect=[([{"i": 0}, {"i": 1}], 2)]),
-        ):
-            list(get_rows("token", "ds1", mock.Mock(), manager))
+        assert [r["i"] for r in rows] == [0, 1, 2]
+        assert params[0]["offset"] == 0
+        assert params[0]["limit"] == 2
+        assert params[0]["format"] == "json"
+        assert params[1]["offset"] == 2
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == ApifyResumeConfig(offset=2)
 
+    @mock.patch.object(apify_dataset, "PAGE_SIZE", 2)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_page_terminates(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"i": 0}], total=1)])
+
+        manager = _make_manager()
+        rows = _rows(_run(manager, None))
+
+        assert [r["i"] for r in rows] == [0]
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    def test_empty_dataset_yields_nothing(self) -> None:
-        manager = _resume_manager()
-        with (
-            mock.patch.object(apify_dataset, "make_tracked_session", return_value=mock.Mock()),
-            mock.patch.object(apify_dataset, "_fetch_page", side_effect=[([], 0)]),
-        ):
-            tables = list(get_rows("token", "ds1", mock.Mock(), manager))
+    @mock.patch.object(apify_dataset, "PAGE_SIZE", 2)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"i": 200}], total=201)])
 
-        assert tables == []
+        manager = _make_manager(ApifyResumeConfig(offset=200))
+        _rows(_run(manager, None))
+
+        assert params[0]["offset"] == 200
+
+    @mock.patch.object(apify_dataset, "PAGE_SIZE", 2)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_raises_loudly(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "wrong shape"}, total=0)])
+
+        # A misrouted request returning an error object (not a list) must fail loud, not sync it as a row.
+        with pytest.raises(ValueError, match="list response body"):
+            _rows(_run(_make_manager(), None))
 
 
-class TestApifyDatasetSource:
-    def test_source_response_shape(self) -> None:
-        response = apify_dataset_source("token", "ds1", "dataset_items", mock.Mock(), _resume_manager())
-        assert response.name == "dataset_items"
-        # Arbitrary dataset rows have no unique key, so the table is full-refresh only.
-        assert response.primary_keys is None
-        assert response.sort_mode == "asc"
+class TestValidateCredentials:
+    @mock.patch(APIFY_SESSION_PATCH)
+    def test_ok(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        assert validate_credentials("tok", "ds1") == (True, None)
+
+    @mock.patch(APIFY_SESSION_PATCH)
+    def test_unauthorized_message(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
+        ok, msg = validate_credentials("tok", "ds1")
+        assert ok is False
+        assert "token" in (msg or "")
+
+    @mock.patch(APIFY_SESSION_PATCH)
+    def test_not_found_message(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=404)
+        ok, msg = validate_credentials("tok", "ds1")
+        assert ok is False
+        assert "Dataset not found" in (msg or "")
+
+    @mock.patch(APIFY_SESSION_PATCH)
+    def test_network_error_message(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        ok, msg = validate_credentials("tok", "ds1")
+        assert ok is False
+        assert "reach the Apify API" in (msg or "")

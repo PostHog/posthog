@@ -89,8 +89,19 @@ export const DELAYED_INGESTION_LANES = ['historical', 'async'] as const
 
 export type IngestionLane = (typeof REALTIME_INGESTION_LANES)[number] | (typeof DELAYED_INGESTION_LANES)[number]
 
+/**
+ * How a consumer participates in overflow handling. Explicit and independent of
+ * the lane name:
+ *   - `redirect`  redirect hot partitions to the overflow topic (main lane).
+ *   - `consume`   drain the overflow topic and refresh its stateful TTLs (overflow lane).
+ *   - `disabled`  no overflow handling.
+ */
+export const INGESTION_OVERFLOW_MODES = ['redirect', 'consume', 'disabled'] as const
+export type IngestionOverflowMode = (typeof INGESTION_OVERFLOW_MODES)[number]
+
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null
+    INGESTION_OVERFLOW_MODE: IngestionOverflowMode
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -110,6 +121,32 @@ export type IngestionConsumerConfig = {
     // (idle worker capacity) or the worker rejects with HTTP 503.
     INGESTION_WORKER_CONCURRENT_BATCHES: number
 
+    // Feed-order sentinel (ingestion API server only): checks that each
+    // routing key's messages enter the pipeline in Kafka offset order. The
+    // Rust consumer's sentinels have their own flag
+    // (CONSUMER_ORDER_SENTINEL_ENABLED).
+    INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: boolean
+    // LRU capacity of the sentinel's per-key state; at capacity the
+    // least-recently-seen key is dropped and rebaselines unchecked.
+    INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
+
+    // Streaming ingest (ingestion API server only): serve
+    // ingestion.worker.v1.WorkerIngest over gRPC alongside HTTP /ingest.
+    // The stream delivers each consumer's sub-batches in order, closing the
+    // wire-reordering window concurrent HTTP requests leave open.
+    INGESTION_API_GRPC_ENABLED: boolean
+    INGESTION_API_GRPC_PORT: number
+    // Concurrency caps for the gRPC listener. Legitimate load is roughly one
+    // stream per connected consumer, so these are generous ceilings that bound
+    // resource use if a peer misbehaves rather than limits normal traffic.
+    INGESTION_API_GRPC_MAX_STREAMS: number
+    INGESTION_API_GRPC_MAX_SESSIONS: number
+    INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION: number
+    INGESTION_API_GRPC_SESSION_MEMORY_MB: number
+    INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: number
+    INGESTION_API_GRPC_READ_MAX_BYTES: number
+    INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: number
+
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
     PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -117,6 +154,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
+    PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
     PERSONS_PREFETCH_ENABLED: boolean
 
     // Person properties config
@@ -132,21 +171,56 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
+    // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
+    // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
+    // the topic env is set is a no-op — see effectivePersonMergeEventsEnabled.
     PERSON_MERGE_EVENTS_ENABLED: boolean
     // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number
+    // Which teams to emit person_merge_events for: comma-separated team IDs, or '*' for all teams.
+    // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
+    // means "no teams", not "all teams"; use '*' to open the gate.
+    PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
+    // Fold consecutive runs of $identify merges for the same distinct_id in a batch into a single
+    // merge operation (merge-storm mitigation). Master switch; when off, the planning step passes
+    // every event through unplanned and merges stay sequential.
+    PERSON_MERGE_FOLD_ENABLED: boolean
+    // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
+    PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
+    // Tombstone rollout of the person-deletion-gaps RFC: for these teams, a merge tombstones the
+    // source person row (is_deleted = true, version stamped in the same transaction, properties
+    // scrubbed) instead of hard-deleting it, and the ClickHouse death row carries that exact
+    // version instead of the version + 100 fudge. The row keeps the key's version counter so a
+    // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
+    // teams; empty means no teams.
+    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Teams whose person creation claims an existing unreachable posthog_person row holding
+    // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
+    // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
+    // for everyone else the probe is wasted load on the hottest write statement.
+    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
+    PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: string
 
     // Group batch writing config
+    GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
+    // Defer creation of new groups to flush time and insert them in a single
+    // batched statement, instead of an inline single-row insert per new group
+    // during event processing. When off, behavior is unchanged.
+    GROUP_BATCH_WRITING_USE_BATCH_CREATES: boolean
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    GROUPS_PREFETCH_ENABLED: boolean
 
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    // Merge-event ($identify, $create_alias, $merge_dangerously) overflow rate,
+    // per token:distinct_id. A capacity of 0 disables the condition.
+    MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY: number
+    MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Stateful overflow config
-    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
@@ -161,6 +235,8 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    /** Teams whose multivariate $feature_flag_called events are duplicated as $experiment_exposure: '*' for all, '' to disable, or comma-separated team IDs */
+    EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
     // $feature_flag_called keep-first dedup config
     /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
@@ -180,9 +256,23 @@ export type IngestionConsumerConfig = {
     CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
 
+    // AI blob offload: content-addressed S3 storage for multimodal payloads.
+    // Empty bucket or empty teams list disables the offload step entirely.
+    AI_BLOB_S3_BUCKET: string
+    AI_BLOB_S3_PREFIX: string
+    AI_BLOB_S3_ENDPOINT: string
+    AI_BLOB_S3_REGION: string
+    AI_BLOB_S3_ACCESS_KEY_ID: string
+    AI_BLOB_S3_SECRET_ACCESS_KEY: string
+    AI_BLOB_S3_TIMEOUT_MS: number
+    AI_BLOB_OFFLOAD_TEAMS: string
+    AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: number
+    AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: number
+    AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: number
+    AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
+
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean
-    COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
     COOKIELESS_SESSION_TTL_SECONDS: number
     COOKIELESS_SALT_TTL_SECONDS: number
@@ -210,6 +300,7 @@ export type IngestionConsumerConfig = {
 export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
     return {
         INGESTION_LANE: null,
+        INGESTION_OVERFLOW_MODE: 'disabled',
 
         // Kafka consumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
@@ -223,6 +314,17 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
+        INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
+        INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
+        INGESTION_API_GRPC_ENABLED: false,
+        INGESTION_API_GRPC_PORT: 6739,
+        INGESTION_API_GRPC_MAX_STREAMS: 256,
+        INGESTION_API_GRPC_MAX_SESSIONS: 256,
+        INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION: 8,
+        INGESTION_API_GRPC_SESSION_MEMORY_MB: 64,
+        INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: 300_000,
+        INGESTION_API_GRPC_READ_MAX_BYTES: 32 * 1024 * 1024,
+        INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: 15_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
@@ -231,6 +333,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
         PERSONS_PREFETCH_ENABLED: false,
 
         // Person properties config
@@ -247,18 +350,27 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
+        PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
+        PERSON_MERGE_FOLD_ENABLED: false,
+        PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
+        GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        GROUPS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
+        MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY: 0,
+        MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
 
         // Stateful overflow config
-        INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
 
@@ -272,6 +384,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
 
         // $feature_flag_called keep-first dedup config
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
@@ -288,9 +401,28 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
 
+        // AI blob offload: content-addressed S3 storage for multimodal payloads.
+        // Empty bucket or empty teams list disables the offload step entirely.
+        AI_BLOB_S3_BUCKET: '',
+        // Bucket+prefix are a shared contract with the Django read side (posthog/settings/
+        // object_storage.py) — defaults must agree or reads 404 while writes succeed.
+        AI_BLOB_S3_PREFIX: 'aio/',
+        AI_BLOB_S3_ENDPOINT: '',
+        AI_BLOB_S3_REGION: 'us-east-1',
+        AI_BLOB_S3_ACCESS_KEY_ID: '',
+        AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+        AI_BLOB_S3_TIMEOUT_MS: 30000,
+        AI_BLOB_OFFLOAD_TEAMS: '',
+        // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
+        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
+        AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
+        // Chunk-wide cap on concurrent blob uploads, so blob-heavy traffic
+        // can't monopolize the S3 socket pool.
+        AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: 8,
+        AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
+
         // Cookieless server hash mode config
         COOKIELESS_DISABLED: false,
-        COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000,
         COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24),
         COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24),

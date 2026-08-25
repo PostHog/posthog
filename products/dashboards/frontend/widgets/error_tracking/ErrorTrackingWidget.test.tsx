@@ -70,7 +70,6 @@ describe('ErrorTrackingWidget', () => {
         expect(
             screen.getByText("No issues matched your filters. That's a good thing. Enjoy the quiet.")
         ).toBeInTheDocument()
-        expect(screen.getByAltText('PostHog hedgehog')).toBeInTheDocument()
     })
 
     it('shows setup prompt when exception autocapture is disabled', async () => {
@@ -83,7 +82,7 @@ describe('ErrorTrackingWidget', () => {
         render(<ErrorTrackingWidget tileId={1} config={{ limit: 10 }} loading={false} result={{ results: [issue] }} />)
 
         expect(await screen.findByText("You haven't captured any exceptions")).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Enable exception autocapture' })).toBeInTheDocument()
+        expect(screen.getByText('Enable exception autocapture').closest('button')).toBeInTheDocument()
         expect(screen.queryByText('Issue list')).not.toBeInTheDocument()
     })
 })

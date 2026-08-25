@@ -2,10 +2,12 @@ import time
 from datetime import timedelta
 from typing import Any
 
+from django.apps import apps
+from django.db import connections
+
 import structlog
 
 from posthog.cache_utils import cache_for
-from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
@@ -14,11 +16,38 @@ from products.batch_exports.backend.service import BatchExportServiceScheduleNot
 logger = structlog.get_logger(__name__)
 
 # Batch size for the personhog batch-delete RPCs on the largest team-scoped tables
-# (personless distinct IDs, persons, hash-key-overrides). Kept well below 10000 so each
-# DELETE commits comfortably inside the personhog gRPC deadline on multi-billion-row
-# tables; otherwise a batch that overruns the deadline is rolled back wholesale and the
-# activity retries with zero forward progress.
+# (personless distinct IDs, persons, hash-key-overrides). Kept well below 10000 to bound
+# how much work a single DELETE holds locks for.
 TEAM_DELETE_BATCH_SIZE = 2000
+
+# Per-call gRPC deadline for the team-deletion bulk-delete RPCs. Their default is the 5s
+# client deadline meant for point lookups, but a single batch DELETE against a
+# multi-billion-row, delete-churned table (personless distinct IDs, persons, groups,
+# hash-key-overrides) can transiently take seconds when autovacuum lags — enough to blow a
+# 5s deadline. A DEADLINE_EXCEEDED there fails the whole activity, which then retries the
+# batched loop from scratch, so each batch gets a much more generous deadline.
+#
+# This bounds a *single* batch, not the whole loop — the enclosing Temporal activity's
+# start_to_close (HEAVY_ACTIVITY_TIMEOUT, 2h in posthog/temporal/delete_teams/workflows.py)
+# is the real bound on the full team deletion. Keep this comfortably below that: a wedged
+# single batch then surfaces DEADLINE_EXCEEDED with plenty of activity budget left for a
+# clean retry, and the per-call deadline never coincides with the activity's own timeout
+# (which would let a retry start while the previous DELETE is still running in personhog).
+# 30 min is orders of magnitude above any healthy single-batch DELETE yet 4x under the 2h
+# activity bound.
+TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
+
+# The retired session-summary tables. products/replay/backend/migrations/0002_remove_session_summary_models.py
+# dropped their models from Django state only, so both the tables and their foreign keys on
+# posthog_team still exist in Postgres. Django's cascade cannot see them any more, and the
+# constraints are DEFERRABLE INITIALLY DEFERRED, so a leftover row fails the team delete at COMMIT
+# with an IntegrityError instead of at the DELETE statement. All three tables are dead: no Django
+# model reads or writes them. This list goes away with the migration that drops them.
+RETIRED_SESSION_SUMMARY_TABLES = (
+    "ee_group_session_summary",
+    "ee_single_session_summary",
+    "ee_teamsessionsummariesconfig",
+)
 
 actions_that_require_current_team = [
     "rotate_secret_token",
@@ -29,6 +58,7 @@ actions_that_require_current_team = [
     "experiments_config",
     "default_evaluation_contexts",
     "evaluation_context_suggestions",
+    "logs_config",
 ]
 
 
@@ -37,7 +67,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     # Each phase is its own batched helper so the Temporal deletion workflow can run them
     # as separate, individually-retryable activities while Celery keeps calling them in sequence.
     _delete_misc_small_tables_for_teams(team_ids)
-    _delete_personless_distinct_ids_for_teams(team_ids)
     _delete_cohort_members_for_all_teams(team_ids)
     _delete_groups_for_teams(team_ids)
     _delete_group_type_mappings_for_teams(team_ids)
@@ -57,8 +86,8 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
 
     from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
-    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
-    from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
+
+    error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
     # Data modeling Edge/Node must be deleted before the Team row: Team cascades to
     # DataWarehouseSavedQuery, which has PROTECT on delete.
@@ -66,11 +95,11 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(Node.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(FileSystemViewLog.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
-    _raw_delete_batch(InsightCachingState.objects.filter(team_id__in=team_ids))
     _delete_llm_evaluations_for_teams(team_ids)
+    _delete_retired_session_summaries_for_teams(team_ids)
 
 
 def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
@@ -87,6 +116,32 @@ def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
     from products.ai_observability.backend.models.evaluations import Evaluation
 
     Evaluation.objects.filter(team_id__in=team_ids).delete()
+
+
+def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+    """Batch-delete the teams' rows in the retired session-summary tables.
+
+    A table is skipped when it no longer exists, so team deletion keeps working once the migration
+    that drops these tables lands.
+    """
+    if not team_ids:
+        return
+
+    db_connection = connections["default"]
+    for table in RETIRED_SESSION_SUMMARY_TABLES:
+        # The table name is a module constant, never user input, so interpolating it is safe.
+        statement = f'DELETE FROM "{table}" WHERE ctid IN (SELECT ctid FROM "{table}" WHERE team_id = ANY(%s) LIMIT %s)'
+        with db_connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s)", [table])
+            row = cursor.fetchone()
+            if row is None or row[0] is None:
+                continue
+
+            while True:
+                cursor.execute(statement, [team_ids, batch_size])
+                if cursor.rowcount < batch_size:
+                    break
+                time.sleep(0.1)
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
@@ -106,7 +161,8 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
     def _fn() -> None:
         while True:
             resp = client.delete_hash_key_overrides_by_teams(
-                DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=TEAM_DELETE_BATCH_SIZE)
+                DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=TEAM_DELETE_BATCH_SIZE),
+                timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
             )
             if resp.deleted_count == 0:
                 break
@@ -116,33 +172,6 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
         _fn,
         caller_tag="team-delete/hash-key-overrides",
     )
-
-
-def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
-    """Delete posthog_personlessdistinctid rows for teams via personhog RPC."""
-    from functools import partial
-
-    from posthog.personhog_client.client import personhog_call
-
-    for team_id in team_ids:
-        personhog_call(
-            "delete_personless_distinct_ids_for_team",
-            partial(_delete_personless_distinct_ids_for_team_via_personhog, team_id),
-        )
-
-
-def _delete_personless_distinct_ids_for_team_via_personhog(team_id: int) -> None:
-    from posthog.personhog_client.client import require_personhog_client
-    from posthog.personhog_client.proto import DeletePersonlessDistinctIdsBatchForTeamRequest
-
-    client = require_personhog_client()
-
-    while True:
-        resp = client.delete_personless_distinct_ids_batch_for_team(
-            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE)
-        )
-        if resp.deleted_count == 0:
-            break
 
 
 def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:
@@ -179,7 +208,8 @@ def _delete_persons_for_team_via_personhog(team_id: int) -> None:
 
     while True:
         resp = client.delete_persons_batch_for_team(
-            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE)
+            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE),
+            timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
         )
         if resp.deleted_count == 0:
             break
@@ -196,7 +226,8 @@ def _delete_groups_for_teams(team_ids: list[int]) -> None:
         def _fn(tid: int = team_id) -> None:
             while True:
                 resp = client.delete_groups_batch_for_team(
-                    DeleteGroupsBatchForTeamRequest(team_id=tid, batch_size=10000)
+                    DeleteGroupsBatchForTeamRequest(team_id=tid, batch_size=10000),
+                    timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
                 )
                 if resp.deleted_count == 0:
                     break
@@ -215,7 +246,8 @@ def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
         def _fn(tid: int = team_id) -> None:
             while True:
                 resp = client.delete_group_type_mappings_batch_for_team(
-                    DeleteGroupTypeMappingsBatchForTeamRequest(team_id=tid, batch_size=10000)
+                    DeleteGroupTypeMappingsBatchForTeamRequest(team_id=tid, batch_size=10000),
+                    timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS,
                 )
                 if resp.deleted_count == 0:
                     break
@@ -234,7 +266,7 @@ def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int])
     for team_id in team_ids:
         team_cohort_ids = list(Cohort.objects.filter(team_id=team_id, id__in=cohort_ids).values_list("id", flat=True))
         if team_cohort_ids:
-            delete_cohort_members_bulk(team_id, team_cohort_ids)
+            delete_cohort_members_bulk(team_id, team_cohort_ids, timeout=TEAM_DELETE_RPC_TIMEOUT_SECONDS)
 
 
 def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
@@ -301,44 +333,6 @@ def delete_batch_exports(team_ids: list[int]):
                 "Schedule not found during team deletion",
                 schedule_id=e.schedule_id,
             )
-
-
-def delete_data_modeling_schedules(team_ids: list[int]) -> None:
-    """Delete Temporal schedules for data modeling saved queries in deleted teams.
-
-    Django CASCADE deletes the DataWarehouseSavedQuery records but doesn't
-    call revert_materialization(), leaving orphaned Temporal schedules.
-    """
-    import temporalio.service
-
-    from posthog.temporal.common.schedule import delete_schedule
-
-    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-
-    saved_queries = list(
-        DataWarehouseSavedQuery.objects.filter(
-            team_id__in=team_ids,
-            sync_frequency_interval__isnull=False,
-        ).exclude(deleted=True)  # as it's nullable
-    )
-
-    if not saved_queries:
-        return
-
-    temporal = sync_connect()
-
-    for saved_query in saved_queries:
-        try:
-            delete_schedule(temporal, schedule_id=str(saved_query.id))
-        except temporalio.service.RPCError as e:
-            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                logger.warning(
-                    "Data modeling schedule not found during team deletion",
-                    schedule_id=str(saved_query.id),
-                    team_id=saved_query.team_id,
-                )
-                continue
-            capture_exception(e)
 
 
 def delete_team_records(team_ids: list[int]) -> None:

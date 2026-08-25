@@ -1,13 +1,22 @@
+from datetime import timedelta
+from uuid import uuid4
+
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
+from posthog.temporal.common.logger import resolve_log_source
 
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.node_suspension import mark_node_suspended, suspension_state
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
 class TestNodeViewSet(APIBaseTest):
@@ -111,6 +120,32 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 3)
 
+    @parameterized.expand(
+        [
+            # node target wins even when the saved-query interval disagrees (tiered v2 teams
+            # carry NULL intervals, so a saved-query-only read shows a blank frequency)
+            ("target_first", timedelta(hours=6), timedelta(hours=12), "6hour"),
+            ("saved_query_fallback", None, timedelta(hours=12), "12hour"),
+            ("neither", None, None, None),
+        ]
+    )
+    def test_node_sync_interval_reads_target_first(
+        self,
+        _name: str,
+        target: timedelta | None,
+        saved_query_interval: timedelta | None,
+        expected: str | None,
+    ):
+        self.saved_query.sync_frequency_interval = saved_query_interval
+        self.saved_query.save(update_fields=["sync_frequency_interval"])
+        if target is not None:
+            set_declared_target(self.view_node, target)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["sync_interval"], expected)
+
     def test_node_response_includes_dag_name(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
 
@@ -205,6 +240,69 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_client.start_workflow.assert_called_once()
 
+        # The workflow id must resolve back to the saved query id, or the run's log lines
+        # detach from the materialization history UI (which queries by saved query id).
+        workflow_id = mock_client.start_workflow.call_args.kwargs["id"]
+        self.assertEqual(
+            resolve_log_source("data-modeling-run", workflow_id),
+            ("data_modeling_run", str(self.saved_query.id)),
+        )
+
+    def _suspend(self, node: Node) -> None:
+        mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid4()), fingerprint=None)
+        node.save()
+
+    def test_suspended_node_reports_its_state_and_can_be_resumed(self):
+        self._suspend(self.view_node)
+
+        detail = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        self.assertEqual(self.client.get(detail).json()["suspended"]["clickhouse"]["reason"], "boom")
+
+        response = self.client.post(f"{detail}resume/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(detail).json()["suspended"], {})
+
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    def test_run_resumes_every_node_it_was_asked_to_run(self, mock_sync_connect):
+        # A suspended node is skipped by ExecuteDAGWorkflow, so without this the button is a no-op.
+        mock_sync_connect.return_value = AsyncMock()
+        downstream = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="downstream_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=downstream)
+        self._suspend(self.view_node)
+        self._suspend(downstream)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/run/",
+            {"direction": "downstream"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.view_node.refresh_from_db()
+        downstream.refresh_from_db()
+        self.assertEqual(suspension_state(self.view_node), {})
+        self.assertEqual(suspension_state(downstream), {})
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_materialize_resumes_the_node(self, mock_sync_connect):
+        mock_sync_connect.return_value = AsyncMock()
+        self._suspend(self.view_node)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/materialize/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.view_node.refresh_from_db()
+        self.assertEqual(suspension_state(self.view_node), {})
+
     @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=True)
     @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
     def test_run_uses_execute_dag_when_v2_enabled(self, mock_sync_connect, mock_feature_flag):
@@ -248,6 +346,9 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
+        self.assertEqual(call_args.kwargs["id"], f"materialize-view-{self.view_node.id}")
+        self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
+        self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
 
     @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=False)
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
@@ -264,7 +365,9 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args[0][0], "data-modeling-run")
 
     def test_lineage_returns_subgraph(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.view_node.id}"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         node_ids = {n["id"] for n in response.json()["nodes"]}
@@ -272,6 +375,47 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIn(str(self.table_node.id), node_ids)
         edge_source_ids = {e["source_id"] for e in response.json()["edges"]}
         self.assertIn(str(self.table_node.id), edge_source_ids)
+
+    def test_lineage_by_saved_query_id(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?saved_query_id={self.view_node.saved_query_id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {n["id"] for n in response.json()["nodes"]}
+        self.assertIn(str(self.view_node.id), node_ids)
+        self.assertIn(str(self.table_node.id), node_ids)
+
+    def test_lineage_requires_node_id_or_saved_query_id(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(["node_id", "saved_query_id"])
+    def test_lineage_invalid_uuid_returns_400(self, lookup_param):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?{lookup_param}=not-a-uuid"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(["node_id", "saved_query_id"])
+    def test_lineage_does_not_leak_other_teams_nodes(self, lookup_param):
+        other_team = Team.objects.create(organization=self.organization)
+        other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
+        other_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="other_view", team=other_team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        other_node = Node.objects.create(
+            team=other_team, dag=other_dag, saved_query=other_saved_query, type=NodeType.VIEW
+        )
+
+        lookup_value = other_node.id if lookup_param == "node_id" else other_saved_query.id
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?{lookup_param}={lookup_value}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_lineage_multi_level(self):
         sq_b = DataWarehouseSavedQuery.objects.create(
@@ -297,7 +441,7 @@ class TestNodeViewSet(APIBaseTest):
         Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=view_b)
         Edge.objects.create(team=self.team, dag=self.dag, source=view_b, target=view_c)
 
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{view_b.id}/lineage/")
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={view_b.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         node_ids = {n["id"] for n in response.json()["nodes"]}
@@ -318,7 +462,9 @@ class TestNodeViewSet(APIBaseTest):
             saved_query=sq_standalone,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{standalone.id}/lineage/")
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={standalone.id}"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["nodes"]), 1)
@@ -351,7 +497,9 @@ class TestNodeViewSet(APIBaseTest):
             target=other_view,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.view_node.id}"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         node_ids = {n["id"] for n in response.json()["nodes"]}
@@ -469,6 +617,69 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.view_node.refresh_from_db()
         self.assertEqual(self.view_node.dag_id, self.dag.id)
+
+
+@pytest.mark.ee
+class TestNodeAccessControl(WarehouseAccessControlTestMixin):
+    # NodeViewSet is scope_object = "INTERNAL", so AccessControlPermission does not gate it on any
+    # resource — the actions re-apply warehouse RBAC by hand. warehouse_view inherits from
+    # warehouse_objects, so grant at the umbrella.
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="suspended_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.VIEW,
+        )
+        mark_node_suspended(self.node, engine="clickhouse", reason="boom", job_id=str(uuid4()), fingerprint=None)
+        self.node.save()
+
+    def _list_url(self) -> str:
+        return f"/api/environments/{self.team.id}/data_modeling_nodes/"
+
+    @parameterized.expand(
+        [
+            ("viewer", status.HTTP_403_FORBIDDEN),
+            ("editor", status.HTTP_200_OK),
+        ]
+    )
+    def test_resume_requires_warehouse_write_access(self, access_level, expected_status):
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+
+        response = self.client.post(f"{self._list_url()}{self.node.id}/resume/")
+
+        self.assertEqual(response.status_code, expected_status)
+        self.node.refresh_from_db()
+        self.assertEqual(suspension_state(self.node) == {}, expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("list_granted", False, "viewer", status.HTTP_200_OK),
+            ("list_denied", False, None, status.HTTP_403_FORBIDDEN),
+            ("retrieve_granted", True, "viewer", status.HTTP_200_OK),
+            ("retrieve_denied", True, None, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_reading_nodes_requires_warehouse_read_access(self, _name, detail, access_level, expected_status):
+        # The serialized `suspended` state carries the raw materialization error, so a project member
+        # denied warehouse access must not be able to read nodes at all.
+        if access_level is None:
+            self._create_project_default(access_level="none")
+        else:
+            self._create_access_control(self.viewer_user, access_level=access_level)
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self._list_url()}{self.node.id}/" if detail else self._list_url())
+
+        self.assertEqual(response.status_code, expected_status)
 
 
 class TestEdgeViewSet(APIBaseTest):

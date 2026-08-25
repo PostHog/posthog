@@ -1,5 +1,7 @@
 import {
     NotebookBlockNode,
+    NotebookCodeBlockNode,
+    NotebookCodeRefMark,
     NotebookComponentBlockNode,
     NotebookComponentProps,
     NotebookDocument,
@@ -55,6 +57,11 @@ export function isDiscussionCommentProps(props: NotebookComponentProps): boolean
 }
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
+/** One blank line separates two blocks of the same card; a second one starts a new card
+ * (`startsGroup` in `types.ts`). Programmatic writers append blocks with this separator so each
+ * one lands as its own node. */
+export const NOTEBOOK_BLOCK_SEPARATOR = '\n\n\n'
+const NOTEBOOK_BLOCK_JOINER = '\n\n'
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
 // the literal character for exactly this set, so the two must stay in sync.
 const INLINE_ESCAPABLE_CHARS = new Set([
@@ -112,6 +119,7 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
     }
 
     let lineIndex = 0
+    let blankLinesBeforeBlock = 0
     while (lineIndex < lines.length) {
         const line = lines[lineIndex]
 
@@ -120,12 +128,15 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
                 id: '',
                 type: 'paragraph',
                 children: [],
+                startsGroup: nodes.length > 0 && blankLinesBeforeBlock > 1 ? true : undefined,
             })
+            blankLinesBeforeBlock = 0
             lineIndex += 1
             continue
         }
 
         if (!line.trim()) {
+            blankLinesBeforeBlock += 1
             lineIndex += 1
             continue
         }
@@ -135,8 +146,12 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
             errors.push(result.error)
         }
         if (result.node) {
+            if (nodes.length > 0 && blankLinesBeforeBlock > 1) {
+                result.node.startsGroup = true
+            }
             pushParsedNode(result.node)
         }
+        blankLinesBeforeBlock = 0
         lineIndex = Math.max(result.nextLineIndex, lineIndex + 1)
     }
 
@@ -150,8 +165,14 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
 
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
-        .map((node) => serializeDocumentNode(node, shouldPreserveEmptyParagraphs))
-        .join('\n\n')
+        .map((node, index) => {
+            const block = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            if (index === 0) {
+                return block
+            }
+            return `${node.startsGroup ? NOTEBOOK_BLOCK_SEPARATOR : NOTEBOOK_BLOCK_JOINER}${block}`
+        })
+        .join('')
     const lastNode = document.nodes[document.nodes.length - 1]
     const previousNode = document.nodes[document.nodes.length - 2]
     const shouldPreserveTrailingEmptyParagraph =
@@ -178,9 +199,11 @@ export function serializeNode(node: NotebookBlockNode): string {
 function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'heading') {
         const [firstLine, ...followingLines] = serializeInlineNodes(node.children).split('\n')
-        return [`${'#'.repeat(node.level ?? 1)} ${firstLine}`, ...followingLines.map(escapeMarkdownLineStart)].join(
-            '\n'
-        )
+        const linePrefix = node.blockquote ? '> ' : ''
+        return [
+            `${linePrefix}${'#'.repeat(node.level ?? 1)} ${firstLine}`,
+            ...followingLines.map((followingLine) => `${linePrefix}${escapeMarkdownLineStart(followingLine)}`),
+        ].join('\n')
     }
     if (node.type === 'paragraph') {
         return escapeMarkdownBlockLines(serializeInlineNodes(node.children))
@@ -228,7 +251,7 @@ function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'code') {
         // The fence must be longer than any backtick run in the content, so the content can't close it
         const fence = getCodeBlockFence(node.text)
-        return `${fence}${node.language ?? ''}\n${node.text}\n${fence}`
+        return `${fence}${serializeCodeBlockInfo(node)}\n${node.text}\n${fence}`
     }
     if (node.type === 'component' && node.errors?.length && node.raw) {
         // Props that failed to parse exist only in `raw` — re-emitting from `props` would
@@ -606,13 +629,33 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         if (isListLine(stripBlockquoteMarker(line))) {
             return parseBlockquotedListBlock(lines, lineIndex)
         }
+        if (COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(line))) {
+            return parseBlockquotedComponentBlock(lines, lineIndex)
+        }
+
+        // The heading marker needs its trailing space (`> ## `), which stripBlockquoteMarker trims.
+        const quotedHeadingMatch = line.replace(/^\s*>\s?/, '').match(HEADING_REGEX)
+        if (quotedHeadingMatch) {
+            return {
+                node: {
+                    id: '',
+                    type: 'heading',
+                    level: quotedHeadingMatch[1].length as NotebookTextBlockNode['level'],
+                    blockquote: true,
+                    children: parseInlineMarkdown(quotedHeadingMatch[2]),
+                },
+                nextLineIndex: lineIndex + 1,
+            }
+        }
 
         const quoteLines: string[] = []
         let nextLineIndex = lineIndex
         while (
             nextLineIndex < lines.length &&
             lines[nextLineIndex].trim().startsWith('>') &&
-            !isListLine(stripBlockquoteMarker(lines[nextLineIndex]))
+            !isListLine(stripBlockquoteMarker(lines[nextLineIndex])) &&
+            !HEADING_REGEX.test(lines[nextLineIndex].replace(/^\s*>\s?/, '')) &&
+            !COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(lines[nextLineIndex]))
         ) {
             quoteLines.push(stripBlockquoteMarker(lines[nextLineIndex]))
             nextLineIndex += 1
@@ -672,6 +715,34 @@ function isListLine(line: string): boolean {
 
 function stripBlockquoteMarker(line: string): string {
     return line.trim().replace(/^>\s?/, '')
+}
+
+function stripAllBlockquoteMarkers(line: string): string {
+    let stripped = stripBlockquoteMarker(line)
+    while (stripped.trim().startsWith('>')) {
+        stripped = stripBlockquoteMarker(stripped)
+    }
+    return stripped
+}
+
+// Component tags have no blockquote representation in this model, so a quoted tag line (as
+// produced by older legacy-notebook conversions, e.g. `> <Query … />`) is parsed as the
+// component itself, broken out of the quote. Treating it as quote text would degrade the tag
+// to escaped literal text on the next save, permanently destroying the node.
+function parseBlockquotedComponentBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const strippedLines: string[] = []
+    let end = lineIndex
+    while (end < lines.length && lines[end].trim().startsWith('>')) {
+        strippedLines.push(stripAllBlockquoteMarkers(lines[end]))
+        end += 1
+    }
+
+    const result = parseComponentBlock(strippedLines, 0)
+    return {
+        ...result,
+        nextLineIndex: lineIndex + result.nextLineIndex,
+        error: result.error ? { ...result.error, line: lineIndex + result.error.line } : undefined,
+    }
 }
 
 function parseBlockquotedListBlock(lines: string[], lineIndex: number): BlockParseResult {
@@ -891,13 +962,42 @@ function serializeTableSeparatorCell(alignment: NotebookTableAlignment | undefin
     return '---'
 }
 
+/** A comment anchor in a fence info string: `ref=<id>:<start>-<end>`. */
+const CODE_BLOCK_REF_TOKEN_REGEX = /^ref=([A-Za-z0-9_-]+):(\d+)-(\d+)$/
+
+function serializeCodeBlockInfo(node: NotebookCodeBlockNode): string {
+    const refTokens = (node.refs ?? [])
+        .filter((ref) => ref.start >= 0 && ref.start < node.text.length && ref.end > ref.start)
+        .map((ref) => `ref=${ref.id}:${ref.start}-${Math.min(ref.end, node.text.length)}`)
+    return [node.language ?? '', ...refTokens].filter(Boolean).join(' ')
+}
+
+function parseCodeBlockInfo(info: string): { language?: string; refs: NotebookCodeRefMark[] } {
+    if (!info) {
+        return { language: undefined, refs: [] }
+    }
+
+    const refs: NotebookCodeRefMark[] = []
+    const languageTokens: string[] = []
+    for (const token of info.split(/\s+/)) {
+        const refMatch = token.match(CODE_BLOCK_REF_TOKEN_REGEX)
+        if (refMatch) {
+            refs.push({ id: refMatch[1], start: Number(refMatch[2]), end: Number(refMatch[3]) })
+            continue
+        }
+        languageTokens.push(token)
+    }
+
+    return { language: languageTokens.join(' ') || undefined, refs }
+}
+
 function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
     const startLine = lines[lineIndex].trim()
     const fenceLength = startLine.match(/^`+/)?.[0].length ?? 3
     // Only a bare fence at least as long as the opener closes the block, so shorter
     // fences (or fences with info strings) inside the code stay part of the content
     const closingFenceRegex = new RegExp(`^\`{${fenceLength},}$`)
-    const language = startLine.slice(fenceLength).trim() || undefined
+    const { language, refs } = parseCodeBlockInfo(startLine.slice(fenceLength).trim())
     const codeLines: string[] = []
     let nextLineIndex = lineIndex + 1
 
@@ -906,12 +1006,18 @@ function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
         nextLineIndex += 1
     }
 
+    const text = codeLines.join('\n')
+    const validRefs = refs
+        .map((ref) => ({ ...ref, end: Math.min(ref.end, text.length) }))
+        .filter((ref) => ref.start >= 0 && ref.start < text.length && ref.end > ref.start)
+
     return {
         node: {
             id: '',
             type: 'code',
             language,
-            text: codeLines.join('\n'),
+            text,
+            ...(validRefs.length ? { refs: validRefs } : {}),
         },
         nextLineIndex: nextLineIndex < lines.length ? nextLineIndex + 1 : nextLineIndex,
         error:
@@ -1240,20 +1346,31 @@ function serializeComponentProps(props: NotebookComponentProps): string {
 
 function getSerializableComponentProps(props: NotebookComponentProps): NotebookComponentProps {
     const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+        if (
+            (key !== 'view' || typeof value !== 'boolean') &&
+            key !== 'edit' &&
+            key !== 'hideFilters' &&
+            key !== 'hideResults' &&
+            key !== 'showFilters' &&
+            key !== 'showResults'
+        ) {
             accumulator[key] = value
         }
         return accumulator
     }, {})
     const legacyViewPanelVisible = typeof props.view === 'boolean' ? props.view : undefined
-    const legacyEditPanelVisible = typeof props.edit === 'boolean' ? props.edit : undefined
-    const hideFilters = typeof props.hideFilters === 'boolean' ? props.hideFilters : legacyEditPanelVisible === false
-    const hideResults = typeof props.hideResults === 'boolean' ? props.hideResults : legacyViewPanelVisible === false
+    const showFilters = props.showFilters === true
+    const showResults =
+        typeof props.showResults === 'boolean'
+            ? props.showResults
+            : props.hideResults === true
+              ? false
+              : (legacyViewPanelVisible ?? true)
 
-    if (hideFilters) {
-        nextProps.hideFilters = true
+    if (showFilters) {
+        nextProps.showFilters = true
     }
-    if (hideResults) {
+    if (!showResults) {
         nextProps.hideResults = true
     }
 
@@ -1262,7 +1379,7 @@ function getSerializableComponentProps(props: NotebookComponentProps): NotebookC
 
 function getOrderedComponentPropEntries(props: NotebookComponentProps): [string, NotebookPropValue][] {
     const entries = Object.entries(props)
-    const orderedKeys = ['hideFilters', 'hideResults']
+    const orderedKeys = ['showFilters', 'hideResults']
     return [
         ...orderedKeys.flatMap((key): [string, NotebookPropValue][] =>
             Object.prototype.hasOwnProperty.call(props, key) ? [[key, props[key]]] : []

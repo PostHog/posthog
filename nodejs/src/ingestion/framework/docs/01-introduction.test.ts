@@ -11,7 +11,7 @@
  * ## Key Concepts
  *
  * - **Single-item pipelines** process one item at a time using `newPipelineBuilder()`
- * - **Batch pipelines** process multiple items efficiently using `newBatchPipelineBuilder()`
+ * - **Chunk pipelines** process multiple items efficiently using `newChunkPipelineBuilder()`
  * - **Steps** are functions that return a `Promise<PipelineResult<T>>`
  * - **Results** can be OK (success), DLQ (error), DROP (discard), or REDIRECT (route elsewhere)
  *
@@ -26,16 +26,16 @@
  * }
  * ```
  */
-import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, drop, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
 /**
- * Type for batch processing steps - takes an array of values and returns
+ * Type for chunk processing steps - takes an array of values and returns
  * an array of results (must have same length).
  */
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type ChunkProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
 describe('Defining Steps', () => {
     /**
@@ -364,19 +364,19 @@ describe('Pipeline Fundamentals', () => {
     })
 })
 
-describe('Batch Pipelines', () => {
+describe('Chunk Pipelines', () => {
     /**
-     * Batch pipelines are created using `newBatchPipelineBuilder()`. The builder
-     * provides methods for adding batch steps, concurrent processing, and more.
+     * Chunk pipelines are created using `newChunkPipelineBuilder()`. The builder
+     * provides methods for adding chunk steps, concurrent processing, and more.
      */
-    it('batch pipelines are created using newBatchPipelineBuilder()', async () => {
-        function createUppercaseBatchStep(): BatchProcessingStep<string, string> {
-            return function uppercaseBatchStep(items) {
+    it('chunk pipelines are created using newChunkPipelineBuilder()', async () => {
+        function createUppercaseChunkStep(): ChunkProcessingStep<string, string> {
+            return function uppercaseChunkStep(items) {
                 return Promise.resolve(items.map((s) => ok(s.toUpperCase())))
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createUppercaseBatchStep()).build()
+        const pipeline = newChunkPipelineBuilder<string>().pipeChunk(createUppercaseChunkStep()).build()
 
         const batch = ['a', 'b', 'c'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
@@ -388,21 +388,21 @@ describe('Batch Pipelines', () => {
     })
 
     /**
-     * The `pipeBatch` method adds a step that processes the entire batch at once.
+     * The `pipeChunk` method adds a step that processes the entire chunk at once.
      * The step receives an array of values and must return an array of results
      * with the same length.
      */
-    it('pipeBatch processes all items in a single call', async () => {
+    it('pipeChunk processes all items in a single call', async () => {
         const callCounts: number[] = []
 
-        function createBatchEnrichStep(): BatchProcessingStep<number, number> {
-            return function batchEnrichStep(items) {
+        function createChunkEnrichStep(): ChunkProcessingStep<number, number> {
+            return function chunkEnrichStep(items) {
                 callCounts.push(items.length)
                 return Promise.resolve(items.map((n) => ok(n * 10)))
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createBatchEnrichStep()).build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(createChunkEnrichStep()).build()
 
         const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
@@ -414,18 +414,18 @@ describe('Batch Pipelines', () => {
     })
 
     /**
-     * Batch pipelines use a feed/next interface. Call `feed()` to add items
+     * Chunk pipelines use a feed/next interface. Call `feed()` to add items
      * to the pipeline, then call `next()` to get processed results. `next()`
      * returns null when all items have been processed.
      */
-    it('feed() accepts a batch of items and next() returns processed batches', async () => {
-        function createPassthroughStep(): BatchProcessingStep<string, string> {
+    it('feed() accepts a batch of items and next() returns processed chunks', async () => {
+        function createPassthroughStep(): ChunkProcessingStep<string, string> {
             return function passthroughStep(items) {
                 return Promise.resolve(items.map((s) => ok(s)))
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createPassthroughStep()).build()
+        const pipeline = newChunkPipelineBuilder<string>().pipeChunk(createPassthroughStep()).build()
 
         const batch = ['x', 'y'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)

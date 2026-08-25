@@ -57,53 +57,6 @@ describe('KafkaOffsetManager', () => {
     })
 
     describe('partition handling', () => {
-        it('should not commit offsets for discarded partitions', async () => {
-            // Record messages for two partitions
-            offsetManager.trackOffset({ partition: 1, offset: 100 })
-            offsetManager.trackOffset({ partition: 2, offset: 200 })
-
-            // Discard partition 1
-            offsetManager.discardPartition(1)
-
-            await offsetManager.commit()
-
-            // Should only commit offset for partition 2
-            expect(mockCommitOffsets).toHaveBeenCalledWith([
-                {
-                    topic: 'test_topic',
-                    partition: 2,
-                    offset: 201,
-                },
-            ])
-        })
-
-        it('should handle discarding already committed partitions', async () => {
-            // Record and commit a message
-            offsetManager.trackOffset({ partition: 1, offset: 100 })
-            await offsetManager.commit()
-
-            // Discard the partition after commit
-            offsetManager.discardPartition(1)
-
-            // Record new message for same partition
-            offsetManager.trackOffset({ partition: 1, offset: 101 })
-            await offsetManager.commit()
-
-            expect(mockCommitOffsets).toHaveBeenCalledTimes(2)
-            expect(mockCommitOffsets).toHaveBeenLastCalledWith([
-                {
-                    topic: 'test_topic',
-                    partition: 1,
-                    offset: 102,
-                },
-            ])
-        })
-
-        it('should handle discarding non-existent partitions', () => {
-            offsetManager.discardPartition(999)
-            // No error should be thrown
-        })
-
         it('should maintain highest offset when recording multiple messages', async () => {
             // Record messages in non-sequential order
             offsetManager.trackOffset({ partition: 1, offset: 100 })

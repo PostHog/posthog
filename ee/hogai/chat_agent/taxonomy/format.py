@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Optional
 
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
@@ -83,7 +83,18 @@ def format_properties_yaml(children: list[tuple[str, str | None, str | None]]):
     return yaml.dump(result, default_flow_style=False, sort_keys=False)
 
 
-def enrich_props_with_descriptions(entity: str, props: Iterable[tuple[str, str | None]]):
+def enrich_props_with_descriptions(
+    entity: str,
+    props: Iterable[tuple[str, str | None]],
+    stored_descriptions: Mapping[str, str] | None = None,
+):
+    """Attach a description to each property.
+
+    The built-in core taxonomy wins. For custom properties it has never heard of, fall back to the
+    user-authored description stored on the property definition (passed in already sanitized). This
+    only enriches properties the caller already discovered via ClickHouse — it never sources the
+    property list itself from Postgres.
+    """
     enriched_props = []
     mapping = {
         "session": CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"],
@@ -92,11 +103,14 @@ def enrich_props_with_descriptions(entity: str, props: Iterable[tuple[str, str |
     }
     # Entities other than the well-known ones are group types.
     entity_definitions = mapping.get(entity, CORE_FILTER_DEFINITIONS_BY_GROUP["groups"])
+    stored_descriptions = stored_descriptions or {}
     for prop_name, prop_type in props:
         description = None
         if entity_definition := entity_definitions.get(prop_name):
             if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
                 continue
             description = entity_definition.get("description_llm") or entity_definition.get("description")
+        else:
+            description = stored_descriptions.get(prop_name)
         enriched_props.append((prop_name, prop_type, description))
     return enriched_props

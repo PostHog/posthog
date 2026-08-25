@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
 import functools
 import contextlib
 
@@ -15,6 +16,7 @@ import orjson
 import pyarrow as pa
 import aioboto3
 import pyarrow.parquet as pq
+from aiobotocore.config import AioConfig
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
@@ -47,7 +49,13 @@ def _make_webhook_parquet_bytes(payloads: list[dict], team_id: int = 1, schema_i
 
 BUCKET_NAME = "test-webhook-s3"
 SESSION = aioboto3.Session()
-create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+# Fail fast against the local object store: it's either up (ops succeed first try) or absent
+# (retry storms only slow the suite down before erroring anyway).
+create_test_client = functools.partial(
+    SESSION.client,
+    endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+    config=AioConfig(connect_timeout=1, read_timeout=30, retries={"max_attempts": 1, "mode": "standard"}),
+)
 
 
 def _make_inputs(**overrides) -> MagicMock:
@@ -125,11 +133,13 @@ class TestWebhookSourceManager:
 
     @parameterized.expand(
         [
-            ("no_hog_function", False, True, True, False, False),
-            ("not_webhook", True, False, True, False, False),
-            ("initial_sync_not_complete", True, True, False, False, False),
-            ("reset_pipeline_true", True, True, True, True, False),
-            ("all_conditions_met", True, True, True, False, True),
+            ("no_hog_function", False, True, True, False, False, False),
+            ("not_webhook", True, False, True, False, False, False),
+            ("initial_sync_not_complete", True, True, False, False, False, False),
+            ("reset_pipeline_true", True, True, True, True, False, False),
+            ("all_conditions_met", True, True, True, False, False, True),
+            ("reset_pipeline_webhook_only", True, True, True, True, True, True),
+            ("initial_sync_incomplete_webhook_only", True, True, False, False, True, True),
         ]
     )
     async def test_webhook_enabled_conditions(
@@ -139,6 +149,7 @@ class TestWebhookSourceManager:
         is_webhook,
         initial_sync_complete,
         reset_pipeline,
+        webhook_only,
         expected,
     ):
         manager = _make_manager(reset_pipeline=reset_pipeline)
@@ -160,7 +171,7 @@ class TestWebhookSourceManager:
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
             side_effect=mock_db_sync_to_async,
         ):
-            assert await manager.webhook_enabled() is expected
+            assert await manager.webhook_enabled(webhook_only) is expected
 
     async def test_list_parquet_files_filters_correctly(self):
         manager = _make_manager()
@@ -336,6 +347,78 @@ class TestWebhookSourceManager:
         assert tables[0].column_names == ["id"]
         transformer.assert_called_once()
 
+    async def test_get_items_skips_file_deleted_before_read(self):
+        schema_id = "test-schema"
+        manager = _make_manager(team_id=1, schema_id=schema_id)
+
+        payloads = [{"id": "2", "value": "b"}]
+        parquet_bytes = _make_webhook_parquet_bytes(payloads, team_id=1, schema_id=schema_id)
+
+        mock_file = AsyncMock()
+        mock_file.read = AsyncMock(return_value=parquet_bytes)
+        mock_s3 = AsyncMock()
+        # First file's read raises as if a concurrent run already consumed and deleted it;
+        # the second file still yields normally.
+        first_open = AsyncMock()
+        first_open.__aenter__ = AsyncMock(side_effect=FileNotFoundError("The specified key does not exist."))
+        first_open.__aexit__ = AsyncMock(return_value=False)
+        second_open = AsyncMock()
+        second_open.__aenter__ = AsyncMock(return_value=mock_file)
+        second_open.__aexit__ = AsyncMock(return_value=False)
+        mock_s3.open_async = AsyncMock(side_effect=[first_open, second_open])
+        mock_s3._rm = AsyncMock()
+
+        with (
+            patch.object(
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=["s3://bucket/gone.parquet", "s3://bucket/file.parquet"],
+            ),
+            _mock_s3_context(mock_s3),
+        ):
+            tables = [table async for table in manager.get_items()]
+
+        assert len(tables) == 1
+        assert tables[0].column("id").to_pylist() == ["2"]
+        # Only the successfully read file is removed; the vanished one was never touched.
+        mock_s3._rm.assert_awaited_once_with("bucket/file.parquet")
+
+    async def test_get_items_merges_files_with_incompatible_column_types(self):
+        schema_id = "test-schema"
+        manager = _make_manager(team_id=1, schema_id=schema_id)
+
+        # Same field infers as int64 in one file and string in the other; concat_tables can't
+        # promote across that, so get_items must fall back to a row-level rebuild instead of raising.
+        file_a = _make_webhook_parquet_bytes([{"id": "1", "total_sales": 5}], team_id=1, schema_id=schema_id)
+        file_b = _make_webhook_parquet_bytes([{"id": "2", "total_sales": "3"}], team_id=1, schema_id=schema_id)
+
+        mock_s3 = AsyncMock()
+        opens = []
+        for parquet_bytes in (file_a, file_b):
+            mock_file = AsyncMock()
+            mock_file.read = AsyncMock(return_value=parquet_bytes)
+            open_cm = AsyncMock()
+            open_cm.__aenter__ = AsyncMock(return_value=mock_file)
+            open_cm.__aexit__ = AsyncMock(return_value=False)
+            opens.append(open_cm)
+        mock_s3.open_async = AsyncMock(side_effect=opens)
+        mock_s3._rm = AsyncMock()
+
+        with (
+            patch.object(
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=["s3://bucket/a.parquet", "s3://bucket/b.parquet"],
+            ),
+            _mock_s3_context(mock_s3),
+        ):
+            tables = [table async for table in manager.get_items()]
+
+        assert len(tables) == 1
+        assert tables[0].num_rows == 2
+        assert pa.types.is_string(tables[0].schema.field("total_sales").type)
+        assert sorted(id for id in tables[0].column("id").to_pylist() if id is not None) == ["1", "2"]
+
     async def test_get_items_yields_nothing_when_no_files(self):
         manager = _make_manager()
 
@@ -409,8 +492,35 @@ async def _minio_key_exists(minio_client, key: str) -> bool:
         return False
 
 
+@pytest.fixture(scope="session")
+def _object_store_unreachable() -> str | None:
+    """Probe the object store once per session; the error string when it's unreachable.
+
+    Each MinIO-backed test otherwise pays the full connection timeout independently just to
+    error with the same message when the store isn't running.
+    """
+
+    async def _probe() -> None:
+        async with create_test_client(
+            "s3",
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ) as client:
+            await client.list_buckets()
+
+    try:
+        asyncio.run(_probe())
+        return None
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+
+
 @pytest.fixture
-async def minio_client():
+async def minio_client(_object_store_unreachable):
+    if _object_store_unreachable is not None:
+        raise ConnectionError(
+            f"object store at {settings.OBJECT_STORAGE_ENDPOINT} is unreachable: {_object_store_unreachable}"
+        )
     async with create_test_client(
         "s3",
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,

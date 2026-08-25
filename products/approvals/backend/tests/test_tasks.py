@@ -40,14 +40,40 @@ class TestValidatePendingChangeRequests(BaseTest):
         self.assertEqual(result["checked_count"], 0)
         self.assertEqual(result["stale_count"], 0)
 
-    def test_skips_already_stale_requests(self):
+    @patch("products.approvals.backend.tasks.ChangeRequest.get_action_class")
+    def test_rechecks_already_stale_requests(self, mock_get_action):
+        # STALE must not be a one-way latch: a request marked stale by a transient
+        # resolution miss (e.g. the project-scoping bug) needs to be able to heal
+        # back to VALID once it matches its precondition again, since cancel is
+        # otherwise the only way out for the requester.
         self.change_request.validation_status = "stale"
         self.change_request.save()
 
+        mock_action = mock_get_action.return_value
+        mock_action.prepare_context.return_value = {}
+        mock_action.check_staleness.return_value = True
+
         result = validate_pending_change_requests()
 
-        self.assertEqual(result["checked_count"], 0)
+        self.assertEqual(result["checked_count"], 1)
         self.assertEqual(result["stale_count"], 0)
+
+    @patch("products.approvals.backend.tasks.ChangeRequest.get_action_class")
+    def test_heals_stale_request_that_no_longer_matches_staleness_check(self, mock_get_action):
+        self.change_request.validation_status = "stale"
+        self.change_request.validation_errors = {"staleness": "Resource has been modified"}
+        self.change_request.save()
+
+        mock_action = mock_get_action.return_value
+        mock_action.prepare_context.return_value = {}
+        mock_action.check_staleness.return_value = False
+
+        result = validate_pending_change_requests()
+
+        self.assertEqual(result["healed_count"], 1)
+        self.change_request.refresh_from_db()
+        self.assertEqual(self.change_request.validation_status, "valid")
+        self.assertIsNone(self.change_request.validation_errors)
 
     @patch("products.approvals.backend.tasks.ChangeRequest.get_action_class")
     def test_marks_stale_when_resource_changed(self, mock_get_action):

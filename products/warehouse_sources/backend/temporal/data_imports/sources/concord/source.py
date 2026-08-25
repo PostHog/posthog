@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import (
     ConcordResumeConfig,
     concord_source,
@@ -32,13 +29,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConcordSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.concord import (
+    ConcordSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class ConcordSource(ResumableSource[ConcordSourceConfig, ConcordResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://help.concord.app/concord-api"
 
     @property
     def connection_host_fields(self) -> list[str]:
@@ -59,7 +59,6 @@ class ConcordSource(ResumableSource[ConcordSourceConfig, ConcordResumeConfig]):
             category=DataWarehouseSourceCategory.SALES,
             label="Concord",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Concord API key to pull your contract lifecycle data into the PostHog Data warehouse.
 
 You can generate an API key in your Concord account settings (API key generation requires a paid plan). Concord sends it as an `X-API-KEY` header.
@@ -122,6 +121,7 @@ Leave **Organization ID** blank to use the first organization your API key can a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CONCORD_ENDPOINTS[endpoint]
@@ -141,7 +141,11 @@ Leave **Organization ID** blank to use the first organization your API key can a
         return schemas
 
     def validate_credentials(
-        self, config: ConcordSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ConcordSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_concord_credentials(config.api_key, config.environment):
             return True, None

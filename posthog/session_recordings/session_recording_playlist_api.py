@@ -1,6 +1,7 @@
 import json
 import builtins
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
@@ -36,7 +37,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
@@ -67,6 +68,20 @@ CURRENT_USER_VIEWED_CHUNK_SIZE = 5000
 # building the cross-playlist watched lookup. Prevents a single oversized cached
 # entry from dominating memory.
 MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST = 1000
+
+
+@dataclass(frozen=True)
+class PlaylistPageSplit:
+    """One list page split into its synthetic playlists and the aligned DB slice."""
+
+    synthetics: builtins.list[SessionRecordingPlaylist]
+    db_items: builtins.list[SessionRecordingPlaylist]
+
+
+@dataclass(frozen=True)
+class PaginationLinks:
+    next_link: Optional[str]
+    previous_link: Optional[str]
 
 
 class SessionRecordingPlaylistPagination(LimitOffsetPagination):
@@ -533,6 +548,25 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         return recordings_counts
 
+    def validate_filters(self, value: Any) -> Any:
+        experiment_exposure = value.get("experiment_exposure") if isinstance(value, dict) else None
+        experiment_id = experiment_exposure.get("experiment_id") if isinstance(experiment_exposure, dict) else None
+        if isinstance(experiment_id, int):
+            # Deferred: the experiments facade package imports posthog.api on init, which
+            # circles back into this module through the API router registration.
+            from products.experiments.backend.facade.replay import validate_experiment_exposure_access  # noqa: PLC0415
+
+            try:
+                validate_experiment_exposure_access(
+                    self.context["get_team"](), self.context["request"].user, experiment_id
+                )
+            except UserAccessControlError:
+                raise ValidationError(
+                    "These filters reference an experiment you don't have access to. "
+                    "Ask for access to the experiment to save them."
+                )
+        return value
+
     def create(self, validated_data: dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
         team = self.context["get_team"]()
@@ -616,6 +650,15 @@ class SessionRecordingPlaylistViewSet(
 ):
     scope_object = "session_recording_playlist"
     scope_object_read_actions = ["list", "retrieve", "recordings"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "modify_recordings",
+        "bulk_add_recordings",
+        "bulk_delete_recordings",
+    ]
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -623,6 +666,14 @@ class SessionRecordingPlaylistViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
+
+    def dangerously_get_required_scopes(self, request: request.Request, view: Any) -> list[str] | None:
+        # Scope parity with the recordings list: a filters playlist's recordings action parses
+        # the same query params into a RecordingsQuery, so the experiment_exposure filter reads
+        # experiment data here too. The result replaces the default, so both are listed.
+        if getattr(view, "action", None) == "recordings" and request.query_params.get("experiment_exposure"):
+            return ["session_recording_playlist:read", "experiment:read"]
+        return None
 
     def safely_get_object(self, queryset: QuerySet) -> SessionRecordingPlaylist:
         """Override to handle synthetic playlists in retrieve actions"""
@@ -679,10 +730,10 @@ class SessionRecordingPlaylistViewSet(
             ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
 
         with tracer.start_as_current_span("split_page"):
-            synth_for_page, db_items = self._split_page(offset, limit, ranked_synthetics, queryset)
+            page_split = self._split_page(offset, limit, ranked_synthetics, queryset)
 
         with tracer.start_as_current_span("order_combined_page"):
-            combined = self._order_playlists(request, synth_for_page + db_items)
+            combined = self._order_playlists(request, page_split.synthetics + page_split.db_items)
 
         span.set_attribute("page_size", len(combined))
 
@@ -706,12 +757,12 @@ class SessionRecordingPlaylistViewSet(
         with tracer.start_as_current_span("serialize"):
             results = self.get_serializer(combined, many=True).data
 
-        next_link, previous_link = self._pagination_links(request, total_count, limit, offset)
+        links = self._pagination_links(request, total_count, limit, offset)
         return response.Response(
             {
                 "count": total_count,
-                "next": next_link,
-                "previous": previous_link,
+                "next": links.next_link,
+                "previous": links.previous_link,
                 "results": results,
             }
         )
@@ -722,7 +773,7 @@ class SessionRecordingPlaylistViewSet(
         limit: int,
         ranked_synthetics: builtins.list[tuple[int, SessionRecordingPlaylist]],
         queryset: QuerySet,
-    ) -> tuple[builtins.list[SessionRecordingPlaylist], builtins.list[SessionRecordingPlaylist]]:
+    ) -> "PlaylistPageSplit":
         """Split one page into its in-window synthetics and the aligned DB slice.
 
         Synthetics whose global rank falls in [offset, offset+limit) belong on this
@@ -736,18 +787,18 @@ class SessionRecordingPlaylistViewSet(
         db_offset = max(0, offset - synths_before_page)
         db_take = max(0, limit - len(synth_for_page))
         db_items = list(queryset[db_offset : db_offset + db_take]) if db_take > 0 else []
-        return synth_for_page, db_items
+        return PlaylistPageSplit(synthetics=synth_for_page, db_items=db_items)
 
     def _pagination_links(
         self, request: request.Request, total_count: int, limit: int, offset: int
-    ) -> tuple[Optional[str], Optional[str]]:
+    ) -> "PaginationLinks":
         """next/previous links over the merged total via a directly-seeded paginator."""
         paginator = SessionRecordingPlaylistPagination()
         paginator.count = total_count
         paginator.limit = limit
         paginator.offset = offset
         paginator.request = request
-        return paginator.get_next_link(), paginator.get_previous_link()
+        return PaginationLinks(next_link=paginator.get_next_link(), previous_link=paginator.get_previous_link())
 
     def _synthetic_global_ranks(
         self,

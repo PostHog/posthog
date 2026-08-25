@@ -6,7 +6,7 @@ import logging
 import functools
 from abc import abstractmethod
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlparse
 
 from django.apps import apps
@@ -31,8 +31,10 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
+from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -43,10 +45,19 @@ from posthog.models.personal_api_key import (
 )
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import hash_key_value
+from posthog.models.utils import (
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    PERSONAL_API_KEY_PREFIX,
+    SECRET_API_TOKEN_PREFIX,
+    hash_key_value,
+)
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 
@@ -68,13 +79,6 @@ structlog_logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
-
-SECRET_API_KEY_BODY_FIELD = "secret_api_key"
-
-SECRET_API_KEY_BODY_COUNTER = Counter(
-    "api_auth_secret_api_key_body",
-    "Requests where the team secret token is provided in the request body instead of the Authorization header",
-)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
@@ -174,6 +178,7 @@ class SessionAuthentication(authentication.SessionAuthentication):
 
             user, auth = auth_result
             enforce_two_factor(request, user)
+            enforce_verified_domain(request, user)
 
             return (user, auth)
 
@@ -220,7 +225,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 token = authorization_match.group(1).strip()
 
                 if token.startswith(
-                    "pha_"
+                    OAUTH_ACCESS_TOKEN_PREFIX
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
                 return token, cls.SOURCE_HEADER
@@ -322,6 +327,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 api_key_label=personal_api_key_object.label,
             )
 
+            # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
+            # DRF auth), so signal-driven activity logging would otherwise record bearer-token
+            # requests as system actions. Only write when the middleware owns cleanup: outside a
+            # request cycle (e.g. authenticate() called directly) the thread-local would leak.
+            if activity_storage.is_request_scoped():
+                activity_storage.set_user(personal_api_key_object.user)
+
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
 
@@ -332,11 +344,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-def _extract_phs_token(request: Union[HttpRequest, Request], allow_body_token: bool = False) -> Optional[str]:
+def _extract_phs_token(request: Union[HttpRequest, Request]) -> Optional[str]:
     """
-    Find a `phs_` secret token in the request. Checks the Authorization header first
-    (Bearer scheme), then the request body field `secret_api_key`. Used by both
-    TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
+    Find a `phs_` secret token in the request Authorization header (Bearer scheme).
+    Used by both TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
     ProjectSecretAPIKeyAuthentication (PSAK model).
     """
     if "authorization" in request.headers:
@@ -345,17 +356,6 @@ def _extract_phs_token(request: Union[HttpRequest, Request], allow_body_token: b
             token = authorization_match.group(1).strip()
             if _SECRET_API_KEY_RE.match(token):
                 return token
-
-    if allow_body_token:
-        # Wrap HttpRequest in a DRF Request only when we actually need to read the parsed body.
-        if not isinstance(request, Request):
-            request = Request(request)
-        data = request.data
-        if isinstance(data, dict):
-            candidate = data.get(SECRET_API_KEY_BODY_FIELD)
-            if isinstance(candidate, str) and _SECRET_API_KEY_RE.match(candidate):
-                SECRET_API_KEY_BODY_COUNTER.inc()
-                return candidate
 
     return None
 
@@ -382,15 +382,13 @@ class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
     attached, so downstream permission code can resolve team context without a
     real User.
 
-    Only the first key candidate found in the request is tried, and the order is:
-    1. Request Authorization header of type Bearer.
-    2. Request body (`secret_api_key` field).
+    The token is read from the Authorization header (Bearer scheme) only.
     """
 
     keyword = "Bearer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        secret_api_token = _extract_phs_token(request, allow_body_token=True)
+        secret_api_token = _extract_phs_token(request)
 
         if not secret_api_token:
             return None
@@ -448,7 +446,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        token = _extract_phs_token(request, allow_body_token=False)
+        token = _extract_phs_token(request)
         if not token:
             return None
 
@@ -486,8 +484,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
 
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.jwt"):
             if "authorization" in request.headers:
                 authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
@@ -497,6 +494,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
                         return (user, None)
+                    except AuthenticationFailed:
+                        raise
                     except jwt.DecodeError:
                         # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
                         return None
@@ -564,7 +563,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
     @classmethod
     def _is_id_jag_token(cls, token: str) -> bool:
         # Personal/OAuth API key prefixes are reserved for those auth backends.
-        if token.startswith(("phx_", "pha_", "phs_")):
+        if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
             return False
 
         if token.count(".") != 2:
@@ -748,9 +747,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.filter(
-                    models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now())
-                ).get(access_token=sharing_access_token, enabled=True)
+                sharing_configuration = SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q()).get(
+                    access_token=sharing_access_token
+                )
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
@@ -764,7 +763,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                     raise AuthenticationFailed(detail="Sharing access token is invalid.")
 
                 self.sharing_configuration = sharing_configuration
-                return (AnonymousUser(), None)
+                return (SharedLinkUser(sharing_configuration), None)
         return None
 
 
@@ -826,7 +825,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
-            return (AnonymousUser(), None)
+            return (SharedLinkUser(sharing_configuration), None)
 
         except jwt.InvalidTokenError:
             # Expected: JWT decode failed (likely a personal API key was passed)
@@ -868,6 +867,8 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 if not access_token:
                     raise AuthenticationFailed(detail="Invalid access token.")
 
+                self._enforce_toolbar_access(access_token)
+
                 self.access_token = access_token
 
                 tag_authentication(
@@ -875,6 +876,18 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                     team_id=access_token.user.current_team_id,
                     access_method=AccessMethod.OAUTH,
                 )
+
+                # ActivityLoggingMiddleware only captures session-authenticated users (it runs
+                # before DRF auth), so signal-driven activity logging would otherwise record
+                # bearer-token requests as system actions. Only write when the middleware owns
+                # cleanup: outside a request cycle (e.g. authenticate() called directly) the
+                # thread-local would leak.
+                if activity_storage.is_request_scoped():
+                    activity_storage.set_user(access_token.user)
+                    # Tokens minted during staff impersonation must keep the impersonation
+                    # marker in the audit trail.
+                    if access_token.impersonated_by_id is not None:
+                        activity_storage.set_was_impersonated(True)
 
                 return access_token.user, None
 
@@ -894,9 +907,32 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 return None
         return None
 
+    def _enforce_toolbar_access(self, access_token: OAuthAccessToken) -> None:
+        """
+        Toolbar OAuth tokens are only checked against the `toolbar` access level when
+        they're minted (see toolbar_oauth_callback / ToolbarOAuthRefreshView) - that
+        check doesn't re-run on every subsequent API request, so a token minted before
+        access was revoked would otherwise keep authenticating until its natural
+        expiry. Re-check here, scoped to the single team narrowed onto the token at
+        mint time, failing closed if that scoping is missing or ambiguous.
+        """
+        application = access_token.application
+        if not application or application.name != settings.TOOLBAR_OAUTH_APPLICATION_NAME:
+            return
+
+        user = access_token.user
+        scoped_team_ids = access_token.scoped_teams or []
+        team = Team.objects.filter(pk__in=scoped_team_ids).first() if len(scoped_team_ids) == 1 else None
+        if (
+            not user
+            or not team
+            or not UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+        ):
+            raise AuthenticationFailed(detail="You don't have access to the toolbar for this project.")
+
     def _validate_token(self, token: str):
         try:
-            access_token = OAuthAccessToken.objects.select_related("user").get(token=token)
+            access_token = OAuthAccessToken.objects.select_related("user", "application").get(token=token)
 
             if access_token.is_expired():
                 raise AuthenticationFailed(detail="Access token has expired.")
@@ -921,6 +957,84 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request):
         return self.keyword
+
+
+def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[str, Any] | None:
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        return None
+    authorization_match = re.match(r"^Bearer\s+(\S.+)$", authorization)
+    if not authorization_match:
+        return None
+    try:
+        return decode_jwt(authorization_match.group(1).strip(), PosthogJwtAudience.DELEGATED_USER)
+    except (jwt.DecodeError, jwt.InvalidAudienceError):
+        return None
+    except jwt.InvalidTokenError as error:
+        raise AuthenticationFailed(detail="Token invalid.") from error
+
+
+class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        if claims is None:
+            return None
+        personal_api_key_id = claims.get("personal_api_key_id")
+        if not personal_api_key_id:
+            return None
+        try:
+            personal_api_key = PersonalAPIKey.objects.select_related("user").get(
+                id=personal_api_key_id,
+                user_id=claims["id"],
+                user__is_active=True,
+            )
+        except (KeyError, PersonalAPIKey.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+
+        self.personal_api_key = personal_api_key
+        tag_authentication(
+            user_id=personal_api_key.user.pk,
+            team_id=personal_api_key.user.current_team_id,
+            access_method=AccessMethod.PERSONAL_API_KEY,
+            api_key_mask=personal_api_key.mask_value,
+            api_key_label=personal_api_key.label,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(personal_api_key.user)
+        return personal_api_key.user, None
+
+
+class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        if claims is None:
+            return None
+        oauth_access_token_id = claims.get("oauth_access_token_id")
+        if not oauth_access_token_id:
+            return None
+        try:
+            access_token = OAuthAccessToken.objects.select_related("user", "application").get(
+                id=oauth_access_token_id,
+                user_id=claims["id"],
+                user__is_active=True,
+                application__isnull=False,
+                expires__gt=timezone.now(),
+            )
+        except (KeyError, OAuthAccessToken.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source OAuth access token is no longer valid.") from error
+
+        self._enforce_toolbar_access(access_token)
+        self.access_token = access_token
+        tag_authentication(
+            user_id=access_token.user.pk,
+            team_id=access_token.user.current_team_id,
+            access_method=AccessMethod.OAUTH,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(access_token.user)
+            if access_token.impersonated_by_id is not None:
+                activity_storage.set_was_impersonated(True)
+        return access_token.user, None
 
 
 class WidgetAuthentication(authentication.BaseAuthentication):
@@ -1046,6 +1160,106 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword
+
+
+class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
+    """DRF authentication for internal routes called by other PostHog services, verifying the
+    scoped per-purpose JWTs of posthog.scoped_service_jwt (the blessed replacement for
+    INTERNAL_API_SECRET). Subclass per purpose:
+
+        class ConversationsTicketJWTAuthentication(ScopedServiceJWTAuthentication):
+            purpose = CONVERSATIONS_TICKETS_PURPOSE
+
+    The request authenticates as a synthetic InternalAPIUser bound to the token's team.
+    When the URL carries a team_id, the token's team_id claim must match it, so a token
+    minted for one team can never read another's data even if both hit the same route.
+
+    require_team=False is for fleet-scoped purposes (cron-style calls with no team in the
+    URL or claims); team-scoped purposes must keep the default so a token without a team
+    claim fails closed instead of authenticating unscoped.
+    """
+
+    purpose: ClassVar[ScopedServiceJwtPurpose]
+    require_team: ClassVar[bool] = True
+
+    def authenticate(self, request: Request) -> Optional[tuple[Any, None]]:
+        header = authentication.get_authorization_header(request).split()
+        # No bearer header: return None (not raise) so the view's other authenticators,
+        # if any, still get their turn.
+        if not header or header[0].lower() != b"bearer":
+            return None
+        if len(header) != 2:
+            raise AuthenticationFailed("Invalid Authorization header.")
+
+        if not self.purpose.enabled():
+            # Fail closed at request time rather than startup: most processes never serve
+            # these routes and never get the secret injected, so a startup check would
+            # wrongly crash them (same reasoning as InternalAPIAuthentication).
+            logger.error(
+                "Scoped service JWT authentication attempted without configured secret",
+                extra={"path": request.path, "settings_name": self.purpose.settings_name},
+            )
+            raise AuthenticationFailed("Service token authentication is not configured.")
+
+        try:
+            token = header[1].decode()
+        except UnicodeDecodeError:
+            # UnicodeDecodeError is a ValueError, so without this clause a non-UTF-8 bearer
+            # value would escape as a 500 instead of a clean auth failure.
+            raise AuthenticationFailed("Invalid Authorization header.")
+
+        try:
+            claims = self.purpose.verify(token)
+        except jwt.PyJWTError:
+            raise AuthenticationFailed("Invalid or expired service token.")
+
+        return self._authenticate_claims(request, claims)
+
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, None]:
+        claim_team_id = claims.get("team_id")
+
+        if claim_team_id is None:
+            if self.require_team:
+                raise AuthenticationFailed("Service token is missing its team claim.")
+            return InternalAPIUser(), None
+
+        url_team_id = _team_id_from_request_path(request)
+        if url_team_id is not None and str(claim_team_id) != url_team_id:
+            raise AuthenticationFailed("Service token team does not match the requested team.")
+
+        Team = apps.get_model(app_label="posthog", model_name="Team")
+        try:
+            team = Team.objects.only("id", "organization_id").get(id=claim_team_id)
+        except (Team.DoesNotExist, ValueError, TypeError):
+            raise AuthenticationFailed("Invalid service token team.")
+
+        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), None
+
+    def authenticate_header(self, request: Request) -> str:
+        # Without a challenge value DRF renders every AuthenticationFailed from this class as
+        # 403 instead of 401, making a bad or expired service credential read as a permission
+        # failure to the calling service.
+        return "Bearer"
+
+
+def _team_id_from_request_path(request: Request) -> Optional[str]:
+    parser_context = getattr(request, "parser_context", None)
+    if isinstance(parser_context, dict):
+        kwargs = parser_context.get("kwargs")
+        if isinstance(kwargs, dict):
+            for lookup in ("parent_lookup_team_id", "team_id"):
+                if kwargs.get(lookup) is not None:
+                    return str(kwargs[lookup])
+
+    django_request = getattr(request, "_request", request)
+    resolver_match = getattr(django_request, "resolver_match", None)
+    if resolver_match and getattr(resolver_match, "kwargs", None):
+        for lookup in ("parent_lookup_team_id", "team_id"):
+            team_id = resolver_match.kwargs.get(lookup)
+            if team_id is not None:
+                return str(team_id)
+
+    return None
 
 
 def session_auth_required(endpoint):

@@ -7,8 +7,9 @@ import { cohortsModel } from '~/models/cohortsModel'
 
 import { taxonomicFilterMocksDecorator } from '../TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from './constants'
 import UniversalFilters, { UniversalFiltersProps } from './UniversalFilters'
-import { DEFAULT_UNIVERSAL_GROUP_FILTER, universalFiltersLogic } from './universalFiltersLogic'
+import { universalFiltersLogic } from './universalFiltersLogic'
 import { isUniversalGroupFilterLike } from './utils'
 
 const meta: Meta<UniversalFiltersProps> = {

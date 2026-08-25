@@ -19,13 +19,26 @@ export const BatchResolverStateSchema = z.object({
     teamId: z.number().int(),
     hogFlowId: z.string().min(1),
     filters: z.object({
+        // 'accounts' switches the resolver to page customer analytics accounts
+        // (external ids) instead of persons. Frozen here like the rest of the
+        // audience so a mid-run trigger edit can't change what a page fans out to.
+        audience_type: z.enum(['persons', 'accounts']).optional(),
         // Each property entry is an arbitrary record — keep loose so resolver
         // replays survive new filter-property fields the worker doesn't read.
         properties: z.array(z.record(z.string(), z.any())).optional(),
         filter_test_accounts: z.boolean().optional(),
+        tag_names: z.array(z.string()).optional(),
+        assigned_to_user_ids: z.array(z.number()).optional(),
+        all_roles_unassigned: z.boolean().optional(),
     }),
     variables: z.record(z.string(), z.unknown()),
     groupTypeIndex: z.number().int().optional(),
+    // When set, the Django audience query collapses persons sharing the same
+    // normalized email so an address receives the batch send only once. Decided
+    // once at enqueue time (flows containing an email action) and frozen here so
+    // mid-run flow edits can't flip dedup semantics between pages. Optional so
+    // jobs written by older deploys keep parsing (they run un-deduped).
+    dedupeKey: z.enum(['email']).optional(),
     maxAudienceSize: z.number().int().nonnegative(),
     cursor: z.string().nullable(),
     totalEnqueued: z.number().int().nonnegative(),

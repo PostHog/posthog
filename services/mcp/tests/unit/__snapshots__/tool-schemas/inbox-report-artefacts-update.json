@@ -9,6 +9,7 @@
             "type": "string"
         },
         "report_id": {
+            "description": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
             "type": "string"
         }
     },

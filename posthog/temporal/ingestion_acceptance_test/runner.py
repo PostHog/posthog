@@ -18,7 +18,7 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclass
-class RunningTestInfo:
+class RunningTestSnapshot:
     """Snapshot of a running test with its current pending poll description."""
 
     name: str
@@ -45,7 +45,7 @@ class RunningTests:
         with self._lock:
             return sorted(self._tests.values())
 
-    def snapshot_with_polls(self, client: PostHogClient) -> list[RunningTestInfo]:
+    def snapshot_with_polls(self, client: PostHogClient) -> list[RunningTestSnapshot]:
         """Snapshot running tests correlated with their pending poll descriptions.
 
         Joins by thread ID: each test runs in its own thread, and the client
@@ -55,7 +55,7 @@ class RunningTests:
             tests_by_tid = dict(self._tests)
         polls_by_tid = client.pending_polls_snapshot()
         return [
-            RunningTestInfo(name=name, pending_poll=polls_by_tid.get(tid))
+            RunningTestSnapshot(name=name, pending_poll=polls_by_tid.get(tid))
             for tid, name in sorted(tests_by_tid.items(), key=lambda x: x[1])
         ]
 

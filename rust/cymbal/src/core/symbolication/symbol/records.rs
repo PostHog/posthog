@@ -6,7 +6,7 @@ use sqlx::Executor;
 use uuid::Uuid;
 
 use crate::error::UnhandledError;
-use crate::frames::{releases::ReleaseRecord, Context, Frame};
+use crate::frames::{Context, Frame};
 
 const FRAME_TTL_JITTER_PERCENT: u32 = 10;
 
@@ -138,7 +138,7 @@ impl ErrorTrackingStackFrame {
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<Self>, UnhandledError>
     where
-        E: Executor<'c, Database = sqlx::Postgres> + Clone,
+        E: Executor<'c, Database = sqlx::Postgres>,
     {
         struct Returned {
             raw_id: String,
@@ -156,11 +156,12 @@ impl ErrorTrackingStackFrame {
             SELECT raw_id, part, team_id, created_at, symbol_set_id, contents, resolved, context
             FROM posthog_errortrackingstackframe
             WHERE raw_id = $1 AND team_id = $2
+            ORDER BY part
             "#,
             id.hash_id,
             id.team_id
         )
-        .fetch_all(e.clone())
+        .fetch_all(e)
         .await?;
 
         if res.is_empty() {
@@ -172,11 +173,6 @@ impl ErrorTrackingStackFrame {
         if res.iter().any(|f| f.created_at < Utc::now() - result_ttl) {
             // If any resultant frame is too old, we should recalculate all of them
             return Ok(Vec::new());
-        }
-
-        let mut release = None;
-        if let Some(ss_id) = &res[0].symbol_set_id {
-            release = ReleaseRecord::for_symbol_set_id(e, *ss_id, id.team_id).await?;
         }
 
         for found in res {
@@ -196,7 +192,6 @@ impl ErrorTrackingStackFrame {
                 None
             };
 
-            frame.release = release.clone();
             frame.context = context.clone();
 
             results.push(Self {
@@ -216,6 +211,56 @@ impl ErrorTrackingStackFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn frame_with_part(id: FrameId, part: i32) -> Frame {
+        Frame {
+            frame_id: id,
+            mangled_name: format!("fn_{part}"),
+            line: None,
+            column: None,
+            source: None,
+            module: None,
+            in_app: true,
+            resolved_name: None,
+            lang: "go".to_string(),
+            resolved: true,
+            resolve_failure: None,
+            synthetic: false,
+            suspicious: false,
+            junk_drawer: None,
+            code_variables: None,
+            context: None,
+        }
+    }
+
+    // Multi-part records are one raw frame's inline expansion — part order is
+    // stack order, so a cache hit must return the sequence the resolver saved,
+    // not storage order. The inserts are reversed and index scans disabled so
+    // a plain heap scan surfaces the unordered rows.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn load_all_returns_parts_in_order(pool: sqlx::PgPool) {
+        for statement in ["SET enable_indexscan = off", "SET enable_bitmapscan = off"] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+
+        let raw_id = RawFrameId::new("raw-frame-id".to_string(), 0);
+        for part in (0..8).rev() {
+            let id = FrameId::new(raw_id.hash_id.clone(), raw_id.team_id, part);
+            let frame = frame_with_part(id.clone(), part);
+            ErrorTrackingStackFrame::new(id, None, frame, true, None)
+                .save(&pool)
+                .await
+                .unwrap();
+        }
+
+        let policy = FrameResultTtlPolicy::new(Duration::minutes(30), Duration::minutes(5));
+        let loaded = ErrorTrackingStackFrame::load_all(&pool, &raw_id, policy)
+            .await
+            .unwrap();
+
+        let parts: Vec<i32> = loaded.iter().map(|record| record.id.part).collect();
+        assert_eq!(parts, (0..8).collect::<Vec<i32>>());
+    }
 
     #[test]
     fn ttl_policy_applies_expected_ttl_with_deterministic_jitter() {

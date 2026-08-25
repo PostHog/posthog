@@ -26,7 +26,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..models.evaluations import Evaluation
+from ..models.evaluations import Evaluation, EvaluationTarget
 
 logger = structlog.get_logger(__name__)
 
@@ -87,6 +87,23 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             evaluation = Evaluation.objects.get(id=evaluation_id, team_id=self.team_id, deleted=False)
         except Evaluation.DoesNotExist:
             return Response({"error": f"Evaluation {evaluation_id} not found"}, status=404)
+
+        self.check_object_permissions(request, evaluation)
+
+        # This endpoint runs one $ai_generation through the generation workflow. Without this check
+        # a trace- or session-target evaluation is accepted and run as a generation, emitting a
+        # verdict with $ai_target_type "generation_uuid" under that evaluation's name — which then
+        # counts towards its pass rate while being invisible on the trace or session it belongs to.
+        if evaluation.target != EvaluationTarget.GENERATION.value:
+            return Response(
+                {
+                    "error": (
+                        f"This evaluation runs on the whole {evaluation.target}, so it can't be re-run against a "
+                        "single generation."
+                    )
+                },
+                status=400,
+            )
 
         # Fetch event data from ClickHouse using available keys
         where_clauses = [

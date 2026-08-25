@@ -6,9 +6,15 @@ range, with a choice of aggregation. Modelled after the logs
 `AnalyticsQueryRunner[LogsQueryResponse]` infrastructure since this product
 isn't going through HogQL `DataNode` caching, schema-gen or the data-viz
 pipeline yet.
+
+Every aggregation resolves per physical series (`_series_key_exprs`) before
+combining across series: instant aggregations reduce each series to its last
+sample in the bucket, counter functions diff within a series. Aggregating raw
+samples instead would weight a series by how often it was scraped.
 """
 
 import re
+import math
 import datetime as dt
 from collections.abc import Sequence
 from typing import Any, Literal
@@ -23,7 +29,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
-from products.metrics.backend.facade.enums import FilterOp
+from products.metrics.backend.facade.enums import FilterOp, MetricType
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -36,7 +42,10 @@ _ROW_LIMIT = 10000
 
 # Widest queryable range. Counter/histogram queries scan raw samples within
 # the range on the ClickHouse cluster shared with the live logs/traces
-# products, so the span has to be bounded.
+# products, so the span has to be bounded. Those two also scan
+# `counter_lookback(interval)` before `date_from` for a predecessor sample;
+# the bound stays on the requested range, since the extra reach costs at most
+# one more daily partition and returns no extra rows.
 MAX_QUERY_SPAN = dt.timedelta(days=31)
 
 # These run on the shared logs cluster; cap how much one query may read.
@@ -49,6 +58,10 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 # ingest from the `service.name` resource attribute); both spellings resolve
 # to it so filters/group-bys match real ingested rows.
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
+
+# Synthetic per-data-point attribute ingest stamps on a point whose timestamp it
+# had to override. Never part of a series' identity — see `_series_key_exprs`.
+_ORIGINAL_TIMESTAMP_KEY = "$originalTimestamp"
 
 
 def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
@@ -101,29 +114,84 @@ def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
     )
 
 
-def _aggregation_expr(name: str) -> ast.Expr:
-    """Build the HogQL AST for the supported aggregations.
+def _series_key_exprs() -> list[ast.Expr]:
+    """Identifies the physical series a row belongs to.
+
+    Every aggregation resolves per series before combining across series, so
+    all three query builders share this definition rather than restating it.
+
+    `metric_type` belongs to the identity, not just to filtering: one name can
+    be ingested as both a counter and a gauge, and `metric_type` is optional on
+    the query, so an unconstrained query sees both sets of rows at once.
+
+    `$originalTimestamp` is dropped back out of `attributes`. Ingest adds it to
+    the map for a point whose timestamp is more than a day off, carrying a
+    per-sample value, and deliberately fingerprints the series before adding it
+    (`compute_series_fingerprint` in `rust/capture-logs/src/metric_record.rs`).
+    Keeping it would shatter a skewed exporter's series into one series per
+    sample, which is the exact weighting these keys exist to prevent.
+
+    `resource_attributes` appears here rather than its `resource_fingerprint`
+    digest so that the key stays exact — a hash collision would merge two
+    targets into one series.
+
+    These are grouping and partitioning keys only; a query that also needs the
+    attributes themselves reads them off `posthog.metrics` in the same scope,
+    because a column aliased `attributes` in a scope that already resolves the
+    `attributes` map collides with it.
+    """
+    return [
+        ast.Field(chain=["service_name"]),
+        ast.Field(chain=["resource_attributes"]),
+        parse_expr(
+            "mapFilter((k, v) -> k != {synthetic}, attributes)",
+            placeholders={"synthetic": ast.Constant(value=_ORIGINAL_TIMESTAMP_KEY)},
+        ),
+        ast.Field(chain=["metric_type"]),
+    ]
+
+
+def _aggregation_expr(name: str, value: ast.Expr) -> ast.Expr:
+    """Build the HogQL AST for the cross-series aggregations.
+
+    `value` is the per-series value the inner query produced, never the raw
+    `value` column: aggregating raw rows counts each series once per sample, so
+    the result scales with the scrape rate. `count` takes no argument for the
+    same reason — one inner row per series means it counts series.
 
     Kept as AST nodes (rather than string interpolation) so the
     `hogql-no-fstring` semgrep rule doesn't have to special-case this
     runner — the function name and percentile literal travel as a
     typed expression, not as substituted text.
     """
-    value_field = ast.Field(chain=["value"])
     if name == "sum":
-        return ast.Call(name="sum", args=[value_field])
+        return ast.Call(name="sum", args=[value])
     if name == "avg":
-        return ast.Call(name="avg", args=[value_field])
+        return ast.Call(name="avg", args=[value])
     if name == "count":
         return ast.Call(name="count", args=[])
     if name == "p95":
-        return ast.Call(name="quantile", params=[ast.Constant(value=0.95)], args=[value_field])
+        return ast.Call(name="quantile", params=[ast.Constant(value=0.95)], args=[value])
     raise ValueError(f"Unsupported aggregation: {name!r}")
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    """ClickHouse float aggregates can overflow to inf/-inf (or produce NaN);
+    a non-finite value has no JSON representation and downstream renderers
+    turn it into null anyway. Make the null explicit and deterministic here —
+    consumers render it as a gap."""
+    if value is None or not math.isfinite(value):
+        return None
+    return value
 
 
 _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
     {"sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"}
 )
+
+# Derived from the contract enum (whose values match what the ingest writes,
+# rust/capture-logs `flatten_metric`) so the two can't silently diverge.
+_ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
 
 def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float]) -> float:
@@ -185,6 +253,37 @@ def _interval_expr(name: str) -> ast.Call:
     raise ValueError(f"Unknown interval: {name!r}")
 
 
+def _interval_step(name: str) -> dt.timedelta:
+    for entry_name, step, _ in _INTERVAL_LADDER:
+        if entry_name == name:
+            return step
+    raise ValueError(f"Unknown interval: {name!r}")
+
+
+# Prometheus's default lookback delta. One interval step on its own is not
+# enough when the scrape interval is coarser than the bucket — a 60s scrape on
+# a `second` or `minute` chart — and `metrics1` is partitioned by day with
+# `timestamp` last in the sort key, so reaching back five minutes inside a day
+# reads the same partitions as reaching back one.
+_MIN_COUNTER_LOOKBACK = dt.timedelta(minutes=5)
+
+
+def counter_lookback(interval: str) -> dt.timedelta:
+    """How far before `date_from` the counter and histogram scans reach.
+
+    Those aggregations diff each sample against the one before it, so the last
+    sample *outside* the requested range is an input to the first bucket inside
+    it. Without it the first bucket diffs against nothing and plots 0
+    (histograms drop the point instead). The pre-range rows are cut again
+    before bucketing, so the returned grid is exactly the requested range.
+
+    `diagnostics.decompose_bucket` reads its raw samples over the same window
+    through this helper: a shorter reach there would find a different
+    predecessor and report a disagreement the chart does not have.
+    """
+    return max(_interval_step(interval), _MIN_COUNTER_LOOKBACK)
+
+
 def _filter_condition(filter: MetricFilter) -> ast.Expr:
     """One label predicate as a HogQL boolean expression.
 
@@ -212,7 +311,7 @@ def _filter_condition(filter: MetricFilter) -> ast.Expr:
     raise ValueError(f"Unsupported filter op: {filter.op!r}")
 
 
-def _filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
+def filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
     """AND of all filter conditions; TRUE when there are none."""
     if not filters:
         return ast.Constant(value=True)
@@ -220,6 +319,18 @@ def _filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
     if len(conditions) == 1:
         return conditions[0]
     return ast.And(exprs=conditions)
+
+
+def type_filter_expr(metric_type: str | None) -> ast.Expr:
+    """Constrains rows to one metric type. A name can exist as several
+    types (a counter and a gauge); their series are distinct and must not
+    blend into one aggregate. TRUE when no type was requested.
+
+    Both `metrics` and `metric_series` name the column `metric_type`, so the
+    same expression works against either table."""
+    if metric_type is None:
+        return ast.Constant(value=True)
+    return parse_expr("metric_type = {metric_type}", placeholders={"metric_type": ast.Constant(value=metric_type)})
 
 
 class MetricQueryRunner:
@@ -234,9 +345,12 @@ class MetricQueryRunner:
         group_by: Sequence[MetricGroupBy] = (),
         interval: str | None = None,
         quantile: float | None = None,
+        metric_type: str | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
+        if metric_type is not None and metric_type not in _ALLOWED_METRIC_TYPES:
+            raise ValueError(f"Unknown metric_type: {metric_type!r}")
         if date_to <= date_from:
             raise ValueError("date_to must be after date_from")
         if date_to - date_from > MAX_QUERY_SPAN:
@@ -263,6 +377,7 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.interval = interval or _pick_interval(date_from, date_to)
         self.quantile = quantile
+        self.metric_type = metric_type
 
     def run(self) -> list[dict[str, Any]]:
         """Bucketed rows: `{"time", "value", "labels"}`. `labels` carries one
@@ -289,7 +404,7 @@ class MetricQueryRunner:
             rows.append(
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
-                    "value": row[1 + group_count],
+                    "value": _finite_or_none(row[1 + group_count]),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
                 }
             )
@@ -322,10 +437,15 @@ class MetricQueryRunner:
         for row in response.results:
             bounds = list(row[1 + group_count])
             counts = list(row[3 + group_count])
+            if sum(counts) <= 0:
+                # No computable increase in this bucket (e.g. a cumulative
+                # series' first sample has nothing to diff against). A gap is
+                # honest; a fabricated quantile of 0 reads as "p95 is 0s".
+                continue
             rows.append(
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
-                    "value": _histogram_quantile(self.quantile, bounds, counts),
+                    "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
                 }
             )
@@ -341,44 +461,92 @@ class MetricQueryRunner:
                 "use a coarser interval, a narrower range, or a lower-cardinality group_by"
             )
 
-    def _splice_group_columns(self, query: ast.SelectQuery) -> None:
+    def _splice_group_columns(self, query: ast.SelectQuery, *, resolve_in: ast.SelectQuery | None = None) -> None:
         """Insert the group_by label columns between `time` and `value` —
-        parse_select placeholders can't express a variable column count."""
+        parse_select placeholders can't express a variable column count.
+
+        `attribute_field` resolves against the scope of the query it lands in,
+        so that query must expose `service_name`, `attributes` and
+        `resource_attributes` under those names — read straight off
+        `posthog.metrics`, or re-exported from a subquery. Pass `resolve_in`
+        when the labels have to be built a level down instead; `query` then
+        only forwards them up by name.
+        """
         assert query.group_by is not None
         for index, group in enumerate(self.group_by):
-            label_expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
-            query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
-            query.group_by.append(ast.Field(chain=[f"group_{index}"]))
+            alias = f"group_{index}"
+            label_expr: ast.Expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
+            if resolve_in is not None:
+                assert resolve_in.group_by is not None
+                resolve_in.select.append(ast.Alias(alias=alias, expr=label_expr))
+                resolve_in.group_by.append(ast.Field(chain=[alias]))
+                label_expr = ast.Field(chain=[alias])
+            query.select.insert(1 + index, ast.Alias(alias=alias, expr=label_expr))
+            query.group_by.append(ast.Field(chain=[alias]))
+
+    def _type_filter_expr(self) -> ast.Expr:
+        return type_filter_expr(self.metric_type)
 
     def _build_simple_query(self) -> ast.SelectQuery:
+        """sum/avg/count/p95: collapse each series to one value per bucket,
+        then aggregate across series — PromQL instant-vector semantics.
+
+        The inner query takes each series' last sample in the bucket, so a
+        metric scraped ten times contributes once rather than ten times.
+        Aggregating raw rows instead multiplied the cross-series total by the
+        scrape count, and the multiplier moved with partial buckets and
+        dropped scrapes.
+
+        Two samples of one series sharing a timestamp (a duplicate scrape)
+        make `argMax` pick between them arbitrarily; they are the same
+        reading, so either answer is right.
+
+        Group-by labels are built in the inner query, where the attribute maps
+        are still in scope. A label is constant within a series, so the outer
+        query just carries it up.
+        """
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (see posthog/hogql/database/database.py).
         query = parse_select(
             """
                 SELECT
-                    toStartOfInterval(timestamp, {interval}) AS time,
+                    time AS time,
                     {aggregation} AS value
-                FROM posthog.metrics
-                WHERE metric_name = {metric_name}
-                  AND timestamp >= {date_from}
-                  AND timestamp < {date_to}
-                  AND {filters}
+                FROM (
+                    SELECT
+                        toStartOfInterval(timestamp, {interval}) AS time,
+                        argMax(value, timestamp) AS series_value
+                    FROM posthog.metrics
+                    WHERE metric_name = {metric_name}
+                      AND timestamp >= {date_from}
+                      AND timestamp < {date_to}
+                      AND {filters}
+                      AND {type_filter}
+                    GROUP BY time
+                )
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT {row_limit}
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
-                "aggregation": _aggregation_expr(self.aggregation),
+                "aggregation": _aggregation_expr(self.aggregation, ast.Field(chain=["series_value"])),
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        self._splice_group_columns(query)
+        # Appended rather than written into the template so the key stays
+        # defined in exactly one place; a placeholder can only carry one
+        # expression.
+        inner = query.select_from.table if query.select_from else None
+        assert isinstance(inner, ast.SelectQuery) and inner.group_by is not None
+        inner.group_by.extend(_series_key_exprs())
+        self._splice_group_columns(query, resolve_in=inner)
         return query
 
     def _build_counter_query(self) -> ast.SelectQuery:
@@ -390,15 +558,20 @@ class MetricQueryRunner:
 
         - cumulative temporality: contribution = value - prev, clamped for
           counter resets (value < prev means the counter restarted, so the
-          post-reset absolute value IS the increase); the first sample of a
-          series contributes 0 (its history is unknown).
+          post-reset absolute value IS the increase); a sample with no
+          predecessor within `counter_lookback` contributes 0 (its history is
+          unknown).
         - delta temporality: each sample already is the increase, so it
           contributes its own value.
 
         `increase` sums contributions per bucket; `rate` divides by the
         bucket length in seconds.
+
+        The scan starts a lookback before `date_from` so the first sample in
+        the range has a predecessor to diff against; the outer `WHERE` drops
+        those pre-range rows again, leaving the requested bucket grid.
         """
-        step_seconds = next(step.total_seconds() for name, step, _ in _INTERVAL_LADDER if name == self.interval)
+        step_seconds = _interval_step(self.interval).total_seconds()
         divisor = step_seconds if self.aggregation == "rate" else 1.0
         query = parse_select(
             """
@@ -426,17 +599,19 @@ class MetricQueryRunner:
                             attributes,
                             resource_attributes,
                             lagInFrame(toNullable(value)) OVER (
-                                PARTITION BY service_name, resource_fingerprint, toString(attributes)
+                                PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {date_from}
+                          AND timestamp >= {scan_from}
                           AND timestamp < {date_to}
                           AND {filters}
+                          AND {type_filter}
                     )
                 )
+                WHERE sample_timestamp >= {date_from}
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT {row_limit}
@@ -444,10 +619,13 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
+                "series_key": ast.Tuple(exprs=_series_key_exprs()),
                 "metric_name": ast.Constant(value=self.metric_name),
+                "scan_from": ast.Constant(value=self.date_from - counter_lookback(self.interval)),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -458,7 +636,8 @@ class MetricQueryRunner:
     def _build_histogram_query(self) -> ast.SelectQuery:
         """Per-time-bucket summed bucket-count distributions for histogram
         rows, with the same per-series temporality/reset handling as
-        rate/increase applied element-wise to the counts array."""
+        rate/increase applied element-wise to the counts array — including the
+        lookback that gives the first in-range sample a predecessor."""
         query = parse_select(
             """
                 SELECT
@@ -490,28 +669,33 @@ class MetricQueryRunner:
                             histogram_bounds,
                             arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
                             lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
-                                PARTITION BY service_name, resource_fingerprint, toString(attributes)
+                                PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_counts
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {date_from}
+                          AND timestamp >= {scan_from}
                           AND timestamp < {date_to}
                           AND notEmpty(histogram_counts)
                           AND {filters}
+                          AND {type_filter}
                     )
                 )
+                WHERE sample_timestamp >= {date_from}
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT {row_limit}
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
+                "series_key": ast.Tuple(exprs=_series_key_exprs()),
                 "metric_name": ast.Constant(value=self.metric_name),
+                "scan_from": ast.Constant(value=self.date_from - counter_lookback(self.interval)),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": filters_expr(self.filters),
+                "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )

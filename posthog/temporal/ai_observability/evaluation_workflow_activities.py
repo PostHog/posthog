@@ -4,27 +4,26 @@ from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import transaction
 
 import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
 
 SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
-TRIAL_NOTIFICATION_THRESHOLDS = [50, 75, 100]
 
 
 @dataclass
@@ -97,37 +96,6 @@ async def update_key_state_activity(key_id: str, state: str, error_message: str 
 
 
 @temporalio.activity.defn
-async def increment_trial_eval_count_activity(team_id: int) -> int | None:
-    """Increment trial eval counter after successful execution with PostHog key."""
-    from django.db import connection
-
-    def _increment() -> int | None:
-        table = EvaluationConfig._meta.db_table
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                UPDATE {table}
-                SET trial_evals_used = trial_evals_used + 1
-                WHERE team_id = %s
-                RETURNING trial_evals_used, trial_eval_limit
-                """,
-                [team_id],
-            )
-            row = cursor.fetchone()
-            if row is None:
-                logger.warning("No EvaluationConfig found for team during trial increment", team_id=team_id)
-                return None
-            trial_evals_used, trial_eval_limit = row
-
-        for pct in TRIAL_NOTIFICATION_THRESHOLDS:
-            if trial_evals_used == round(trial_eval_limit * pct / 100):
-                return pct
-        return None
-
-    return await database_sync_to_async(_increment)()
-
-
-@temporalio.activity.defn
 async def disable_evaluation_activity(
     evaluation_id: str, team_id: int, status_reason: str = "", status_reason_detail: str | None = None
 ) -> bool:
@@ -139,7 +107,7 @@ async def disable_evaluation_activity(
     """
 
     def _disable() -> bool:
-        reason = status_reason or "trial_limit_reached"
+        reason = status_reason or "provider_key_required"
         with transaction.atomic():
             evaluation = Evaluation.objects.select_for_update().filter(id=evaluation_id, team_id=team_id).first()
             if evaluation is None:
@@ -155,89 +123,6 @@ async def disable_evaluation_activity(
 
 
 @dataclass
-class SendTrialUsageEmailInputs:
-    team_id: int
-    threshold_pct: int
-
-
-@temporalio.activity.defn
-async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
-    """Send an email to org members about trial evaluation usage."""
-
-    def _send() -> None:
-        from posthog.email import EmailMessage, is_email_available
-
-        if not is_email_available(with_absolute_urls=True):
-            logger.info(
-                "Email not available, skipping trial usage notification",
-                team_id=inputs.team_id,
-                threshold_pct=inputs.threshold_pct,
-            )
-            return
-
-        try:
-            team = Team.objects.select_related("organization").get(id=inputs.team_id)
-        except Team.DoesNotExist:
-            logger.warning("Team not found for trial usage email", team_id=inputs.team_id)
-            return
-
-        config = EvaluationConfig.objects.filter(team_id=inputs.team_id).first()
-        if not config:
-            return
-
-        max_listed = 20
-        affected_qs = Evaluation.objects.filter(
-            team_id=inputs.team_id,
-            enabled=True,
-            deleted=False,
-        ).filter(models.Q(model_configuration__isnull=True) | models.Q(model_configuration__provider_key__isnull=True))
-        total_affected = affected_qs.count()
-        affected_evals = list(affected_qs.values_list("name", flat=True)[:max_listed])
-        affected_evals_overflow = max(0, total_affected - max_listed)
-
-        settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
-        campaign_key = f"llm_analytics_trial_{inputs.threshold_pct}pct_{team.id}"
-        is_exhausted = inputs.threshold_pct >= 100
-
-        if is_exhausted:
-            subject = "Your AI observability trial evaluations have been used up"
-            template_name = "ai_observability_trial_exhausted"
-        else:
-            subject = f"You've used {inputs.threshold_pct}% of your AI observability trial evaluations"
-            template_name = "ai_observability_trial_warning"
-
-        message = EmailMessage(
-            campaign_key=campaign_key,
-            subject=subject,
-            template_name=template_name,
-            template_context={
-                "trial_eval_limit": config.trial_eval_limit,
-                "trial_evals_used": config.trial_evals_used,
-                "trial_evals_remaining": config.trial_evals_remaining,
-                "threshold_pct": inputs.threshold_pct,
-                "settings_url": settings_url,
-                "affected_evals": affected_evals,
-                "affected_evals_overflow": affected_evals_overflow,
-            },
-        )
-
-        for user in team.organization.members.all():
-            message.add_user_recipient(user)
-
-        if message.to:
-            message.send()
-            logger.info(
-                "Sent trial usage email",
-                team_id=inputs.team_id,
-                org_id=str(team.organization_id),
-                threshold_pct=inputs.threshold_pct,
-                recipient_count=len(message.to),
-            )
-
-    await database_sync_to_async(_send)()
-
-
-@dataclass
 class SendEvaluationDisabledEmailInputs:
     team_id: int
     evaluation_id: str
@@ -248,7 +133,7 @@ class SendEvaluationDisabledEmailInputs:
 
 
 _STATUS_REASON_SUBJECTS = {
-    "model_not_allowed": "Your AI observability evaluation was disabled because its model isn't supported on the trial plan",
+    "provider_key_required": "Your AI observability evaluation was disabled because it has no provider API key",
     "no_default_model": "Your AI observability evaluation was disabled because no default model is configured",
     "provider_key_deleted": "Your AI observability evaluation was disabled because its provider API key was removed",
     "provider_key_invalid": "Your AI observability evaluation was disabled because its provider API key is invalid",
@@ -262,7 +147,7 @@ _STATUS_REASON_SUBJECTS = {
 
 @temporalio.activity.defn
 async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
-    """Email org members when an evaluation enters the ERROR state for a reason other than trial exhaustion."""
+    """Email org members when an evaluation enters the ERROR state."""
 
     def _send() -> None:
         from posthog.email import EmailMessage, is_email_available
@@ -369,11 +254,12 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_id"] = result.get("key_id")
 
     if result["result_type"] == "sentiment":
-        properties["$ai_sentiment_label"] = result.get("sentiment_label")
-        properties["$ai_sentiment_score"] = result.get("sentiment_score")
-        properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
-        properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
-        properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
+        if not result.get("skipped"):
+            properties["$ai_sentiment_label"] = result.get("sentiment_label")
+            properties["$ai_sentiment_score"] = result.get("sentiment_score")
+            properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
+            properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
+            properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
     else:
         properties["$ai_evaluation_allows_na"] = allows_na
         if allows_na:
@@ -396,12 +282,6 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
     start_time = inputs.start_time
 
     def _emit() -> None:
-        try:
-            team = Team.objects.get(id=event_data["team_id"])
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=event_data["team_id"])
-            raise ValueError(f"Team {event_data['team_id']} not found")
-
         source_props = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
@@ -424,22 +304,25 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             if source_props.get(property_name) is not None:
                 properties[property_name] = source_props[property_name]
 
-        event_timestamp = datetime.now(UTC)
-
-        capture_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=event_data["team_id"],
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=event_timestamp,
+            timestamp=datetime.now(UTC),
             properties=properties,
-            process_person_profile=True,
         )
-        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            increment_emit_event_outcome("dropped_billing_limited")
+            logger.info("Skipping eval event emission; team over billing quota", team_id=event_data["team_id"])
+            return
+        increment_emit_event_outcome("failed")
+        raise
     except Exception:
         increment_emit_event_outcome("failed")
         raise
@@ -469,8 +352,7 @@ async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) 
     result = inputs.result
 
     def _emit_telemetry() -> None:
-        team = Team.objects.get(id=team_id)
-        organization_id = str(team.organization_id)
+        organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
 
         ph_client = get_ph_client(sync_mode=True)
         ph_client.capture(

@@ -1,14 +1,22 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFlask, IconGraph } from '@posthog/icons'
+import { IconGraph } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
-import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
+import {
+    MarkdownNotebook,
+    NotebookComponentRunStatusContext,
+    PRODUCTS_INSERT_COMMAND_CATEGORY,
+    parseMarkdownNotebook,
+} from 'lib/components/MarkdownNotebook'
 import type {
     InsertCommand,
     MarkdownNotebookAskAIRequest,
     MarkdownNotebookInsertMenuApi,
 } from 'lib/components/MarkdownNotebook'
+import { makeEmptyParagraph } from 'lib/components/MarkdownNotebook/markdown'
 import {
     insertNotebookAIFollowUpPromptAfterResponse,
     rebaseNotebookAIResponseRange,
@@ -16,15 +24,28 @@ import {
     streamNotebookAIResponseMarkdown,
 } from 'lib/components/MarkdownNotebook/notebookAI'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
-import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
+import type { NotebookBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
+import { uploadFile } from 'lib/hooks/useUploadFiles'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
-import { MarkdownNotebookExperimentPicker } from './MarkdownNotebookExperimentPicker'
+import { NODE_ICONS } from '../nodeIcons'
+import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
+import { NotebookNodeType } from '../types'
+import {
+    MarkdownNotebookEntityPicker,
+    MarkdownNotebookEntityPickerKind,
+    MarkdownNotebookEntityPickerSelection,
+} from './MarkdownNotebookEntityPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
-import { NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
+import {
+    getHiddenInsertCommandKeysForFeatureFlags,
+    getMarkdownRegistryForFeatureFlags,
+} from './markdownNotebookRegistry'
+import { useNotebookComponentRunStatusResolver } from './markdownNotebookRunStatus'
 import {
     InlineNotebookAIRequest,
     MarkdownNotebookRuntimeContext,
@@ -33,8 +54,13 @@ import {
     getInlineNotebookAIPanelId,
     getInlineNotebookAIUIContext,
 } from './markdownNotebookRuntime'
-import { MarkdownNotebookSavedInsightPicker } from './MarkdownNotebookSavedInsightPicker'
-import { getMarkdownNotebookMarkdown, notebookArtifactContentToMarkdown } from './markdownNotebookV2'
+import {
+    buildDroppedLinkParagraphNode,
+    convertDroppedPostHogUrlToMarkdownNode,
+    convertDroppedRichContentNodeToMarkdownNode,
+    getMarkdownNotebookMarkdown,
+    notebookArtifactContentToMarkdown,
+} from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 import {
     NOTEBOOK_AI_PRESENCE_COLOR,
@@ -53,8 +79,22 @@ type MarkdownNotebookV2Props = {
 }
 
 export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
-    const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
-        useValues(notebookLogic)
+    const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const {
+        isEditable,
+        isShared,
+        notebook,
+        markdownEditorValue,
+        markdownEditorInteractionActive,
+        markdownRemoteCarets,
+    } = useValues(notebookLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
+    const hiddenInsertCommandKeys = useMemo(
+        () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
+        [featureFlags]
+    )
+    const resolveComponentRunStatus = useNotebookComponentRunStatusResolver(mountedNotebookLogic.props.shortId)
     const {
         handleMarkdownEditorChange,
         setMarkdownEditorInteractionActive,
@@ -394,73 +434,145 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         [applyNotebookArtifactMarkdown, getInlineAIRequest, updateMarkdownEditorValue]
     )
 
-    const [savedInsightPickerTargetNodeId, setSavedInsightPickerTargetNodeId] = useState<string | null>(null)
-    const [experimentPickerTargetNodeId, setExperimentPickerTargetNodeId] = useState<string | null>(null)
-    // Insert API + target node captured when "Saved insight" / "Experiment" is picked, so the modal's
-    // async selection can insert into the right node once an entity is chosen.
-    const savedInsightInsertRef = useRef<{ api: MarkdownNotebookInsertMenuApi; targetNodeId: string } | null>(null)
-    const experimentInsertRef = useRef<{ api: MarkdownNotebookInsertMenuApi; targetNodeId: string } | null>(null)
+    const [openEntityPicker, setOpenEntityPicker] = useState<MarkdownNotebookEntityPickerKind | null>(null)
+    // Insert API + target node captured when a picker command runs, so the modal's async
+    // selection can insert into the right node once an entity is chosen.
+    const pendingEntityInsertRef = useRef<{ api: MarkdownNotebookInsertMenuApi; targetNodeId: string } | null>(null)
 
-    const buildExtraInsertCommands = useCallback(
-        (api: MarkdownNotebookInsertMenuApi): InsertCommand[] => [
-            {
-                key: 'query-saved-insight',
-                label: 'Saved insight',
-                category: 'Insight',
-                icon: <IconGraph />,
-                run: (targetNodeId) => {
-                    savedInsightInsertRef.current = { api, targetNodeId }
-                    setSavedInsightPickerTargetNodeId(targetNodeId)
-                },
+    const buildExtraInsertCommands = useCallback((api: MarkdownNotebookInsertMenuApi): InsertCommand[] => {
+        const pickerCommand = (
+            key: string,
+            label: string,
+            icon: JSX.Element,
+            picker: MarkdownNotebookEntityPickerKind,
+            aliases?: string[]
+        ): InsertCommand => ({
+            key,
+            label,
+            category: PRODUCTS_INSERT_COMMAND_CATEGORY,
+            icon,
+            aliases,
+            run: (targetNodeId) => {
+                pendingEntityInsertRef.current = { api, targetNodeId }
+                setOpenEntityPicker(picker)
             },
-            {
-                key: 'experiment',
-                label: 'Experiment',
-                category: 'Experiment',
-                icon: <IconFlask />,
-                run: (targetNodeId) => {
-                    experimentInsertRef.current = { api, targetNodeId }
-                    setExperimentPickerTargetNodeId(targetNodeId)
-                },
-            },
-        ],
+        })
+
+        return Object.entries(notebookWidgetCatalog.widgets).map(([tagName, widget]) =>
+            pickerCommand(
+                `product-${tagName.replaceAll(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}`,
+                widget.label,
+                NODE_ICONS[widget.nodeType as NotebookNodeType] || <IconGraph />,
+                widget.picker as NotebookWidgetPickerKind
+            )
+        )
+    }, [])
+
+    const closeEntityPicker = useCallback((): void => {
+        pendingEntityInsertRef.current = null
+        setOpenEntityPicker(null)
+    }, [])
+
+    // Inserts the picked entity's component into the node the picker command targeted, then
+    // closes the picker.
+    const insertPickedComponent = useCallback(({ tagName, props }: MarkdownNotebookEntityPickerSelection): void => {
+        const pending = pendingEntityInsertRef.current
+        if (pending) {
+            pending.api.insertComponent(pending.targetNodeId, tagName, props as NotebookComponentProps)
+        }
+        pendingEntityInsertRef.current = null
+        setOpenEntityPicker(null)
+    }, [])
+
+    const convertExternalDataTransferToNodes = useCallback(
+        (dataTransfer: DataTransfer): NotebookBlockNode[] | Promise<NotebookBlockNode[] | null> | null => {
+            const nodeType = dataTransfer.getData('node')
+            if (nodeType) {
+                let attrs: Record<string, unknown> = {}
+                const propertiesJson = dataTransfer.getData('properties')
+                if (propertiesJson) {
+                    try {
+                        attrs = JSON.parse(propertiesJson)
+                    } catch {
+                        return null
+                    }
+                }
+
+                const node = convertDroppedRichContentNodeToMarkdownNode(nodeType, attrs)
+                if (node) {
+                    posthog.capture('notebook node dropped', { node_type: nodeType, is_markdown: true })
+                }
+                return node ? [node] : null
+            }
+
+            // Entity links (`Link`) drag with only their href: map recognized PostHog resource
+            // URLs to their component node, and keep anything else as a plain link block.
+            const draggedUrl = (dataTransfer.getData('text/uri-list') ?? '')
+                .split('\n')
+                .map((line) => line.trim())
+                .find((line) => line && !line.startsWith('#'))
+            if (draggedUrl) {
+                const resourceNode = convertDroppedPostHogUrlToMarkdownNode(draggedUrl)
+                posthog.capture('notebook node dropped', {
+                    node_type: resourceNode?.type === 'component' ? resourceNode.tagName : 'link',
+                    is_markdown: true,
+                })
+                return [resourceNode ?? buildDroppedLinkParagraphNode(draggedUrl)]
+            }
+
+            const files = Array.from(dataTransfer.files ?? [])
+            if (files.length) {
+                const imageFiles = files.filter((file) => file.type.startsWith('image/'))
+                if (imageFiles.length < files.length) {
+                    lemonToast.warning('Only images can be added to notebooks at this time.')
+                }
+                if (!imageFiles.length) {
+                    return null
+                }
+
+                posthog.capture('notebook files dropped', {
+                    file_types: imageFiles.map((file) => file.type),
+                    is_markdown: true,
+                })
+                // allSettled so one failed upload doesn't discard the files that uploaded fine.
+                return Promise.allSettled(
+                    imageFiles.map(async (file): Promise<NotebookBlockNode> => {
+                        const media = await uploadFile(file)
+                        return {
+                            id: makeEmptyParagraph('dropped-image').id,
+                            type: 'component',
+                            tagName: 'Image',
+                            props: { src: media.image_location, alt: media.name },
+                        }
+                    })
+                ).then((results): NotebookBlockNode[] | null => {
+                    const uploadedNodes = results
+                        .filter(
+                            (result): result is PromiseFulfilledResult<NotebookBlockNode> =>
+                                result.status === 'fulfilled'
+                        )
+                        .map((result) => result.value)
+                    const firstRejection = results.find(
+                        (result): result is PromiseRejectedResult => result.status === 'rejected'
+                    )
+                    if (firstRejection) {
+                        const failedCount = results.length - uploadedNodes.length
+                        const { detail, message } = (firstRejection.reason ?? {}) as {
+                            detail?: string
+                            message?: string
+                        }
+                        lemonToast.error(
+                            `${failedCount === 1 ? 'Image upload' : `${failedCount} image uploads`} failed: ${detail ?? message ?? 'unknown error'}`
+                        )
+                    }
+                    return uploadedNodes.length ? uploadedNodes : null
+                })
+            }
+
+            return null
+        },
         []
     )
-
-    const closeSavedInsightPicker = useCallback((): void => {
-        savedInsightInsertRef.current = null
-        setSavedInsightPickerTargetNodeId(null)
-    }, [])
-
-    const closeExperimentPicker = useCallback((): void => {
-        experimentInsertRef.current = null
-        setExperimentPickerTargetNodeId(null)
-    }, [])
-
-    const handleSavedInsightPicked = useCallback((shortId: string, title: string): void => {
-        const pending = savedInsightInsertRef.current
-        if (pending) {
-            pending.api.insertComponent(pending.targetNodeId, 'Query', {
-                query: { kind: 'SavedInsightNode', shortId },
-                // The insight is already configured via the picker, so render results-only — hiding the
-                // settings panel (the "Edit the insight" / "Detach from insight" controls) by default.
-                hideFilters: true,
-                // Label the node with the insight's name so the toolbar shows it instead of the short id.
-                ...(title ? { title } : {}),
-            })
-        }
-        savedInsightInsertRef.current = null
-        setSavedInsightPickerTargetNodeId(null)
-    }, [])
-
-    const handleExperimentPicked = useCallback((experimentId: number): void => {
-        const pending = experimentInsertRef.current
-        if (pending) {
-            pending.api.insertComponent(pending.targetNodeId, 'Experiment', { id: experimentId })
-        }
-        experimentInsertRef.current = null
-        setExperimentPickerTargetNodeId(null)
-    }, [])
 
     const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
         () => ({
@@ -571,31 +683,37 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
     return (
         <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
-            <MarkdownNotebook
-                value={markdownEditorValue}
-                remoteValue={remoteMarkdown}
-                remoteVersion={notebook?.version}
-                mode={isEditable ? 'edit' : 'view'}
-                registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
-                onChange={isEditable ? handleMarkdownNotebookChange : undefined}
-                onConflict={reportMarkdownMergeConflicts}
-                remoteCarets={remoteCarets}
-                onCaretChange={isEditable ? publishMarkdownCaret : undefined}
-                onAskAI={isEditable ? handleAskAI : undefined}
-                isAskAIDisabled={inlineAIRequests.length > 0}
-                createAIConversationId={uuid}
-                deferRemoteValue={markdownEditorInteractionActive}
-                onInteractionStateChange={setMarkdownEditorInteractionActive}
-                className="Notebook__markdown-v2"
-                data-attr="notebook-markdown-v2"
-                autoFocus={isEditable}
-                showDebug={isEditable}
-                debugOpen={isDebugOpen}
-                onDebugOpenChange={handleDebugOpenChange}
-                focusAIPromptRequest={focusAIPromptRequest}
-                aiWritingNodeIndexes={aiWritingNodeIndexes}
-            />
+            <NotebookComponentRunStatusContext.Provider value={resolveComponentRunStatus}>
+                <MarkdownNotebook
+                    value={markdownEditorValue}
+                    remoteValue={remoteMarkdown}
+                    remoteVersion={notebook?.version}
+                    mode={isEditable ? 'edit' : 'view'}
+                    hideResourceLinks={isShared}
+                    registry={markdownRegistry}
+                    extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
+                    hiddenInsertCommandKeys={hiddenInsertCommandKeys}
+                    onChange={isEditable ? handleMarkdownNotebookChange : undefined}
+                    onConflict={reportMarkdownMergeConflicts}
+                    remoteCarets={remoteCarets}
+                    onCaretChange={isEditable ? publishMarkdownCaret : undefined}
+                    onAskAI={isEditable ? handleAskAI : undefined}
+                    convertExternalDataTransferToNodes={isEditable ? convertExternalDataTransferToNodes : undefined}
+                    isAskAIDisabled={inlineAIRequests.length > 0}
+                    createAIConversationId={uuid}
+                    deferRemoteValue={markdownEditorInteractionActive}
+                    onInteractionStateChange={setMarkdownEditorInteractionActive}
+                    allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
+                    className="Notebook__markdown-v2"
+                    data-attr="notebook-markdown-v2"
+                    autoFocus={isEditable}
+                    showDebug={isEditable}
+                    debugOpen={isDebugOpen}
+                    onDebugOpenChange={handleDebugOpenChange}
+                    focusAIPromptRequest={focusAIPromptRequest}
+                    aiWritingNodeIndexes={aiWritingNodeIndexes}
+                />
+            </NotebookComponentRunStatusContext.Provider>
             {inlineAIRequests.map((request) => (
                 <InlineNotebookAIRunner
                     key={request.conversationId}
@@ -605,20 +723,14 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     onAssistantMessage={handleInlineAIAssistantMessage}
                 />
             ))}
-            {isEditable && (
-                <MarkdownNotebookSavedInsightPicker
-                    isOpen={savedInsightPickerTargetNodeId !== null}
-                    onClose={closeSavedInsightPicker}
-                    onSelect={handleSavedInsightPicked}
+            {isEditable ? (
+                <MarkdownNotebookEntityPicker
+                    action="add"
+                    kind={openEntityPicker}
+                    onClose={closeEntityPicker}
+                    onSelect={insertPickedComponent}
                 />
-            )}
-            {isEditable && (
-                <MarkdownNotebookExperimentPicker
-                    isOpen={experimentPickerTargetNodeId !== null}
-                    onClose={closeExperimentPicker}
-                    onSelect={handleExperimentPicked}
-                />
-            )}
+            ) : null}
         </MarkdownNotebookRuntimeContext.Provider>
     )
 }

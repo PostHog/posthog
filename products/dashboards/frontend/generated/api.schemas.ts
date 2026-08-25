@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -255,6 +257,16 @@ export interface DashboardBasicApi {
      * @nullable
      */
     readonly folder: string | null
+    /**
+     * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+     * @nullable
+     */
+    readonly file_system_id: string | null
+    /**
+     * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+     * @nullable
+     */
+    readonly file_system_path: string | null
     readonly is_shared: boolean
     readonly deleted: boolean
     readonly creation_mode: CreationModeEnumApi
@@ -275,7 +287,7 @@ export interface DashboardBasicApi {
     /** @nullable */
     readonly last_refresh: string | null
     readonly team_id: number
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -308,6 +320,53 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
+ * * `tight` - tight
+ * * `condensed` - condensed
+ * * `standard` - standard
+ * * `relaxed` - relaxed
+ * * `wide` - wide
+ */
+export type TileSpacingEnumApi = (typeof TileSpacingEnumApi)[keyof typeof TileSpacingEnumApi]
+
+export const TileSpacingEnumApi = {
+    Tight: 'tight',
+    Condensed: 'condensed',
+    Standard: 'standard',
+    Relaxed: 'relaxed',
+    Wide: 'wide',
+} as const
+
+/**
+ * * `vertical` - vertical
+ * * `horizontal` - horizontal
+ * * `stable` - stable
+ */
+export type LayoutCompactionEnumApi = (typeof LayoutCompactionEnumApi)[keyof typeof LayoutCompactionEnumApi]
+
+export const LayoutCompactionEnumApi = {
+    Vertical: 'vertical',
+    Horizontal: 'horizontal',
+    Stable: 'stable',
+} as const
+
+export interface DashboardCustomizationApi {
+    /** Named tile density preset.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    tile_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
+}
+
+/**
  * Serializer mixin that handles tags for objects.
  */
 export interface DashboardApi {
@@ -330,6 +389,16 @@ export interface DashboardApi {
      * @nullable
      */
     readonly folder: string | null
+    /**
+     * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+     * @nullable
+     */
+    readonly file_system_id: string | null
+    /**
+     * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+     * @nullable
+     */
+    readonly file_system_path: string | null
     readonly is_shared: boolean
     deleted?: boolean
     readonly creation_mode: CreationModeEnumApi
@@ -365,6 +434,22 @@ export interface DashboardApi {
      * @nullable
      */
     quick_filter_ids?: string[] | null
+    /** Dashboard display settings. */
+    readonly customization: DashboardCustomizationApi
+    /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    grid_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -413,6 +498,7 @@ export interface DashboardFiltersOpenApiApi {
 
 /**
  * * `activity_events_list` - activity_events_list
+ * * `conversations_recent_tickets` - conversations_recent_tickets
  * * `error_tracking_list` - error_tracking_list
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
@@ -425,6 +511,7 @@ export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
 
 export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ActivityEventsList: 'activity_events_list',
+    ConversationsRecentTickets: 'conversations_recent_tickets',
     ErrorTrackingList: 'error_tracking_list',
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
@@ -460,6 +547,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -503,6 +594,26 @@ export interface WidgetFilterEntryApi {
     value?: string | string[] | null
 }
 
+export type ActivityEventsPropertyFilterApiType =
+    (typeof ActivityEventsPropertyFilterApiType)[keyof typeof ActivityEventsPropertyFilterApiType]
+
+export const ActivityEventsPropertyFilterApiType = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
+export interface ActivityEventsPropertyFilterApi {
+    /**
+     * @minLength 1
+     * @maxLength 400
+     */
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: ActivityEventsPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
 
 export interface ActivityEventsListWidgetConfigApi {
@@ -517,6 +628,8 @@ export interface ActivityEventsListWidgetConfigApi {
     limit?: number
     /** Limit the feed to a single event name. Omit or null for all events. */
     eventName?: string | null
+    /** Event and person property filters, matching Activity > Explore events. */
+    properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
 /**
@@ -674,6 +787,7 @@ export const ExperimentsListWidgetConfigApiStatus = {
     Draft: 'draft',
     Running: 'running',
     Paused: 'paused',
+    ExposureFrozen: 'exposure_frozen',
     Stopped: 'stopped',
     All: 'all',
 } as const
@@ -769,6 +883,73 @@ export interface LogsListWidgetConfigApi {
     savedViewId?: string | null
 }
 
+/**
+ * Ticket status filter.
+ */
+export type ConversationsRecentTicketsWidgetConfigApiStatus =
+    (typeof ConversationsRecentTicketsWidgetConfigApiStatus)[keyof typeof ConversationsRecentTicketsWidgetConfigApiStatus]
+
+export const ConversationsRecentTicketsWidgetConfigApiStatus = {
+    New: 'new',
+    Open: 'open',
+    Pending: 'pending',
+    OnHold: 'on_hold',
+    Resolved: 'resolved',
+    All: 'all',
+} as const
+
+export type ConversationsRecentTicketsWidgetConfigApiPrioritiesItem =
+    (typeof ConversationsRecentTicketsWidgetConfigApiPrioritiesItem)[keyof typeof ConversationsRecentTicketsWidgetConfigApiPrioritiesItem]
+
+export const ConversationsRecentTicketsWidgetConfigApiPrioritiesItem = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * Ticket channel filter.
+ */
+export type ConversationsRecentTicketsWidgetConfigApiChannel =
+    (typeof ConversationsRecentTicketsWidgetConfigApiChannel)[keyof typeof ConversationsRecentTicketsWidgetConfigApiChannel]
+
+export const ConversationsRecentTicketsWidgetConfigApiChannel = {
+    Widget: 'widget',
+    Email: 'email',
+    Slack: 'slack',
+    Teams: 'teams',
+    Github: 'github',
+    All: 'all',
+} as const
+
+export interface ConversationsRecentTicketsWidgetConfigApi {
+    /**
+     * Maximum number of tickets to return.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /** Ticket status filter. */
+    status?: ConversationsRecentTicketsWidgetConfigApiStatus
+    /** Only show tickets with these priorities. Empty shows all priorities. */
+    priorities?: ConversationsRecentTicketsWidgetConfigApiPrioritiesItem[]
+    /** Ticket channel filter. */
+    channel?: ConversationsRecentTicketsWidgetConfigApiChannel
+    /**
+     * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
+     * @maxItems 100
+     */
+    assignees?: ('me' | 'unassigned' | WidgetAssigneeFilterApi)[]
+    /**
+     * Search requester name or email, ticket subject, message text, or ticket number.
+     * @maxLength 200
+     */
+    search?: string
+    /** short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit. */
+    savedViewId?: string | null
+}
+
 export type DashboardWidgetConfigApi =
     | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
@@ -777,6 +958,7 @@ export type DashboardWidgetConfigApi =
     | ExperimentResultsWidgetConfigApi
     | SurveyResultsWidgetConfigApi
     | LogsListWidgetConfigApi
+    | ConversationsRecentTicketsWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -784,6 +966,7 @@ export interface DashboardPatchWidgetOpenApiApi {
     /** Widget type identifier (cannot be changed on update).
      *
      * * `activity_events_list` - activity_events_list
+     * * `conversations_recent_tickets` - conversations_recent_tickets
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
@@ -840,6 +1023,20 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * @nullable
      */
     quick_filter_ids?: string[] | null
+    /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    grid_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
     /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
@@ -971,12 +1168,28 @@ export interface CustomEventConversionGoalApi {
     customEventName: string
 }
 
+export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
+
+export const DaysOfWeekEnumApi = {
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+    Number5: 5,
+    Number6: 6,
+    Number7: 7,
+} as const
+
 export interface DateRangeApi {
     /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
      * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
     date_from?: string | null
     /** End of the date range. Same format as date_from. Omit or null for "now". */
     date_to?: string | null
+    /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
+    daysOfWeek?: DaysOfWeekEnumApi[] | null
+    /** Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries. */
+    excludeIncompletePeriods?: boolean | null
     /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
     explicitDate?: boolean | null
 }
@@ -990,6 +1203,8 @@ export const IntervalTypeApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
 } as const
 
 export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
@@ -1161,6 +1376,8 @@ export interface HogQLQueryModifiersApi {
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
+    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+    mergeFederatedAggregateJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -1178,11 +1395,15 @@ export interface HogQLQueryModifiersApi {
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     timings?: boolean | null
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
     usePreaggregatedTableTransforms?: boolean | null
     useWebAnalyticsPreAggregatedTables?: boolean | null
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
 export interface EventPropertyFilterApi {
@@ -1363,6 +1584,14 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -1384,6 +1613,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     label?: string | null
     operator: PropertyOperatorApi
     type?: 'revenue_analytics'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -1417,8 +1655,10 @@ export interface PropertyGroupFilterValueApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -1457,6 +1697,8 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
+    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
     id: string
@@ -1486,6 +1728,15 @@ export interface QueryTimingApi {
     t: number
 }
 
+export interface DataWarehouseSourceUsageApi {
+    /** ExternalDataSource id */
+    id: string
+    /** Connector type of the source (e.g. Stripe, Postgres), if known */
+    source_type?: string | null
+    /** Warehouse table name that was referenced */
+    table_name: string
+}
+
 export interface DataWarehouseSyncWarningApi {
     /** Human-readable warning shown to the user */
     message: string
@@ -1499,6 +1750,17 @@ export interface DataWarehouseSyncWarningApi {
     status: string
     /** Name of the warehouse table the warning refers to */
     table_name: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'warehouse_sync'
+}
+
+export interface AccessControlFilterWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'access_control'
 }
 
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
@@ -1522,8 +1784,10 @@ export interface TrendsQueryResponseApi {
     results: TrendsQueryResponseApiResultsItem[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
@@ -1571,6 +1835,14 @@ export const CountPerActorMathTypeApi = {
     P90CountPerActor: 'p90_count_per_actor',
     P95CountPerActor: 'p95_count_per_actor',
     P99CountPerActor: 'p99_count_per_actor',
+} as const
+
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
 } as const
 
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
@@ -1793,8 +2065,10 @@ export interface EventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -1805,9 +2079,9 @@ export interface EventsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1841,8 +2115,10 @@ export interface EventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -1876,8 +2152,10 @@ export interface ActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -1888,9 +2166,9 @@ export interface ActionsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1922,8 +2200,10 @@ export interface ActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -1959,8 +2239,10 @@ export interface DataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -1972,9 +2254,9 @@ export interface DataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2006,8 +2288,10 @@ export interface DataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2043,8 +2327,10 @@ export interface GroupNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2055,9 +2341,9 @@ export interface GroupNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2095,8 +2381,10 @@ export interface GroupNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2120,11 +2408,24 @@ export const AggregationAxisFormatApi = {
     Numeric: 'numeric',
     Duration: 'duration',
     DurationMs: 'duration_ms',
+    DurationNs: 'duration_ns',
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
     Short: 'short',
 } as const
+
+export type CurveApi = (typeof CurveApi)[keyof typeof CurveApi]
+
+export const CurveApi = {
+    Linear: 'linear',
+    Smooth: 'smooth',
+} as const
+
+export interface ChartStyleApi {
+    /** Line interpolation: straight segments or a smoothed curve through the points. */
+    curve?: CurveApi | null
+}
 
 export type DetailedResultsAggregationTypeApi =
     (typeof DetailedResultsAggregationTypeApi)[keyof typeof DetailedResultsAggregationTypeApi]
@@ -2155,6 +2456,7 @@ export const ChartDisplayTypeApi = {
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
     SlopeGraph: 'SlopeGraph',
+    ScatterPlot: 'ScatterPlot',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -2266,6 +2568,8 @@ export interface TrendsFilterApi {
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
     breakdown_histogram_bin_count?: number | null
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     confidenceLevel?: number | null
     /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: number | null
@@ -2280,6 +2584,7 @@ export interface TrendsFilterApi {
     /** Goal Lines */
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
+    /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query instead of only hiding their buckets. Still accepted so existing API clients keep working. */
     hideWeekends?: boolean | null
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
     legendPosition?: LegendPositionApi | null
@@ -2320,7 +2625,13 @@ export interface TrendsFilterApi {
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */
     yAxisLabel?: string | null
+    /** Pins the top of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
+    yAxisMax?: number | null
+    /** Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`. */
+    yAxisMin?: number | null
     yAxisScaleType?: YAxisScaleTypeApi | null
+    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while showing percentages. */
+    yAxisStartAtZero?: boolean | null
 }
 
 export interface TrendsQueryApi {
@@ -2366,8 +2677,10 @@ export interface TrendsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -2376,7 +2689,7 @@ export interface TrendsQueryApi {
     /** Sampling rate */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /** Properties specific to the trends insight */
@@ -2421,8 +2734,10 @@ export interface FunnelExclusionEventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2435,9 +2750,9 @@ export interface FunnelExclusionEventsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2471,8 +2786,10 @@ export interface FunnelExclusionEventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2506,8 +2823,10 @@ export interface FunnelExclusionActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2520,9 +2839,9 @@ export interface FunnelExclusionActionsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2554,8 +2873,10 @@ export interface FunnelExclusionActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2618,6 +2939,8 @@ export interface FunnelsFilterApi {
     breakdownAttributionValue?: number | null
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string | null
+    /** Chart rendering style overrides (line shape). Only applies to historical-trends funnels. */
+    chartStyle?: ChartStyleApi | null
     /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean | null
     exclusions?: (FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi)[] | null
@@ -2668,8 +2991,10 @@ export interface FunnelsQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
     total_median_conversion_time?: number | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type FunnelsDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
@@ -2699,8 +3024,10 @@ export interface FunnelsDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2712,9 +3039,9 @@ export interface FunnelsDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2746,8 +3073,10 @@ export interface FunnelsDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2799,8 +3128,10 @@ export interface FunnelsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -2809,7 +3140,7 @@ export interface FunnelsQueryApi {
     /** Sampling rate */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | FunnelsDataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | FunnelsDataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
@@ -2846,8 +3177,10 @@ export interface RetentionQueryResponseApi {
     results: RetentionResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
@@ -2953,8 +3286,10 @@ export interface RetentionEntityApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -2980,6 +3315,8 @@ export interface RetentionFilterApi {
     aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
     cohortLabelStartIndex?: number | null
     cumulative?: boolean | null
@@ -3042,8 +3379,10 @@ export interface RetentionQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3083,6 +3422,7 @@ export const PathTypeApi = {
 } as const
 
 export interface PathCleaningFilterApi {
+    /** The replacement for the matched path. Use angle-bracket placeholders (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\1` to `\9` for a group and `\0` for the whole match. */
     alias?: string | null
     order?: number | null
     regex?: string | null
@@ -3133,8 +3473,10 @@ export interface PathsQueryResponseApi {
     results: PathsLinkApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface PathsQueryApi {
@@ -3174,8 +3516,10 @@ export interface PathsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3183,6 +3527,173 @@ export interface PathsQueryApi {
     response?: PathsQueryResponseApi | null
     /** Sampling rate */
     samplingFactor?: number | null
+    /** Tags that will be added to the Query log comment */
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface PathsV2ItemApi {
+    /** Event of the step source this item belongs to. */
+    event: string
+    /** Label value from the source's naming property, after path cleaning. An empty string when the property is missing on the event. Null for sources without a naming property. */
+    label?: string | null
+}
+
+export type PathsV2AnchorTypeApi = (typeof PathsV2AnchorTypeApi)[keyof typeof PathsV2AnchorTypeApi]
+
+export const PathsV2AnchorTypeApi = {
+    Start: 'start',
+    End: 'end',
+} as const
+
+export interface PathsV2AnchorApi {
+    /** The path item the chart anchors on. Its event must be one of the step sources. */
+    item: PathsV2ItemApi
+    /** `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the anchor item. Either way the anchor is the grid's single 100% node. */
+    type: PathsV2AnchorTypeApi
+}
+
+export interface PathsV2StepSourceApi {
+    /** Name of the event this source matches. */
+    event: string
+    /** Event property whose value labels the path item, e.g. `$pathname` for pageviews. Team path cleaning rules are applied to the value. Without a naming property, the event itself is the path item. */
+    namingProperty?: string | null
+}
+
+export interface PathsV2FilterApi {
+    /** Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by the conversion window, so every displayed segment equals a plain funnel. Absent selects open mode, which splits an actor's events into journeys on the inactivity gap instead. */
+    anchor?: PathsV2AnchorApi | null
+    /** Apply the team's path cleaning rules to naming property values before they become path items. */
+    applyTeamPathCleaning?: boolean | null
+    /** Merge immediate repeats of the same path item within a journey. */
+    collapseRepeats?: boolean | null
+    /** Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the emitted funnel's window. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap. */
+    conversionWindowInterval?: number | null
+    conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnitApi | null
+    /** Path items dropped from the item universe: events deriving to one of these items are ignored as if their event were not a step source, on both the paths side and the "view as funnel" side. */
+    excludedItems?: PathsV2ItemApi[] | null
+    /** Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds. */
+    gapInterval?: number | null
+    gapIntervalUnit?: FunnelConversionWindowTimeUnitApi | null
+    /** Path cleaning rules for this insight only, applied after the team's rules. */
+    localPathCleaningFilters?: PathCleaningFilterApi[] | null
+    /** Number of path item rows per step; items beyond this go into the "other" row. */
+    maxRowsPerStep?: number | null
+    /** Number of journey steps (columns) shown. */
+    maxSteps?: number | null
+    /** Step sources defining which events can become path items. Defaults to the pageviews preset: `$pageview` named by `$pathname`. */
+    stepSources?: PathsV2StepSourceApi[] | null
+}
+
+export interface PathsV2EdgeApi {
+    /** Unique actors who transition from source to target at any step of any of their whole journeys, the position-free count behind "went source → target at any step". Equals the two-step item-strict funnel's converted count. Only set in open mode on edges between two named items. */
+    anyStepCount?: number | null
+    /** Unique actors with a journey that transitions from source to target between these steps. */
+    count: number
+    /** Source path item, or null for the source column's "other" row. */
+    source: PathsV2ItemApi | null
+    /** 0-based step index of the source column; the target sits at `stepIndex + 1`. */
+    stepIndex: number
+    /** Target path item, or null for the target column's "other" row. */
+    target: PathsV2ItemApi | null
+}
+
+export interface PathsV2PrefixApi {
+    /** Unique actors whose anchored sequence begins with exactly these items. */
+    count: number
+    /** The chain's path items in order, starting at the anchor. */
+    items: PathsV2ItemApi[]
+}
+
+export interface PathsV2RowApi {
+    /** Unique actors with a journey whose item at this step is this path item. */
+    count: number
+    item: PathsV2ItemApi
+}
+
+export interface PathsV2StepApi {
+    /** Unique actors whose journey ends at this step. */
+    dropOffCount: number
+    /** Unique actors at this step whose path item is beyond the top rows. */
+    otherCount: number
+    /** Top path items at this step, ordered by unique-actor count descending. */
+    rows: PathsV2RowApi[]
+    /** 0-based step index (column) in the journey grid. */
+    stepIndex: number
+}
+
+export interface PathsV2ResultsApi {
+    edges: PathsV2EdgeApi[]
+    /** Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain. Only chains the grid displays in full are carried: chains through the other bucket are omitted, so the response never exposes labels the chart hides. */
+    prefixes: PathsV2PrefixApi[]
+    steps: PathsV2StepApi[]
+}
+
+export interface PathsV2QueryResponseApi {
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: PathsV2ResultsApi
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface PathsV2QueryApi {
+    /** Colors used in the insight's visualization */
+    dataColorTheme?: number | null
+    /** Date range for the query */
+    dateRange?: DateRangeApi | null
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean | null
+    kind?: 'PathsV2Query'
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    /** Properties specific to the paths v2 insight */
+    pathsV2Filter?: PathsV2FilterApi | null
+    /** Property filters for all series */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | PropertyGroupFilterApi
+        | null
+    response?: PathsV2QueryResponseApi | null
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
@@ -3207,8 +3718,10 @@ export interface StickinessQueryResponseApi {
     results: StickinessQueryResponseApiResultsItem[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type StickinessComputationModeApi =
@@ -3242,6 +3755,8 @@ export type StickinessFilterApiResultCustomizations =
     | null
 
 export interface StickinessFilterApi {
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     computedAs?: StickinessComputationModeApi | null
     display?: ChartDisplayTypeApi | null
     hiddenLegendIndexes?: number[] | null
@@ -3294,8 +3809,10 @@ export interface StickinessQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3351,8 +3868,10 @@ export interface LifecycleQueryResponseApi {
     results: LifecycleQueryResponseApiResultsItem[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type LifecycleDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
@@ -3382,8 +3901,10 @@ export interface LifecycleDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -3394,9 +3915,9 @@ export interface LifecycleDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -3428,8 +3949,10 @@ export interface LifecycleDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -3479,8 +4002,10 @@ export interface LifecycleQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | PropertyGroupFilterApi
@@ -3514,6 +4039,14 @@ export const WebStatsBreakdownApi = {
     InitialUTMTerm: 'InitialUTMTerm',
     InitialUTMContent: 'InitialUTMContent',
     InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+    FirstPageviewChannelType: 'FirstPageviewChannelType',
+    FirstPageviewReferringDomain: 'FirstPageviewReferringDomain',
+    FirstPageviewUTMSource: 'FirstPageviewUTMSource',
+    FirstPageviewUTMCampaign: 'FirstPageviewUTMCampaign',
+    FirstPageviewUTMMedium: 'FirstPageviewUTMMedium',
+    FirstPageviewUTMTerm: 'FirstPageviewUTMTerm',
+    FirstPageviewUTMContent: 'FirstPageviewUTMContent',
+    FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
     Browser: 'Browser',
     Os: 'OS',
     Viewport: 'Viewport',
@@ -3579,6 +4112,8 @@ export interface WebStatsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -3591,8 +4126,10 @@ export interface WebStatsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface WebAnalyticsSamplingApi {
@@ -3680,8 +4217,10 @@ export interface WebOverviewQueryResponseApi {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface WebOverviewQueryApi {
@@ -3755,6 +4294,7 @@ export interface InsightVizNodeApi {
         | FunnelsQueryApi
         | RetentionQueryApi
         | PathsQueryApi
+        | PathsV2QueryApi
         | StickinessQueryApi
         | LifecycleQueryApi
         | WebStatsTableQueryApi
@@ -3807,8 +4347,10 @@ export interface ResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface Response1Api {
@@ -3833,8 +4375,10 @@ export interface Response1Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: string[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface Response2Api {
@@ -3859,8 +4403,10 @@ export interface Response2Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface HogQLNoticeApi {
@@ -3921,8 +4467,10 @@ export interface Response3Api {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface Response4Api {
@@ -3945,8 +4493,10 @@ export interface Response4Api {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface Response5Api {
@@ -3960,6 +4510,8 @@ export interface Response5Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -3972,8 +4524,10 @@ export interface Response5Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface Response6Api {
@@ -3998,11 +4552,40 @@ export interface Response6Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface Response7Api {
+    columns?: unknown[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: unknown[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface Response8Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4025,8 +4608,10 @@ export interface Response7Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
@@ -4040,7 +4625,7 @@ export interface WebVitalsPathBreakdownResultApi {
     poor: WebVitalsPathBreakdownResultItemApi[]
 }
 
-export interface Response8Api {
+export interface Response9Api {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -4061,11 +4646,13 @@ export interface Response8Api {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response9Api {
+export interface Response10Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4086,11 +4673,13 @@ export interface Response9Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response10Api {
+export interface Response11Api {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4111,159 +4700,10 @@ export interface Response10Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface Response11Api {
-    columns?: string[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface Response12Api {
-    columns?: string[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface RevenueAnalyticsMRRQueryResultItemApi {
-    churn: unknown
-    contraction: unknown
-    expansion: unknown
-    new: unknown
-    total: unknown
-}
-
-export interface Response13Api {
-    columns?: string[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: RevenueAnalyticsMRRQueryResultItemApi[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export type RevenueAnalyticsOverviewItemKeyApi =
-    (typeof RevenueAnalyticsOverviewItemKeyApi)[keyof typeof RevenueAnalyticsOverviewItemKeyApi]
-
-export const RevenueAnalyticsOverviewItemKeyApi = {
-    Revenue: 'revenue',
-    PayingCustomerCount: 'paying_customer_count',
-    AvgRevenuePerCustomer: 'avg_revenue_per_customer',
-} as const
-
-export interface RevenueAnalyticsOverviewItemApi {
-    key: RevenueAnalyticsOverviewItemKeyApi
-    value: number
-}
-
-export interface Response14Api {
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: RevenueAnalyticsOverviewItemApi[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface Response15Api {
-    columns?: string[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface Response16Api {
-    columns?: unknown[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    hasMore?: boolean | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    limit?: number | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    offset?: number | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface MarketingAnalyticsItemApi {
@@ -4276,7 +4716,7 @@ export interface MarketingAnalyticsItemApi {
     value?: number | string | null
 }
 
-export interface Response18Api {
+export interface Response12Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4298,13 +4738,15 @@ export interface Response18Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export type Response19ApiResults = { [key: string]: MarketingAnalyticsItemApi }
+export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
-export interface Response19Api {
+export interface Response13Api {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -4317,15 +4759,17 @@ export interface Response19Api {
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: Response19ApiResults
+    results: Response13ApiResults
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response20Api {
+export interface Response14Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4347,8 +4791,10 @@ export interface Response20Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface VolumeBucketApi {
@@ -4393,6 +4839,7 @@ export const IntegrationKindApi = {
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
@@ -4405,6 +4852,7 @@ export const IntegrationKindApi = {
     Github: 'github',
     Gitlab: 'gitlab',
     MetaAds: 'meta-ads',
+    Instagram: 'instagram',
     Clickup: 'clickup',
     RedditAds: 'reddit-ads',
     Databricks: 'databricks',
@@ -4415,12 +4863,16 @@ export const IntegrationKindApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    Pardot: 'pardot',
     CustomerioApp: 'customerio-app',
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
+    Apns: 'apns',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
+    Snowflake: 'snowflake',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -4449,6 +4901,16 @@ export interface LastEventApi {
     uuid: string
 }
 
+export type ErrorTrackingQueryIssueSeverityApi =
+    (typeof ErrorTrackingQueryIssueSeverityApi)[keyof typeof ErrorTrackingQueryIssueSeverityApi]
+
+export const ErrorTrackingQueryIssueSeverityApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
 export type ErrorTrackingIssueStatusApi = (typeof ErrorTrackingIssueStatusApi)[keyof typeof ErrorTrackingIssueStatusApi]
 
 export const ErrorTrackingIssueStatusApi = {
@@ -4473,11 +4935,12 @@ export interface ErrorTrackingIssueApi {
     last_seen: string
     library?: string | null
     name?: string | null
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
 }
 
-export interface Response21Api {
+export interface Response15Api {
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4497,8 +4960,10 @@ export interface Response21Api {
     results: ErrorTrackingIssueApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface PopulationApi {
@@ -4521,10 +4986,11 @@ export interface ErrorTrackingCorrelatedIssueApi {
     name?: string | null
     odds_ratio: number
     population: PopulationApi
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
 }
 
-export interface Response22Api {
+export interface Response16Api {
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4544,8 +5010,10 @@ export interface Response22Api {
     results: ErrorTrackingCorrelatedIssueApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type ExperimentSignificanceCodeApi =
@@ -4565,19 +5033,19 @@ export interface ExperimentVariantFunnelsBaseStatsApi {
     success_count: number
 }
 
-export type Response23ApiCredibleIntervals = { [key: string]: number[] }
+export type Response17ApiCredibleIntervals = { [key: string]: number[] }
 
-export type Response23ApiInsightItemItem = { [key: string]: unknown }
+export type Response17ApiInsightItemItem = { [key: string]: unknown }
 
-export type Response23ApiProbability = { [key: string]: number }
+export type Response17ApiProbability = { [key: string]: number }
 
-export interface Response23Api {
-    credible_intervals: Response23ApiCredibleIntervals
+export interface Response17Api {
+    credible_intervals: Response17ApiCredibleIntervals
     expected_loss: number
     funnels_query?: FunnelsQueryApi | null
-    insight: Response23ApiInsightItemItem[][]
+    insight: Response17ApiInsightItemItem[][]
     kind?: 'ExperimentFunnelsQuery'
-    probability: Response23ApiProbability
+    probability: Response17ApiProbability
     significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     stats_version?: number | null
@@ -4593,20 +5061,20 @@ export interface ExperimentVariantTrendsBaseStatsApi {
     key: string
 }
 
-export type Response24ApiCredibleIntervals = { [key: string]: number[] }
+export type Response18ApiCredibleIntervals = { [key: string]: number[] }
 
-export type Response24ApiInsightItem = { [key: string]: unknown }
+export type Response18ApiInsightItem = { [key: string]: unknown }
 
-export type Response24ApiProbability = { [key: string]: number }
+export type Response18ApiProbability = { [key: string]: number }
 
-export interface Response24Api {
+export interface Response18Api {
     count_query?: TrendsQueryApi | null
-    credible_intervals: Response24ApiCredibleIntervals
+    credible_intervals: Response18ApiCredibleIntervals
     exposure_query?: TrendsQueryApi | null
-    insight: Response24ApiInsightItem[]
+    insight: Response18ApiInsightItem[]
     kind?: 'ExperimentTrendsQuery'
     p_value: number
-    probability: Response24ApiProbability
+    probability: Response18ApiProbability
     significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     stats_version?: number | null
@@ -4695,7 +5163,7 @@ export interface LLMTraceApi {
     webSearchCost?: number | null
 }
 
-export interface Response25Api {
+export interface Response19Api {
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4715,11 +5183,13 @@ export interface Response25Api {
     results: LLMTraceApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response26Api {
+export interface Response21Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4740,11 +5210,13 @@ export interface Response26Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
-export interface Response27Api {
+export interface Response22Api {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4768,8 +5240,81 @@ export interface Response27Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface AccountsTableCustomPropertyHistoryPointApi {
+    timestamp: string
+    value: number
+}
+
+/**
+ * Requested direct Account fields, keyed by their typed field reference.
+ */
+export type AccountsTableRowApiAccountFields = { [key: string]: string | null }
+
+/**
+ * Current values keyed by requested custom property definition ID.
+ */
+export type AccountsTableRowApiCustomProperties = { [key: string]: string | number | boolean | null }
+
+/**
+ * Numeric write history keyed by requested custom property definition ID.
+ */
+export type AccountsTableRowApiCustomPropertyHistory = { [key: string]: AccountsTableCustomPropertyHistoryPointApi[] }
+
+/**
+ * Active assignee user IDs keyed by requested relationship definition ID.
+ */
+export type AccountsTableRowApiRelationships = { [key: string]: number[] }
+
+export interface AccountsTableRowApi {
+    /** Requested direct Account fields, keyed by their typed field reference. */
+    accountFields: AccountsTableRowApiAccountFields
+    /** Current values keyed by requested custom property definition ID. */
+    customProperties: AccountsTableRowApiCustomProperties
+    /** Numeric write history keyed by requested custom property definition ID. */
+    customPropertyHistory: AccountsTableRowApiCustomPropertyHistory
+    externalId?: string | null
+    id: string
+    name: string
+    /** Number of linked internal notes. Omitted when the request does not select the note count. */
+    noteCount?: number | null
+    /** Active assignee user IDs keyed by requested relationship definition ID. */
+    relationships: AccountsTableRowApiRelationships
+    /** Sorted tag names. Omitted when the request does not select tags. */
+    tags?: string[] | null
+}
+
+export interface Response23Api {
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore: boolean
+    /** Generated HogQL query. */
+    hogql?: string | null
+    kind?: 'AccountsTableQuery'
+    limit: number
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: AccountsTableRowApi[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type TaxonomicFilterGroupTypeApi = (typeof TaxonomicFilterGroupTypeApi)[keyof typeof TaxonomicFilterGroupTypeApi]
@@ -4781,6 +5326,7 @@ export const TaxonomicFilterGroupTypeApi = {
     CohortsWithAll: 'cohorts_with_all',
     DataWarehouse: 'data_warehouse',
     DataWarehouseSourceTables: 'data_warehouse_source_tables',
+    DataWarehouseMaterializedViews: 'data_warehouse_materialized_views',
     DataWarehouseProperties: 'data_warehouse_properties',
     DataWarehousePersonProperties: 'data_warehouse_person_properties',
     Elements: 'elements',
@@ -4817,15 +5363,19 @@ export const TaxonomicFilterGroupTypeApi = {
     Logs: 'logs',
     LogAttributes: 'log_attributes',
     LogResourceAttributes: 'log_resource_attributes',
+    MetricAttributes: 'metric_attributes',
     Spans: 'spans',
     SpanAttributes: 'span_attributes',
     SpanResourceAttributes: 'span_resource_attributes',
     Replay: 'replay',
     ReplaySavedFilters: 'replay_saved_filters',
     RevenueAnalyticsProperties: 'revenue_analytics_properties',
+    AccountFields: 'account_fields',
+    AccountCustomProperties: 'account_custom_properties',
     Resources: 'resources',
     ErrorTrackingProperties: 'error_tracking_properties',
     ActivityLogProperties: 'activity_log_properties',
+    McpProperties: 'mcp_properties',
     MaxAiContext: 'max_ai_context',
     WorkflowVariables: 'workflow_variables',
     SuggestedFilters: 'suggested_filters',
@@ -4882,8 +5432,10 @@ export interface EventsQueryActionStepApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -4918,8 +5470,10 @@ export interface EventsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export type CompareApi = (typeof CompareApi)[keyof typeof CompareApi]
@@ -4951,8 +5505,10 @@ export interface ActorsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: string[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface InsightActorsQueryApi {
@@ -4972,6 +5528,7 @@ export interface InsightActorsQueryApi {
         | FunnelsQueryApi
         | RetentionQueryApi
         | PathsQueryApi
+        | PathsV2QueryApi
         | StickinessQueryApi
         | LifecycleQueryApi
         | WebStatsTableQueryApi
@@ -5020,8 +5577,10 @@ export interface EventsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5057,8 +5616,10 @@ export interface EventsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5100,8 +5661,10 @@ export interface PersonsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5131,8 +5694,10 @@ export interface PersonsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5222,8 +5787,10 @@ export interface FunnelCorrelationResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface FunnelCorrelationQueryApi {
@@ -5263,8 +5830,10 @@ export interface FunnelCorrelationActorsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5303,8 +5872,10 @@ export interface ExperimentEventExposureConfigApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
     response?: ExperimentEventExposureConfigApiResponse
@@ -5353,8 +5924,10 @@ export interface ExperimentDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5364,9 +5937,9 @@ export interface ExperimentDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -5398,8 +5971,10 @@ export interface ExperimentDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5440,6 +6015,10 @@ export interface ExperimentMeanMetricApi {
 export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentFunnelMetricApi {
+    /** How to attribute the breakdown value across funnel steps. */
+    breakdownAttributionType?: BreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
     breakdownFilter?: BreakdownFilterApi | null
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
@@ -5699,9 +6278,52 @@ export interface StickinessActorsQueryApi {
     version?: number | null
 }
 
+export type PathsV2ElementTypeApi = (typeof PathsV2ElementTypeApi)[keyof typeof PathsV2ElementTypeApi]
+
+export const PathsV2ElementTypeApi = {
+    Node: 'node',
+    Edge: 'edge',
+    DropOff: 'dropOff',
+    Other: 'other',
+    Chain: 'chain',
+} as const
+
+export interface PathsV2ElementSelectorApi {
+    /** Match the source → target transition at any step of any whole journey instead of at one step pair: the position-free set behind an edge's anyStepCount. Requires a named source and target and open mode. Edge elements only. */
+    anyStep?: boolean | null
+    /** The chain's path items in order from the anchor. Returns the actors whose anchored sequence begins with exactly these items, the set behind a hover preview's per-chain counts. Chain elements only, anchored mode only. Bounded by the step maximum: a longer chain can never match a displayed card. */
+    chain?: PathsV2ItemApi[] | null
+    elementType: PathsV2ElementTypeApi
+    /** The node card's path item. Node elements only. */
+    item?: PathsV2ItemApi | null
+    /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+    source?: PathsV2ItemApi | null
+    /** 0-based step index (column) of the element; for an edge, its source column. Required for node, other, dropOff, and positional edge elements. */
+    stepIndex?: number | null
+    /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
+    target?: PathsV2ItemApi | null
+}
+
+export interface PathsV2ActorsQueryApi {
+    element: PathsV2ElementSelectorApi
+    includeRecordings?: boolean | null
+    kind?: 'PathsV2ActorsQuery'
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    response?: ActorsQueryResponseApi | null
+    source: PathsV2QueryApi
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export interface HogQLFiltersApi {
+    /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
+    breakdownFilter?: BreakdownFilterApi | null
     dateRange?: DateRangeApi | null
     filterTestAccounts?: boolean | null
+    /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
+    interval?: IntervalTypeApi | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -5722,8 +6344,10 @@ export interface HogQLFiltersApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -5760,8 +6384,10 @@ export interface HogQLQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Types of returned columns */
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface HogQLVariableApi {
@@ -5782,9 +6408,10 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 
 export interface HogQLQueryApi {
-    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
+    /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string | null
     explain?: boolean | null
+    /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
     kind?: 'HogQLQuery'
     /** Modifiers used when performing the query */
@@ -5805,6 +6432,8 @@ export interface HogQLQueryApi {
 }
 
 export interface ActorsQueryApi {
+    /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+    filterTestAccounts?: boolean | null
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?:
         | (
@@ -5841,6 +6470,7 @@ export interface ActorsQueryApi {
         | FunnelCorrelationActorsQueryApi
         | ExperimentActorsQueryApi
         | StickinessActorsQueryApi
+        | PathsV2ActorsQueryApi
         | HogQLQueryApi
         | null
     tags?: QueryLogTagsApi | null
@@ -5870,8 +6500,10 @@ export interface GroupsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface GroupsQueryApi {
@@ -5913,8 +6545,10 @@ export interface WebExternalClicksTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface WebExternalClicksTableQueryApi {
@@ -5952,6 +6586,75 @@ export interface WebExternalClicksTableQueryApi {
     version?: number | null
 }
 
+export type WebBotsBreakdownApi = (typeof WebBotsBreakdownApi)[keyof typeof WebBotsBreakdownApi]
+
+export const WebBotsBreakdownApi = {
+    Crawler: 'Crawler',
+    Path: 'Path',
+} as const
+
+export interface WebBotsTableQueryResponseApi {
+    columns?: unknown[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: unknown[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface WebBotsTableQueryApi {
+    /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+    aggregation_group_type_index?: number | null
+    breakdownBy: WebBotsBreakdownApi
+    compareFilter?: CompareFilterApi | null
+    conversionGoal?: ActionConversionGoalApi | CustomEventConversionGoalApi | null
+    /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+    dataColorTheme?: number | null
+    dateRange?: DateRangeApi | null
+    doPathCleaning?: boolean | null
+    filterTestAccounts?: boolean | null
+    includeRevenue?: boolean | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalTypeApi | null
+    kind?: 'WebBotsTableQuery'
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
+    response?: WebBotsTableQueryResponseApi | null
+    sampling?: WebAnalyticsSamplingApi | null
+    /** Sampling rate */
+    samplingFactor?: number | null
+    tags?: QueryLogTagsApi | null
+    useSessionsTable?: boolean | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export interface WebGoalsQueryResponseApi {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5975,8 +6678,10 @@ export interface WebGoalsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface WebGoalsQueryApi {
@@ -6047,6 +6752,7 @@ export interface WebVitalsQueryApi {
         | FunnelsQueryApi
         | RetentionQueryApi
         | PathsQueryApi
+        | PathsV2QueryApi
         | StickinessQueryApi
         | LifecycleQueryApi
         | WebStatsTableQueryApi
@@ -6095,8 +6801,10 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     results: WebVitalsPathBreakdownResultApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface WebVitalsPathBreakdownQueryApi {
@@ -6180,8 +6888,10 @@ export interface SessionAttributionExplorerQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface SessionAttributionExplorerQueryApi {
@@ -6219,8 +6929,10 @@ export interface SessionsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface SessionsQueryApi {
@@ -6253,8 +6965,10 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6283,8 +6997,10 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6320,8 +7036,10 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6335,271 +7053,6 @@ export interface SessionsQueryApi {
     where?: string[] | null
 }
 
-export interface RevenueAnalyticsBreakdownApi {
-    property: string
-    type?: 'revenue_analytics'
-}
-
-export type SimpleIntervalTypeApi = (typeof SimpleIntervalTypeApi)[keyof typeof SimpleIntervalTypeApi]
-
-export const SimpleIntervalTypeApi = {
-    Day: 'day',
-    Month: 'month',
-} as const
-
-export interface RevenueAnalyticsGrossRevenueQueryResponseApi {
-    columns?: string[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface RevenueAnalyticsGrossRevenueQueryApi {
-    breakdown: RevenueAnalyticsBreakdownApi[]
-    dateRange?: DateRangeApi | null
-    interval: SimpleIntervalTypeApi
-    kind?: 'RevenueAnalyticsGrossRevenueQuery'
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    properties: RevenueAnalyticsPropertyFilterApi[]
-    response?: RevenueAnalyticsGrossRevenueQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export interface RevenueAnalyticsMetricsQueryResponseApi {
-    columns?: string[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface RevenueAnalyticsMetricsQueryApi {
-    breakdown: RevenueAnalyticsBreakdownApi[]
-    dateRange?: DateRangeApi | null
-    interval: SimpleIntervalTypeApi
-    kind?: 'RevenueAnalyticsMetricsQuery'
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    properties: RevenueAnalyticsPropertyFilterApi[]
-    response?: RevenueAnalyticsMetricsQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export interface RevenueAnalyticsMRRQueryResponseApi {
-    columns?: string[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: RevenueAnalyticsMRRQueryResultItemApi[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface RevenueAnalyticsMRRQueryApi {
-    breakdown: RevenueAnalyticsBreakdownApi[]
-    dateRange?: DateRangeApi | null
-    interval: SimpleIntervalTypeApi
-    kind?: 'RevenueAnalyticsMRRQuery'
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    properties: RevenueAnalyticsPropertyFilterApi[]
-    response?: RevenueAnalyticsMRRQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export interface RevenueAnalyticsOverviewQueryResponseApi {
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: RevenueAnalyticsOverviewItemApi[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface RevenueAnalyticsOverviewQueryApi {
-    dateRange?: DateRangeApi | null
-    kind?: 'RevenueAnalyticsOverviewQuery'
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    properties: RevenueAnalyticsPropertyFilterApi[]
-    response?: RevenueAnalyticsOverviewQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export type RevenueAnalyticsTopCustomersGroupByApi =
-    (typeof RevenueAnalyticsTopCustomersGroupByApi)[keyof typeof RevenueAnalyticsTopCustomersGroupByApi]
-
-export const RevenueAnalyticsTopCustomersGroupByApi = {
-    Month: 'month',
-    All: 'all',
-} as const
-
-export interface RevenueAnalyticsTopCustomersQueryResponseApi {
-    columns?: string[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface RevenueAnalyticsTopCustomersQueryApi {
-    dateRange?: DateRangeApi | null
-    groupBy: RevenueAnalyticsTopCustomersGroupByApi
-    kind?: 'RevenueAnalyticsTopCustomersQuery'
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    properties: RevenueAnalyticsPropertyFilterApi[]
-    response?: RevenueAnalyticsTopCustomersQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export interface RevenueExampleEventsQueryResponseApi {
-    columns?: unknown[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    hasMore?: boolean | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    limit?: number | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    offset?: number | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface RevenueExampleEventsQueryApi {
-    kind?: 'RevenueExampleEventsQuery'
-    limit?: number | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    offset?: number | null
-    response?: RevenueExampleEventsQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
-export interface RevenueExampleDataWarehouseTablesQueryResponseApi {
-    columns?: unknown[] | null
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string | null
-    hasMore?: boolean | null
-    /** Generated HogQL query. */
-    hogql?: string | null
-    limit?: number | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    offset?: number | null
-    /** Query status indicates whether next to the provided data, a query is still running. */
-    query_status?: QueryStatusApi | null
-    /** The resolved previous/comparison period date range, when comparing against another period */
-    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
-    /** The date range used for the query */
-    resolved_date_range?: ResolvedDateRangeResponseApi | null
-    results: unknown
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTimingApi[] | null
-    types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
-}
-
-export interface RevenueExampleDataWarehouseTablesQueryApi {
-    kind?: 'RevenueExampleDataWarehouseTablesQuery'
-    limit?: number | null
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiersApi | null
-    offset?: number | null
-    response?: RevenueExampleDataWarehouseTablesQueryResponseApi | null
-    tags?: QueryLogTagsApi | null
-    /** version of the node, used for schema migrations */
-    version?: number | null
-}
-
 export type ConversionGoalFilter1ApiResponse = { [key: string]: unknown } | null
 
 export type ConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknown }
@@ -6607,6 +7060,10 @@ export type ConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter1Api {
     conversion_goal_id: string
     conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
     custom_name?: string | null
     /** The event or `null` for all events. */
     event?: string | null
@@ -6631,8 +7088,10 @@ export interface ConversionGoalFilter1Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6643,9 +7102,9 @@ export interface ConversionGoalFilter1Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -6679,8 +7138,10 @@ export interface ConversionGoalFilter1Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6697,6 +7158,10 @@ export type ConversionGoalFilter2ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter2Api {
     conversion_goal_id: string
     conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
     custom_name?: string | null
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?:
@@ -6719,8 +7184,10 @@ export interface ConversionGoalFilter2Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6731,9 +7198,9 @@ export interface ConversionGoalFilter2Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -6765,8 +7232,10 @@ export interface ConversionGoalFilter2Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6783,6 +7252,10 @@ export type ConversionGoalFilter3ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter3Api {
     conversion_goal_id: string
     conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
     custom_name?: string | null
     distinct_id_field: string
     dw_source_type?: string | null
@@ -6807,8 +7280,10 @@ export interface ConversionGoalFilter3Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6820,9 +7295,9 @@ export interface ConversionGoalFilter3Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -6854,8 +7329,10 @@ export interface ConversionGoalFilter3Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
@@ -6872,6 +7349,7 @@ export type MarketingAnalyticsDrillDownLevelApi =
 
 export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
+    ChannelSource: 'channel_source',
     Source: 'source',
     Campaign: 'campaign',
     AdGroup: 'ad_group',
@@ -6916,8 +7394,10 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface MarketingAnalyticsTableQueryApi {
@@ -6987,8 +7467,10 @@ export interface MarketingAnalyticsAggregatedQueryResponseApi {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface MarketingAnalyticsAggregatedQueryApi {
@@ -7053,8 +7535,10 @@ export interface NonIntegratedConversionsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface NonIntegratedConversionsTableQueryApi {
@@ -7128,6 +7612,7 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
     issue_description?: string | null
     issue_id: string
     issue_name?: string | null
+    issue_severity?: ErrorTrackingQueryIssueSeverityApi | null
     issue_status: string
     /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
     version: number
@@ -7153,8 +7638,10 @@ export interface ErrorTrackingQueryResponseApi {
     results: ErrorTrackingIssueApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface ErrorTrackingQueryApi {
@@ -7216,8 +7703,10 @@ export interface ErrorTrackingIssueCorrelationQueryResponseApi {
     results: ErrorTrackingCorrelatedIssueApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface ErrorTrackingIssueCorrelationQueryApi {
@@ -7325,8 +7814,10 @@ export interface TracesQueryResponseApi {
     results: LLMTraceApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface TracesQueryApi {
@@ -7365,14 +7856,17 @@ export interface TracesQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean | null
     response?: TracesQueryResponseApi | null
+    searchTerm?: string | null
     showColumnConfigurator?: boolean | null
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
@@ -7399,8 +7893,10 @@ export interface TraceQueryResponseApi {
     results: LLMTraceApi[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface TraceQueryApi {
@@ -7431,14 +7927,58 @@ export interface TraceQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
     response?: TraceQueryResponseApi | null
     tags?: QueryLogTagsApi | null
     traceId: string
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface SessionQueryResponseApi {
+    columns?: string[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: LLMTraceApi[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface SessionQueryApi {
+    dateRange?: DateRangeApi | null
+    /** Include stored sentiment evaluation results for returned traces and generation events. */
+    includeSentiment?: boolean | null
+    kind?: 'SessionQuery'
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    response?: SessionQueryResponseApi | null
+    sessionId: string
+    tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7499,8 +8039,10 @@ export interface EndpointsUsageTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface EndpointsUsageTableQueryApi {
@@ -7546,16 +8088,21 @@ export interface AccountsQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types: string[]
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
 export interface AccountsQueryApi {
+    /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean | null
-    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
     kind?: 'AccountsQuery'
     limit?: number | null
     /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
@@ -7568,6 +8115,275 @@ export interface AccountsQueryApi {
     search?: string | null
     select?: string[] | null
     tagNames?: string[] | null
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type AccountsTableAccountFieldApi =
+    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
+
+export const AccountsTableAccountFieldApi = {
+    Name: 'name',
+    ExternalId: 'external_id',
+    CreatedAt: 'created_at',
+    UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
+    StripeCustomerId: 'stripe_customer_id',
+    HubspotDealId: 'hubspot_deal_id',
+    BillingId: 'billing_id',
+    SfdcId: 'sfdc_id',
+    ZendeskId: 'zendesk_id',
+} as const
+
+export interface AccountsTableAccountFieldColumnApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+}
+
+export const AccountsTableTagsColumnApiValue = {
+    kind: 'tags',
+} as const
+export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
+
+export const AccountsTableNoteCountColumnApiValue = {
+    kind: 'note_count',
+} as const
+export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
+
+export interface AccountsTableRelationshipColumnApi {
+    /** Team-scoped relationship definition to return for each account. */
+    definitionId: string
+    kind?: 'relationship'
+}
+
+export interface AccountsTableCustomPropertyColumnApi {
+    /** Team-scoped custom property definition to return for each account. */
+    definitionId: string
+    kind?: 'custom_property'
+}
+
+export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
+
+export const WindowDaysApi = {
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+    Number90: 90,
+} as const
+
+export interface AccountsTableCustomPropertyHistoryColumnApi {
+    /** Team-scoped numeric custom property definition whose write history should be returned. */
+    definitionId: string
+    kind?: 'custom_property_history'
+    /** Number of days of history to return. The current value is included even when it is older. */
+    windowDays: WindowDaysApi
+}
+
+export interface AccountsTableSearchFilterApi {
+    kind?: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilterApi {
+    kind?: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilterApi {
+    kind?: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: number[]
+}
+
+export const AccountsTableUnassignedFilterApiValue = {
+    kind: 'unassigned',
+} as const
+export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
+
+export interface AccountsTableAccountIdFilterApi {
+    accountId: string
+    kind?: 'account_id'
+}
+
+export type AccountsTableAccountFieldOperatorApi =
+    (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
+
+export const AccountsTableAccountFieldOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+export interface AccountsTableAccountFieldFilterApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+    operator: AccountsTableAccountFieldOperatorApi
+    values?: string[] | null
+}
+
+export type AccountsTableCustomPropertyOperatorApi =
+    (typeof AccountsTableCustomPropertyOperatorApi)[keyof typeof AccountsTableCustomPropertyOperatorApi]
+
+export const AccountsTableCustomPropertyOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+export interface AccountsTableCustomPropertyFilterApi {
+    definitionId: string
+    kind?: 'custom_property'
+    operator: AccountsTableCustomPropertyOperatorApi
+    /** Values interpreted according to the custom property definition's display type. */
+    values?: (string | number | boolean)[] | null
+}
+
+export const AccountsTableCountMetricApiValue = {
+    kind: 'count',
+} as const
+export type AccountsTableCountMetricApi = typeof AccountsTableCountMetricApiValue
+
+export type AccountsTableAggregationApi = (typeof AccountsTableAggregationApi)[keyof typeof AccountsTableAggregationApi]
+
+export const AccountsTableAggregationApi = {
+    Sum: 'sum',
+    Avg: 'avg',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+} as const
+
+export interface AccountsTableAggregateMetricApi {
+    aggregation: AccountsTableAggregationApi
+    column: AccountsTableCustomPropertyColumnApi
+    kind?: 'aggregate'
+    scale?: number | null
+}
+
+export type AccountsTableThresholdOperatorApi =
+    (typeof AccountsTableThresholdOperatorApi)[keyof typeof AccountsTableThresholdOperatorApi]
+
+export const AccountsTableThresholdOperatorApi = {
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    Exact: 'exact',
+    IsNot: 'is_not',
+} as const
+
+export interface AccountsTableCountThresholdMetricApi {
+    column: AccountsTableCustomPropertyColumnApi
+    kind?: 'count_threshold'
+    operator: AccountsTableThresholdOperatorApi
+    value: number
+}
+
+export interface AccountsTableQueryResponseApi {
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore: boolean
+    /** Generated HogQL query. */
+    hogql?: string | null
+    kind?: 'AccountsTableQuery'
+    limit: number
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: AccountsTableRowApi[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export type AccountsTableSortDirectionApi =
+    (typeof AccountsTableSortDirectionApi)[keyof typeof AccountsTableSortDirectionApi]
+
+export const AccountsTableSortDirectionApi = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const
+
+export interface AccountsTableSortApi {
+    /** A typed column that supports server-side sorting. */
+    column:
+        | AccountsTableAccountFieldColumnApi
+        | AccountsTableTagsColumnApi
+        | AccountsTableNoteCountColumnApi
+        | AccountsTableRelationshipColumnApi
+        | AccountsTableCustomPropertyColumnApi
+    direction: AccountsTableSortDirectionApi
+}
+
+export interface AccountsTableQueryApi {
+    /** Columns to load for each account. Account identity fields are always returned. */
+    columns: (
+        | AccountsTableAccountFieldColumnApi
+        | AccountsTableTagsColumnApi
+        | AccountsTableNoteCountColumnApi
+        | AccountsTableRelationshipColumnApi
+        | AccountsTableCustomPropertyColumnApi
+        | AccountsTableCustomPropertyHistoryColumnApi
+    )[]
+    /** Filters are combined with AND. Values within tag and assignment filters use OR. */
+    filters?:
+        | (
+              | AccountsTableSearchFilterApi
+              | AccountsTableTagsFilterApi
+              | AccountsTableAssignedToFilterApi
+              | AccountsTableUnassignedFilterApi
+              | AccountsTableAccountIdFilterApi
+              | AccountsTableAccountFieldFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[]
+        | null
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean | null
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean | null
+    kind?: 'AccountsTableQuery'
+    limit?: number | null
+    /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
+    metrics?:
+        | (AccountsTableCountMetricApi | AccountsTableAggregateMetricApi | AccountsTableCountThresholdMetricApi)[]
+        | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    response?: AccountsTableQueryResponseApi | null
+    sort?: AccountsTableSortApi | null
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -7592,16 +8408,12 @@ export type DataTableNodeApiResponse =
     | Response14Api
     | Response15Api
     | Response16Api
+    | Response17Api
     | Response18Api
     | Response19Api
-    | Response20Api
     | Response21Api
     | Response22Api
     | Response23Api
-    | Response24Api
-    | Response25Api
-    | Response26Api
-    | Response27Api
     | null
 
 export interface DataTableNodeApi {
@@ -7686,18 +8498,12 @@ export interface DataTableNodeApi {
         | WebOverviewQueryApi
         | WebStatsTableQueryApi
         | WebExternalClicksTableQueryApi
+        | WebBotsTableQueryApi
         | WebGoalsQueryApi
         | WebVitalsQueryApi
         | WebVitalsPathBreakdownQueryApi
         | SessionAttributionExplorerQueryApi
         | SessionsQueryApi
-        | RevenueAnalyticsGrossRevenueQueryApi
-        | RevenueAnalyticsMetricsQueryApi
-        | RevenueAnalyticsMRRQueryApi
-        | RevenueAnalyticsOverviewQueryApi
-        | RevenueAnalyticsTopCustomersQueryApi
-        | RevenueExampleEventsQueryApi
-        | RevenueExampleDataWarehouseTablesQueryApi
         | MarketingAnalyticsTableQueryApi
         | MarketingAnalyticsAggregatedQueryApi
         | NonIntegratedConversionsTableQueryApi
@@ -7707,8 +8513,10 @@ export interface DataTableNodeApi {
         | ExperimentTrendsQueryApi
         | TracesQueryApi
         | TraceQueryApi
+        | SessionQueryApi
         | EndpointsUsageTableQueryApi
         | AccountsQueryApi
+        | AccountsTableQueryApi
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -7788,6 +8596,22 @@ export interface PieChartSettingsApi {
     valueDisplay?: ValueDisplayApi | null
 }
 
+export type XScaleApi = (typeof XScaleApi)[keyof typeof XScaleApi]
+
+export const XScaleApi = {
+    Linear: 'linear',
+    Logarithmic: 'logarithmic',
+} as const
+
+export interface ScatterChartSettingsApi {
+    /** Whether to draw a least-squares fit line through each series' points. */
+    showBestFit?: boolean | null
+    /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
+    xScale?: XScaleApi | null
+    /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
+    xStartAtZero?: boolean | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -7844,6 +8668,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
+    chartStyle?: ChartStyleApi | null
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
@@ -7851,6 +8677,7 @@ export interface ChartSettingsApi {
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
+    scatter?: ScatterChartSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
@@ -7950,6 +8777,91 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
+export interface DashboardFilterApi {
+    breakdown_filter?: BreakdownFilterApi | null
+    date_from?: string | null
+    date_to?: string | null
+    explicitDate?: boolean | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalTypeApi | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+}
+
+export interface TileFiltersApi {
+    breakdown_filter?: BreakdownFilterApi | null
+    date_from?: string | null
+    date_to?: string | null
+    explicitDate?: boolean | null
+    filterTestAccounts?: boolean | null
+    /** When true, this tile ignores every dashboard-level filter; the tile's own overrides still apply. */
+    ignoreDashboardFilters?: boolean | null
+    interval?: IntervalTypeApi | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | AccountCustomPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+}
+
+export interface InsightFilterOverrideContextApi {
+    /** Dashboard filters that remain active after applying tile precedence. */
+    dashboard?: DashboardFilterApi | null
+    /** Tile filters applied above the dashboard filters. */
+    tile?: TileFiltersApi | null
+    /** Dashboard filters replaced by the tile filters. */
+    overridden_dashboard?: DashboardFilterApi | null
+}
+
 /**
  * @nullable
  */
@@ -7983,9 +8895,15 @@ export interface InsightApi {
     order?: number | null
     deleted?: boolean
     /**
+     *
      *         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
      *         A dashboard ID for each of the dashboards that this insight is displayed on.
-     *          */
+     *         This field is omitted from session-authenticated responses unless `include_dashboards=true`
+     *         is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)
+     *         must opt in the same way. Do not rely on it being present.
+     *
+     * @deprecated
+     */
     dashboards?: number[]
     /**
      *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
@@ -8055,9 +8973,11 @@ export interface InsightApi {
     readonly resolved_date_range: InsightApiResolvedDateRange
     _create_in_folder?: string
     readonly alerts: readonly unknown[]
+    /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
+    readonly filter_override_context: InsightFilterOverrideContextApi | null
     /** @nullable */
     readonly last_viewed_at: string | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -8252,6 +9172,11 @@ export interface DashboardWidgetRunResultApi {
 export interface RunWidgetsResponseApi {
     /** Per-tile widget run results. */
     results: DashboardWidgetRunResultApi[]
+}
+
+export interface DashboardSubscribeNudgeResponseApi {
+    /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
+    created: boolean
 }
 
 export interface UpdateTextTileRequestApi {
@@ -8466,6 +9391,31 @@ export interface LogsListWidgetAddRequestOpenApiApi {
     config: LogsListWidgetConfigApi
 }
 
+export type ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType =
+    (typeof ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType]
+
+export const ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType = {
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the recent tickets widget. */
+    config: ConversationsRecentTicketsWidgetConfigApi
+}
+
 export type AddDashboardWidgetRequestApi =
     | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
@@ -8474,13 +9424,14 @@ export type AddDashboardWidgetRequestApi =
     | ExperimentResultsWidgetAddRequestOpenApiApi
     | SurveyResultsWidgetAddRequestOpenApiApi
     | LogsListWidgetAddRequestOpenApiApi
+    | ConversationsRecentTicketsWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -8653,6 +9604,29 @@ export interface LogsListWidgetUpdateRequestOpenApiApi {
     config?: LogsListWidgetConfigApi
 }
 
+export type ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType = {
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ConversationsRecentTicketsWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent tickets widget. Omit to leave unchanged. */
+    config?: ConversationsRecentTicketsWidgetConfigApi
+}
+
 export type UpdateDashboardWidgetRequestApi =
     | ActivityEventsListWidgetUpdateRequestOpenApiApi
     | ErrorTrackingListWidgetUpdateRequestOpenApiApi
@@ -8661,6 +9635,7 @@ export type UpdateDashboardWidgetRequestApi =
     | ExperimentResultsWidgetUpdateRequestOpenApiApi
     | SurveyResultsWidgetUpdateRequestOpenApiApi
     | LogsListWidgetUpdateRequestOpenApiApi
+    | ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -8684,9 +9659,9 @@ export interface UpdateDashboardWidgetsBatchResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -8703,7 +9678,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -8740,6 +9715,8 @@ export interface ActivityEventsListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: ActivityEventsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ErrorTrackingListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -8759,6 +9736,8 @@ export interface ErrorTrackingListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: ErrorTrackingListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type SessionReplayListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -8778,6 +9757,8 @@ export interface SessionReplayListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: SessionReplayListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ExperimentsListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -8797,6 +9778,8 @@ export interface ExperimentsListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: ExperimentsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ExperimentResultsWidgetCatalogEntryOpenApiApiWidgetType =
@@ -8816,6 +9799,8 @@ export interface ExperimentResultsWidgetCatalogEntryOpenApiApi {
     readonly config_schema: ExperimentResultsWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type SurveyResultsWidgetCatalogEntryOpenApiApiWidgetType =
@@ -8835,6 +9820,8 @@ export interface SurveyResultsWidgetCatalogEntryOpenApiApi {
     readonly config_schema: SurveyResultsWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type LogsListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -8854,6 +9841,29 @@ export interface LogsListWidgetCatalogEntryOpenApiApi {
     readonly config_schema: LogsListWidgetConfigApi
     /** @nullable */
     required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
+}
+
+export type ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType = {
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+export interface ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi {
+    widget_type: ConversationsRecentTicketsWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: ConversationsRecentTicketsWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type WidgetCatalogEntryApi =
@@ -8864,6 +9874,7 @@ export type WidgetCatalogEntryApi =
     | ExperimentResultsWidgetCatalogEntryOpenApiApi
     | SurveyResultsWidgetCatalogEntryOpenApiApi
     | LogsListWidgetCatalogEntryOpenApiApi
+    | ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -8970,6 +9981,16 @@ export const LogsListWidgetTypeEnumApi = {
     LogsList: 'logs_list',
 } as const
 
+/**
+ * * `conversations_recent_tickets` - conversations_recent_tickets
+ */
+export type ConversationsRecentTicketsWidgetTypeEnumApi =
+    (typeof ConversationsRecentTicketsWidgetTypeEnumApi)[keyof typeof ConversationsRecentTicketsWidgetTypeEnumApi]
+
+export const ConversationsRecentTicketsWidgetTypeEnumApi = {
+    ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
 export type DashboardTemplatesListParams = {
     /**
      * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
@@ -8991,6 +10012,10 @@ export type DashboardTemplatesListParams = {
      * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope
+    /**
+     * Optional. Full-text search across template name, tags, and description, ranked by relevance. Use it to find templates for a topic (e.g. `retention`, `revenue`, `product analytics`).
+     */
+    search?: string
 }
 
 export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[keyof typeof DashboardTemplatesListScope]
@@ -9017,7 +10042,7 @@ export type DashboardsListParams = {
      */
     offset?: number
     /**
-     * Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string
 }
@@ -9031,6 +10056,10 @@ export const DashboardsListFormat = {
 
 export type DashboardsCreateParams = {
     format?: DashboardsCreateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type DashboardsCreateFormat = (typeof DashboardsCreateFormat)[keyof typeof DashboardsCreateFormat]
@@ -9047,6 +10076,10 @@ export type DashboardsRetrieveParams = {
     filters_override?: string
     format?: DashboardsRetrieveFormat
     /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
+    /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string
@@ -9061,6 +10094,10 @@ export const DashboardsRetrieveFormat = {
 
 export type DashboardsUpdateParams = {
     format?: DashboardsUpdateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type DashboardsUpdateFormat = (typeof DashboardsUpdateFormat)[keyof typeof DashboardsUpdateFormat]
@@ -9072,6 +10109,10 @@ export const DashboardsUpdateFormat = {
 
 export type DashboardsPartialUpdateParams = {
     format?: DashboardsPartialUpdateFormat
+    /**
+     * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
+     */
+    include_dashboards?: boolean
 }
 
 export type DashboardsPartialUpdateFormat =
@@ -9255,6 +10296,18 @@ export type DashboardsStreamTilesRetrieveLayoutSize =
 export const DashboardsStreamTilesRetrieveLayoutSize = {
     Sm: 'sm',
     Xs: 'xs',
+} as const
+
+export type DashboardsSubscribeNudgeCreateParams = {
+    format?: DashboardsSubscribeNudgeCreateFormat
+}
+
+export type DashboardsSubscribeNudgeCreateFormat =
+    (typeof DashboardsSubscribeNudgeCreateFormat)[keyof typeof DashboardsSubscribeNudgeCreateFormat]
+
+export const DashboardsSubscribeNudgeCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsUpdateTextTileCreateParams = {

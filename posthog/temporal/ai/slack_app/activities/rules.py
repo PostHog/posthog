@@ -9,6 +9,8 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+
 logger = structlog.get_logger(__name__)
 
 
@@ -45,6 +47,7 @@ def handle_posthog_code_rules_command_activity(
         integration,
         channel=channel,
         thread_ts=thread_ts,
+        trigger_ts=inputs.event.get("ts") or "",
         slack_user_id=slack_user_id,
         slack_workspace_id=inputs.slack_team_id,
         user_id=user_id,
@@ -83,7 +86,8 @@ def create_posthog_code_routing_rule_activity(
             team_id=integration.team_id,
             user_id=user_id,
         )
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=f"Repository `{repository}` is no longer connected to your account.",
@@ -104,7 +108,8 @@ def create_posthog_code_routing_rule_activity(
         priority=max_priority,
         created_by_id=user_id,
     )
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=f"Added rule: {rule_text} → `{matched_repo}`",
@@ -124,8 +129,11 @@ def handle_posthog_code_slack_mention_command_activity(
 
     event = inputs.event
     channel = event.get("channel")
-    # Empty anchor posts at the channel root — correct for a slash command invoked outside a thread.
-    thread_ts = event.get("thread_ts") or event.get("ts") or ""
+    # Anchor the reply to the thread only when the command was posted in one. For a top-level
+    # mention (or a slash command outside a thread) the empty anchor posts at the channel root,
+    # where the user actually sees it — a thread-anchored ephemeral is only rendered to someone
+    # already viewing that thread, so it reads as no response.
+    thread_ts = event.get("thread_ts") or ""
     slack_user_id = event.get("user")
     if not channel or not slack_user_id:
         return PostHogCodeSlackMentionCommandResult(status="done")
@@ -184,6 +192,9 @@ def handle_posthog_code_slack_mention_command_activity(
         target,
         channel=channel,
         thread_ts=thread_ts,
+        # The command message itself, which a top-level reply is answering even though it
+        # is deliberately placed at channel root. A slash command creates no message.
+        trigger_ts=event.get("ts") or "",
         slack_user_id=slack_user_id,
         slack_workspace_id=inputs.slack_team_id,
         user_id=user_id,

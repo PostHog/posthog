@@ -23,11 +23,17 @@ import {
 } from '~/types'
 
 import { ValidationRulesEditor } from './components/ValidationRulesEditor'
-import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
+import {
+    NewSurvey,
+    SCALE_OPTIONS,
+    SURVEY_RATING_SCALE,
+    SurveyQuestionLabel,
+    TRANSLATION_NEEDED_PLACEHOLDER,
+} from './constants'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
-import { isThumbQuestion, splitChoicesOnPaste } from './utils'
+import { canQuestionSkipSubmitButton, isThumbQuestion, splitChoicesOnPaste } from './utils'
 
 type SurveyQuestionHeaderProps = {
     index: number
@@ -111,15 +117,6 @@ export function SurveyEditQuestionHeader({
                 )}
             </div>
         </div>
-    )
-}
-
-function canQuestionSkipSubmitButton(
-    question: SurveyQuestion
-): question is RatingSurveyQuestion | MultipleSurveyQuestion {
-    return (
-        question.type === SurveyQuestionType.Rating ||
-        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
     )
 }
 
@@ -275,7 +272,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         return transChoices[newIndex]
                     }
                     // New or modified choices must be translated explicitly.
-                    return '[Translation needed]'
+                    return TRANSLATION_NEEDED_PLACEHOLDER
                 })
                 updatedTranslations[lang] = {
                     ...trans,

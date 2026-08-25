@@ -30,6 +30,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRowsLoading,
         dailyActivity,
         activityRowsLoading,
+        activityIncompleteTail,
+        kpiIncompleteTail,
         toolDailySeries,
         toolDailyRowsLoading,
         toolRows,
@@ -61,6 +63,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 propertyFilters={propertyFilters}
                                 onChange={setPropertyFilters}
                                 taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.MCPProperties,
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.EventFeatureFlags,
                                 ]}
@@ -88,6 +91,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     kpisLoading={kpisLoading}
                     usersLoading={usersLoading}
                     theme={theme}
+                    incompleteTail={kpiIncompleteTail}
                 />
             </section>
             <section data-quill>
@@ -101,6 +105,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 theme={theme}
                                 timezone={timezone}
                                 interval={interval}
+                                incompleteTail={activityIncompleteTail}
                             />
                         </div>
                         <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />

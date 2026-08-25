@@ -17,6 +17,12 @@ const DATE_TIME_FORMATS: Record<DateFormatOrder, string> = {
     YMD: 'yy-MM-dd HH:mm:ss',
 }
 
+const DATE_FORMATS: Record<DateFormatOrder, string> = {
+    MDY: 'MM/dd/yy',
+    DMY: 'dd/MM/yy',
+    YMD: 'yy-MM-dd',
+}
+
 // Tailwind `lg` breakpoint — matches the `lg:` classes that switch this picker
 // between a single calendar and the side-by-side dual-calendar layout.
 const LG_QUERY = '(min-width: 64rem)'
@@ -49,6 +55,12 @@ export interface DateTimePickerProps {
     weekStartsOn?: Day
     onDateTimeSettings?: () => void
     compact?: boolean
+    /** Quick-range presets to offer. Defaults to `quickRanges`; `CUSTOM_RANGE` entries are filtered out. */
+    ranges?: DateTimeRange[]
+    /** Hide the "Choose date range / Quick ranges" header band when embedding in a host surface. */
+    showHeader?: boolean
+    /** Day-granular mode: hides the time segments and "Now", and drops time from the footer readout. */
+    showTime?: boolean
     className?: string
 }
 
@@ -63,8 +75,13 @@ export function DateTimePicker({
     weekStartsOn,
     onDateTimeSettings,
     compact = false,
+    ranges = quickRanges,
+    showHeader = true,
+    showTime = true,
     className,
 }: DateTimePickerProps): React.ReactElement {
+    const presetRanges = ranges.filter((r) => r.id !== CUSTOM_RANGE.id)
+    const hasPresets = presetRanges.length > 0
     const maxDate = maxDateProp ?? new Date()
     const hasExplicitMaxDate = maxDateProp !== undefined
     // The second calendar only renders at `lg`; below it (and in compact) there's
@@ -166,15 +183,16 @@ export function DateTimePicker({
     const handleQuickRange = (next: DateTimeRange): void => {
         const now = new Date()
         const nextStart = next.rangeSetter(now)
+        const nextEnd = next.endSetter?.(now) ?? now
         setStart(nextStart)
-        setEnd(now)
+        setEnd(nextEnd)
         setRange(next)
         setLastSet(null)
-        setRightViewing(now)
-        setLeftViewing(subMonths(now, 1))
+        setRightViewing(nextEnd)
+        setLeftViewing(subMonths(nextEnd, 1))
     }
 
-    const dateTimeFormat = DATE_TIME_FORMATS[dateFormat]
+    const dateTimeFormat = showTime ? DATE_TIME_FORMATS[dateFormat] : DATE_FORMATS[dateFormat]
     const presentationalStart = format(start, dateTimeFormat)
     const presentationalEnd = format(end, dateTimeFormat)
 
@@ -187,8 +205,8 @@ export function DateTimePicker({
             )}
         >
             {/* Headers */}
-            {!compact && (
-                <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]">
+            {!compact && showHeader && (
+                <div className={hasPresets ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
                         {(minDate || hasExplicitMaxDate) && (
@@ -199,14 +217,16 @@ export function DateTimePicker({
                             </div>
                         )}
                     </div>
-                    <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
-                    </div>
+                    {hasPresets && (
+                        <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
+                        </div>
+                    )}
                 </div>
             )}
 
             {/* Body */}
-            <div className={compact
+            <div className={compact || !hasPresets
                 ? 'flex flex-col'
                 : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
             }>
@@ -227,18 +247,20 @@ export function DateTimePicker({
                                         <SettingsIcon />
                                     </Button>
                                 )}
-                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime />
+                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime={showTime} />
                                 <span className="text-xs text-muted-foreground">to</span>
-                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime />
-                                <Button
-                                    variant="link"
-                                    size="xs"
-                                    onClick={handleNow}
-                                    aria-label="Set end to now"
-                                    title="Set end to now"
-                                >
-                                    Now
-                                </Button>
+                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime={showTime} />
+                                {showTime && (
+                                    <Button
+                                        variant="link"
+                                        size="xs"
+                                        onClick={handleNow}
+                                        aria-label="Set end to now"
+                                        title="Set end to now"
+                                    >
+                                        Now
+                                    </Button>
+                                )}
                             </div>
                         </div>
                     )}
@@ -280,6 +302,7 @@ export function DateTimePicker({
                 </div>
 
                 {/* Quick ranges column */}
+                {hasPresets && (
                 <div className={compact
                     ? 'order-0 border-b border-border'
                     : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
@@ -289,7 +312,7 @@ export function DateTimePicker({
                             ? 'flex flex-row p-2 gap-px max-h-[320px]'
                             : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
                         }>
-                            {quickRanges.slice(1).map((quick) => (
+                            {presetRanges.map((quick) => (
                                 <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
                                     <Button
                                         variant="default"
@@ -312,6 +335,7 @@ export function DateTimePicker({
                         </ul>
                     </ScrollArea>
                 </div>
+                )}
             </div>
 
             <Separator />
@@ -319,7 +343,7 @@ export function DateTimePicker({
             {/* Actions */}
             <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1 tabular-nums mr-auto">
-                    {range.name === 'Custom' ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
+                    {range.id === CUSTOM_RANGE.id ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
                 </span>
                 {onCancel ? (
                     <Button variant="outline" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">

@@ -24,8 +24,10 @@ const result = await build({
 
 const js = result.outputFiles[0].text
 const html = readFileSync(resolve(__dirname, 'src/index.html'), 'utf-8')
-// Use a replacer function to avoid $ replacement patterns in the JS being interpreted
-const outputHtml = html.replace('<!-- INLINE_JS -->', () => `<script>${js}</script>`)
+// The `__CSP_NONCE__` placeholder is swapped for a per-request nonce (or stripped) by the
+// rasterizer's CSP handling — see servePlayer in nodejs recording-rasterizer/request-interceptor.ts.
+// Use a replacer function to avoid $ replacement patterns in the JS being interpreted.
+const outputHtml = html.replace('<!-- INLINE_JS -->', () => `<script nonce="__CSP_NONCE__">${js}</script>`)
 
 mkdirSync(resolve(__dirname, 'dist'), { recursive: true })
 writeFileSync(resolve(__dirname, 'dist/player.html'), outputHtml)

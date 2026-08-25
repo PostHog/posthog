@@ -24,7 +24,12 @@ import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '~/ingestion/config'
+import {
+    IngestionConsumerConfig,
+    IngestionOutputsConfig,
+    getDefaultIngestionConsumerConfig,
+    getDefaultIngestionOutputsConfig,
+} from '~/ingestion/config'
 import {
     ErrorTrackingConsumerConfig,
     getDefaultErrorTrackingConsumerConfig,
@@ -62,6 +67,7 @@ export const DEFAULT_TEAM: Team = {
     heatmaps_opt_in: null,
     ingested_event: true,
     person_display_name_properties: null,
+    minimal_flag_called_events: false,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
@@ -333,6 +339,7 @@ export interface IngesterLike {
 /** The full config an ingestion test sees — PluginsServerConfig plus every ingestion domain's config. */
 export type IngestionTestConfig = PluginsServerConfig &
     IngestionConsumerConfig &
+    IngestionOutputsConfig &
     ErrorTrackingConsumerConfig &
     MetricsIngestionConsumerConfig &
     SessionRecordingConfig &
@@ -388,6 +395,7 @@ export async function createIngestionTestInfra(
     const serverConfig: IngestionTestConfig = {
         ...defaultConfig,
         ...getDefaultIngestionConsumerConfig(),
+        ...getDefaultIngestionOutputsConfig(),
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
@@ -417,6 +425,7 @@ export async function createIngestionTestInfra(
     const postgresGroupRepository = new PostgresGroupRepository(postgres)
     const postgresPersonRepository = new PostgresPersonRepository(postgres, {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+        personMergeTombstoneTeamAllowlist: serverConfig.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
     })
     const personRepository = buildPersonRepository(
         personhogClient,

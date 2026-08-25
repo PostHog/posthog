@@ -12,6 +12,8 @@ Quirks hidden here:
 - Reusable workflow calls (jobs with `uses:` at the job level) have no steps
   and no `timeout-minutes` — surfaced as `is_reusable_call` so checks can skip
   cleanly.
+- Parallel task groups are flattened so policy checks inspect their nested
+  steps exactly like ordinary sequential steps.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from pathlib import Path
 import yaml
 
 PR_TRIGGERS = frozenset({"pull_request", "pull_request_target"})
+PUSH_TRIGGERS = frozenset({"push"})
 
 
 class WorkflowParseError(Exception):
@@ -74,14 +77,18 @@ class Workflow:
 
     @property
     def is_pr_triggered(self) -> bool:
-        return _matches_pr_trigger(self.on)
+        return _matches_trigger(self.on, PR_TRIGGERS)
+
+    @property
+    def is_push_triggered(self) -> bool:
+        return _matches_trigger(self.on, PUSH_TRIGGERS)
 
 
-def _matches_pr_trigger(triggers: object) -> bool:
+def _matches_trigger(triggers: object, wanted: frozenset[str]) -> bool:
     if isinstance(triggers, str):
-        return triggers in PR_TRIGGERS
+        return triggers in wanted
     if isinstance(triggers, (list, dict)):
-        return any(t in PR_TRIGGERS for t in triggers)
+        return any(t in wanted for t in triggers)
     return False
 
 
@@ -134,7 +141,16 @@ def _build_job(name: str, raw: object) -> Job | None:
     raw_steps = raw.get("steps")
     steps: list[Step] = []
     if isinstance(raw_steps, list):
-        for idx, step_raw in enumerate(raw_steps):
+        flattened_steps = [
+            nested_step
+            for step_raw in raw_steps
+            for nested_step in (
+                step_raw.get("parallel", [])
+                if isinstance(step_raw, dict) and isinstance(step_raw.get("parallel"), list)
+                else [step_raw]
+            )
+        ]
+        for idx, step_raw in enumerate(flattened_steps):
             step = _build_step(idx, step_raw)
             if step is not None:
                 steps.append(step)
@@ -190,6 +206,7 @@ def read_workflows(workflows_dir: Path, glob: str = "*.y*ml") -> Iterator[Workfl
 __all__ = [
     "Job",
     "PR_TRIGGERS",
+    "PUSH_TRIGGERS",
     "Step",
     "Workflow",
     "WorkflowParseError",

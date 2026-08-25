@@ -1,5 +1,10 @@
+from typing import Any
+
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
+
+from django.db import DEFAULT_DB_ALIAS, OperationalError
+from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import SocketTimeoutError
 from parameterized import parameterized
@@ -24,6 +29,7 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    _recalculate_cohortpeople_for_team,
     _sanitize_query_for_cohort,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -34,6 +40,7 @@ from products.cohorts.backend.models.util import (
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
+    validate_actors_query_for_cohort,
 )
 
 MISSING_COHORT_ID = 12345
@@ -46,6 +53,40 @@ def _create_cohort(**kwargs):
     is_static = kwargs.pop("is_static", False)
     cohort = Cohort.objects.create(team=team, name=name, groups=groups, is_static=is_static)
     return cohort
+
+
+class TestCohortQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("time_series_trends_without_day", None, None, True),
+            ("time_series_trends_with_empty_day", None, "", True),
+            ("time_series_trends_with_whitespace_day", None, " ", True),
+            ("time_series_trends_with_malformed_day", None, "not-a-date", True),
+            ("time_series_trends_with_integer_day", None, 0, True),
+            ("time_series_trends_with_day", None, "2026-07-01", False),
+            ("total_value_trends_without_day", "BoldNumber", None, False),
+            ("total_value_trends_with_day", "BoldNumber", "2026-07-01", True),
+        ]
+    )
+    def test_validate_actors_query_for_cohort_requires_valid_day(
+        self, _name: str, display: str | None, day: str | int | None, should_raise: bool
+    ) -> None:
+        insight: dict[str, Any] = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+        if display:
+            insight["trendsFilter"] = {"display": display}
+        source: dict[str, Any] = {"kind": "InsightActorsQuery", "source": insight}
+        if day is not None:
+            source["day"] = day
+        query = {"kind": "ActorsQuery", "select": ["person"], "source": source}
+
+        if should_raise:
+            with self.assertRaises(DRFValidationError):
+                validate_actors_query_for_cohort(query)
+        else:
+            validate_actors_query_for_cohort(query)
 
 
 class TestCohortUtils(BaseTest):
@@ -668,6 +709,181 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
 
+    def test_print_cohort_hogql_query_drops_order_by_on_stripped_alias(self):
+        """An ActorsQuery ordering by a computed select alias must not dangle once we collapse the SELECT.
+
+        Without clearing ORDER BY, the alias is stripped from the SELECT but still referenced by the
+        ORDER BY, so HogQL resolution raises `QueryError: Unable to resolve field: <alias>`.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Ordered Actors Cohort",
+            query={
+                "kind": "ActorsQuery",
+                "select": ["actor_id", "count() as event_count"],
+                "orderBy": ["event_count DESC"],
+                "source": {
+                    "kind": "InsightActorsQuery",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        # Total-value aggregation so the actors query targets all matched people
+                        # rather than a single interval (which would require a `day`).
+                        "trendsFilter": {"display": "BoldNumber"},
+                    },
+                },
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        # Before the fix this raised `QueryError: Unable to resolve field: event_count`.
+        # Producing SQL at all is the core regression check; the top-level ORDER BY must be gone
+        # and the SELECT collapsed to the actor column. (`event_count` may still appear as a
+        # harmless unused column in an inner subquery, which the collapse does not descend into.)
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertNotIn("order by", sql.lower())
+        self.assertIn("as actor_id", sql.lower())
+
+    def test_print_cohort_hogql_query_keeps_order_by_and_limit_for_bounded_query(self):
+        """A bounded cohort query (ORDER BY + LIMIT on a real column) must stay deterministic.
+
+        Here the ORDER BY targets a real column that survives the SELECT collapse, so dropping it
+        would leave the LIMIT selecting an arbitrary, non-deterministic subset on every recalculation.
+        Both the ordering and the limit must be preserved.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Bounded Actors Cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT id AS actor_id, created_at FROM persons ORDER BY created_at DESC LIMIT 100",
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("order by", sql.lower())
+        self.assertIn("limit 100", sql.lower())
+        self.assertIn("as actor_id", sql.lower())
+
+    @parameterized.expand(
+        [
+            ("events_source", "SELECT count() AS cnt FROM events", "actor_id"),
+            ("persons_source", "SELECT properties.email AS email FROM persons", "actor_id"),
+        ]
+    )
+    def test_print_cohort_hogql_query_source_without_id_column_uses_table_fallback(self, _name, source_sql, expected):
+        # A stored ActorsQuery whose source selects no id-named column used to crash in
+        # ActorsQueryRunner.to_query with "Source query must have an id column" before
+        # print_cohort_hogql_query could apply its events→person.id / persons→id fallback.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Source Without ID Column",
+            query={
+                "kind": "ActorsQuery",
+                "source": {"kind": "HogQLQuery", "query": source_sql},
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn(expected, sql)
+
+    def test_print_cohort_hogql_query_source_without_id_column_still_raises_when_unresolvable(self):
+        # When the source has no id column and its table isn't events/persons, the fallback
+        # can't resolve an actor id — surface the clear "Could not find" error, not a crash
+        # deep inside to_query.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Unresolvable Source",
+            query={
+                "kind": "ActorsQuery",
+                "source": {"kind": "HogQLQuery", "query": "SELECT count() AS cnt FROM sessions"},
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        with self.assertRaises(ValueError) as cm:
+            print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
+
+    @parameterized.expand(
+        [
+            # Unbounded query: positional GROUP BY must be inlined (bounded ORDER BY is exercised below).
+            (
+                "unbounded_group_by",
+                "SELECT count(), person_id FROM events GROUP BY 2",
+                "group by 2",
+                "group by",
+            ),
+            # Bounded query keeps its ORDER BY, so a positional ORDER BY must be inlined too.
+            (
+                "bounded_order_by",
+                "SELECT person_id, count() AS cnt FROM events GROUP BY 1 ORDER BY 2 DESC LIMIT 100",
+                "order by 2",
+                "order by count()",
+            ),
+            # LIMIT BY is also positional and marks the query bounded, so its ordinal must be inlined too.
+            (
+                "bounded_limit_by",
+                "SELECT person_id, event FROM events ORDER BY person_id LIMIT 1 BY 2",
+                "by 2",
+                "by events.event",
+            ),
+        ]
+    )
+    def test_print_cohort_hogql_query_resolves_positional_references(
+        self, _name, query, dangling_ordinal, resolved_clause
+    ):
+        # A positional GROUP BY/ORDER BY ordinal (e.g. `GROUP BY 2`) references the Nth SELECT
+        # expression. Collapsing the SELECT to the single actor column leaves any ordinal past the
+        # first pointing out of bounds, so ClickHouse rejects the query and the cohort never fills.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Positional Cohort",
+            query={"kind": "HogQLQuery", "query": query},
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team).lower()
+
+        self.assertIn("as actor_id", sql)
+        # The ordinal must be inlined to the real expression, not left dangling past the collapsed SELECT.
+        self.assertNotIn(dangling_ordinal, sql)
+        # Dropping the clause outright would also remove the ordinal, but it would change who lands in
+        # the cohort, so the clause itself has to survive.
+        self.assertIn(resolved_clause, sql)
+
+    def test_print_cohort_hogql_query_leaves_positional_references_on_wildcard_select(self):
+        # `*` is a single node in the SELECT list until the resolver fans it out into one node per
+        # column, and ClickHouse numbers positional arguments against that expanded list. Guessing
+        # which expression ordinal 2 means here would quietly build a different cohort, so the
+        # ordinals stay untouched and the query keeps failing the way it does without any inlining.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Wildcard Positional Cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT *, count() AS cnt FROM events GROUP BY 1 ORDER BY 2 DESC LIMIT 100",
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team).lower()
+
+        self.assertIn("group by 1", sql)
+        self.assertIn("order by 2", sql)
+
 
 class TestGetNestedCohortIds(BaseTest):
     def test_no_cohort_references(self):
@@ -1108,3 +1324,70 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message("some_unknown_code")
         assert message is not None
         self.assertIn("an error occurred", message.lower())
+
+
+class TestRecalculationErrorRecovery(BaseTest):
+    def test_original_error_surfaces_when_recovery_history_save_fails(self):
+        # When Postgres drops the connection mid-recalculation, the error-recovery history.save
+        # fails too. The recovery path must reconnect, retry the bookkeeping, and still let the real
+        # calculation error propagate instead of a cascading "connection is closed" masking it.
+        cohort = _create_cohort(
+            team=self.team,
+            name="c",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        real_error = RuntimeError("real root cause")
+        mock_history = MagicMock()
+        # Both the initial save and the post-reconnect retry fail, exercising the swallow path.
+        mock_history.save.side_effect = OperationalError("the connection is closed")
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.CohortCalculationHistory.objects.create",
+                return_value=mock_history,
+            ),
+            patch(
+                "products.cohorts.backend.models.util._recalculate_cohortpeople_for_team_hogql",
+                side_effect=real_error,
+            ),
+            # Patch connections so the reconnect doesn't close the real test transaction's connection.
+            patch("products.cohorts.backend.models.util.connections") as mock_connections,
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                _recalculate_cohortpeople_for_team(cohort, 0, self.team)
+
+        self.assertIs(ctx.exception, real_error)
+        assert mock_history.save.call_count == 2
+        mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
+
+    def test_original_error_surfaces_when_reset_calculating_save_fails(self):
+        # calculate_people_ch's finally block resets is_calculating on the same connection the recovery
+        # bookkeeping save uses. If that reset write hits the dropped connection it must not raise out of
+        # finally and mask the real calculation error - it runs through the same reconnect-and-retry.
+        cohort = _create_cohort(
+            team=self.team,
+            name="c",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        real_error = RuntimeError("real root cause")
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.recalculate_cohortpeople",
+                side_effect=real_error,
+            ),
+            # The is_calculating reset write fails on the dropped connection, initial attempt and retry.
+            patch.object(
+                Cohort,
+                "_safe_reset_calculating_state",
+                side_effect=OperationalError("the connection is closed"),
+            ) as mock_reset,
+            # Patch connections so the reconnect doesn't close the real test transaction's connection.
+            patch("products.cohorts.backend.models.util.connections") as mock_connections,
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                cohort.calculate_people_ch(pending_version=0)
+
+        self.assertIs(ctx.exception, real_error)
+        assert mock_reset.call_count == 2
+        mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()

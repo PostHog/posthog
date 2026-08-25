@@ -2,11 +2,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from posthog.hogql.database import lazy_join_tags as tags
-from posthog.hogql.database.schema.account_aggregates import (
-    account_custom_properties_join,
-    account_notebooks_join,
-    account_tags_join,
-)
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     join_with_error_tracking_fingerprint_issue_state_table,
 )
@@ -30,10 +25,19 @@ from posthog.hogql.database.schema.session_replay_events import (
 from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table
 from posthog.hogql.database.schema.sessions_v2 import join_events_table_to_sessions_table_v2
 from posthog.hogql.database.schema.sessions_v3 import join_events_table_to_sessions_table_v3
+from posthog.hogql.database.schema.system import ticket_assignment_join, ticket_tags_join
 from posthog.hogql.database.warehouse_join_resolvers import (
     resolve_data_warehouse_experiments_join,
     resolve_data_warehouse_join,
     resolve_foreign_key_join,
+)
+
+from products.customer_analytics.backend.facade.hogql import (
+    account_custom_properties_history_join,
+    account_custom_properties_join,
+    account_notebooks_join,
+    account_relationships_join,
+    account_tags_join,
 )
 
 if TYPE_CHECKING:
@@ -73,9 +77,13 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.REPLAY_TO_CONSOLE_LOGS: join_with_console_logs_log_entries_table,
     tags.ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES: join_with_error_tracking_issue_fingerprint_overrides_table,
     tags.ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: join_with_error_tracking_fingerprint_issue_state_table,
+    tags.TICKET_TAGS: ticket_tags_join,
+    tags.TICKET_ASSIGNMENT: ticket_assignment_join,
     tags.ACCOUNT_TAGS: account_tags_join,
     tags.ACCOUNT_NOTEBOOKS: account_notebooks_join,
     tags.ACCOUNT_CUSTOM_PROPERTIES: account_custom_properties_join,
+    tags.ACCOUNT_CUSTOM_PROPERTIES_HISTORY: account_custom_properties_history_join,
+    tags.ACCOUNT_RELATIONSHIPS: account_relationships_join,
 }
 
 

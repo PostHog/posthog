@@ -3,14 +3,24 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 
-from .provider_keys import LLMProvider
+from .provider_keys import llm_provider_choices
+
+
+def provider_requires_key(provider: str) -> bool:
+    """Whether this provider's models can only be listed with a BYOK key. PostHog funds no models
+    for it, so a keyless lookup has nothing to return."""
+    from products.ai_observability.backend.llm import (  # noqa: PLC0415 - keeps the provider SDKs off the import path
+        PLAYGROUND_MODELS_BY_PROVIDER,
+    )
+
+    return provider not in PLAYGROUND_MODELS_BY_PROVIDER
 
 
 class LLMModelConfiguration(UUIDTModel):
     """Configuration for LLM model selection, used by evals and other features."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    provider = models.CharField(max_length=50, choices=LLMProvider)
+    provider = models.CharField(max_length=50, choices=llm_provider_choices)
     model = models.CharField(max_length=100)
     provider_key = models.ForeignKey(
         "ai_observability.LLMProviderKey",
@@ -45,16 +55,16 @@ class LLMModelConfiguration(UUIDTModel):
 
     def get_available_models(self) -> list[str]:
         """Get available models — delegates to the provider API if a BYOK key is
-        present, otherwise returns the trial model list (PostHog pays)."""
+        present, otherwise returns the playground model list (PostHog pays)."""
         if self.provider_key:
             from products.ai_observability.backend.llm.client import Client
 
             api_key = self.provider_key.encrypted_config.get("api_key")
             return Client.list_models(self.provider, api_key)
 
-        from products.ai_observability.backend.llm import TRIAL_MODELS_BY_PROVIDER
+        from products.ai_observability.backend.llm import PLAYGROUND_MODELS_BY_PROVIDER
 
-        return TRIAL_MODELS_BY_PROVIDER.get(self.provider, [])
+        return PLAYGROUND_MODELS_BY_PROVIDER.get(self.provider, [])
 
     def save(self, *args, **kwargs) -> None:
         self.full_clean()

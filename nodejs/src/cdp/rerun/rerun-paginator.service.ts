@@ -4,6 +4,7 @@ import { Counter } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
+import { HogFunctionInvocationGlobalsSchema } from '../schema/cyclotron'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -21,13 +22,16 @@ import {
     CyclotronJobInvocationHogFunction,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    RERUNNABLE_HOG_FUNCTION_TYPES,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { RERUN_PAGE_SIZE, RerunFunctionKind, RerunJobProgress, RerunJobState } from './rerun-job.types'
-
-// Function types whose stored globals carry inbound `request.headers`
-// (sender credentials) that must be stripped before a rerun rehydrates them.
-const WEBHOOK_SOURCE_TYPES = new Set(['source_webhook', 'warehouse_source_webhook'])
+import {
+    RERUN_MAX_CONSECUTIVE_PAGE_ERRORS,
+    RERUN_PAGE_SIZE,
+    RerunFunctionKind,
+    RerunJobProgress,
+    RerunJobState,
+} from './rerun-job.types'
 
 const counterRerunPageProcessed = new Counter({
     name: 'cdp_hog_invocation_rerun_pages_processed_total',
@@ -67,7 +71,9 @@ const toClickhouseDateTime = (value: string): string => {
 interface InvocationRow {
     invocation_id: string
     parent_run_id: string
-    attempts: number
+    // Prior rerun count for this invocation (argMax over version). Named to avoid
+    // shadowing the raw `attempts` column in the fetch query — see fetchPage.
+    latest_attempts: number
     last_scheduled_at: string
     first_scheduled_at: string
     invocation_globals: string
@@ -134,7 +140,26 @@ export class RerunPaginatorService {
             const remainingBudget = this.remainingBudget(state)
             const toProcess = rows.slice(0, remainingBudget)
 
-            const { queued, skipped, queuedInvocations } = await this.rehydrateBatch(teamId, state, toProcess)
+            // A historical window can't see the newer lifecycle rows a prior replay wrote —
+            // they land in the partition of their own scheduled_at, outside the window — so
+            // the in-window collapse can report 'failed' for an invocation that has since
+            // succeeded. Re-check the page against each invocation's latest status across
+            // all partitions; without this, replaying the same window twice re-fires side
+            // effects (emails, webhooks) for already-recovered runs.
+            const staleStatusIds = await this.fetchStaleStatusInvocationIds(
+                teamId,
+                function_kind,
+                function_id,
+                toProcess.map((row) => row.invocation_id),
+                this.requestedStatus(state)
+            )
+
+            const { queued, skipped, queuedInvocations } = await this.rehydrateBatch(
+                teamId,
+                state,
+                toProcess,
+                staleStatusIds
+            )
 
             let conflictSkipped = 0
             if (queuedInvocations.length > 0) {
@@ -241,7 +266,19 @@ export class RerunPaginatorService {
             // Update the wrapper lifecycle row + emit a progress log so the
             // Invocations tab reflects the running total without the user
             // hitting Refresh between pages.
-            await this.writeWrapperUpdate(teamId, state, context, nextProgress, undefined)
+            //
+            // Best-effort: the page's invocations are already committed to kafka
+            // or postgres-v2 by this point, so letting a lifecycle-write failure
+            // reach the catch below would count a page that did its work as a
+            // page error, hold the cursor back, and on a persistent write outage
+            // eventually mark a rerun failed that actually ran.
+            await this.writeWrapperUpdate(teamId, state, context, nextProgress, undefined).catch((writeErr) => {
+                logger.warn('Rerun paginator could not write the wrapper progress row', {
+                    rerun_function_kind: function_kind,
+                    rerun_function_id: function_id,
+                    error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+                })
+            })
 
             return { state: { ...state, progress: nextProgress } }
         } catch (err) {
@@ -252,10 +289,22 @@ export class RerunPaginatorService {
                 error: errMessage,
             })
             counterRerunPageProcessed.labels(function_kind, 'error').inc()
-            // Surface the error in job state but don't mark done — the worker
-            // will reschedule, the janitor's transition_count guards against
-            // infinite loops on poisoned jobs.
-            const errorProgress = { ...progress, last_error: errMessage }
+
+            // Give up once a page has errored too many times in a row. Rethrow
+            // so the worker's handler fails the wrapper job terminally (and
+            // records a replayable failure row) rather than rescheduling. An
+            // unbounded retry loop would bump the SMALLINT `transition_count` on
+            // every reschedule until it overflows at 32767 — poisoning the row
+            // so even dequeue fails with `smallint out of range`.
+            const consecutiveErrors = (progress.consecutive_errors ?? 0) + 1
+            if (consecutiveErrors >= RERUN_MAX_CONSECUTIVE_PAGE_ERRORS) {
+                throw err
+            }
+
+            // Below the cap: surface the error in job state but don't mark done,
+            // so the worker reschedules and retries the same page. Track the
+            // consecutive-error streak — a page that later succeeds resets it.
+            const errorProgress = { ...progress, last_error: errMessage, consecutive_errors: consecutiveErrors }
             await this.writeWrapperUpdate(teamId, state, context, errorProgress, err)
             return { state: { ...state, progress: errorProgress } }
         }
@@ -427,9 +476,54 @@ export class RerunPaginatorService {
         return new Set(rows.map((r) => r.invocation_id))
     }
 
+    private requestedStatus(state: RerunJobState): string[] {
+        const status = state.request.filter.status
+        return status?.length ? status : ['failed']
+    }
+
+    /**
+     * Of the given invocation ids, return those whose latest lifecycle row —
+     * across ALL partitions, not just the request window — no longer matches
+     * the requested statuses (or is deleted). Same primary-prefix keying as
+     * `fetchRunningInvocationIds`, so it stays cheap without a partition bound.
+     */
+    private async fetchStaleStatusInvocationIds(
+        teamId: number,
+        functionKind: RerunFunctionKind,
+        functionId: string,
+        invocationIds: string[],
+        requestedStatus: string[]
+    ): Promise<Set<string>> {
+        if (invocationIds.length === 0) {
+            return new Set()
+        }
+        const result = await this.clickhouse.query({
+            query: `/* team_id:${teamId} query_type:hog_invocation_rerun_stale_status */
+                SELECT invocation_id
+                FROM hog_invocation_results
+                WHERE team_id = {team_id:Int64}
+                  AND function_kind = {function_kind:String}
+                  AND function_id = {function_id:String}
+                  AND invocation_id IN {invocation_ids:Array(String)}
+                GROUP BY invocation_id
+                HAVING argMax(is_deleted, version) = 1
+                    OR argMax(status, version) NOT IN {requested_status:Array(String)}`,
+            query_params: {
+                team_id: teamId,
+                function_kind: functionKind,
+                function_id: functionId,
+                invocation_ids: invocationIds,
+                requested_status: requestedStatus,
+            },
+            format: 'JSONEachRow',
+        })
+        const rows = (await result.json()) as { invocation_id: string }[]
+        return new Set(rows.map((r) => r.invocation_id))
+    }
+
     private async fetchPage(teamId: number, state: RerunJobState): Promise<InvocationRow[]> {
         const filter = state.request.filter
-        const requestedStatus = filter.status?.length ? filter.status : ['failed']
+        const requestedStatus = this.requestedStatus(state)
         // The Django serializer accepts ISO 8601 ('2026-05-01T00:00:00Z'), but
         // ClickHouse `DateTime64` only parses 'YYYY-MM-DD HH:MM:SS[.fff]'. Convert
         // before passing as a query parameter. The bound params below are typed
@@ -453,6 +547,11 @@ export class RerunPaginatorService {
         const errorKindClause = filter.error_kind?.length
             ? 'AND argMax(error_kind, version) IN {error_kind:Array(String)}'
             : ''
+        // position() instead of LIKE so the needle requires no %/_ escaping. Case-insensitive so a
+        // needle copied from logs matches regardless of capitalization.
+        const errorMessageClause = filter.error_message_contains
+            ? 'AND positionCaseInsensitive(argMax(error_message, version), {error_message_contains:String}) > 0'
+            : ''
         const maxAttemptsClause =
             filter.max_attempts !== undefined ? 'AND argMax(attempts, version) < {max_attempts:UInt8}' : ''
         // `invocation_ids` is an OPTIONAL additional restriction layered on top
@@ -467,7 +566,12 @@ export class RerunPaginatorService {
                 SELECT
                     invocation_id,
                     argMax(parent_run_id, version)         AS parent_run_id,
-                    argMax(attempts, version)              AS attempts,
+                    -- NOT aliased 'attempts': that would shadow the raw column, and the
+                    -- max_attempts HAVING below (argMax(attempts, version) < …) would then
+                    -- resolve 'attempts' to this alias — an aggregate inside an aggregate,
+                    -- which ClickHouse rejects. Any caller setting max_attempts (the poison-
+                    -- pill autodrain always does) would fail every page. Keep the names distinct.
+                    argMax(attempts, version)              AS latest_attempts,
                     argMax(invocation_globals, version)    AS invocation_globals,
                     argMax(first_scheduled_at, version)    AS first_scheduled_at,
                     max(scheduled_at)                      AS last_scheduled_at
@@ -483,6 +587,7 @@ export class RerunPaginatorService {
                 HAVING argMax(is_deleted, version) = 0
                    AND argMax(status, version) IN {status:Array(String)}
                    ${errorKindClause}
+                   ${errorMessageClause}
                    ${maxAttemptsClause}
                 ORDER BY last_scheduled_at DESC, invocation_id DESC
                 LIMIT {limit:UInt32}`,
@@ -494,6 +599,7 @@ export class RerunPaginatorService {
                 window_end: windowEnd,
                 status: requestedStatus,
                 error_kind: filter.error_kind ?? [],
+                error_message_contains: filter.error_message_contains ?? '',
                 max_attempts: filter.max_attempts ?? 255,
                 invocation_ids: filter.invocation_ids ?? [],
                 cursor_scheduled_at: cursorScheduledAt,
@@ -509,7 +615,8 @@ export class RerunPaginatorService {
     private async rehydrateBatch(
         teamId: number,
         state: RerunJobState,
-        rows: InvocationRow[]
+        rows: InvocationRow[],
+        staleStatusIds: Set<string>
     ): Promise<{ queued: number; skipped: number; queuedInvocations: CyclotronJobInvocation[] }> {
         const maxAttempts = state.request.filter.max_attempts
 
@@ -518,7 +625,13 @@ export class RerunPaginatorService {
         // across concurrent callers, so a sequential loop would defeat that.
         const rehydrated = await Promise.all(
             rows.map(async (row): Promise<CyclotronJobInvocation | null> => {
-                if (maxAttempts !== undefined && row.attempts >= maxAttempts) {
+                // Stale rows stay in the page (the cursor advances over them) and count
+                // as skipped, so pagination never re-fetches them.
+                if (staleStatusIds.has(row.invocation_id)) {
+                    counterRerunInvocationsSkipped.labels(state.function_kind, 'stale_status').inc()
+                    return null
+                }
+                if (maxAttempts !== undefined && row.latest_attempts >= maxAttempts) {
                     counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
                     return null
                 }
@@ -582,25 +695,43 @@ export class RerunPaginatorService {
             if (!hogFunction || hogFunction.team_id !== teamId) {
                 return null
             }
+
+            // Only re-enqueue types a cyclotron worker executes. Others (source webhooks,
+            // transformations, site_*) run elsewhere and would never drain from the hog
+            // queue, so a re-enqueued invocation wedges the partition. The API rejects these
+            // up front; this is the backstop for any rerun job that reaches the worker anyway.
+            if (!RERUNNABLE_HOG_FUNCTION_TYPES.has(hogFunction.type)) {
+                logger.warn('⚠️', 'Skipping rerun of invocation with non-rerunnable function type', {
+                    functionId,
+                    teamId,
+                    type: hogFunction.type,
+                    invocation_id: row.invocation_id,
+                })
+                return null
+            }
+
             // The persisted globals are minimal — `inputs`, `groups` and
             // `person` are all stripped. Re-enqueue as-is: the cyclotron worker
             // rehydrates `groups`/`person` and the executor rebuilds `inputs`
             // from the current hog function config, so the rerun runs against
             // the latest config/secrets rather than a stored snapshot.
+            //
+            // Validate the shape before trusting it: a snapshot written by an
+            // older serializer (or otherwise drifted) can be missing
+            // project/event, which the worker dereferences unguarded — skip the
+            // row rather than re-enqueue a poison pill.
+            const parsed = HogFunctionInvocationGlobalsSchema.safeParse(parsedGlobals)
+            if (!parsed.success) {
+                logger.warn('⚠️', 'Skipping rerun of invocation with malformed persisted globals', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                    issues: parsed.error.issues.map((issue) => issue.path.join('.')),
+                })
+                return null
+            }
             const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobalsWithInputs
 
-            // For source-webhook functions the stored `request.headers` AND
-            // `request.query` carry the inbound sender's credentials
-            // (Authorization / x-api-key / signing secrets in headers; URL
-            // tokens like `?token=` in query). Rerunning feeds those back into
-            // the live function, so a write-access user could reconfigure the
-            // function to forward them to an attacker endpoint and replay
-            // history to exfiltrate past senders' secrets. Drop both on
-            // rehydration; non-webhook globals never carry `request` so they're
-            // untouched.
-            if (WEBHOOK_SOURCE_TYPES.has(hogFunction.type) && persistedGlobals.request) {
-                persistedGlobals.request = { ...persistedGlobals.request, headers: {}, query: {} }
-            }
             const invocation: CyclotronJobInvocationHogFunction = {
                 // Preserve invocation_id so lifecycle rows collapse under the
                 // ReplacingMergeTree on the same key.
@@ -614,7 +745,7 @@ export class RerunPaginatorService {
                     // rerun count) drives `is_retry` and `attempts` on the
                     // lifecycle rows.
                     attempts: 0,
-                    rerunAttempts: (row.attempts || 0) + 1,
+                    rerunAttempts: (row.latest_attempts || 0) + 1,
                     // Carry the original first-scheduled time forward — the
                     // producer writes this verbatim on every retry's lifecycle
                     // rows so ReplacingMergeTree doesn't collapse it away.
@@ -656,6 +787,16 @@ export class RerunPaginatorService {
                 hogFlow,
                 filterGlobals
             )
+            // The parked per-action hog function state is not replayable:
+            // `stripInputs` removed its `globals.inputs` (resolved secrets)
+            // before the row was written, and `buildHogFunctionInvocation`
+            // reuses a present `hogFunctionState` verbatim instead of
+            // re-rendering inputs — a message action resumed with it fails
+            // with "No recipient identifier found". Dropping it makes the
+            // action re-enter fresh, so inputs re-render against the current
+            // config, which is what a rerun intends anyway.
+            const { hogFunctionState: _stripped, ...restoredCurrentAction } = persistedState.currentAction ?? {}
+
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null
             invocation.state = {
@@ -663,10 +804,22 @@ export class RerunPaginatorService {
                 event: eventForFilter,
                 actionStepCount: persistedState.actionStepCount ?? 0,
                 variables: persistedState.variables ?? {},
+                // Restore where the flow had progressed to. The executor resumes
+                // from `currentAction` (via ensureCurrentAction); without it the
+                // flow restarts from the trigger and re-runs already-completed
+                // actions — re-sending emails that already went out. Carrying it
+                // forward makes replay of a partially-run flow (e.g. a poisoned
+                // wait_until_condition the janitor gave up on) resume safely.
+                // `personId` is carried for the same reason — the worker needs it
+                // to reload person data for batch/manual triggers on resume.
+                currentAction: persistedState.currentAction
+                    ? (restoredCurrentAction as CyclotronJobInvocationHogFlow['state']['currentAction'])
+                    : undefined,
+                personId: persistedState.personId,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.
-                rerunAttempts: (row.attempts || 0) + 1,
+                rerunAttempts: (row.latest_attempts || 0) + 1,
                 firstScheduledAt: row.first_scheduled_at,
             }
             return invocation

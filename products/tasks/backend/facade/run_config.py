@@ -14,38 +14,65 @@ from products.tasks.backend.constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
+    MODEL_ACCESS_FLAGS,
     InitialPermissionMode,
+    get_required_model_flag,
 )
+from products.tasks.backend.feature_flags import get_model_access_error
+
+# TaskArtifact's choice enums live on the model as Django ``TextChoices``; re-exported here
+# so presentation builds serializer choices without importing the ORM model directly.
+from products.tasks.backend.models import TaskArtifact as _TaskArtifact
 from products.tasks.backend.temporal.process_task.utils import (
+    CONTEXT_WINDOW_CHOICES,
     PUBLIC_REASONING_EFFORTS,
     GitHubCredentialSource,
     LLMProvider,
     PrAuthorshipMode,
+    ReasoningEffort,
     RunSource,
     RunState,
     RuntimeAdapter,
+    get_default_model_for_runtime_adapter,
     get_models_for_runtime_adapter,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    get_runtime_adapter_for_model,
     get_supported_reasoning_efforts,
     parse_run_state,
+    validate_model_selection,
 )
+
+TaskArtifactType = _TaskArtifact.ArtifactType
+TaskArtifactAdapter = _TaskArtifact.Adapter
+TaskArtifactStatus = _TaskArtifact.Status
 
 __all__ = [
     "ALL_INITIAL_PERMISSION_MODE_CHOICES",
     "CODEX_INITIAL_PERMISSION_MODE_CHOICES",
+    "CONTEXT_WINDOW_CHOICES",
     "INITIAL_PERMISSION_MODE_CHOICES",
     "InitialPermissionMode",
+    "MODEL_ACCESS_FLAGS",
     "PUBLIC_REASONING_EFFORTS",
     "GitHubCredentialSource",
     "LLMProvider",
     "PrAuthorshipMode",
+    "ReasoningEffort",
     "RunSource",
     "RunState",
     "RuntimeAdapter",
+    "TaskArtifactAdapter",
+    "TaskArtifactStatus",
+    "TaskArtifactType",
+    "get_default_model_for_runtime_adapter",
+    "get_model_access_error",
     "get_models_for_runtime_adapter",
     "get_provider_for_runtime_adapter",
     "get_reasoning_effort_error",
+    "get_required_model_flag",
+    "get_runtime_adapter_for_model",
     "get_supported_reasoning_efforts",
     "parse_run_state",
+    "validate_model_selection",
 ]

@@ -34,18 +34,19 @@ import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogfl
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
-import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
+import { createCdpOutputsRegistry } from './cdp/outputs/registry'
 import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
-import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
+import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
@@ -97,22 +98,27 @@ export class PluginServer implements NodeServer {
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
-            capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpCyclotronWorkerEmail ||
-            capabilities.cdpCyclotronWorkerEmailLegacyPg ||
-            capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
             capabilities.cdpRerunWorker
         )
+        // The janitor records poison-pill give-ups as failed invocation results,
+        // so it needs the Kafka producer registry — but NOT createCdpSharedServices
+        // (persons/geoip/integrations), which the minimal janitor deployment isn't
+        // provisioned for (DATABASE_URL=NOT_REQUIRED, personhog off). Gate only the
+        // producer on the janitor capability.
+        const needsCdpProducer = needsCdp || capabilities.cdpCyclotronV2Janitor
         // 1. Shared infrastructure (always needed)
         const { teamManager } = await this.createSharedInfrastructure()
 
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
-        if (needsCdp) {
+        if (needsCdpProducer) {
             this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        }
+        if (needsCdp) {
             cdpServices = await this.createCdpSharedServices()
         }
 
@@ -122,7 +128,10 @@ export class PluginServer implements NodeServer {
             cdpQuotaServices = this.createCdpQuotaServices(teamManager)
         }
 
-        // Build typed deps objects for consumers
+        // Build typed deps objects for consumers. `emailValidationValkey` is null in
+        // the shared deps and set only by the cyclotron workers that run the hogflow
+        // email action (see `withEmailValidationValkey` at their loaders below) — no
+        // other consumer touches the SES Valkey.
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
                   postgres: this.postgres!,
@@ -136,6 +145,7 @@ export class PluginServer implements NodeServer {
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
+                  emailValidationValkey: null,
               }
             : undefined
 
@@ -182,7 +192,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpInternalEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!, kafkaQueue)
+                const consumer = new CdpInternalEventsConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })
@@ -213,6 +226,13 @@ export class PluginServer implements NodeServer {
                 const batchResolverProducer = this.config.CYCLOTRON_NODE_DATABASE_URL
                     ? new CyclotronV2Manager({
                           pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL, maxConnections: 5 },
+                          rescheduleFloorSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS,
+                          rescheduleWakeRatePerSecond: this.config.CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND,
+                          rescheduleMinWindowSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS,
+                          rescheduleMaxWindowSeconds: this.config.CYCLOTRON_NODE_RESCHEDULE_MAX_WINDOW_SECONDS,
+                          rescheduleChunkSize: this.config.CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE,
+                          rescheduleMaxChunksPerCall: this.config.CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL,
+                          rescheduleChunkSleepMs: this.config.CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS,
                       })
                     : null
                 const api = new CdpApi(
@@ -240,18 +260,29 @@ export class PluginServer implements NodeServer {
                 throw new Error('CYCLOTRON_NODE_DATABASE_URL not configured but required for CyclotronV2JanitorService')
             }
             serviceLoaders.push(async () => {
-                const janitor = new CyclotronV2JanitorService({
-                    pool: {
-                        dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
-                        maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
-                        idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+                // Build a results service so the janitor can record poison-pill
+                // give-ups as failed, replayable invocation results before
+                // deleting the cyclotron row.
+                const outputs = createCdpOutputsRegistry().build(this.cdpProducerRegistry!, this.config)
+                const invocationResults = new HogInvocationResultsService(outputs, this.config)
+                const janitor = new CyclotronV2JanitorService(
+                    {
+                        pool: {
+                            dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL!,
+                            maxConnections: this.config.CYCLOTRON_NODE_MAX_CONNECTIONS,
+                            idleTimeoutMs: this.config.CYCLOTRON_NODE_IDLE_TIMEOUT_MS,
+                        },
+                        cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
+                        cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
+                        stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
+                        maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
+                        cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
+                        poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
+                        stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
+                        stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
                     },
-                    cleanupBatchSize: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_BATCH_SIZE,
-                    cleanupIntervalMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS,
-                    stallTimeoutMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS,
-                    maxTouchCount: this.config.CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT,
-                    cleanupGraceMs: this.config.CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS,
-                })
+                    invocationResults
+                )
                 await janitor.start()
                 return janitor.service
             })
@@ -266,7 +297,11 @@ export class PluginServer implements NodeServer {
                 // instances naturally; locally we'd silently double-process when
                 // both capabilities are enabled in the same process.
                 const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, queue)
+                const worker = new CdpCyclotronWorkerHogFlow(
+                    this.config,
+                    this.withEmailValidationValkey(cdpDeps!),
+                    queue
+                )
                 await worker.start()
                 return worker.service
             })
@@ -283,25 +318,15 @@ export class PluginServer implements NodeServer {
             })
         }
 
-        // Legacy postgres v1 drain for hogflow jobs — delete once cdp-cyclotron-worker-hogflows-pg-legacy is shut down
-        if (capabilities.cdpCyclotronWorkerHogFlowLegacyPg) {
-            serviceLoaders.push(async () => {
-                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, legacyQueue)
-                await worker.start()
-                return worker.service
-            })
-        }
-
-        // Transitional drain for email jobs stranded on the legacy V1 queue — the email worker
-        // run against V1, sending inline. Delete once V1 'email' throughput is ~0.
-        if (capabilities.cdpCyclotronWorkerEmailLegacyPg) {
-            serviceLoaders.push(async () => {
-                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, legacyQueue)
-                await worker.start()
-                return worker.service
-            })
+        // Boot-time guard: an email-sending deployment must carry a signing key, otherwise every send
+        // would either mint an unsigned tracking link or (now that generate() fails closed) fail. Refuse
+        // to start instead of degrading silently. The email worker below signs tracking codes.
+        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail
+        if (isEmailWorker && !hasEmailSigningKey(this.config.ENCRYPTION_SALT_KEYS)) {
+            throw new Error(
+                'Email worker requires ENCRYPTION_SALT_KEYS to sign tracking codes — refusing to start. ' +
+                    'Configure ENCRYPTION_SALT_KEYS so outbound emails never mint unsigned tracking links.'
+            )
         }
 
         if (capabilities.cdpCyclotronWorkerEmail) {
@@ -325,7 +350,7 @@ export class PluginServer implements NodeServer {
                           throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
                       })
                     : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, queue)
+                const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailValidationValkey(cdpDeps!), queue)
                 await worker.start()
                 return worker.service
             })
@@ -345,14 +370,6 @@ export class PluginServer implements NodeServer {
             this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
-
-        if (capabilities.cdpPrecalculatedFilters) {
-            serviceLoaders.push(async () => {
-                const worker = new CdpPrecalculatedFiltersConsumer(this.config, cdpDeps!)
-                await worker.start()
-                return worker.service
-            })
-        }
 
         if (capabilities.cdpCohortMembership) {
             serviceLoaders.push(async () => {
@@ -402,6 +419,18 @@ export class PluginServer implements NodeServer {
 
         const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
         this.lifecycle.services.push(...readyServices)
+    }
+
+    /**
+     * Grants the SES Valkey pool that backs the shared MX-verdict cache to a worker's
+     * deps. Only the cyclotron workers that run the hogflow email action call this, so
+     * the pool is never opened on other CDP consumers or cdp-api — an idle Valkey sized
+     * for the SES rate limiter shouldn't hold connections from pods that never validate.
+     * Null when no SES Valkey host is configured (local dev), in which case
+     * EmailValidationService degrades to its local cache + DNS.
+     */
+    private withEmailValidationValkey(deps: CdpConsumerBaseDeps): CdpConsumerBaseDeps {
+        return { ...deps, emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation') }
     }
 
     private getCleanupResources(): CleanupResources {

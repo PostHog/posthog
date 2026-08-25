@@ -41,6 +41,8 @@ mod tests {
             person_id: "p".to_string(),
             last_updated: "2026-05-26 12:34:56.789123".to_string(),
             status: MembershipStatus::Entered,
+            origin: None,
+            run_id: None,
         }
     }
 

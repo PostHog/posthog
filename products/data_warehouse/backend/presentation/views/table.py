@@ -1,4 +1,5 @@
 import re
+import uuid
 from typing import Any, cast
 
 from django.conf import settings
@@ -16,14 +17,23 @@ from posthog.hogql.database.database import Database, SerializedField, get_data_
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 
-from products.data_warehouse.backend.presentation.views.external_data_source import SimpleExternalDataSourceSerializers
+from products.data_warehouse.backend.facade.api import get_s3_client
+from products.warehouse_sources.backend.facade.api import (
+    FILE_FORMAT_READ_HINTS,
+    FILE_FORMAT_TO_TABLE_FORMAT,
+    MAX_FILE_UPLOAD_SIZE_BYTES,
+    SUPPORTED_FILE_FORMATS,
+    build_file_upload_s3_path,
+    build_file_upload_url_pattern,
+    hosted_upload_s3_path,
+)
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -35,6 +45,79 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
+from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    SimpleExternalDataSourceSerializers,
+)
+
+# Whole-request-body ceiling for the upload endpoint, checked from Content-Length before the
+# multipart parser spools anything to disk. The per-file check only sees request.FILES["file"], so
+# without this an authenticated caller could push many large parts through the parser and fill temp
+# storage far past the per-file cap. The margin over the file cap covers the multipart envelope and
+# the small form fields sent alongside the file.
+MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
+
+# Which request surface each transport attributes a table to. The PostHog apps and the headless
+# agents share `self_driving`, matching how the source path collapses them. Agent transports that
+# wrap MCP but aren't separately tracked (the CLI, Slack, Max) land on `mcp` alongside plain MCP
+# clients, and anything without a surface of its own is a plain API caller.
+_EVENT_SOURCE_TO_CREATED_VIA = {
+    EventSource.WEB: DataWarehouseTable.CreatedVia.WEB,
+    EventSource.WIZARD: DataWarehouseTable.CreatedVia.WIZARD,
+    EventSource.POSTHOG_CODE: DataWarehouseTable.CreatedVia.SELF_DRIVING,
+    EventSource.DESKTOP: DataWarehouseTable.CreatedVia.SELF_DRIVING,
+    EventSource.MOBILE: DataWarehouseTable.CreatedVia.SELF_DRIVING,
+    EventSource.MCP: DataWarehouseTable.CreatedVia.MCP,
+    EventSource.SLACK: DataWarehouseTable.CreatedVia.MCP,
+    EventSource.CLI: DataWarehouseTable.CreatedVia.MCP,
+    EventSource.POSTHOG_AI: DataWarehouseTable.CreatedVia.MCP,
+}
+
+
+def resolve_created_via(request: request.Request) -> str:
+    """Attribute a table to the surface the request came from.
+
+    Read entirely from the transport (auth method, user-agent, MCP headers) rather than from the
+    request body, so no caller can label its own tables as wizard- or web-created. The values line
+    up with `ExternalDataSource.CreatedVia`, which reaches the same answer from the other direction:
+    a source takes `created_via` from the body because the MCP server injects it there, then
+    upgrades that value using this same transport signal.
+    """
+    event_source = get_event_source(request)
+    created_via = _EVENT_SOURCE_TO_CREATED_VIA.get(event_source, DataWarehouseTable.CreatedVia.API)
+    # Every wizard program shares the `posthog/wizard` user-agent, so a self-driving run is only
+    # distinguishable by the marker it adds to that UA.
+    if created_via == DataWarehouseTable.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
+        return DataWarehouseTable.CreatedVia.SELF_DRIVING
+    return created_via
+
+
+def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
+    """Best-effort removal of a self-managed table's backing file from PostHog's own bucket.
+
+    Only ever touches files we host: `hosted_upload_s3_path` returns `None` for a customer-linked
+    bucket, and a stored credential (the mark of a user-supplied bucket) is a further guard. Failures
+    are swallowed so a storage hiccup can't block the table delete — the object simply lingers.
+    """
+    if table.credential_id is not None:
+        return
+    path = hosted_upload_s3_path(table.url_pattern)
+    if path is None:
+        return
+    # The same uploaded file can back more than one table — `create_from_upload` doesn't claim
+    # exclusive ownership of an upload — so only reclaim the object once no live table still points
+    # at it. This keeps deleting one table from pulling the file out from under another, and stops a
+    # table whose file is still in use from having its object removed.
+    if (
+        DataWarehouseTable.objects.filter(team_id=table.team_id, url_pattern=table.url_pattern, deleted=False)
+        .exclude(pk=table.pk)
+        .exists()
+    ):
+        return
+    try:
+        get_s3_client().rm(path)
+    except Exception as e:
+        capture_exception(e)
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -48,16 +131,49 @@ class CredentialSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
         ]
-        extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
+        extra_kwargs = {
+            "access_key": {
+                "write_only": "True",
+                "help_text": "Access key ID for the bucket the files live in (an AWS access key ID, "
+                "a Google Cloud HMAC key, or the equivalent for another S3-compatible store).",
+            },
+            "access_secret": {
+                "write_only": "True",
+                "help_text": "Secret for the access key. Stored encrypted and never returned by the API.",
+            },
+        }
 
 
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
+    hogql_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or "
+        "`postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier.",
+    )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
-    options = serializers.DictField(required=False, default=dict)
+    options = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Per-format read options. The only one read today is `csv_allow_double_quotes` "
+        "(boolean), for CSV files that quote fields with doubled quotes.",
+    )
+    created_via = serializers.ChoiceField(
+        choices=DataWarehouseTable.CreatedVia.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Where the table came from: `web` for the in-app UI, `api` for direct API callers, "
+            "`mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a "
+            "self-driving run, `source` for a table a data source syncs, `materialized_view` for "
+            "the table behind a materialized view, and `demo` for a demo project's sample table. "
+            "Set server-side from the request, never from the request body. Null on tables created "
+            "before this was recorded."
+        ),
+    )
 
     class Meta:
         model = DataWarehouseTable
@@ -65,9 +181,11 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "id",
             "deleted",
             "name",
+            "hogql_name",
             "format",
             "created_by",
             "created_at",
+            "created_via",
             "url_pattern",
             "credential",
             "columns",
@@ -80,14 +198,42 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "id",
             "created_by",
             "created_at",
+            "created_via",
+            "hogql_name",
             "columns",
             "external_data_source",
             "external_schema",
             "user_access_level",
         ]
+        extra_kwargs = {
+            "name": {
+                "help_text": "Name the table is queried by in HogQL. Must be unique within the project, "
+                "and must start with a letter or underscore and contain only letters, numbers, and "
+                "underscores.",
+            },
+            "format": {
+                "help_text": "File format of the objects the pattern matches. Every matched file must "
+                "share this format.",
+            },
+            "url_pattern": {
+                "help_text": "HTTPS URL of the files to read, with `*` matching any part of a path "
+                "segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched "
+                "files are read as one table. Must point at a bucket you control, not at PostHog's "
+                "own storage.",
+            },
+            "deleted": {"help_text": "Whether the table is soft-deleted and hidden from queries."},
+        }
+
+    @extend_schema_field(serializers.CharField())
+    def get_hogql_name(self, table: DataWarehouseTable) -> str:
+        return get_data_warehouse_table_name(table.external_data_source, table.name)
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
+        # Callers that only need the table list (e.g. a table picker) skip the expensive HogQL field
+        # serialization by passing include_columns=false — it serializes columns for every row.
+        if not self.context.get("include_columns", True):
+            return []
         database = self.context.get("database", None)
         if not database:
             database = Database.create_for(
@@ -123,7 +269,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
-        from products.data_warehouse.backend.presentation.views.external_data_schema import (
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             SimpleExternalDataSchemaSerializer,
         )
 
@@ -134,6 +280,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = cast(User, self.context["request"].user)
+        validated_data["created_via"] = resolve_created_via(self.context["request"])
         credential = validated_data.get("credential")
 
         if not credential:
@@ -174,13 +321,22 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         return table
 
     def validate_url_pattern(self, url_pattern):
-        s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
-        if s3_domain in url_pattern:
-            raise serializers.ValidationError("Cant use this bucket")
-
         is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
         if not is_valid:
             raise serializers.ValidationError(error_message)
+
+        # A table with no credential is read with the ClickHouse node's own role rather than a key
+        # the team supplied, so the URL is only trustworthy because PostHog built it. `create`
+        # refuses that combination outright, and an update has to hold the same line.
+        if (
+            self.instance is not None
+            and self.instance.credential_id is None
+            and url_pattern != self.instance.url_pattern
+        ):
+            raise serializers.ValidationError(
+                "PostHog manages where this table reads from, so its URL can't be changed. "
+                "To read from your own bucket, add it as a self-managed source with an access key and secret."
+            )
 
         return url_pattern
 
@@ -195,7 +351,9 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
             # Otherwise a user with denied table could create another one with colliding name.
             if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
-                raise serializers.ValidationError("A table with this name already exists.")
+                raise serializers.ValidationError(
+                    "A table or view with this name already exists. Choose a different name."
+                )
 
         return name
 
@@ -253,6 +411,31 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         ]
 
 
+class FileUploadResponseSerializer(serializers.Serializer):
+    upload_id = serializers.UUIDField(
+        help_text="Id of the stored upload. Pass it to create_from_upload to build the table."
+    )
+    filename = serializers.CharField(help_text="Sanitized name the file was stored under.")
+    file_format = serializers.CharField(help_text="Format the file will be read as: 'csv', 'json', or 'parquet'.")
+    size_bytes = serializers.IntegerField(help_text="Size of the stored file in bytes.")
+
+
+class CreateTableFromUploadSerializer(serializers.Serializer):
+    upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
+    filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
+    file_format = serializers.ChoiceField(
+        choices=SUPPORTED_FILE_FORMATS, help_text="How the uploaded file is read: 'csv', 'json', or 'parquet'."
+    )
+    table_name = serializers.CharField(help_text="Name the resulting table is queried by in HogQL.")
+
+    def validate_table_name(self, table_name: str) -> str:
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
+            raise serializers.ValidationError(
+                "Table names must start with a letter or underscore and contain only alphanumeric characters or underscores."
+            )
+        return table_name
+
+
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -267,7 +450,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        # Building the HogQL database is only needed to serialize columns; a caller that opts out
+        # (a picker that just needs table names) skips both the columns and the database build.
+        include_columns = self.request.query_params.get("include_columns", "true").lower() != "false"
+        context["include_columns"] = include_columns
+        if include_columns:
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         context["team_id"] = self.team_id
         return context
 
@@ -289,6 +477,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             )
 
         instance.soft_delete()
+        _delete_hosted_upload_file(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -404,6 +593,201 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {"type": "string", "format": "binary", "description": "The file to upload."},
+                    "file_format": {
+                        "type": "string",
+                        "enum": list(SUPPORTED_FILE_FORMATS),
+                        "description": "How the file will be read when the table is created.",
+                    },
+                },
+                "required": ["file", "file_format"],
+            }
+        },
+        responses={201: FileUploadResponseSerializer},
+        summary="Upload a file for a new self-managed warehouse table",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["warehouse_table:write"],
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser],
+    )
+    def upload_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Store an uploaded file in object storage so a self-managed table can be created from it.
+
+        Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
+        this returns an `upload_id` the caller passes back to build the table. The file is written under
+        a team-scoped prefix, so a table can only ever read back its own team's uploads.
+        """
+        if not settings.DATAWAREHOUSE_BUCKET:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Object storage must be available to upload files."},
+            )
+
+        # Reject an oversized body up front, before accessing request.FILES triggers multipart parsing
+        # and spools every part to disk. Reading only Content-Length here keeps the guard cheap.
+        content_length = request.META.get("CONTENT_LENGTH")
+        try:
+            declared_body_size = int(content_length) if content_length else 0
+        except (TypeError, ValueError):
+            declared_body_size = 0
+        if declared_body_size > MAX_UPLOAD_REQUEST_BODY_BYTES:
+            return response.Response(
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                data={
+                    "message": f"Upload exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
+                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                },
+            )
+
+        if "file" not in request.FILES:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "No file provided"})
+
+        # One upload per request: additional parts would already be spooled by the parser, but bounded
+        # by the body cap above; rejecting keeps the endpoint's contract single-file and unambiguous.
+        if len(request.FILES.getlist("file")) > 1 or len(request.FILES) > 1:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Upload one file per request."},
+            )
+
+        file = request.FILES["file"]
+
+        file_format = request.data.get("file_format")
+        if file_format not in SUPPORTED_FILE_FORMATS:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid format. Must be one of: {', '.join(SUPPORTED_FILE_FORMATS)}"},
+            )
+
+        if file.size > MAX_FILE_UPLOAD_SIZE_BYTES:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"File size exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
+                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                },
+            )
+
+        # Django strips path separators via os.path.basename in UploadedFile._set_name; restricting
+        # further to safe characters is defense-in-depth for the S3 key.
+        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name or "")
+        if not safe_filename or safe_filename.startswith("."):
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Invalid filename"})
+
+        upload_id = uuid.uuid4()
+        path = build_file_upload_s3_path(self.team_id, str(upload_id), safe_filename)
+
+        try:
+            s3 = get_s3_client()
+            with s3.open(path, "wb") as destination:
+                for chunk in file.chunks():
+                    destination.write(chunk)
+        except Exception as e:
+            capture_exception(e)
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
+
+        return response.Response(
+            status=status.HTTP_201_CREATED,
+            data=FileUploadResponseSerializer(
+                {
+                    "upload_id": upload_id,
+                    "filename": safe_filename,
+                    "file_format": file_format,
+                    "size_bytes": file.size,
+                }
+            ).data,
+        )
+
+    @extend_schema(
+        request=CreateTableFromUploadSerializer,
+        responses={201: TableSerializer},
+        summary="Create a self-managed warehouse table from an uploaded file",
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_table:write"])
+    def create_from_upload(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Turn a previously uploaded file into a self-managed warehouse table.
+
+        The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
+        at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
+        S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+        `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
+        fall back to the node role, never a user-supplied key).
+        """
+        # Both settings back the table: the bucket resolves the S3 read path, the domain builds the
+        # queryable url_pattern. Missing either would create a table whose every query fails.
+        if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Object storage must be available to create a table from a file."},
+            )
+
+        serializer = CreateTableFromUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        upload_id = str(serializer.validated_data["upload_id"])
+        filename = serializer.validated_data["filename"]
+        file_format = serializer.validated_data["file_format"]
+        table_name = serializer.validated_data["table_name"]
+
+        # Reject duplicate names up front, the same way TableSerializer.validate_name does — has_table
+        # is user-filtered, so also resolve team-wide to stop a denied table being shadowed by a new one.
+        database = Database.create_for(team_id=self.team_id, user=cast(User, request.user))
+        if database.has_table(table_name) or get_view_or_table_by_name(self.team_id, table_name):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "A table or view with this name already exists. Choose a different name."},
+            )
+
+        # Confirm the object is actually there before creating a table that would fail every query.
+        upload_path = build_file_upload_s3_path(self.team_id, upload_id, filename)
+        try:
+            if not get_s3_client().exists(upload_path):
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Uploaded file not found. Please upload the file again."},
+                )
+        except Exception as e:
+            capture_exception(e)
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not verify the uploaded file. Please try uploading it again."},
+            )
+
+        table = DataWarehouseTable(
+            team_id=self.team_id,
+            name=table_name,
+            format=FILE_FORMAT_TO_TABLE_FORMAT[file_format],
+            url_pattern=build_file_upload_url_pattern(self.team_id, upload_id, filename),
+            created_by=request.user if isinstance(request.user, User) else None,
+            created_via=resolve_created_via(request),
+        )
+        try:
+            table.columns = table.get_columns()
+        except Exception as err:
+            # The raw column-detection failure is a ClickHouse error that's opaque to users, so keep it
+            # in error tracking and hand back plain, format-specific guidance on what to check instead.
+            capture_exception(err)
+            hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
+            message = f"Couldn't read the columns from your file. {hint}".strip()
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": message},
+            )
+        table.save()
+
+        validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
+
+        return response.Response(
+            status=status.HTTP_201_CREATED,
+            data=TableSerializer(table, context=self.get_serializer_context()).data,
+        )
+
     @action(
         methods=["POST"],
         detail=False,
@@ -483,6 +867,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                     name=table_name,
                     format=file_format,
                     created_by=created_by,
+                    created_via=resolve_created_via(request),
                 )
 
             # Generate URL pattern and store file in object storage
@@ -507,11 +892,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
                 # Try to determine columns from the file
                 table.columns = table.get_columns()
-                table.save()
+                # team_id comes from routing and safe_filename is sanitized (no path separators), so
+                # the URL above is always scoped to this team's own managed/ prefix, never taken
+                # verbatim from request input the way the PATCH endpoint's url_pattern field is.
+                table.save(internally_computed_url_pattern=True)
 
                 # Validate columns in background
-                from posthog.tasks.warehouse import validate_data_warehouse_table_columns
-
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))
 
                 return response.Response(

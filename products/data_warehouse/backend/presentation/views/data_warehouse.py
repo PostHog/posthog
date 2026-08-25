@@ -8,10 +8,11 @@ from django.db.models.functions import TruncDate, TruncHour
 
 import structlog
 from dateutil import parser
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from opentelemetry import trace
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -19,6 +20,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.mixins import validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -31,8 +33,25 @@ from posthog.utils import convert_property_value, flatten
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
+from products.data_quality.backend.presentation.views import data_quality_gate_response
+from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status, get_source_schema_statuses
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
-from products.data_warehouse.backend.presentation.views import managed_warehouse
+from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
+    ManagedWarehouseDataStatusResponseSerializer,
+    ManagedWarehouseSourceSchemasQuerySerializer,
+    ManagedWarehouseSourceSchemasResponseSerializer,
+)
+from products.data_warehouse.backend.presentation.managed_warehouse_monitoring import (
+    ManagedWarehouseMonitoringErrorResponseSerializer,
+    ManagedWarehouseMonitoringSeriesQuerySerializer,
+    ManagedWarehouseMonitoringSeriesResponseSerializer,
+    ManagedWarehouseMonitoringSnapshotResponseSerializer,
+    ManagedWarehouseMonitoringUpstreamError,
+    serialize_monitoring_series,
+    serialize_monitoring_snapshot,
+)
+from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
@@ -40,6 +59,68 @@ from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+_MONITORING_ERROR_RESPONSES = {
+    status.HTTP_400_BAD_REQUEST: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="The monitoring query parameters are invalid.",
+    ),
+    status.HTTP_403_FORBIDDEN: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="Managed warehouse monitoring is not available to the caller.",
+    ),
+    status.HTTP_404_NOT_FOUND: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="The organization does not have a managed warehouse.",
+    ),
+    status.HTTP_501_NOT_IMPLEMENTED: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="Managed warehouse monitoring is not configured.",
+    ),
+    status.HTTP_502_BAD_GATEWAY: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="The managed warehouse monitoring service returned an invalid response or was unreachable.",
+    ),
+    status.HTTP_504_GATEWAY_TIMEOUT: OpenApiResponse(
+        response=ManagedWarehouseMonitoringErrorResponseSerializer,
+        description="The managed warehouse monitoring service timed out.",
+    ),
+}
+
+
+def _managed_warehouse_monitoring_error_response(upstream_response: Response) -> Response:
+    upstream_status = upstream_response.status_code
+    if upstream_status == status.HTTP_403_FORBIDDEN:
+        return Response(
+            {"error": "Warehouse monitoring isn't available for this organization."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if (
+        upstream_status == status.HTTP_404_NOT_FOUND
+        and isinstance(upstream_response.data, dict)
+        and upstream_response.data.get("code") == "managed_warehouse_not_found"
+    ):
+        return Response(
+            {"error": "Couldn't find a managed warehouse for this organization. Set one up in Data ops and try again."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if upstream_status == status.HTTP_501_NOT_IMPLEMENTED:
+        return Response(
+            {"error": "Warehouse monitoring isn't configured. Contact support."},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    if upstream_status == status.HTTP_504_GATEWAY_TIMEOUT:
+        return Response(
+            {"error": "Warehouse monitoring took too long to respond. Try again."},
+            status=status.HTTP_504_GATEWAY_TIMEOUT,
+        )
+    return Response(
+        {
+            "error": "Couldn't load warehouse monitoring data. Refresh the page, and contact support if it keeps happening."
+        },
+        status=status.HTTP_502_BAD_GATEWAY,
+    )
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -50,6 +131,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # warehouse_view inherits from warehouse_objects; reads require viewer access,
     # write actions (see required_scopes below) require editor access.
     scope_object = "warehouse_view"
+    requires_resource_level_access = False
     serializer_class = _FallbackSerializer
 
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
@@ -810,6 +892,24 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         first_dashboard = config.overview_dashboards.order_by("id").first()
         return Response({"dashboard_id": first_dashboard.id if first_dashboard else None})
 
+    @extend_schema(
+        description="Read or update the team's data quality gate: whether a materialization whose "
+        "error-severity checks fail is published.",
+        request=DataQualityGateConfigSerializer,
+        responses={200: DataQualityGateConfigSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=False, required_scopes=["warehouse_view:write"])
+    def data_quality_gate(self, request: Request, **kwargs) -> Response:
+        # This is a project-wide setting, so writing it needs project-wide warehouse editor access.
+        # The generic warehouse_view:write permission is otherwise satisfied by an object-level editor
+        # grant on a single view, which must not be enough to flip a team-wide gate.
+        if request.method == "PATCH" and not self.user_access_control.check_access_level_for_resource(
+            "warehouse_view", "editor"
+        ):
+            raise PermissionDenied("You need editor access to data warehouse views to change this setting.")
+        # Owned by the data_quality product; this viewset only lends it the warehouse surface.
+        return data_quality_gate_response(self.team, request)
+
     # --- Managed warehouse provisioning (proxied to duckgres, see managed_warehouse.py) ---
 
     @extend_schema(
@@ -817,10 +917,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "ProvisionWarehouseRequest",
             fields={
                 "database_name": serializers.CharField(help_text="Name for the new database"),
-                "table_name": serializers.CharField(
-                    help_text="Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, "
-                    "…). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required "
-                    "so the first project gets its own per-environment tables."
+                "schema_name": serializers.CharField(
+                    help_text="Schema name for the provisioning project's data in the warehouse. Lowercase "
+                    "letters, numbers, and underscores only, max 63 characters. Cannot be changed later. "
+                    "Required — the first project gets its own schema, and other projects pick theirs when "
+                    "they join."
                 ),
             },
         ),
@@ -850,46 +951,46 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             self.team.organization_id,
             request.data.get("database_name"),
             self.team_id,
-            request.data.get("table_name"),
+            request.data.get("schema_name"),
         )
 
     @extend_schema(
         request=inline_serializer(
-            "EnableWarehouseBackfillRequest",
+            "OnboardWarehouseTeamRequest",
             fields={
-                "table_name": serializers.CharField(
-                    help_text="Name for this environment's warehouse tables (events_<name>, persons_<name>, …). "
-                    "Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be "
-                    "unique across the organization's environments."
+                "schema_name": serializers.CharField(
+                    help_text="Schema name for this project's data in the organization's warehouse. Lowercase "
+                    "letters, numbers, and underscores only, max 63 characters. Must be unique within the "
+                    "organization and cannot be changed later."
                 )
             },
         ),
         responses={
             200: inline_serializer(
-                "EnableWarehouseBackfillResponse",
+                "OnboardWarehouseTeamResponse",
                 fields={
-                    "enabled": serializers.BooleanField(help_text="Whether warehouse backfill is now enabled"),
-                    "table_suffix": serializers.CharField(
-                        help_text="Suffix used for this environment's tables (events_<suffix>, persons_<suffix>)"
+                    "onboarded": serializers.BooleanField(
+                        help_text="Whether this project is now onboarded onto the managed warehouse"
                     ),
+                    "schema_name": serializers.CharField(help_text="Schema this project's data lands in"),
                 },
             )
         },
     )
-    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
-    def enable_backfill(self, request: Request, **kwargs) -> Response:
-        """Enable warehouse backfill for this environment with a dedicated set of tables.
+    @action(methods=["POST"], detail=False, url_path="onboard-team", required_scopes=["warehouse_view:write"])
+    def onboard_team(self, request: Request, **kwargs) -> Response:
+        """Onboard this project onto the organization's existing managed warehouse.
 
-        Requires a table name and records the environment's membership in the
-        organization's managed warehouse. Restricted to organization admins.
+        Requires a schema name and records the project's membership in the Duckgres control plane.
+        Restricted to organization admins.
         """
-        admin_error = self._require_organization_admin(request, "enable backfill for")
+        admin_error = self._require_organization_admin(request, "onboard this project for")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.enable_backfill(
+        return managed_warehouse.onboard_team(
             self.team.organization_id,
             self.team.id,
-            request.data.get("table_name"),
+            request.data.get("schema_name"),
         )
 
     @extend_schema(
@@ -912,6 +1013,35 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if admin_error is not None:
             return admin_error
         return managed_warehouse.deprovision(self.team.organization_id)
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
+                "DeleteWarehouseOrgResponse",
+                fields={
+                    "status": serializers.CharField(
+                        required=False, help_text="Deletion lifecycle message from the provisioner"
+                    ),
+                    "org": serializers.CharField(
+                        required=False,
+                        help_text="duckgres org identifier (the PostHog organization id)",
+                    ),
+                },
+            )
+        },
+    )
+    @action(methods=["DELETE"], detail=False, url_path="delete-org", required_scopes=["warehouse_view:write"])
+    def delete_org(self, request: Request, **kwargs) -> Response:
+        """Remove the organization's provisioning record after teardown, freeing its warehouse name.
+
+        Called once the warehouse status reports `deleted`: deprovision tears the warehouse
+        down, this removes the now-empty org row so the database_name can be reused. Restricted
+        to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "delete the provisioning record for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.delete_org(self.team.organization_id)
 
     @extend_schema(
         responses={
@@ -956,17 +1086,151 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         help_text="This project's per-environment table suffix (events_<suffix>). Null when the "
                         "project still writes to the shared tables.",
                     ),
+                    "team_onboarded": serializers.BooleanField(
+                        help_text="Whether this project is onboarded onto the managed warehouse. False when the "
+                        "warehouse exists but this project has not picked a schema yet — show the onboarding "
+                        "screen in that case."
+                    ),
+                    "schema_name": serializers.CharField(
+                        allow_null=True,
+                        help_text="Schema this project's data lands in. Null when the project is not onboarded.",
+                    ),
                 },
             )
         },
     )
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
-        """Get the current provisioning status of the managed warehouse, with this project's backfill state."""
+        """Get the current provisioning status of the managed warehouse, with this project's onboarding state."""
         resp = managed_warehouse.status_for(self.team.organization_id)
         if resp.status_code == 200 and isinstance(resp.data, dict):
             resp.data.update(managed_warehouse.team_backfill_state(self.team_id))
+            onboarding_state = managed_warehouse.team_onboarding_state(self.team.organization_id, self.team_id)
+            resp.data.update(onboarding_state)
+            # Once the warehouse is reachable, surface its tables as a queryable direct
+            # connection for enrolled projects. Best-effort scheduling coalesces repeated scene loads.
+            if resp.data.get("state") == "ready" and onboarding_state["team_onboarded"]:
+                managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
         return resp
+
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseMonitoringSnapshotResponseSerializer,
+                description="Current organization-scoped worker and query activity.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse monitoring snapshot",
+        description="Get tenant-safe live worker, session, queue, and capacity data for the current organization.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-monitoring",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_monitoring(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        upstream_response = managed_warehouse.monitoring_snapshot_for(organization_id)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_monitoring_snapshot(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse monitoring snapshot response failed validation",
+                organization_id=organization_id,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
+    @validated_request(
+        query_serializer=ManagedWarehouseMonitoringSeriesQuerySerializer,
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseMonitoringSeriesResponseSerializer,
+                description="One organization-scoped monitoring metric over time.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse monitoring time series",
+        description="Get one allow-listed monitoring metric for the current organization and trailing time window.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-monitoring-timeseries",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        metric = cast(
+            managed_warehouse.ManagedWarehouseMonitoringMetric,
+            request.validated_query_data["metric"],
+        )
+        window = cast(
+            managed_warehouse.ManagedWarehouseMonitoringWindow,
+            request.validated_query_data["window"],
+        )
+        upstream_response = managed_warehouse.monitoring_series_for(organization_id, metric, window)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_monitoring_series(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+                expected_metric=metric,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse monitoring series response failed validation",
+                organization_id=organization_id,
+                metric=metric,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
+    @extend_schema(responses={200: ManagedWarehouseDataStatusResponseSerializer})
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-data-status",
+        required_scopes=["warehouse_view:read", "external_data_source:read"],
+    )
+    def managed_warehouse_data_status(self, request: Request, **kwargs) -> Response:
+        """Get events, persons, and imported source readiness for the managed warehouse."""
+        return Response(get_managed_warehouse_data_status(self.team_id, user_access_control=self.user_access_control))
+
+    @validated_request(
+        query_serializer=ManagedWarehouseSourceSchemasQuerySerializer,
+        responses={200: OpenApiResponse(response=ManagedWarehouseSourceSchemasResponseSerializer)},
+        summary="Get per-schema detail for one imported source",
+        description="Per-schema backfill and live import status for one source, for the Overview tab's "
+        "drill-down modal — the main status endpoint only returns a per-source rollup.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-source-schemas",
+        required_scopes=["warehouse_view:read", "external_data_source:read"],
+    )
+    def managed_warehouse_source_schemas(self, request: Request, **kwargs) -> Response:
+        source_id = str(request.validated_query_data["source_id"])
+        return Response(
+            {
+                "schemas": get_source_schema_statuses(
+                    self.team_id, source_id, user_access_control=self.user_access_control
+                )
+            }
+        )
 
     @extend_schema(
         responses={
@@ -1008,3 +1272,32 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
         return managed_warehouse.check_name(self.team.organization_id, request.query_params.get("name"))
+
+    @extend_schema(
+        parameters=[
+            inline_serializer(
+                "CheckSchemaNameRequest",
+                fields={"name": serializers.CharField(help_text="Schema name to check")},
+            )
+        ],
+        responses={
+            200: inline_serializer(
+                "CheckSchemaNameResponse",
+                fields={
+                    "name": serializers.CharField(help_text="The schema name that was checked"),
+                    "available": serializers.BooleanField(
+                        help_text="Whether the schema name is free within the organization's warehouse"
+                    ),
+                },
+            )
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="check-schema-name")
+    def check_schema_name(self, request: Request, **kwargs) -> Response:
+        """Check if a schema name is free within the organization's managed warehouse."""
+        # Same gate as onboard_team: the check scans every project's schema in the org, so a
+        # non-admin could otherwise probe names and learn what inaccessible projects use.
+        admin_error = self._require_organization_admin(request, "check schema names for")
+        if admin_error:
+            return admin_error
+        return managed_warehouse.check_schema_name(self.team.organization_id, request.query_params.get("name"))

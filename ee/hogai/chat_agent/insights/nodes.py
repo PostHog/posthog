@@ -19,7 +19,7 @@ from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCal
 
 from posthog.exceptions_capture import capture_exception
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.core.node import AssistantNode
@@ -192,7 +192,7 @@ class InsightSearchNode(AssistantNode):
             self._evaluation_selections[insight_id] = {"insight": insight, "explanation": explanation}
 
             name = insight["name"] or insight["derived_name"] or "Unnamed"
-            insight_url = build_insight_url(self._team, insight["short_id"])
+            insight_url = build_insight_url(insight["short_id"])
             return f"Selected insight {insight_id}: {name} (url: {insight_url})"
 
         @tool
@@ -564,7 +564,9 @@ class InsightSearchNode(AssistantNode):
     ) -> str:
         """Execute query and format results with timing instrumentation."""
         try:
-            query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
+            query_executor = AssistantQueryExecutor(
+                team=self._team, user=self._user, utc_now_datetime=self._utc_now_datetime
+            )
             results, _ = await query_executor.arun_and_format_query(query_obj, debug_timing=True)
             return results
         except Exception as e:
@@ -616,7 +618,7 @@ class InsightSearchNode(AssistantNode):
             except Exception as e:
                 capture_exception(e)
 
-        insight_url = build_insight_url(self._team, insight["short_id"])
+        insight_url = build_insight_url(insight["short_id"])
         hyperlink_format = f"[{name}]({insight_url})"
 
         summary_parts = [
@@ -827,7 +829,7 @@ class InsightSearchNode(AssistantNode):
                 visualization_messages.append(visualization_message)
 
             insight_name = insight["name"] or insight["derived_name"] or "Unnamed"
-            insight_url = build_insight_url(self._team, insight["short_id"])
+            insight_url = build_insight_url(insight["short_id"])
             insight_hyperlink = f"[{insight_name}]({insight_url})"
             explanations.append(
                 f"- {insight_hyperlink} (Artifact ID: {insight['short_id']}): {selection['explanation']}"

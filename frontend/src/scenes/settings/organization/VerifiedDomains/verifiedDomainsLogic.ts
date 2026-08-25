@@ -1,5 +1,6 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -10,41 +11,50 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    domainsDestroy,
     identityProviderConfigsCreate,
     identityProviderConfigsDestroy,
+    identityProviderConfigsList,
     identityProviderConfigsPartialUpdate,
     identityProviderConfigsScimTokenCreate,
 } from '~/generated/core/api'
-import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs } from '~/types'
-
-import type { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
+import { ConfigScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
+import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs, UserType } from '~/types'
 
 /**
- * Resolve the `IdentityProviderConfig` id that backs a domain, creating and linking an empty
- * config first if the domain doesn't have one yet. The config is the source of truth for
- * SAML/SCIM/ID-JAG settings, so all IdP-config CRUD targets it rather than the domain.
- *
- * We link the (still empty) config to the domain *before* populating any fields, so the
- * domain→config mirror that runs on the link's domain save sees no divergence to clobber.
- * If linking fails, the freshly created config is deleted so we don't leave an orphan behind.
+ * Resolve the identity provider configuration for a domain, creating one through the
+ * configuration API when needed so the join table remains the only mapping source.
  */
-async function ensureIdpConfigId(organizationId: string, domain: OrganizationDomainType): Promise<string> {
-    if (domain.identity_provider_config) {
-        return domain.identity_provider_config
-    }
-    const config = await identityProviderConfigsCreate(organizationId, { name: domain.domain })
-    try {
-        await api.update(`api/organizations/${organizationId}/domains/${domain.id}`, {
-            identity_provider_config: config.id,
-        })
-    } catch (error) {
-        await identityProviderConfigsDestroy(organizationId, config.id).catch(() => undefined)
-        throw error
-    }
-    return config.id
+export function getIdentityProviderConfigForDomain(
+    configs: IdentityProviderConfigApi[],
+    domainId: string,
+    configScope: ConfigScopeEnumApi
+): IdentityProviderConfigApi | undefined {
+    const linkedConfigs = configs.filter((config) => config.organization_domain_ids?.includes(domainId))
+    return (
+        linkedConfigs.find((config) => config.config_scope === configScope) ??
+        linkedConfigs.find((config) => config.config_scope == null)
+    )
 }
 
-/** Re-fetch a single domain and replace it in local state, reflecting reverse-synced IdP columns. */
+async function ensureIdpConfig(
+    organizationId: string,
+    domain: OrganizationDomainType,
+    configScope: ConfigScopeEnumApi
+): Promise<IdentityProviderConfigApi> {
+    const configs = (await identityProviderConfigsList(organizationId)).results
+    const existingConfig = getIdentityProviderConfigForDomain(configs, domain.id, configScope)
+    if (existingConfig) {
+        return existingConfig
+    }
+    return identityProviderConfigsCreate(organizationId, {
+        name: domain.domain,
+        config_scope: configScope,
+        organization_domain_ids: [domain.id],
+    })
+}
+
+/** Re-fetch a single domain and replace it in local state (e.g. after linking/updating its IdP config). */
 async function refreshDomain(
     organizationId: string,
     domainId: string,
@@ -61,18 +71,22 @@ export type OrganizationDomainUpdatePayload = Partial<
     Pick<OrganizationDomainType, 'id'>
 
 export type SAMLConfigType = Partial<
-    Pick<OrganizationDomainType, 'saml_acs_url' | 'saml_entity_id' | 'saml_x509_cert'> &
-        Pick<OrganizationDomainType, 'id'>
+    Pick<IdentityProviderConfigApi, 'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'> & {
+        id: string
+    }
 >
 
 export type SCIMConfigType = Partial<
-    Pick<OrganizationDomainType, 'scim_enabled' | 'scim_base_url' | 'scim_bearer_token'> &
-        Pick<OrganizationDomainType, 'id'>
+    Pick<IdentityProviderConfigApi, 'scim_enabled' | 'scim_bearer_token'> & {
+        id: string
+        scim_base_url: string | null
+    }
 >
 
 export type IdJagConfigType = Partial<
-    Pick<OrganizationDomainType, 'id_jag_issuer_url' | 'id_jag_jwks_url' | 'id_jag_allowed_clients'> &
-        Pick<OrganizationDomainType, 'id'>
+    Pick<IdentityProviderConfigApi, 'id_jag_issuer_url' | 'id_jag_jwks_url' | 'id_jag_allowed_clients'> & {
+        id: string
+    }
 >
 
 export const isSecureURL = (url: string): boolean => {
@@ -84,6 +98,595 @@ export const isSecureURL = (url: string): boolean => {
     }
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface verifiedDomainsLogicValues {
+    currentOrganizationId: string // organizationLogic
+    addModalShown: boolean
+    configureIdJagModalId: string | null
+    configureIdJagModalLoading: boolean
+    configureSAMLModalId: string | null
+    configureSAMLModalLoading: boolean
+    configureSCIMModalId: string | null
+    domainBeingVerified: OrganizationDomainType | null
+    idJagConfig: Partial<
+        Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+            id: string
+        }
+    >
+    idJagConfigAllErrors: Record<string, any>
+    idJagConfigChanged: boolean
+    idJagConfigErrors: DeepPartialMap<
+        Partial<
+            Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                id: string
+            }
+        >,
+        ValidationErrorType
+    >
+    idJagConfigHasErrors: boolean
+    idJagConfigManualErrors: Record<string, any>
+    idJagConfigTouched: boolean
+    idJagConfigTouches: Record<string, boolean>
+    idJagConfigValidationErrors: DeepPartialMap<
+        Partial<
+            Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                id: string
+            }
+        >,
+        ValidationErrorType
+    >
+    identityProviderConfigs: IdentityProviderConfigApi[]
+    identityProviderConfigsLoading: boolean
+    isIdJagConfigSubmitting: boolean
+    isIdJagConfigValid: boolean
+    isSAMLAvailable: boolean
+    isSCIMAvailable: boolean
+    isSSOEnforcementAvailable: boolean
+    isSamlConfigSubmitting: boolean
+    isSamlConfigValid: boolean
+    isXAAAuthenticationAvailable: boolean
+    ownVerifiedDomain: OrganizationDomainType | null
+    samlConfig: Partial<
+        Pick<IdentityProviderConfigApi, 'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'> & {
+            id: string
+        }
+    >
+    samlConfigAllErrors: Record<string, any>
+    samlConfigChanged: boolean
+    samlConfigErrors: DeepPartialMap<
+        Partial<
+            Pick<
+                IdentityProviderConfigApi,
+                'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+            > & {
+                id: string
+            }
+        >,
+        ValidationErrorType
+    >
+    samlConfigHasErrors: boolean
+    samlConfigManualErrors: Record<string, any>
+    samlConfigTouched: boolean
+    samlConfigTouches: Record<string, boolean>
+    samlConfigValidationErrors: DeepPartialMap<
+        Partial<
+            Pick<
+                IdentityProviderConfigApi,
+                'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+            > & {
+                id: string
+            }
+        >,
+        ValidationErrorType
+    >
+    scimConfig: SCIMConfigType
+    scimConfigLoading: boolean
+    scimLogs: PaginatedSCIMRequestLogs | null
+    scimLogsLoading: boolean
+    scimLogsModalId: string | null
+    scimLogsPage: number
+    scimLogsSearch: string
+    scimLogsStatusFilter: '4xx' | '5xx' | 'all' | 'success'
+    showIdJagConfigErrors: boolean
+    showSamlConfigErrors: boolean
+    updatingDomain: boolean
+    updatingDomainLoading: boolean
+    verifiedDomains: OrganizationDomainType[]
+    verifiedDomainsLoading: boolean
+    verifyModal: string | null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface verifiedDomainsLogicActions {
+    addVerifiedDomain: (domain: string) => string
+    addVerifiedDomainFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    addVerifiedDomainSuccess: (
+        verifiedDomains: OrganizationDomainType[],
+        payload?: string
+    ) => {
+        verifiedDomains: OrganizationDomainType[]
+        payload?: string
+    }
+    deleteVerifiedDomain: (id: string) => string
+    deleteVerifiedDomainFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    deleteVerifiedDomainSuccess: (
+        verifiedDomains: OrganizationDomainType[],
+        payload?: string
+    ) => {
+        verifiedDomains: OrganizationDomainType[]
+        payload?: string
+    }
+    disableScim: (domainId: string) => string
+    disableScimFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    disableScimSuccess: (
+        scimConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'scim_bearer_token' | 'scim_enabled'> & {
+                id: string
+                scim_base_url: string | null
+            }
+        >,
+        payload?: string
+    ) => {
+        scimConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'scim_bearer_token' | 'scim_enabled'> & {
+                id: string
+                scim_base_url: string | null
+            }
+        >
+        payload?: string
+    }
+    enableScim: (domainId: string) => string
+    enableScimFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    enableScimSuccess: (
+        scimConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'scim_bearer_token' | 'scim_enabled'> & {
+                id: string
+                scim_base_url: string | null
+            }
+        >,
+        payload?: string
+    ) => {
+        scimConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'scim_bearer_token' | 'scim_enabled'> & {
+                id: string
+                scim_base_url: string | null
+            }
+        >
+        payload?: string
+    }
+    hideAddDomainModal: () => {
+        value: true
+    }
+    loadIdentityProviderConfigs: () => any
+    loadIdentityProviderConfigsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadIdentityProviderConfigsSuccess: (
+        identityProviderConfigs: IdentityProviderConfigApi[],
+        payload?: any
+    ) => {
+        identityProviderConfigs: IdentityProviderConfigApi[]
+        payload?: any
+    }
+    loadScimConfig: (domainId: string) => string
+    loadScimConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScimConfigSuccess: (
+        scimConfig: {
+            id: string
+            scim_base_url: string | undefined
+            scim_enabled: boolean
+        },
+        payload?: string
+    ) => {
+        scimConfig: {
+            id: string
+            scim_base_url: string | undefined
+            scim_enabled: boolean
+        }
+        payload?: string
+    }
+    loadScimLogs: ({ domainId, page }: { domainId: string; page?: number }) => {
+        domainId: string
+        page?: number
+    }
+    loadScimLogsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScimLogsSuccess: (
+        scimLogs: PaginatedSCIMRequestLogs | null,
+        payload?: {
+            domainId: string
+            page?: number
+        }
+    ) => {
+        scimLogs: PaginatedSCIMRequestLogs | null
+        payload?: {
+            domainId: string
+            page?: number
+        }
+    }
+    loadVerifiedDomains: () => any
+    loadVerifiedDomainsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadVerifiedDomainsSuccess: (
+        verifiedDomains: OrganizationDomainType[],
+        payload?: any
+    ) => {
+        verifiedDomains: OrganizationDomainType[]
+        payload?: any
+    }
+    regenerateScimToken: (domainId: string) => string
+    regenerateScimTokenFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    regenerateScimTokenSuccess: (
+        scimConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'scim_bearer_token' | 'scim_enabled'> & {
+                id: string
+                scim_base_url: string | null
+            }
+        >,
+        payload?: string
+    ) => {
+        scimConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'scim_bearer_token' | 'scim_enabled'> & {
+                id: string
+                scim_base_url: string | null
+            }
+        >
+        payload?: string
+    }
+    reloadScimLogs: () => {
+        value: true
+    }
+    replaceDomain: (domain: OrganizationDomainType) => {
+        domain: OrganizationDomainType
+    }
+    resetIdJagConfig: (
+        values?: Partial<
+            Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                id: string
+            }
+        >
+    ) => {
+        values?: Partial<
+            Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                id: string
+            }
+        >
+    }
+    resetSamlConfig: (
+        values?: Partial<
+            Pick<
+                IdentityProviderConfigApi,
+                'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+            > & {
+                id: string
+            }
+        >
+    ) => {
+        values?: Partial<
+            Pick<
+                IdentityProviderConfigApi,
+                'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+            > & {
+                id: string
+            }
+        >
+    }
+    setConfigureIdJagModalId: (id: string | null) => {
+        id: string | null
+    }
+    setConfigureIdJagModalLoading: (loading: boolean) => {
+        loading: boolean
+    }
+    setConfigureSAMLModalId: (id: string | null) => {
+        id: string | null
+    }
+    setConfigureSAMLModalLoading: (loading: boolean) => {
+        loading: boolean
+    }
+    setConfigureSCIMModalId: (id: string | null) => {
+        id: string | null
+    }
+    setIdJagConfigManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setIdJagConfigValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setIdJagConfigValues: (
+        values: DeepPartial<
+            Partial<
+                Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                    id: string
+                }
+            >
+        >
+    ) => {
+        values: DeepPartial<
+            Partial<
+                Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                    id: string
+                }
+            >
+        >
+    }
+    setSamlConfigManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setSamlConfigValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setSamlConfigValues: (
+        values: DeepPartial<
+            Partial<
+                Pick<
+                    IdentityProviderConfigApi,
+                    'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+                > & {
+                    id: string
+                }
+            >
+        >
+    ) => {
+        values: DeepPartial<
+            Partial<
+                Pick<
+                    IdentityProviderConfigApi,
+                    'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+                > & {
+                    id: string
+                }
+            >
+        >
+    }
+    setScimLogsModalId: (id: string | null) => {
+        id: string | null
+    }
+    setScimLogsModalIdFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setScimLogsModalIdSuccess: (
+        scimLogs: null,
+        payload?: {
+            id: string | null
+        }
+    ) => {
+        scimLogs: null
+        payload?: {
+            id: string | null
+        }
+    }
+    setScimLogsPage: (page: number) => {
+        page: number
+    }
+    setScimLogsSearch: (search: string) => {
+        search: string
+    }
+    setScimLogsStatusFilter: (filter: '4xx' | '5xx' | 'all' | 'success') => {
+        filter: '4xx' | '5xx' | 'all' | 'success'
+    }
+    setVerifyModal: (id: string | null) => {
+        id: string | null
+    }
+    showAddDomainModal: () => {
+        value: true
+    }
+    submitIdJagConfig: () => {
+        value: boolean
+    }
+    submitIdJagConfigFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitIdJagConfigRequest: (
+        idJagConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                id: string
+            }
+        >
+    ) => {
+        idJagConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                id: string
+            }
+        >
+    }
+    submitIdJagConfigSuccess: (
+        idJagConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                id: string
+            }
+        >
+    ) => {
+        idJagConfig: Partial<
+            Pick<IdentityProviderConfigApi, 'id_jag_allowed_clients' | 'id_jag_issuer_url' | 'id_jag_jwks_url'> & {
+                id: string
+            }
+        >
+    }
+    submitSamlConfig: () => {
+        value: boolean
+    }
+    submitSamlConfigFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitSamlConfigRequest: (
+        samlConfig: Partial<
+            Pick<
+                IdentityProviderConfigApi,
+                'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+            > & {
+                id: string
+            }
+        >
+    ) => {
+        samlConfig: Partial<
+            Pick<
+                IdentityProviderConfigApi,
+                'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+            > & {
+                id: string
+            }
+        >
+    }
+    submitSamlConfigSuccess: (
+        samlConfig: Partial<
+            Pick<
+                IdentityProviderConfigApi,
+                'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+            > & {
+                id: string
+            }
+        >
+    ) => {
+        samlConfig: Partial<
+            Pick<
+                IdentityProviderConfigApi,
+                'saml_acs_url' | 'saml_entity_id' | 'saml_relay_state' | 'saml_x509_cert'
+            > & {
+                id: string
+            }
+        >
+    }
+    touchIdJagConfigField: (key: string) => {
+        key: string
+    }
+    touchSamlConfigField: (key: string) => {
+        key: string
+    }
+    updateDomain: (payload: OrganizationDomainUpdatePayload) => OrganizationDomainUpdatePayload
+    updateDomainFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    updateDomainSuccess: (
+        updatingDomain: boolean,
+        payload?: OrganizationDomainUpdatePayload
+    ) => {
+        updatingDomain: boolean
+        payload?: OrganizationDomainUpdatePayload
+    }
+    verifyDomain: () => any
+    verifyDomainFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    verifyDomainSuccess: (
+        updatingDomain: boolean,
+        payload?: any
+    ) => {
+        updatingDomain: boolean
+        payload?: any
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface verifiedDomainsLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        domainBeingVerified: (
+            verifiedDomains: OrganizationDomainType[],
+            verifyModal: string | null
+        ) => OrganizationDomainType | null
+        ownVerifiedDomain: (
+            verifiedDomains: OrganizationDomainType[],
+            user: UserType | null
+        ) => OrganizationDomainType | null
+        isSSOEnforcementAvailable: (
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+        ) => boolean
+        isSAMLAvailable: (
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+        ) => boolean
+        isSCIMAvailable: (
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+        ) => boolean
+        isXAAAuthenticationAvailable: (
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+        ) => boolean
+    }
+}
+
+export type verifiedDomainsLogicType = MakeLogicType<
+    verifiedDomainsLogicValues,
+    verifiedDomainsLogicActions,
+    Record<string, any>,
+    verifiedDomainsLogicMeta
+>
+
 export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     path(['scenes', 'organization', 'verifiedDomainsLogic']),
     connect(() => ({ values: [organizationLogic, ['currentOrganizationId']], logic: [userLogic] })),
@@ -92,8 +695,10 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         showAddDomainModal: true,
         hideAddDomainModal: true,
         setConfigureSAMLModalId: (id: string | null) => ({ id }),
+        setConfigureSAMLModalLoading: (loading: boolean) => ({ loading }),
         setConfigureSCIMModalId: (id: string | null) => ({ id }),
         setConfigureIdJagModalId: (id: string | null) => ({ id }),
+        setConfigureIdJagModalLoading: (loading: boolean) => ({ loading }),
         setScimLogsModalId: (id: string | null) => ({ id }),
         setScimLogsStatusFilter: (filter: 'all' | 'success' | '4xx' | '5xx') => ({ filter }),
         setScimLogsSearch: (search: string) => ({ search }),
@@ -126,6 +731,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 setConfigureSAMLModalId: (_, { id }) => id,
             },
         ],
+        configureSAMLModalLoading: [
+            false,
+            {
+                setConfigureSAMLModalId: (_, { id }) => Boolean(id),
+                setConfigureSAMLModalLoading: (_, { loading }) => loading,
+            },
+        ],
         configureSCIMModalId: [
             null as null | string,
             {
@@ -136,6 +748,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             null as null | string,
             {
                 setConfigureIdJagModalId: (_, { id }) => id,
+            },
+        ],
+        configureIdJagModalLoading: [
+            false,
+            {
+                setConfigureIdJagModalId: (_, { id }) => Boolean(id),
+                setConfigureIdJagModalLoading: (_, { loading }) => loading,
             },
         ],
         scimLogsModalId: [
@@ -175,6 +794,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         ],
     }),
     loaders(({ values, actions }) => ({
+        identityProviderConfigs: [
+            [] as IdentityProviderConfigApi[],
+            {
+                loadIdentityProviderConfigs: async () =>
+                    (await identityProviderConfigsList(values.currentOrganizationId)).results,
+            },
+        ],
         verifiedDomains: [
             [] as OrganizationDomainType[],
             {
@@ -191,7 +817,15 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     return [...values.verifiedDomains, response]
                 },
                 deleteVerifiedDomain: async (id: string) => {
-                    await api.delete(`api/organizations/${values.currentOrganizationId}/domains/${id}`)
+                    const configs = values.identityProviderConfigs.filter(
+                        (config) =>
+                            config.organization_domain_ids?.length === 1 && config.organization_domain_ids[0] === id
+                    )
+                    await domainsDestroy(values.currentOrganizationId, id)
+                    await Promise.all(
+                        configs.map((config) => identityProviderConfigsDestroy(values.currentOrganizationId, config.id))
+                    )
+                    actions.loadIdentityProviderConfigs()
                     return values.verifiedDomains.filter((domain) => domain.id !== id)
                 },
             },
@@ -230,10 +864,18 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             {
                 loadScimConfig: async (domainId: string) => {
                     const domain = values.verifiedDomains.find(({ id }) => id === domainId)
+                    if (!domain) {
+                        return { id: domainId, scim_enabled: false, scim_base_url: undefined }
+                    }
+                    const config = await ensureIdpConfig(
+                        values.currentOrganizationId as string,
+                        domain,
+                        ConfigScopeEnumApi.Scim
+                    )
                     return {
                         id: domainId,
-                        scim_enabled: domain?.scim_enabled ?? false,
-                        scim_base_url: domain?.scim_base_url,
+                        scim_enabled: config.scim_enabled ?? false,
+                        scim_base_url: domain.scim_base_url,
                     }
                 },
                 enableScim: async (domainId: string) => {
@@ -242,9 +884,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     if (!domain) {
                         return values.scimConfig
                     }
-                    const configId = await ensureIdpConfigId(orgId, domain)
-                    const config = await identityProviderConfigsPartialUpdate(orgId, configId, { scim_enabled: true })
-                    // Refresh the domain so its SCIM base URL (per-domain, reverse-synced) is current.
+                    const ensuredConfig = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Scim)
+                    const config = await identityProviderConfigsPartialUpdate(orgId, ensuredConfig.id, {
+                        scim_enabled: true,
+                    })
+                    actions.loadIdentityProviderConfigs()
                     const refreshed = await refreshDomain(orgId, domainId, actions.replaceDomain)
                     lemonToast.success('SCIM enabled successfully!')
                     return {
@@ -260,8 +904,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     if (!domain) {
                         return values.scimConfig
                     }
-                    const configId = await ensureIdpConfigId(orgId, domain)
-                    const config = await identityProviderConfigsPartialUpdate(orgId, configId, { scim_enabled: false })
+                    const ensuredConfig = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Scim)
+                    const config = await identityProviderConfigsPartialUpdate(orgId, ensuredConfig.id, {
+                        scim_enabled: false,
+                    })
+                    actions.loadIdentityProviderConfigs()
                     const refreshed = await refreshDomain(orgId, domainId, actions.replaceDomain)
                     lemonToast.success('SCIM disabled successfully!')
                     return {
@@ -273,13 +920,17 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 regenerateScimToken: async (domainId: string) => {
                     const orgId = values.currentOrganizationId as string
                     const domain = values.verifiedDomains.find(({ id }) => id === domainId)
-                    if (!domain?.identity_provider_config) {
+                    const config = domain
+                        ? getIdentityProviderConfigForDomain(
+                              values.identityProviderConfigs,
+                              domain.id,
+                              ConfigScopeEnumApi.Scim
+                          )
+                        : undefined
+                    if (!domain || !config) {
                         return values.scimConfig
                     }
-                    const response = await identityProviderConfigsScimTokenCreate(
-                        orgId,
-                        domain.identity_provider_config
-                    )
+                    const response = await identityProviderConfigsScimTokenCreate(orgId, config.id)
                     lemonToast.success('SCIM token regenerated successfully!')
                     return {
                         id: domainId,
@@ -322,23 +973,51 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        setConfigureSAMLModalId: ({ id }) => {
+        setConfigureSAMLModalId: async ({ id }) => {
             const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
-            if (id && domain) {
-                const { saml_acs_url, saml_entity_id, saml_x509_cert } = domain
-                actions.setSamlConfigValues({ saml_acs_url, saml_entity_id, saml_x509_cert, id })
+            if (!id || !domain) {
+                return
+            }
+            try {
+                const config = await ensureIdpConfig(
+                    values.currentOrganizationId as string,
+                    domain,
+                    ConfigScopeEnumApi.Saml
+                )
+                actions.setSamlConfigValues({
+                    id,
+                    saml_relay_state: config.saml_relay_state,
+                    saml_acs_url: config.saml_acs_url ?? '',
+                    saml_entity_id: config.saml_entity_id ?? '',
+                    saml_x509_cert: config.saml_x509_cert ?? '',
+                })
+                actions.setConfigureSAMLModalLoading(false)
+            } catch {
+                lemonToast.error('Could not load the SAML configuration for this domain. Please try again.')
+                actions.setConfigureSAMLModalId(null)
             }
         },
-        setConfigureIdJagModalId: ({ id }) => {
+        setConfigureIdJagModalId: async ({ id }) => {
             const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
-            if (id && domain) {
-                const { id_jag_issuer_url, id_jag_jwks_url, id_jag_allowed_clients } = domain
+            if (!id || !domain) {
+                return
+            }
+            try {
+                const config = await ensureIdpConfig(
+                    values.currentOrganizationId as string,
+                    domain,
+                    ConfigScopeEnumApi.Xaa
+                )
                 actions.setIdJagConfigValues({
                     id,
-                    id_jag_issuer_url: id_jag_issuer_url ?? '',
-                    id_jag_jwks_url: id_jag_jwks_url ?? '',
-                    id_jag_allowed_clients: id_jag_allowed_clients ?? [],
+                    id_jag_issuer_url: config.id_jag_issuer_url ?? '',
+                    id_jag_jwks_url: config.id_jag_jwks_url ?? '',
+                    id_jag_allowed_clients: config.id_jag_allowed_clients ?? [],
                 })
+                actions.setConfigureIdJagModalLoading(false)
+            } catch {
+                lemonToast.error('Could not load the ID-JAG configuration for this domain. Please try again.')
+                actions.setConfigureIdJagModalId(null)
             }
         },
         setConfigureSCIMModalId: ({ id }) => {
@@ -375,27 +1054,46 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     selectors({
         domainBeingVerified: [
             (s) => [s.verifiedDomains, s.verifyModal],
-            (verifiedDomains, verifyingId): OrganizationDomainType | null =>
+            (verifiedDomains: OrganizationDomainType[], verifyingId: string | null): OrganizationDomainType | null =>
                 (verifyingId && verifiedDomains.find(({ id }) => id === verifyingId)) || null,
+        ],
+        ownVerifiedDomain: [
+            (s) => [s.verifiedDomains, userLogic.selectors.user],
+            (verifiedDomains: OrganizationDomainType[], user: UserType | null): OrganizationDomainType | null => {
+                // Domains are unique across organizations, so at most one can admit the user's email.
+                const emailDomain = user?.email.split('@')[1]?.toLowerCase()
+                return (
+                    verifiedDomains.find(
+                        (domain) => domain.is_verified && domain.domain.toLowerCase() === emailDomain
+                    ) ?? null
+                )
+            },
         ],
         isSSOEnforcementAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SSO_ENFORCEMENT),
+            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
+                hasAvailableFeature(AvailableFeature.SSO_ENFORCEMENT),
         ],
         isSAMLAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SAML),
+            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
+                hasAvailableFeature(AvailableFeature.SAML),
         ],
         isSCIMAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SCIM),
+            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
+                hasAvailableFeature(AvailableFeature.SCIM),
         ],
         isXAAAuthenticationAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.XAA_AUTHENTICATION),
+            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
+                hasAvailableFeature(AvailableFeature.XAA_AUTHENTICATION),
         ],
     }),
-    afterMount(({ actions }) => actions.loadVerifiedDomains()),
+    afterMount(({ actions }) => {
+        actions.loadIdentityProviderConfigs()
+        actions.loadVerifiedDomains()
+    }),
     bindModalToUrl({
         urlKey: 'add-domain',
         openActionKey: 'showAddDomainModal',
@@ -421,12 +1119,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!domain) {
                     return
                 }
-                const configId = await ensureIdpConfigId(orgId, domain)
-                await identityProviderConfigsPartialUpdate(orgId, configId, {
+                const config = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Saml)
+                await identityProviderConfigsPartialUpdate(orgId, config.id, {
                     saml_acs_url,
                     saml_entity_id,
                     saml_x509_cert,
                 })
+                actions.loadIdentityProviderConfigs()
                 breakpoint()
                 const refreshed = await refreshDomain(orgId, id, actions.replaceDomain)
                 actions.setConfigureSAMLModalId(null)
@@ -456,12 +1155,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!domain) {
                     return
                 }
-                const configId = await ensureIdpConfigId(orgId, domain)
-                await identityProviderConfigsPartialUpdate(orgId, configId, {
+                const config = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Xaa)
+                await identityProviderConfigsPartialUpdate(orgId, config.id, {
                     id_jag_issuer_url: id_jag_issuer_url?.trim() || null,
                     id_jag_jwks_url: id_jag_jwks_url?.trim() || null,
                     id_jag_allowed_clients: id_jag_allowed_clients ?? [],
                 })
+                actions.loadIdentityProviderConfigs()
                 breakpoint()
                 const refreshed = await refreshDomain(orgId, id, actions.replaceDomain)
                 actions.setConfigureIdJagModalId(null)

@@ -54,8 +54,8 @@ def bucket_name(request) -> str:
 
 
 @pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
+async def object_storage_client(bucket_name):
+    """Manage an S3 client to interact with a local object storage bucket.
 
     Yields the client after creating a bucket. Upon resuming, we delete
     the contents and the bucket itself.
@@ -65,24 +65,24 @@ async def minio_client(bucket_name):
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-    ) as minio_client:
-        await minio_client.create_bucket(Bucket=bucket_name)
+    ) as object_storage_client:
+        await object_storage_client.create_bucket(Bucket=bucket_name)
 
-        yield minio_client
+        yield object_storage_client
 
-        await delete_all_from_s3(minio_client, bucket_name, key_prefix="")
+        await delete_all_from_s3(object_storage_client, bucket_name, key_prefix="")
 
-        await minio_client.delete_bucket(Bucket=bucket_name)
+        await object_storage_client.delete_bucket(Bucket=bucket_name)
 
 
-async def test_upload_manifest_file(minio_client, bucket_name):
+async def test_upload_manifest_file(object_storage_client, bucket_name):
     """Test the a correctly formatted manifest is uploaded with the necessary contents."""
     test_prefix = uuid.uuid4()
 
     files_uploaded = []
     for file_number in range(3):
         key = f"{test_prefix}/file_{file_number}"
-        await minio_client.put_object(
+        await object_storage_client.put_object(
             Bucket=bucket_name,
             Key=key,
             Body=b"0",
@@ -90,17 +90,23 @@ async def test_upload_manifest_file(minio_client, bucket_name):
         files_uploaded.append(key)
 
     manifest_key = f"/{test_prefix}/manifest.json"
+
+    # Needed for the noisy type checker
+    assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
+    assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
+
     await upload_manifest_file(
         bucket=bucket_name,
         region_name="us-east-1",
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        credentials=AWSCredentials(
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ),
         files_uploaded=files_uploaded,
         manifest_key=manifest_key,
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
     )
 
-    obj = await minio_client.get_object(Bucket=bucket_name, Key=manifest_key)
+    obj = await object_storage_client.get_object(Bucket=bucket_name, Key=manifest_key)
     body = await obj["Body"].read()
     loaded = json.loads(body)
 
@@ -112,7 +118,7 @@ async def test_upload_manifest_file(minio_client, bucket_name):
     assert total_content_length == 3
 
 
-async def test_upload_manifest_file_raises_on_client_error(minio_client, bucket_name):
+async def test_upload_manifest_file_raises_on_client_error(object_storage_client, bucket_name):
     """Test a ClientErrorGroup is raised when tasks fail."""
     test_prefix = uuid.uuid4()
 
@@ -133,20 +139,23 @@ async def test_upload_manifest_file_raises_on_client_error(minio_client, bucket_
     mock_session_instance = mock.MagicMock()
     mock_session_instance.client.return_value = mock_context_manager
 
-    with mock.patch(
-        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
-    ) as mock_session_class:
+    # Needed for the noisy type checker
+    assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
+    assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
+
+    with mock.patch("aioboto3.Session") as mock_session_class:
         mock_session_class.return_value = mock_session_instance
 
         with pytest.raises(ClientErrorGroup) as exc_info:
             await upload_manifest_file(
                 bucket=bucket_name,
                 region_name="us-east-1",
-                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                credentials=AWSCredentials(
+                    aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                ),
                 files_uploaded=files_uploaded,
                 manifest_key=manifest_key,
-                endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
             )
         assert all(isinstance(exc, botocore.exceptions.ClientError) for exc in exc_info.value.exceptions)
         assert exc_info.value.ops == {"list_objects_v2": {"AccessDenied"}}  # type: ignore
@@ -184,9 +193,7 @@ async def test_is_s3_read_access_denied(error_code, status_code, expected):
         response: Any = {"Error": {"Code": error_code}, "ResponseMetadata": {"HTTPStatusCode": status_code}}
         head_object = mock.AsyncMock(side_effect=botocore.exceptions.ClientError(response, "HeadObject"))
 
-    with mock.patch(
-        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
-    ) as mock_session_class:
+    with mock.patch("aioboto3.Session") as mock_session_class:
         mock_session_class.return_value = _mock_s3_session_with_head_object(head_object)
 
         denied = await is_s3_read_access_denied(
@@ -203,9 +210,7 @@ async def test_is_s3_read_access_denied_swallows_unexpected_error():
     """An unexpected probe failure (e.g. a connection error) is treated as 'not confirmed' (False)."""
     head_object = mock.AsyncMock(side_effect=botocore.exceptions.EndpointConnectionError(endpoint_url="https://s3"))
 
-    with mock.patch(
-        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
-    ) as mock_session_class:
+    with mock.patch("aioboto3.Session") as mock_session_class:
         mock_session_class.return_value = _mock_s3_session_with_head_object(head_object)
 
         denied = await is_s3_read_access_denied(

@@ -3,14 +3,23 @@ import json
 import time
 import hashlib
 from contextlib import suppress
+from datetime import timedelta
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.urls import resolve
+from django.utils import timezone
 
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
+
+if TYPE_CHECKING:
+    # This module is imported by DRF's DEFAULT_THROTTLE_CLASSES setting while rest_framework.views
+    # is still initializing, so importing it (or anything that pulls it in) at runtime is circular.
+    from rest_framework.request import Request
+    from rest_framework.views import APIView
 
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
@@ -337,6 +346,19 @@ class WebAuthnSignupRegistrationThrottle(IPThrottle):
     rate = "10/minute"
 
 
+class LeakedKeyReportThrottle(IPThrottle):
+    """
+    Rate limit the public leaked-key revocation endpoint by IP address.
+
+    This isn't an authorization gate — guessing a valid high-entropy PostHog token
+    is computationally infeasible regardless of rate. It just bounds nuisance load
+    (hashing + DB lookups against garbage strings) from a single IP.
+    """
+
+    scope = "leaked_key_report"
+    rate = "10/minute"
+
+
 class SignupEmailPrecheckThrottle(IPThrottle):
     """
     Rate limit signup email precheck requests by IP.
@@ -344,6 +366,29 @@ class SignupEmailPrecheckThrottle(IPThrottle):
 
     scope = "signup_email_precheck"
     rate = "30/minute"
+
+
+class LoginPrecheckThrottle(IPThrottle):
+    """
+    Rate limit login precheck requests by IP.
+
+    The response reveals which sign-in methods a passwordless account has, so cap it per-IP to make
+    bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
+    different email on every request.
+    """
+
+    scope = "login_precheck"
+    rate = "30/minute"
+
+    def allow_request(self, request, view):
+        # The time-sensitive re-auth modal prechecks the logged-in user's *own* email, and that tells
+        # them nothing they don't already have — so exempt exactly that. The endpoint is `AllowAny`
+        # with no ownership check, so a broader exemption would let anyone with a throwaway account
+        # enumerate other people's sign-in methods for free.
+        email = request.data.get("email", "") if isinstance(request.data, dict) else ""
+        if request.user.is_authenticated and email and email.casefold() == (request.user.email or "").casefold():
+            return True
+        return super().allow_request(request, view)
 
 
 class SignupResendInviteThrottle(UserOrEmailRateThrottle):
@@ -446,6 +491,167 @@ class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
     # Intended to block slower but sustained bursts of requests, per project
     scope = "clickhouse_sustained"
     rate = "1200/hour"
+
+
+# copy_flags fans out to up to 50 target projects per call, creating a feature flag (and any
+# missing cohorts) in each one, a much heavier write than most endpoints, so it gets its own
+# tighter budget instead of the general per-project Burst/SustainedRateThrottle. It's a plain
+# Postgres write path (no ClickHouse), so it doesn't need the ClickHouse*RateThrottle pair.
+# PersonalApiKeyOrUserRateThrottle applies regardless of auth method, covering the
+# session-authenticated bulk-copy UI too. That UI (frontend/src/scenes/feature-flags/
+# flagSelectionLogic.ts) awaits one copy_flags call per flag, sequentially, for up to 100 flags
+# in one operation, and does not retry on 429, so the burst rate has to clear a full legitimate
+# session (which can complete in well under a minute when each call is fast) without tripping.
+class CopyFlagsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # 120/minute clears a full 100-call session with headroom even if every call returns quickly,
+    # while still catching a tight scripted loop well beyond normal bulk-copy usage.
+    scope = "copy_flags_burst"
+    rate = "120/minute"
+
+
+class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Bounds an hour to a couple of full bulk-copy sessions plus retries, well short of what
+    # sustained abuse could rack up unthrottled.
+    scope = "copy_flags_sustained"
+    rate = "300/hour"
+
+
+class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """One bucket per project regardless of auth method, for endpoints whose cost has to be capped
+    project-wide rather than per credential.
+
+    The parent idents personal-API-key requests by key hash, so each key a user mints would
+    otherwise get its own full budget of whatever the endpoint spends. Same reasoning as
+    ProjectSecretApiKeyTeamRateThrottle's team-wide bucket.
+    """
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id is not None:
+            ident = team_id
+        elif request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+# The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
+# holding a web worker for as long as that page takes to answer, so its budget is about worker
+# occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
+# heatmap view or per capture-method switch in the wizard, and settled verdicts are cached, so these
+# rates clear a team's worth of concurrent viewers while capping a scripted loop of cold probes.
+class HeatmapPreflightBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "heatmap_preflight_burst"
+    rate = "30/minute"
+
+
+class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "heatmap_preflight_sustained"
+    rate = "300/hour"
+
+
+# The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
+# worker for the whole transfer, so like the heatmap pre-flight its budget is about worker occupancy.
+# It is not covered by the project-global Burst/Sustained pair, which only ever throttles personal
+# API key traffic and lets the session-authenticated UI through untouched. A legitimate caller needs
+# one fetch per coverage analysis, so these rates clear a team's worth of concurrent viewers while
+# capping a scripted loop.
+class LlmsTxtFetchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "llms_txt_fetch_burst"
+    rate = "20/minute"
+
+
+class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "llms_txt_fetch_sustained"
+    rate = "200/hour"
+
+
+# The batch session-context endpoint computes experiment context for up to 20 recordings per
+# call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
+# — and its primary caller is the session-authenticated replay/experiment UI, which the
+# ClickHouse*RateThrottle pair deliberately does not cover. PersonalApiKeyOrUserRateThrottle
+# applies regardless of auth method. The UI fires at most one prefetch per user action (page
+# load, filter change — debounced client-side — or recording open), and repeats hit the
+# server-side cache, so these rates clear a whole project's worth of concurrent viewers while
+# capping a scripted loop of cold batches.
+class SessionContextsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_contexts_burst"
+    rate = "60/minute"
+
+
+class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_contexts_sustained"
+    rate = "600/hour"
+
+
+# Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
+# Query endpoint defaults only cover personal API keys, so use a team-wide bucket to include
+# session callers and prevent forced refreshes from consuming application workers without bound.
+class ErrorTrackingFingerprintProjectionBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_sustained"
+    rate = "100/hour"
+
+
+# The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
+# request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
+# per call. A team-wide bucket caps the project's total spend regardless of how many users or
+# keys fire scans; repeats within a minute are served from the endpoint's short-TTL cache, so
+# a legitimate UI or agent session needs only a handful of cold scans per hour.
+class LogsAnomalyScanBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_anomaly_scan_burst"
+    rate = "6/minute"
+
+
+class LogsAnomalyScanSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_anomaly_scan_sustained"
+    rate = "60/hour"
+
+
+# The experiment session-bucket endpoint scans every session in an experiment's recent run
+# window rather than a known id list, so one call is heavier than a session-context batch. Same
+# project-wide bucketing and same session-authenticated caller as those, at a lower rate: the UI
+# fires at most one per filter change (debounced), and repeats hit the server-side cache.
+class SessionBucketsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_buckets_burst"
+    rate = "20/minute"
+
+
+class SessionBucketsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_buckets_sustained"
+    rate = "200/hour"
+
+
+# The experiment session-event-delta endpoint compares every event name in an experiment's recent
+# window, so unlike the bucket scan beside it there is no event-name predicate for ClickHouse to
+# prune on and one call is the heaviest in this family. Same project-wide bucketing and same
+# session-authenticated caller, at a lower rate again: the panel is opened deliberately rather than
+# loaded with the tab, and repeats hit a 15-minute server-side cache.
+class SessionEventDeltasBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_event_deltas_burst"
+    rate = "10/minute"
+
+
+class SessionEventDeltasSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_event_deltas_sustained"
+    rate = "100/hour"
+
+
+# The scanner volume estimate can run two ClickHouse queries per call, and its primary caller is
+# the session-authenticated editor, which the ClickHouse*RateThrottle pair does not cover.
+class ReplayVisionEstimateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_estimate_burst"
+    rate = "20/minute"
+
+
+class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_estimate_sustained"
+    rate = "200/hour"
 
 
 class _AIThrottleBase(UserRateThrottle):
@@ -630,21 +836,21 @@ class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_burst"
     rate = "50/minute"
 
 
-class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_sustained"
     rate = "200/hour"
 
 
-class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     # Daily cap for LLM-powered summarization endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
@@ -730,19 +936,33 @@ class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
-class EmailMFAThrottle(UserOrEmailRateThrottle):
-    scope = "email_mfa"
+class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
+    scope = "code_based_verification"
     rate = "6/20minutes"
 
+    def get_cache_key(self, request, view):
+        # Key on the pending login's user id (from the session), not on request data. The base class
+        # would fall back to a request-body "email" field, which the code-verification request never
+        # legitimately carries - letting an attacker mint a fresh throttle bucket per guess by varying
+        # it. The session is the source of truth for who is being verified.
+        from posthog.helpers.two_factor_session import code_based_verifier
 
-class EmailMFAResendThrottle(UserOrEmailRateThrottle):
-    scope = "email_mfa_resend"
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
+class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
+    scope = "code_based_verification_resend"
     rate = "1/minute"
 
     def get_cache_key(self, request, view):
-        from posthog.helpers.two_factor_session import email_mfa_verifier
+        from posthog.helpers.two_factor_session import code_based_verifier
 
-        user_id = email_mfa_verifier.get_pending_email_mfa_verification_user_id(request)
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         if user_id:
             ident = hashlib.sha256(str(user_id).encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -833,14 +1053,61 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_query_{sha_hash}"
 
 
-class SetupWizardCloudRunBurstRateThrottle(UserRateThrottle):
-    # "Run the setup wizard in the cloud" provisions a Modal sandbox and runs an LLM agent per call,
-    # so cap it hard per user — a couple per hour only, with an absolute daily ceiling (sustained throttle below).
+class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
+    """Counts a user's recent wizard cloud RUNS (not requests), excluding failed and cancelled ones.
+
+    Each cloud run provisions a Modal sandbox and runs an LLM agent, so the cap must stay hard — but
+    counting raw requests locks users out after a run fails or gets cancelled, exactly when they need
+    to retry. Run outcomes change after the request, so this counts run rows in the DB at request
+    time instead of DRF's cache-side request history. Requests that boot no sandbox (validation
+    errors, missing GitHub integration, 429s from a sibling throttle) consume no quota — DRF
+    evaluates every throttle on every request, so a cache-side counter would silently charge
+    rejected requests.
+
+    These DB counts are read-then-create and can be raced by parallel requests, so they are the
+    user-facing soft limits; the hard ceiling on sandbox boots is the atomic per-request attempt
+    reservation inside the cloud_run view itself.
+    """
+
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate; the stubs don't declare them.
+    num_requests: int
+    duration: int
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            # cloud_run requires IsAuthenticated; anything else is rejected by permissions.
+            return True
+        # DRF evaluates both sibling throttles on every request; memoizing on the request keeps
+        # that at one DB read per distinct window instead of one per throttle.
+        memo = getattr(request, "_wizard_run_times_memo", None)
+        if memo is None:
+            memo = {}
+            setattr(request, "_wizard_run_times_memo", memo)  # noqa: B010 — dynamic attr the stubs don't know
+        if self.duration not in memo:
+            # Deferred: rate_limit is core and imports at module scope would pull the tasks
+            # product into every process's import path.
+            from products.tasks.backend.facade.api import recent_wizard_cloud_run_times  # noqa: PLC0415
+
+            memo[self.duration] = recent_wizard_cloud_run_times(
+                user.pk, timezone.now() - timedelta(seconds=self.duration)
+            )
+        self._recent_run_times = memo[self.duration]
+        return len(self._recent_run_times) < self.num_requests
+
+    def wait(self) -> float | None:
+        run_times = getattr(self, "_recent_run_times", None)
+        if not run_times:
+            return None
+        return max((run_times[0] + timedelta(seconds=self.duration) - timezone.now()).total_seconds(), 0)
+
+
+class SetupWizardCloudRunBurstRateThrottle(SetupWizardCloudRunOutcomeAwareThrottle):
     scope = "wizard_cloud_run_burst"
     rate = "2/hour"
 
 
-class SetupWizardCloudRunSustainedRateThrottle(UserRateThrottle):
+class SetupWizardCloudRunSustainedRateThrottle(SetupWizardCloudRunOutcomeAwareThrottle):
     scope = "wizard_cloud_run_day"
     rate = "5/day"
 
@@ -960,6 +1227,81 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
+class _SharedLinkAtomicThrottle(SimpleRateThrottle):
+    """
+    Rate limit requests to a shared link, counted atomically per link rather than per caller.
+
+    Deliberately not a PersonalApiKeyRateThrottle subclass: this must apply even when the
+    RATE_LIMIT_ENABLED instance setting is off. Keyed on the share link rather than the caller
+    so rotating source addresses doesn't hand out a fresh budget. Subclasses set `scope` and
+    `rate`; each gets its own counter since the cache key includes `scope`.
+    """
+
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate; the stubs don't declare them.
+    num_requests: int
+    duration: int
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        # Only POSTs cost budget - every viewer of a link shares one bucket, so counting
+        # ordinary page loads would lock out a popular share.
+        if request.method != "POST":
+            return True
+
+        self.key = self.get_cache_key(request, view)
+
+        # A counter incremented in place, rather than SimpleRateThrottle's read-modify-write of a
+        # timestamp list: that reads the history, appends, and writes it back, so submissions
+        # arriving together each observe a below-limit history and overwrite one another. Guessing
+        # in parallel would then slip past the cap this throttle exists to enforce.
+        self.cache.add(self.key, 0, self.duration)
+        try:
+            count = self.cache.incr(self.key)
+        except ValueError:
+            # The window expired between the add and the incr, so this request starts the next one.
+            self.cache.set(self.key, 1, self.duration)
+            count = 1
+
+        return count <= self.num_requests
+
+    def wait(self) -> float:
+        # allow_request keeps a counter rather than the timestamp history SimpleRateThrottle.wait
+        # reads, so retry after the whole window instead.
+        return float(self.duration)
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        # File extensions ("<token>.json") address the same share, so they share a bucket
+        access_token = (view.kwargs.get("access_token") or "").split(".")[0]
+        ident = hashlib.sha256(access_token.encode()).hexdigest() if access_token else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class SharePasswordVolumeThrottle(_SharedLinkAtomicThrottle):
+    """
+    Caps total share-password POST volume per link, regardless of whether the password is right.
+
+    Runs automatically via throttle_classes, ahead of any password hashing, so a flood of
+    submissions can't burn unbounded CPU on password checks before SharePasswordThrottle -
+    which only meters wrong guesses - ever gets consulted. Sized loosely so a share handed to a
+    large group doesn't trip it under normal use.
+    """
+
+    scope = "share_password_volume"
+    rate = "60/minute"
+
+
+class SharePasswordThrottle(_SharedLinkAtomicThrottle):
+    """
+    Meters wrong share-password guesses per link.
+
+    Called manually from the view, and only charged on a wrong guess: a correct password always
+    succeeds, so one attacker flooding wrong guesses can't lock out every other viewer of the
+    same link. SharePasswordVolumeThrottle bounds the total POST rate this depends on.
+    """
+
+    scope = "share_password"
+    rate = "10/minute"
+
+
 class CodeInviteThrottle(UserRateThrottle):
     scope = "code_invite"
     rate = "20000/hour"
@@ -1016,6 +1358,28 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
     # this endpoint the real-world side-effect blast radius means we want
     # every auth method covered.
     scope = "subscription_test_delivery"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A chart render holds a worker for up to 90s, so it needs a far lower ceiling than the
+    # ClickHouse throttles. Keyed per team so rotating API keys doesn't split the bucket.
+    scope = "task_run_chart_render"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "alert_test_delivery"
     rate = "10/minute"
 
     def get_cache_key(self, request, view):
@@ -1116,7 +1480,7 @@ class OrganizationInviteBurstThrottle(_OrganizationInviteRateThrottleBase):
 
 class OrganizationInviteSustainedThrottle(_OrganizationInviteRateThrottleBase):
     scope = "organization_invite_sustained"
-    rate = "100/day"
+    rate = "200/day"
 
 
 class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -1132,6 +1496,21 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
         if team_id:
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
         return super().get_cache_key(request, view)
+
+
+class PostHogConnectionForwardThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Rate limit the synchronous PostHog-connection forward proxy. Each forward holds an API worker
+    # open while it round-trips to another cell, so a burst of concurrent forwards to a slow target
+    # can tie workers up. Inheriting PersonalApiKeyOrUserRateThrottle throttles every auth method this
+    # endpoint accepts (session, personal API key, OAuth), not just personal keys. Keyed per
+    # connection so one connection's traffic can't starve another the same user created.
+    scope = "posthog_connection_forward"
+    rate = "60/minute"
+
+    def get_cache_key(self, request, view):
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        pk = view.kwargs.get("pk")
+        return self.cache_format % {"scope": self.scope, "ident": f"{ident}:{pk}"}
 
 
 class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -1167,6 +1546,11 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
+    rate = "6/minute"
+
+
+class EmailForwardingChallengeThrottle(UserRateThrottle):
+    scope = "email_forwarding_challenge"
     rate = "6/minute"
 
 
@@ -1208,4 +1592,13 @@ class TeamsOAuthCallbackThrottle(IPThrottle):
     """
 
     scope = "teams_oauth_callback"
+    rate = "30/minute"
+
+
+class SupportSlackOAuthCallbackThrottle(IPThrottle):
+    """
+    Rate limit the unauthenticated support Slack OAuth callback endpoint by IP.
+    """
+
+    scope = "support_slack_oauth_callback"
     rate = "30/minute"

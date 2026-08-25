@@ -14,7 +14,13 @@ import structlog
 
 from posthog.models.team.team import Team
 
-from .services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES, is_valid_image, save_file_to_uploaded_media
+from .services.attachments import (
+    CONVERSATIONS_MAX_IMAGE_BYTES,
+    MAX_ATTACHMENTS_PER_MESSAGE,
+    is_valid_image,
+    sanitize_attachment_filename,
+    save_file_to_uploaded_media,
+)
 from .support_teams import is_trusted_teams_service_url
 
 logger = structlog.get_logger(__name__)
@@ -90,17 +96,22 @@ def _download_image(url: str, token: str) -> bytes | None:
     return b"".join(chunks)
 
 
-def _save_image(team: Team, image_bytes: bytes, name: str, mimetype: str) -> dict[str, Any] | None:
-    """Validate and persist image bytes, returning the image dict or None."""
-    if not is_valid_image(image_bytes):
+def _save_attachment(team: Team, file_bytes: bytes, name: str, mimetype: str) -> dict[str, Any] | None:
+    """Validate and persist attachment bytes, returning the attachment dict or None.
+
+    Only ``image/*`` content is byte-validated; other types are stored as-is and
+    served as opaque downloads by the media endpoint.
+    """
+    if mimetype.startswith("image/") and not is_valid_image(file_bytes):
         logger.warning("teams_image_invalid_content", name=name)
         return None
 
-    stored_url = save_file_to_uploaded_media(team, name, mimetype, image_bytes, validate_images=False)
+    safe_name = sanitize_attachment_filename(name)
+    stored_url = save_file_to_uploaded_media(team, safe_name, mimetype, file_bytes, validate_images=False)
     if not stored_url:
         return None
 
-    return {"url": stored_url, "name": name, "mimetype": mimetype}
+    return {"url": stored_url, "name": safe_name, "mimetype": mimetype}
 
 
 def extract_teams_bot_attachments(
@@ -108,14 +119,20 @@ def extract_teams_bot_attachments(
     team: Team,
     bot_token: str,
 ) -> list[dict[str, Any]]:
-    """Extract image attachments from a bot-framework activity and re-host them."""
+    """Extract attachments from a bot-framework activity and re-host them.
+
+    Returns a combined list of images and non-image files, each tagged with its
+    ``mimetype``. Callers split with ``split_teams_attachments``.
+    """
     if not attachments:
         return []
 
-    images: list[dict[str, Any]] = []
-    for att in attachments:
+    results: list[dict[str, Any]] = []
+    for att in attachments[:MAX_ATTACHMENTS_PER_MESSAGE]:
         content_type = att.get("contentType") or ""
-        if not content_type.startswith("image/"):
+        # Skip cards and other non-file attachments (adaptive cards, etc.) which
+        # have a card content type and no downloadable contentUrl.
+        if not content_type or content_type.startswith("application/vnd.microsoft.card"):
             continue
 
         content_url = att.get("contentUrl") or ""
@@ -128,16 +145,23 @@ def extract_teams_bot_attachments(
             logger.warning("teams_bot_attachment_untrusted_host", url=content_url[:200])
             continue
 
-        image_bytes = _download_image(content_url, bot_token)
-        if not image_bytes:
+        file_bytes = _download_image(content_url, bot_token)
+        if not file_bytes:
             continue
 
-        name = att.get("name") or "image"
-        result = _save_image(team, image_bytes, name, content_type)
+        name = att.get("name") or "attachment"
+        result = _save_attachment(team, file_bytes, name, content_type)
         if result:
-            images.append(result)
+            results.append(result)
 
-    return images
+    return results
+
+
+def split_teams_attachments(attachments: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Partition extracted attachments into (images, non-image files) by mimetype."""
+    images = [a for a in attachments if (a.get("mimetype") or "").startswith("image/")]
+    files = [a for a in attachments if not (a.get("mimetype") or "").startswith("image/")]
+    return images, files
 
 
 def extract_teams_graph_images(
@@ -193,7 +217,7 @@ def extract_teams_graph_images(
             hc = hosted_map[hc_id]
             mimetype = hc.get("contentType") or mimetype
 
-        result = _save_image(team, image_bytes, name, mimetype)
+        result = _save_attachment(team, image_bytes, name, mimetype)
         if result:
             images.append(result)
 

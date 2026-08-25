@@ -1,7 +1,7 @@
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
 import { COOKIELESS_SENTINEL_VALUE } from '~/ingestion/common/cookieless/cookieless-manager'
 import {
-    OverflowEventBatch,
+    OverflowEventGroup,
     OverflowRedirectService,
 } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PipelineResult, ok, redirect } from '~/ingestion/framework/results'
@@ -28,7 +28,10 @@ async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
     }
 
     const perInputKeys: (string | null)[] = []
-    const keyStats = new Map<string, { token: string; distinctId: string; count: number; firstTimestamp: number }>()
+    const keyStats = new Map<
+        string,
+        { token: string; distinctId: string; headersPerEvent: EventHeaders[]; firstTimestamp: number }
+    >()
 
     for (const input of inputs) {
         const derived = deriveKey(input)
@@ -43,9 +46,9 @@ async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
         const timestamp = input.headers.now?.getTime() ?? Date.now()
         const existing = keyStats.get(eventKey)
         if (existing) {
-            existing.count++
+            existing.headersPerEvent.push(input.headers)
         } else {
-            keyStats.set(eventKey, { ...derived, count: 1, firstTimestamp: timestamp })
+            keyStats.set(eventKey, { ...derived, headersPerEvent: [input.headers], firstTimestamp: timestamp })
         }
     }
 
@@ -53,14 +56,14 @@ async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
         return inputs.map((input) => ok(input))
     }
 
-    const batches: OverflowEventBatch[] = Array.from(keyStats.values()).map(
-        ({ token, distinctId, count, firstTimestamp }) => ({
+    const groups: OverflowEventGroup[] = Array.from(keyStats.values()).map(
+        ({ token, distinctId, headersPerEvent, firstTimestamp }) => ({
             key: { token, distinctId },
-            eventCount: count,
+            headersPerEvent,
             firstTimestamp,
         })
     )
-    const keysToRedirect = await overflowRedirectService.handleEventBatch(batches)
+    const keysToRedirect = await overflowRedirectService.handleEventBatch(groups)
 
     return inputs.map((input, index) => {
         const eventKey = perInputKeys[index]

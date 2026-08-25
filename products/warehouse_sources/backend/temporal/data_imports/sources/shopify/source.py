@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,14 +16,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
+    ShopifySourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
+    SHOPIFY_API_VERSION_2025_10,
+    SHOPIFY_API_VERSION_2026_07,
+    SHOPIFY_GRAPHQL_OBJECTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+    SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
+    SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
+    SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
+    SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
+    SHOPIFY_STORE_NOT_FOUND_ERROR,
     ShopifyPermissionError,
     ShopifyResumeConfig,
     check_endpoint_permissions as check_shopify_endpoint_permissions,
@@ -40,6 +49,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
+    supported_versions = (SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07)
+    default_version = SHOPIFY_API_VERSION_2026_07
+    api_docs_url = "https://shopify.dev/docs/api/release-notes"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -56,8 +69,19 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # 4xx from Shopify's OAuth token endpoint — invalid/revoked app credentials.
-            # Retrying cannot recover; the user must reconnect the integration.
+            # Retrying cannot recover; the user must re-enter valid credentials.
             SHOPIFY_ACCESS_TOKEN_AUTH_ERROR: SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+            # 4xx `invalid_client` — the client ID or secret does not match a Shopify app.
+            SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR: SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
+            # 4xx `unsupported_grant_type` — the app can't use the client_credentials grant, so
+            # the user needs a Dev Dashboard app instead of a legacy custom app.
+            SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR: SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
+            # 4xx `shop_not_permitted`: the store is not in the app's Shopify organization, so
+            # minting a token fails regardless of the credentials entered.
+            SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR: SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
+            # 404 from the same endpoint — no store at this subdomain. Retrying cannot
+            # recover; the user must correct the store id.
+            SHOPIFY_STORE_NOT_FOUND_ERROR: SHOPIFY_STORE_NOT_FOUND_ERROR,
             # GraphQL "Access denied for <field> field" — the access token is missing the
             # scope required to read this resource. The scope can't change on retry, so fail
             # fast and tell the user to reconnect with the required permissions.
@@ -68,6 +92,23 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # 402 Payment Required from the Admin API — the store is frozen for an unpaid
             # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
             SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
+            # 401 from the Admin API GraphQL endpoint itself — the token was valid at mint
+            # time but Shopify now rejects it. Retrying cannot recover; the user must
+            # reconnect their integration.
+            SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # These are the messages `ShopifyRetryableError` carries once `_make_paginated_shopify_
+        # request`'s `execute` exhausts its own tenacity retries (5 attempts, exponential backoff
+        # honoring Shopify's throttle refill time — retried alongside transient `ConnectionError`/
+        # `Timeout`) and re-raises. Surviving all 5 attempts means the rate limit or upstream blip
+        # is still live, but Temporal retries the whole activity and it's self-recovering, so keep
+        # it out of error tracking as noise.
+        return {
+            "Shopify: rate limit exceeded",
+            "Shopify: internal error",
+            "Shopify: connection broken while reading response",
         }
 
     @property
@@ -76,7 +117,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             name=SchemaExternalDataSourceType.SHOPIFY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             iconPath="/static/services/shopify.png",
-            caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.""",
+            caption=(
+                "Create a Shopify Dev Dashboard app, then enter its client ID and secret here to "
+                "pull your Shopify data into the PostHog Data warehouse. The docs walk through the "
+                "app setup steps."
+            ),
             docsUrl="https://posthog.com/docs/data-warehouse/sources/shopify",
             fields=cast(
                 list[FieldType],
@@ -106,7 +151,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         label="Secret",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="shpss_...",
+                        placeholder="client-secret",
                         secret=True,
                     ),
                 ],
@@ -115,14 +160,22 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
         )
 
     def validate_credentials(
-        self, config: ShopifySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ShopifySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # No schema_name → just probe the token, so connecting isn't blocked by a table the user
         # may not sync. With schema_name → also check that one resource's read scope.
         resources = [schema_name] if schema_name is not None else None
         try:
             if validate_shopify_credentials(
-                config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret, resources
+                config.shopify_store_id,
+                config.shopify_client_id,
+                config.shopify_client_secret,
+                resources,
+                self.resolve_api_version(api_version),
             ):
                 return True, None
             return False, "Invalid Shopify credentials"
@@ -132,10 +185,14 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             return False, str(e)
 
     def get_endpoint_permissions(
-        self, config: ShopifySourceConfig, team_id: int, endpoints: list[str]
+        self, config: ShopifySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return check_shopify_endpoint_permissions(
-            config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret, endpoints
+            config.shopify_store_id,
+            config.shopify_client_id,
+            config.shopify_client_secret,
+            endpoints,
+            self.resolve_api_version(api_version),
         )
 
     def get_schemas(
@@ -145,6 +202,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
@@ -178,6 +236,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             shopify_client_id=config.shopify_client_id,
             shopify_client_secret=config.shopify_client_secret,
             graphql_object_name=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,

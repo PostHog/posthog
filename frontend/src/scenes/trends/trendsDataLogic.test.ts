@@ -258,7 +258,6 @@ describe('trendsDataLogic', () => {
                 trendPieResult.result,
                 {
                     areAllSeriesVisible: true,
-                    showLegendIsolateSeriesItem: true,
                     legendSeriesIsolationMenuEligible: true,
                 },
             ],
@@ -282,7 +281,7 @@ describe('trendsDataLogic', () => {
             }
         })
 
-        it('hides isolate menu item when every series is hidden', async () => {
+        it('marks every series hidden when all are toggled off', async () => {
             const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 series: [],
@@ -307,10 +306,81 @@ describe('trendsDataLogic', () => {
                 logic.actions.toggleAllResultsHidden(indexedResults, true)
             }).toFinishAllListeners()
 
-            await expectLogic(logic).toMatchValues({
-                areAllSeriesVisible: false,
-                showLegendIsolateSeriesItem: false,
-            })
+            const { getTrendsHidden } = logic.values
+            expect(indexedResults.every((r) => getTrendsHidden(r))).toBe(true)
+            await expectLogic(logic).toMatchValues({ areAllSeriesVisible: false })
+        })
+
+        it('setResultsHidden hides exactly the given series in one update', async () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsPie,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                result: trendPieResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const indexedResults = logic.values.indexedResults
+            const isolated = indexedResults[0]
+            const others = indexedResults.slice(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.setResultsHidden(others.map((r) => String(r.id)))
+            }).toFinishAllListeners()
+
+            const { getTrendsHidden, getIsOnlyVisibleSeriesInLegend } = logic.values
+            expect(getTrendsHidden(isolated)).toBe(false)
+            expect(others.map((r) => getTrendsHidden(r))).toEqual(others.map(() => true))
+            expect(getIsOnlyVisibleSeriesInLegend(isolated)).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.setResultsHidden([])
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ areAllSeriesVisible: true })
+        })
+
+        it('setResultsHidden keeps a shared customization key visible while any of its results is', async () => {
+            // Comparing to the previous period puts a series' current and previous results on one
+            // customization key, so hiding one row cannot hide the other out from under it.
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                compareFilter: { compare: true },
+            }
+            const [current] = trendResult.result
+            const insight: Partial<InsightModel> = {
+                result: [
+                    { ...current, compare: true, compare_label: 'current' },
+                    { ...current, compare: true, compare_label: 'previous' },
+                ],
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const indexedResults = logic.values.indexedResults
+            const [currentRow, previousRow] = indexedResults
+            expect(getTrendResultCustomizationKey(ResultCustomizationBy.Value, currentRow)).toBe(
+                getTrendResultCustomizationKey(ResultCustomizationBy.Value, previousRow)
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.setResultsHidden([String(previousRow.id)])
+            }).toFinishAllListeners()
+
+            const { getTrendsHidden } = logic.values
+            expect([getTrendsHidden(currentRow), getTrendsHidden(previousRow)]).toEqual([false, false])
         })
 
         it('getIsOnlyVisibleSeriesInLegend is true only for the sole visible series', async () => {
@@ -337,10 +407,7 @@ describe('trendsDataLogic', () => {
                 logic.actions.toggleOtherSeriesHidden(solo)
             }).toFinishAllListeners()
 
-            await expectLogic(logic).toMatchValues({
-                areAllSeriesVisible: false,
-                showLegendIsolateSeriesItem: true,
-            })
+            await expectLogic(logic).toMatchValues({ areAllSeriesVisible: false })
 
             const { getIsOnlyVisibleSeriesInLegend } = logic.values
             expect(indexedResults.map((r) => getIsOnlyVisibleSeriesInLegend(r))).toEqual([

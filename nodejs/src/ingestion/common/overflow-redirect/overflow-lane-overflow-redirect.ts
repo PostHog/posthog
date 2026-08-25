@@ -2,7 +2,7 @@ import { Component } from '~/ingestion/common/scopes'
 import { HealthCheckResult } from '~/types'
 
 import { overflowRedirectEventsTotal, overflowRedirectKeysTotal } from './metrics'
-import { OverflowEventBatch, OverflowRedirectService } from './overflow-redirect-service'
+import { OverflowEventGroup, OverflowRedirectService } from './overflow-redirect-service'
 import { OverflowRedisRepository, OverflowType } from './overflow-redis-repository'
 
 export interface OverflowLaneOverflowRedirectConfig {
@@ -34,7 +34,7 @@ export class OverflowLaneOverflowRedirect implements OverflowRedirectService {
         this.overflowType = config.overflowType
     }
 
-    async handleEventBatch(batch: OverflowEventBatch[]): Promise<Set<string>> {
+    async handleEventBatch(batch: OverflowEventGroup[]): Promise<Set<string>> {
         const type = this.overflowType
 
         // Refresh TTL for all keys in the batch
@@ -49,7 +49,7 @@ export class OverflowLaneOverflowRedirect implements OverflowRedirectService {
         overflowRedirectKeysTotal.labels(type, 'passed').inc(batch.length)
 
         // Record event-level metrics - sum up all event counts
-        const totalEvents = batch.reduce((sum, event) => sum + event.eventCount, 0)
+        const totalEvents = batch.reduce((sum, group) => sum + group.headersPerEvent.length, 0)
         overflowRedirectEventsTotal.labels(type, 'passed').inc(totalEvents)
 
         // Never redirect from overflow lane - return empty set

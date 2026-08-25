@@ -1,4 +1,4 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -16,6 +16,7 @@ import {
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
+    dataWarehouseSourcesFromResponse,
     HogQLQueryString,
     isAsyncResponse,
     isDataTableNode,
@@ -23,6 +24,7 @@ import {
     isHogQLQuery,
     isInsightQueryNode,
     isPersonsNode,
+    queryUsesDataWarehouse,
 } from './utils'
 
 export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
@@ -114,13 +116,18 @@ export async function pollForResults(
     methodOptions?: ApiMethodOptions,
     onPoll?: (response: QueryStatus) => void
 ): Promise<QueryStatus> {
-    const pollStart = performance.now()
+    // Measured only across time spent actually polling (page visible), not raw wall-clock time -
+    // otherwise a backgrounded tab burns down the deadline via waitForPageVisible below without
+    // ever getting a chance to poll, and the query "times out" despite never really being tried.
+    let activeElapsedMs = 0
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
-    while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+    while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await waitForPageVisible(methodOptions?.signal)
+        const iterationStart = performance.now()
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+        activeElapsedMs += performance.now() - iterationStart
 
         try {
             const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
@@ -132,12 +139,11 @@ export async function pollForResults(
             }
         } catch (e: any) {
             // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message)
+            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
 
-            if (parsed.code) {
-                e.code = parsed.code
-            }
+            // Prefer the structured code from QueryStatus over one parsed out of the message
+            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
 
             // Attach queryId to error for downstream error handling
             e.queryId = queryId
@@ -253,22 +259,46 @@ export async function performQuery<N extends DataNode>(
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
+            if (response && typeof response === 'object') {
+                // Web analytics responses report which read path served them and whether
+                // a lazy-precompute read was served stale. Undefined elsewhere, so these
+                // props only land on events that carry them.
+                const { preComputeStrategy, preComputeStale } = response as {
+                    preComputeStrategy?: string
+                    preComputeStale?: boolean
+                }
+                logParams.precompute_strategy = preComputeStrategy
+                logParams.precompute_stale = preComputeStale
+            }
         }
+        const warehouseSources = dataWarehouseSourcesFromResponse(response)
         posthog.capture('query completed', {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
             is_cached: response?.is_cached,
+            uses_data_warehouse_source: warehouseSources.length > 0 || queryUsesDataWarehouse(queryNode),
+            data_warehouse_source_ids: warehouseSources.map((s) => s.id),
+            data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
         })
         return response
     } catch (e) {
-        posthog.capture('query failed', {
-            query: queryNode,
-            queryId,
-            duration: performance.now() - startTime,
-            ...logParams,
-        })
+        // A superseded query or navigating away mid-request aborts, not fails — skip so the
+        // 'query failed' metric isn't drowned in cancellation noise.
+        if (!isAbortError(e)) {
+            // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+            const error = e as (Error & { status?: number; code?: string | null }) | null
+            posthog.capture('query failed', {
+                query: queryNode,
+                queryId,
+                duration: performance.now() - startTime,
+                error_status: error?.status ?? null,
+                error_code: error?.code ?? null,
+                uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                ...logParams,
+            })
+        }
         throw e
     }
 }

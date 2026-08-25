@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargebee.chargebee import (
     ChargebeeResumeConfig,
     chargebee_source,
@@ -28,14 +24,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargebee import (
+    ChargebeeSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# The site name is interpolated into https://{site_name}.chargebee.com, so it must be a bare DNS
+# subdomain: alphanumerics and hyphens, starting alphanumeric. This keeps outbound traffic pinned
+# to *.chargebee.com (a value with a scheme, dot, or path can't build another host). Digits are
+# allowed; a letters-only check rejected valid site names like "acme2024".
+_SITE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 
 @SourceRegistry.register
 class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://apidocs.chargebee.com/docs/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -61,29 +72,23 @@ class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConf
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ChargebeeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ChargebeeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        subdomain_regex = re.compile("^[a-zA-Z-]+$")
-        if not subdomain_regex.match(config.site_name):
-            return False, "Chargebee site name is incorrect"
+        if not _SITE_NAME_RE.match(config.site_name):
+            return (
+                False,
+                "That doesn't look like a Chargebee site name. Enter just the site name "
+                "(the 'acme' in 'acme.chargebee.com'), not the full URL.",
+            )
 
         if validate_chargebee_credentials(config.api_key, config.site_name):
             return True, None

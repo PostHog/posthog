@@ -20,6 +20,7 @@ export function useAttachedLogic(logic: BuiltLogic<Logic>, attachTo?: BuiltLogic
         return
     }
     const builtAttachTo = useMountedLogic(attachTo) // eslint-disable-line react-hooks/rules-of-hooks
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     useEffect(() => {
         if (attachTo && builtAttachTo) {
             if (!('attachments' in attachTo)) {

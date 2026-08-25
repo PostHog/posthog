@@ -1,11 +1,14 @@
+import json
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
-from unittest.mock import MagicMock
+import pytest
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.todoist import todoist
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import (
     INCREMENTAL_FIELDS,
     TODOIST_ENDPOINTS,
@@ -13,68 +16,121 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.se
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.todoist import (
     PAGE_LIMIT,
     TodoistResumeConfig,
-    _build_url,
-    _parse_page,
-    get_rows,
     todoist_source,
+    validate_credentials,
 )
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the todoist module.
+TODOIST_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.todoist.todoist.make_tracked_session"
+)
+# Kill tenacity's backoff so retry classification tests don't actually sleep.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
-class _FakeResumableManager:
-    def __init__(self, state: TodoistResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[TodoistResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> TodoistResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: TodoistResumeConfig) -> None:
-        self.saved.append(data)
+BASE = "https://api.todoist.com/api/v1"
 
 
-def _response_with_status(status_code: int) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    return response
+def _resp(body: Any, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-class TestBuildUrl:
-    def test_no_params(self) -> None:
-        assert _build_url("/tasks", {}) == "https://api.todoist.com/api/v1/tasks"
+def _norm(url: str) -> tuple[str, tuple[tuple[str, str], ...]]:
+    parts = urlsplit(url)
+    return parts.path, tuple(sorted(parse_qsl(parts.query)))
 
-    def test_with_params_is_encoded(self) -> None:
-        # Cursors can contain characters that must be percent-encoded.
-        assert _build_url("/tasks", {"limit": 200, "cursor": "a b/c"}) == (
-            "https://api.todoist.com/api/v1/tasks?limit=200&cursor=a+b%2Fc"
+
+def _make_manager(resume_state: TodoistResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses_by_url: dict[str, list[Response]]) -> list[dict[str, Any]]:
+    """Wire a mock session that resolves each request by its fully-encoded URL.
+
+    Values are per-URL queues so a URL can return different responses across retries/pages. Returns a
+    list capturing each request's params snapshot at prepare time (the params dict is mutated in place
+    across pages, so a post-run read would show only the final state).
+    """
+    session.headers = {}
+    normalized: dict[tuple[str, tuple[tuple[str, str], ...]], list[Response]] = {
+        _norm(url): list(queue) for url, queue in responses_by_url.items()
+    }
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> Any:
+        param_snapshots.append(dict(request.params or {}))
+        return request.prepare()
+
+    def _send(prepared: Any, **_kwargs: Any) -> Response:
+        queue = normalized.get(_norm(prepared.url))
+        if not queue:
+            raise AssertionError(f"unexpected request url {prepared.url!r}")
+        return queue.pop(0)
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = _send
+    return param_snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(endpoint: str, responses_by_url: dict[str, list[Response]], manager: mock.MagicMock) -> Any:
+    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+        session = MockSession.return_value
+        params = _wire(session, responses_by_url)
+        rows = _rows(
+            todoist_source(
+                api_token="tok",
+                endpoint=endpoint,
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=manager,
+            )
         )
+    return rows, params
 
 
-class TestParsePage:
+class TestSourceResponseShape:
     @parameterized.expand(
         [
-            (
-                "wrapped_shape_with_cursor",
-                {"results": [{"id": "1"}, {"id": "2"}], "next_cursor": "abc"},
-                [{"id": "1"}, {"id": "2"}],
-                "abc",
-            ),
-            (
-                "wrapped_shape_last_page",
-                {"results": [{"id": "1"}], "next_cursor": None},
-                [{"id": "1"}],
-                None,
-            ),
-            ("bare_array_has_no_cursor", [{"id": "1"}, {"id": "2"}], [{"id": "1"}, {"id": "2"}], None),
-            ("empty_wrapped", {"results": [], "next_cursor": None}, [], None),
+            ("tasks", ["id"], "datetime", "added_at"),
+            ("projects", ["id"], "datetime", "created_at"),
+            ("sections", ["id"], None, None),
+            ("labels", ["id"], None, None),
+            ("collaborators", ["project_id", "id"], None, None),
         ]
     )
-    def test_parse_page(self, _name: str, data: Any, expected_rows: list[dict], expected_cursor: str | None) -> None:
-        rows, cursor = _parse_page(data)
-        assert rows == expected_rows
-        assert cursor == expected_cursor
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(
+        self,
+        endpoint: str,
+        expected_keys: list[str],
+        expected_partition_mode: str | None,
+        expected_partition_key: str | None,
+        MockSession: Any,
+    ) -> None:
+        response = todoist_source(
+            api_token="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
+        )
+        assert response.name == endpoint
+        assert response.primary_keys == expected_keys
+        assert response.partition_mode == expected_partition_mode
+        assert response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
+        # Ascending order is the safe default; we never declare desc here.
+        assert response.sort_mode == "asc"
 
 
 class TestEndpointConfig:
@@ -106,224 +162,177 @@ class TestEndpointConfig:
         assert all(fields == [] for fields in INCREMENTAL_FIELDS.values())
 
 
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("tasks", ["id"], "datetime", "added_at"),
-            ("projects", ["id"], "datetime", "created_at"),
-            ("sections", ["id"], None, None),
-            ("labels", ["id"], None, None),
-            ("collaborators", ["project_id", "id"], None, None),
-        ]
-    )
-    def test_source_response_shape(
-        self,
-        endpoint: str,
-        expected_keys: list[str],
-        expected_partition_mode: str | None,
-        expected_partition_key: str | None,
-    ) -> None:
-        response = todoist_source(
-            api_token="tok",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        assert response.partition_mode == expected_partition_mode
-        assert response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
-        # Ascending order is the safe default; we never declare desc here.
-        assert response.sort_mode == "asc"
-
-
-def _collect(manager: _FakeResumableManager, monkeypatch: Any, endpoint: str, pages: dict[str, Any]) -> list[dict]:
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
-        result = pages[url]
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    monkeypatch.setattr(todoist, "_fetch_page", fake_fetch)
-
-    rows: list[dict] = []
-    for batch in get_rows(
-        api_token="tok",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(batch)
-    return rows
-
-
 class TestTopLevelPagination:
-    def test_follows_next_cursor_across_pages(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://api.todoist.com/api/v1/tasks?limit={PAGE_LIMIT}": {
-                "results": [{"id": "T1"}],
-                "next_cursor": "c2",
-            },
-            f"https://api.todoist.com/api/v1/tasks?limit={PAGE_LIMIT}&cursor=c2": {
-                "results": [{"id": "T2"}],
-                "next_cursor": None,
-            },
+    def test_follows_next_cursor_across_pages(self) -> None:
+        responses = {
+            f"{BASE}/tasks?limit={PAGE_LIMIT}": [_resp({"results": [{"id": "T1"}], "next_cursor": "c2"})],
+            f"{BASE}/tasks?limit={PAGE_LIMIT}&cursor=c2": [_resp({"results": [{"id": "T2"}], "next_cursor": None})],
         }
-        manager = _FakeResumableManager()
-        rows = _collect(manager, monkeypatch, "tasks", pages)
+        rows, params = _run("tasks", responses, _make_manager())
         assert rows == [{"id": "T1"}, {"id": "T2"}]
+        assert params[0]["limit"] == PAGE_LIMIT
+        assert "cursor" not in params[0]
+        assert params[1]["cursor"] == "c2"
 
-    def test_saves_cursor_after_yielding_each_page(self, monkeypatch: Any) -> None:
-        # State must be saved AFTER yielding so a crash re-yields the last page rather than skipping it.
-        pages = {
-            f"https://api.todoist.com/api/v1/tasks?limit={PAGE_LIMIT}": {
-                "results": [{"id": "T1"}],
-                "next_cursor": "c2",
-            },
-            f"https://api.todoist.com/api/v1/tasks?limit={PAGE_LIMIT}&cursor=c2": {
-                "results": [{"id": "T2"}],
-                "next_cursor": None,
-            },
+    def test_saves_cursor_after_yielding_each_page(self) -> None:
+        # State is saved AFTER yielding a page that has a next cursor; the final page saves nothing.
+        responses = {
+            f"{BASE}/tasks?limit={PAGE_LIMIT}": [_resp({"results": [{"id": "T1"}], "next_cursor": "c2"})],
+            f"{BASE}/tasks?limit={PAGE_LIMIT}&cursor=c2": [_resp({"results": [{"id": "T2"}], "next_cursor": None})],
         }
-        manager = _FakeResumableManager()
-        _collect(manager, monkeypatch, "tasks", pages)
-        # Only one save: after the first page (which has a next cursor). The last page has none.
-        assert [s.next_cursor for s in manager.saved] == ["c2"]
+        manager = _make_manager()
+        _run("tasks", responses, manager)
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [TodoistResumeConfig(next_cursor="c2")]
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://api.todoist.com/api/v1/tasks?limit={PAGE_LIMIT}&cursor=saved": {
-                "results": [{"id": "T9"}],
-                "next_cursor": None,
-            },
+    def test_resumes_from_saved_cursor(self) -> None:
+        responses = {
+            f"{BASE}/tasks?limit={PAGE_LIMIT}&cursor=saved": [_resp({"results": [{"id": "T9"}], "next_cursor": None})],
         }
-        manager = _FakeResumableManager(TodoistResumeConfig(next_cursor="saved"))
-        rows = _collect(manager, monkeypatch, "tasks", pages)
+        rows, params = _run("tasks", responses, _make_manager(TodoistResumeConfig(next_cursor="saved")))
         # Resumes mid-pagination from the saved cursor instead of restarting at page one.
         assert rows == [{"id": "T9"}]
+        assert params[0]["cursor"] == "saved"
 
-    def test_empty_first_page_terminates(self, monkeypatch: Any) -> None:
-        pages: dict[str, Any] = {
-            f"https://api.todoist.com/api/v1/labels?limit={PAGE_LIMIT}": {"results": [], "next_cursor": None},
+    def test_empty_first_page_terminates_without_saving(self) -> None:
+        responses = {
+            f"{BASE}/labels?limit={PAGE_LIMIT}": [_resp({"results": [], "next_cursor": None})],
         }
-        manager = _FakeResumableManager()
-        rows = _collect(manager, monkeypatch, "labels", pages)
+        manager = _make_manager()
+        rows, _params = _run("labels", responses, manager)
         assert rows == []
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
 
 class TestCollaboratorsFanOut:
-    def test_injects_project_id_onto_every_row(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://api.todoist.com/api/v1/projects?limit={PAGE_LIMIT}": {
-                "results": [{"id": "P1"}, {"id": "P2"}],
-                "next_cursor": None,
-            },
-            f"https://api.todoist.com/api/v1/projects/P1/collaborators?limit={PAGE_LIMIT}": {
-                "results": [{"id": "U1", "name": "Ann"}, {"id": "U2", "name": "Bob"}],
-                "next_cursor": None,
-            },
-            f"https://api.todoist.com/api/v1/projects/P2/collaborators?limit={PAGE_LIMIT}": {
-                "results": [{"id": "U1", "name": "Ann"}],
-                "next_cursor": None,
-            },
+    def test_injects_project_id_onto_every_row(self) -> None:
+        responses = {
+            f"{BASE}/projects?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "P1"}, {"id": "P2"}], "next_cursor": None})
+            ],
+            f"{BASE}/projects/P1/collaborators?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "U1", "name": "Ann"}, {"id": "U2", "name": "Bob"}], "next_cursor": None})
+            ],
+            f"{BASE}/projects/P2/collaborators?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "U1", "name": "Ann"}], "next_cursor": None})
+            ],
         }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "collaborators", pages)
+        rows, _params = _run("collaborators", responses, _make_manager())
         assert rows == [
             {"id": "U1", "name": "Ann", "project_id": "P1"},
             {"id": "U2", "name": "Bob", "project_id": "P1"},
             {"id": "U1", "name": "Ann", "project_id": "P2"},
         ]
 
-    def test_follows_collaborator_pagination(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://api.todoist.com/api/v1/projects?limit={PAGE_LIMIT}": {
-                "results": [{"id": "P1"}],
-                "next_cursor": None,
-            },
-            f"https://api.todoist.com/api/v1/projects/P1/collaborators?limit={PAGE_LIMIT}": {
-                "results": [{"id": "U1"}],
-                "next_cursor": "next",
-            },
-            f"https://api.todoist.com/api/v1/projects/P1/collaborators?limit={PAGE_LIMIT}&cursor=next": {
-                "results": [{"id": "U2"}],
-                "next_cursor": None,
-            },
+    def test_follows_collaborator_pagination(self) -> None:
+        responses = {
+            f"{BASE}/projects?limit={PAGE_LIMIT}": [_resp({"results": [{"id": "P1"}], "next_cursor": None})],
+            f"{BASE}/projects/P1/collaborators?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "U1"}], "next_cursor": "next"})
+            ],
+            f"{BASE}/projects/P1/collaborators?limit={PAGE_LIMIT}&cursor=next": [
+                _resp({"results": [{"id": "U2"}], "next_cursor": None})
+            ],
         }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "collaborators", pages)
+        rows, _params = _run("collaborators", responses, _make_manager())
         assert rows == [
             {"id": "U1", "project_id": "P1"},
             {"id": "U2", "project_id": "P1"},
         ]
 
-    def test_project_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
-        not_found = requests.HTTPError(response=_response_with_status(404))
-        pages = {
-            f"https://api.todoist.com/api/v1/projects?limit={PAGE_LIMIT}": {
-                "results": [{"id": "P1"}, {"id": "GONE"}, {"id": "P2"}],
-                "next_cursor": None,
-            },
-            f"https://api.todoist.com/api/v1/projects/P1/collaborators?limit={PAGE_LIMIT}": {
-                "results": [{"id": "U1"}],
-                "next_cursor": None,
-            },
-            f"https://api.todoist.com/api/v1/projects/GONE/collaborators?limit={PAGE_LIMIT}": not_found,
-            f"https://api.todoist.com/api/v1/projects/P2/collaborators?limit={PAGE_LIMIT}": {
-                "results": [{"id": "U2"}],
-                "next_cursor": None,
-            },
+    def test_project_deleted_mid_fan_out_is_skipped(self) -> None:
+        # A project deleted between enumeration and the collaborators fetch 404s — skip it, don't fail.
+        responses = {
+            f"{BASE}/projects?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "P1"}, {"id": "GONE"}, {"id": "P2"}], "next_cursor": None})
+            ],
+            f"{BASE}/projects/P1/collaborators?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "U1"}], "next_cursor": None})
+            ],
+            f"{BASE}/projects/GONE/collaborators?limit={PAGE_LIMIT}": [_resp({}, status=404)],
+            f"{BASE}/projects/P2/collaborators?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "U2"}], "next_cursor": None})
+            ],
         }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "collaborators", pages)
+        rows, _params = _run("collaborators", responses, _make_manager())
         assert rows == [
             {"id": "U1", "project_id": "P1"},
             {"id": "U2", "project_id": "P2"},
         ]
 
-    def test_resume_from_deleted_project_restarts_from_first(self, monkeypatch: Any) -> None:
-        pages = {
-            f"https://api.todoist.com/api/v1/projects?limit={PAGE_LIMIT}": {
-                "results": [{"id": "P1"}],
-                "next_cursor": None,
-            },
-            f"https://api.todoist.com/api/v1/projects/P1/collaborators?limit={PAGE_LIMIT}": {
-                "results": [{"id": "U1"}],
-                "next_cursor": None,
-            },
+    def test_resume_skips_already_completed_project(self) -> None:
+        # A project whose collaborators fully synced on the prior attempt is skipped on resume.
+        responses = {
+            f"{BASE}/projects?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "P1"}, {"id": "P2"}], "next_cursor": None})
+            ],
+            f"{BASE}/projects/P2/collaborators?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "U2"}], "next_cursor": None})
+            ],
         }
-        manager = _FakeResumableManager(TodoistResumeConfig(next_cursor=None, project_id="DELETED"))
-        rows = _collect(manager, monkeypatch, "collaborators", pages)
+        state = TodoistResumeConfig(
+            fanout_state={"completed": ["/projects/P1/collaborators"], "current": None, "child_state": None}
+        )
+        rows, _params = _run("collaborators", responses, _make_manager(state))
+        assert rows == [{"id": "U2", "project_id": "P2"}]
+
+    def test_resume_from_deleted_project_restarts_from_first(self) -> None:
+        # The in-progress project from the saved state no longer exists — its checkpoint is ignored and
+        # the surviving projects sync fresh (merge dedupes any re-pulled rows).
+        responses = {
+            f"{BASE}/projects?limit={PAGE_LIMIT}": [_resp({"results": [{"id": "P1"}], "next_cursor": None})],
+            f"{BASE}/projects/P1/collaborators?limit={PAGE_LIMIT}": [
+                _resp({"results": [{"id": "U1"}], "next_cursor": None})
+            ],
+        }
+        state = TodoistResumeConfig(
+            fanout_state={
+                "completed": [],
+                "current": "/projects/DELETED/collaborators",
+                "child_state": {"cursor": "x"},
+            }
+        )
+        rows, _params = _run("collaborators", responses, _make_manager(state))
         assert rows == [{"id": "U1", "project_id": "P1"}]
 
 
-class TestFetchPageRetryClassification:
-    # Call the undecorated function so we assert classification without tenacity's backoff sleeps.
-    _fetch = staticmethod(todoist._fetch_page.__wrapped__)  # type: ignore[attr-defined]
-
-    @parameterized.expand([(429,), (500,), (503,)])
-    def test_retryable_statuses_raise_retryable_error(self, status_code: int) -> None:
-        session = MagicMock()
-        session.get.return_value = _response_with_status(status_code)
-        try:
-            self._fetch(session, "https://api.todoist.com/api/v1/tasks", {}, MagicMock())
-        except todoist.TodoistRetryableError:
-            return
-        raise AssertionError("expected TodoistRetryableError to be raised")
+class TestRetryClassification:
+    @parameterized.expand([(500,), (503,), (429,)])
+    @mock.patch(SLEEP_PATCH)
+    def test_transient_status_is_retried_then_succeeds(self, status: int, _sleep: Any) -> None:
+        # 429/5xx are transient — the client backs off and reissues the same request.
+        responses = {
+            f"{BASE}/tasks?limit={PAGE_LIMIT}": [
+                _resp({"error": "transient"}, status=status),
+                _resp({"results": [{"id": "T1"}], "next_cursor": None}),
+            ],
+        }
+        rows, _params = _run("tasks", responses, _make_manager())
+        assert rows == [{"id": "T1"}]
 
     @parameterized.expand([(401,), (403,), (404,)])
-    def test_client_errors_raise_http_error(self, status_code: int) -> None:
-        # 4xx (other than 429) are permanent — raise_for_status, not a retryable error.
-        session = MagicMock()
-        session.get.return_value = _response_with_status(status_code)
-        try:
-            self._fetch(session, "https://api.todoist.com/api/v1/tasks", {}, MagicMock())
-        except todoist.TodoistRetryableError as exc:
-            raise AssertionError("client errors must not be classified retryable") from exc
-        except requests.HTTPError:
-            return
-        raise AssertionError("expected HTTPError to be raised")
+    @mock.patch(SLEEP_PATCH)
+    def test_client_error_fails_loud(self, status: int, _sleep: Any) -> None:
+        # 4xx (other than 429) are permanent — raise rather than retry or silently sync 0 rows.
+        responses = {
+            f"{BASE}/tasks?limit={PAGE_LIMIT}": [_resp({"error": "nope"}, status=status)],
+        }
+        with pytest.raises(requests.HTTPError):
+            _run("tasks", responses, _make_manager())
 
-    def test_success_returns_json_body(self) -> None:
-        session = MagicMock()
-        body: dict[str, Any] = {"results": [], "next_cursor": None}
-        session.get.return_value = MagicMock(status_code=200, ok=True, **{"json.return_value": body})
-        assert self._fetch(session, "https://api.todoist.com/api/v1/tasks", {}, MagicMock()) == body
+
+class TestValidateCredentials:
+    @mock.patch(TODOIST_SESSION_PATCH)
+    def test_ok(self, mock_session: Any) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        assert validate_credentials("tok") is True
+
+    @mock.patch(TODOIST_SESSION_PATCH)
+    def test_unauthorized(self, mock_session: Any) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
+        assert validate_credentials("tok") is False
+
+    @mock.patch(TODOIST_SESSION_PATCH)
+    def test_swallows_transport_errors(self, mock_session: Any) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        assert validate_credentials("tok") is False

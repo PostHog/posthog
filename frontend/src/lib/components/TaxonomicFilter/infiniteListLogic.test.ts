@@ -1,5 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { getContext } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -11,7 +12,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
@@ -26,6 +29,13 @@ window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
     current_project: { id: MOCK_TEAM_ID },
 } as unknown as AppContext
+
+// The disposables plugin pauses and resumes on `visibilitychange`, reading `document.hidden`, so a
+// test that backgrounds the tab has to move the property before dispatching the event.
+const setTabHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
 
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
@@ -448,8 +458,97 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('switching tabs reconciles a stale remote list', () => {
+        let staleLogic: ReturnType<typeof infiniteListLogic.build>
+        let surveyRequestCount: number
+
+        // The first 'survey' fetch deliberately 500s — silence the loader error log.
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            surveyRequestCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const search = url.searchParams.get('search') ?? ''
+                        if (search === 'survey') {
+                            surveyRequestCount += 1
+                            // First fetch is cut short (a transient client-side failure stands in for
+                            // an in-flight debounced load a tab switch cancels). The event exists.
+                            if (surveyRequestCount === 1) {
+                                return [500, { detail: 'transient error' }]
+                            }
+                            const results = [{ ...mockEventDefinitions[0], name: 'Survey Responded' }]
+                            return [200, { results, count: results.length }]
+                        }
+                        const results = mockEventDefinitions.filter((e) => e.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+            initKeaTests()
+            clearApiCache()
+            staleLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'staleTabList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                showNumericalPropsOnly: false,
+            })
+            staleLogic.mount()
+        })
+
+        it('re-fetches the current query when the cached remote results are stale for it', async () => {
+            await expectLogic(staleLogic).toDispatchActions(['loadRemoteItemsSuccess']) // initial empty-query load
+
+            // The search is cut short, leaving the tab on its stale empty-query results even
+            // though "Survey Responded" exists for this term.
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setSearchQuery('survey')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+            expect(staleLogic.values.remoteItems.searchQuery).not.toBe('survey')
+
+            // Switching category tabs must reconcile the stale tab against the active query rather
+            // than leaving it on a false "No results".
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({
+                        searchQuery: 'survey',
+                        results: partial([partial({ name: 'Survey Responded' })]),
+                    }),
+                })
+        })
+
+        it('does not re-fetch when the tab is already fresh for the current query', async () => {
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setSearchQuery('event')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({ remoteItems: partial({ searchQuery: 'event' }) })
+
+            // The cached remote query already matches, so a tab switch must not trigger a
+            // redundant reload.
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            })
+                .toDispatchActions(['setActiveTab'])
+                .toNotHaveDispatchedActions(['loadRemoteItems'])
+        })
+    })
+
     describe('remote fetch failure settles the list', () => {
-        it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
+        // Every fetch deliberately 500s — silence the loader error log.
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        it('surfaces the error state instead of spinning forever or claiming no results', async () => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
@@ -471,18 +570,257 @@ describe('infiniteListLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     showLoadingState: false,
-                    showEmptyState: true,
+                    // A failure must not read as "this event doesn't exist" - that sends people
+                    // hunting for a tracking bug instead of retrying.
+                    showEmptyState: false,
+                    showErrorState: true,
                 })
 
-            // The failure lands on the same empty state as a genuine no-match, so telemetry is
-            // the only prod signal that the backend blipped — losing this capture makes the
-            // worst case ("event exists, fetch failed") invisible.
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
             expect(failedCalls).toHaveLength(1)
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
             })
+        })
+
+        // Group names go out over the query endpoint instead of the list endpoint, so they need
+        // the abort signal wired separately - without it the watchdog fires against a controller
+        // nobody is listening to and the list keeps spinning.
+        const hangingListCases: { label: string; listGroupType: TaxonomicFilterGroupType; mocks: Mocks }[] = [
+            {
+                label: 'a list endpoint',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                mocks: {
+                    get: { '/api/projects/:team/event_definitions': () => new Promise(() => {}) },
+                },
+            },
+            {
+                label: 'a group name query',
+                listGroupType: `${TaxonomicFilterGroupType.GroupNamesPrefix}_0` as TaxonomicFilterGroupType,
+                mocks: {
+                    get: {
+                        '/api/projects/:team/groups_types': [
+                            { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+                        ],
+                    },
+                    post: { '/api/environments/:team_id/query/': () => new Promise(() => {}) },
+                },
+            },
+        ]
+
+        it.each(hangingListCases)('gives up on $label that never responds', async ({ listGroupType, mocks }) => {
+            useMocks(mocks)
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const hangingLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'hangingList',
+                    listGroupType,
+                    taxonomicGroupTypes: [listGroupType],
+                    showNumericalPropsOnly: false,
+                })
+                hangingLogic.mount()
+                // Let the group type list arrive, so a group name list resolves its group index
+                // and takes the query path rather than falling back to the list endpoint.
+                await jest.advanceTimersByTimeAsync(1)
+                hangingLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce, so the request is in flight rather than still queued.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(hangingLogic.values.showLoadingState).toBe(true)
+
+                await jest.advanceTimersByTimeAsync(30000)
+                expect(hangingLogic.values.showErrorState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('leaves a search that legitimately found nothing alone once the request timeout elapses', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [200, { results: [], count: 0 }],
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const emptyLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'emptyList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                emptyLogic.mount()
+                emptyLogic.actions.setSearchQuery('definitely_not_a_real_event')
+
+                await jest.advanceTimersByTimeAsync(600)
+                expect(emptyLogic.values.showEmptyState).toBe(true)
+
+                // Well past the watchdog: it bounds a request in flight, and this one already
+                // answered. "No results" must not decay into "couldn't load results".
+                await jest.advanceTimersByTimeAsync(31000)
+                expect(emptyLogic.values.showErrorState).toBe(false)
+                expect(emptyLogic.values.showEmptyState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('clears the error state when a retry succeeds', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => {
+                        attempts += 1
+                        return attempts === 1
+                            ? [500, { detail: 'server error' }]
+                            : [200, { results: [{ name: 'user_signed_up', id: 'uuid-1' }], count: 1 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const retryingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'retryingList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            retryingLogic.mount()
+            await expectLogic(retryingLogic, () => {
+                retryingLogic.actions.setSearchQuery('user_signed_up')
+            })
+                .toDispatchActions(['loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({ showErrorState: true })
+
+            await expectLogic(retryingLogic, () => {
+                retryingLogic.actions.retryRemoteItems()
+            })
+                .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: false,
+                    showEmptyState: false,
+                })
+            expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
+        })
+
+        it('backgrounding the tab neither cancels the request nor fails a search that succeeded', async () => {
+            let respond: ((response: [number, Record<string, any>]) => void) | undefined
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () =>
+                        new Promise<[number, Record<string, any>]>((resolve) => {
+                            respond = resolve
+                        }),
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const backgroundedLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'backgroundedList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                backgroundedLogic.mount()
+                backgroundedLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce, so the request is in flight rather than still queued.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(backgroundedLogic.values.showLoadingState).toBe(true)
+
+                setTabHidden(true)
+                expect(backgroundedLogic.cache.abortController.signal.aborted).toBe(false)
+
+                setTabHidden(false)
+                respond?.([200, { results: [{ name: 'user_signed_up', id: 'uuid-1' }], count: 1 }])
+                await jest.advanceTimersByTimeAsync(1)
+
+                // Well past the watchdog. Coming back to the tab must not arm a second watchdog
+                // against the request that already answered, or a successful search decays into
+                // "couldn't load results".
+                await jest.advanceTimersByTimeAsync(31000)
+                expect(backgroundedLogic.values.showErrorState).toBe(false)
+                expect(backgroundedLogic.values.totalResultCount).toBeGreaterThan(0)
+            } finally {
+                jest.useRealTimers()
+                setTabHidden(false)
+            }
+        })
+    })
+
+    describe('SuggestedFilters aggregate holds the empty state until sibling groups settle', () => {
+        // Regression for the false "No results" flash while typing on the aggregated "All" tab.
+        // That tab runs no fetch of its own, so it can only tell it has settled by watching its
+        // sibling group lists. It used to gate solely on the transient `anyGroupLoading` boolean,
+        // which dips false in the sub-render between a keystroke and the debounced sibling fetch —
+        // surfacing `showEmptyState` for a query that does have matches. The fix adds an
+        // `anyGroupStale` guard mirroring the per-list `remoteResultsAreFresh` gate: the empty
+        // state must never show while a contributing group is stale for the current query.
+        const groupTypes = [
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.SuggestedFilters,
+        ]
+
+        const mountAggregate = (): {
+            suggested: ReturnType<typeof infiniteListLogic.build>
+            tfl: ReturnType<typeof taxonomicFilterLogic.build>
+        } => {
+            const tfl = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'aggregate-freshness',
+                taxonomicGroupTypes: groupTypes,
+            })
+            tfl.mount()
+            let suggested: ReturnType<typeof infiniteListLogic.build> | undefined
+            for (const gt of groupTypes) {
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'aggregate-freshness',
+                    listGroupType: gt,
+                    taxonomicGroupTypes: groupTypes,
+                    showNumericalPropsOnly: false,
+                })
+                listLogic.mount()
+                if (gt === TaxonomicFilterGroupType.SuggestedFilters) {
+                    suggested = listLogic
+                }
+            }
+            return { suggested: suggested!, tfl }
+        }
+
+        it('never shows "No results" while a sibling group is stale for a query that has matches', async () => {
+            const { suggested, tfl } = mountAggregate()
+            // Let the initial empty-query loads settle so every sibling starts fresh.
+            await expectLogic(suggested).toFinishAllListeners()
+
+            // The false-empty condition: the aggregate declaring an empty state in a frame where a
+            // contributing group has not yet caught up to the current search query. Watching every
+            // store transition (not just settled frames) catches the sub-render flash directly.
+            const violations: string[] = []
+            const unsubscribe = getContext().store.subscribe(() => {
+                if (suggested.values.showEmptyState && suggested.values.searchQuery && tfl.values.anyGroupStale) {
+                    violations.push(
+                        `q="${suggested.values.searchQuery}" count=${suggested.values.totalListCount} anyGroupLoading=${tfl.values.anyGroupLoading}`
+                    )
+                }
+            })
+
+            // Type "browser" (matches the mock property $browser), extend to a non-matching query,
+            // then backspace back to the matching one — each keystroke re-stales the siblings.
+            for (const q of ['b', 'br', 'bro', 'brow', 'brows', 'browse', 'browser', 'browserzzz', 'browser']) {
+                tfl.actions.setSearchQuery(q)
+            }
+            await expectLogic(suggested).toFinishAllListeners()
+            unsubscribe()
+
+            expect(violations).toEqual([])
+            // Sanity: the query that has matches ends up showing them, not an empty state.
+            expect(suggested.values.showEmptyState).toBe(false)
+            expect(suggested.values.totalResultCount).toBeGreaterThan(0)
         })
     })
 
@@ -1086,6 +1424,163 @@ describe('infiniteListLogic', () => {
         )
     })
 
+    describe('committed selection promotion', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        const mountSuggestedList = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> =>
+            logicWith({
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.SuggestedFilters],
+                ...props,
+            })
+
+        it('floats the selected value above the group list when idle, without displacing a leading catch-all row', async () => {
+            logic = logicWith({ value: 'search term', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
+            expect((logic.values.results[1] as { name?: string })?.name).toBe('search term')
+        })
+
+        it('statically inserts the committed selection while its row is not yet loaded', async () => {
+            logic = logicWith({ value: 'zzz custom event', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
+            expect(logic.values.results[1]).toMatchObject({
+                name: 'zzz custom event',
+                group: TaxonomicFilterGroupType.Events,
+            })
+            // the synthetic is counted so the windowed loader's row math stays consistent:
+            // 1 local ("All events") + 156 remote + 1 synthetic
+            expect(logic.values.items.count).toBe(158)
+        })
+
+        it('hands off from the synthetic row to the real row once its page loads, without duplicating it', async () => {
+            // 'misc-150-generated' sits past the first page (100 rows) of the 156-row mock list
+            logic = logicWith({ value: 'misc-150-generated', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect(logic.values.results[1]).toMatchObject({
+                name: 'misc-150-generated',
+                group: TaxonomicFilterGroupType.Events,
+            })
+
+            // scrolling to the hole after the loaded page must fetch the true remote offset
+            // (display index minus local rows minus the synthetic), completing the list
+            await expectLogic(logic, () =>
+                logic.actions.onRowsRendered({ startIndex: 90, stopIndex: 110, overscanStopIndex: 130 })
+            ).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+
+            const results = logic.values.results
+            expect(logic.values.items.count).toBe(157)
+            expect(results).toHaveLength(157)
+            expect(results.every((item) => item != null)).toBe(true)
+            // the real row (it has an id; the synthetic doesn't) floats, the synthetic is gone
+            expect(results[1]).toMatchObject({ name: 'misc-150-generated', id: 'uuid-150-foobar' })
+            expect(results.filter((item) => (item as { name?: string })?.name === 'misc-150-generated')).toHaveLength(1)
+        })
+
+        it('leaves relevance ordering alone while searching', async () => {
+            logic = logicWith({ value: 'other event', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(logic, () => logic.actions.setSearchQuery('event')).toDispatchActions([
+                'loadRemoteItemsSuccess',
+            ])
+            const names = logic.values.results.map((item) => (item as { name?: string })?.name)
+            expect(names).toContain('other event')
+            expect(names.indexOf('other event')).toBeGreaterThan(0)
+        })
+
+        it('floats a matching recent to the top of the suggested list without duplicating it', async () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'event1',
+                item: { name: 'event1' },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'test event',
+                item: { name: 'test event' },
+            })
+
+            const listLogic = mountSuggestedList({ value: 'event1', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(listLogic).toFinishAllListeners()
+
+            const results = listLogic.values.results
+            expect(hasRecentContext(results[0]) && results[0]._recentContext.sourceValue).toBe('event1')
+            expect(results.filter((item) => (item as { name?: string })?.name === 'event1')).toHaveLength(1)
+        })
+
+        it.each([
+            {
+                description: 'default events group',
+                taxonomicGroupTypes: undefined,
+                value: '$pageview',
+                groupType: TaxonomicFilterGroupType.Events,
+            },
+            {
+                description: 'name-keyed property group, so the round-trip guard still passes',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                ],
+                value: '$browser',
+                groupType: TaxonomicFilterGroupType.EventProperties,
+            },
+        ])(
+            'prepends a synthetic selected row keyed by the raw value when the selection is not visible ($description)',
+            async ({ taxonomicGroupTypes, value, groupType }) => {
+                const listLogic = mountSuggestedList(
+                    taxonomicGroupTypes ? { taxonomicGroupTypes, value, groupType } : { value, groupType }
+                )
+                await expectLogic(listLogic).toFinishAllListeners()
+                expect(listLogic.values.results[0]).toMatchObject({ name: String(value), group: groupType })
+            }
+        )
+
+        it('skips the synthetic row for id-keyed groups where only the raw id could render', async () => {
+            const listLogic = mountSuggestedList({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.SuggestedFilters],
+                value: 5,
+                groupType: TaxonomicFilterGroupType.Cohorts,
+            })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results).toEqual([])
+        })
+
+        it('does not synthesize a row when groupType is the meta Suggested filters group itself', async () => {
+            // Callers like ActionFilterRow open the popover with `groupType={SuggestedFilters}`
+            // while `value` is the real committed event/action — that meta type must never be
+            // treated as the selection's source group, or the synthetic row round-trips through
+            // the wrong group and `onChange` can't map it back to a real entity type.
+            const listLogic = mountSuggestedList({
+                value: 'some_event',
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+            })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results.some((item) => (item as { name?: string })?.name === 'some_event')).toBe(
+                false
+            )
+        })
+
+        it('does not synthesize a blank row for an empty-string selection', async () => {
+            // '' round-trips through `getValue` for name/value-keyed groups, so without the
+            // empty-string guard a blank, clickable synthetic row would land at row 0 and
+            // re-commit '' on click.
+            const listLogic = mountSuggestedList({ value: '', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results.some((item) => (item as { value?: unknown })?.value === '')).toBe(false)
+        })
+    })
+
     describe('contextFilteredRecentItems', () => {
         // Generic wrapper around hasRecentContext so .filter() preserves the input type
         // (the production type guard uses `unknown` which TS can't narrow through Array.filter).
@@ -1253,6 +1748,47 @@ describe('infiniteListLogic', () => {
                 .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
                 .map((i) => i._recentContext.propertyFilter?.value)
             expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
+        })
+
+        it('hides a recent whose value is excluded for its source group (logs group-by drops `message`)', () => {
+            // The logs group-by picker excludes `message`, but a `message contains …` search is
+            // recorded as a recent under Log attributes — it must not leak back into the Recent tab.
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.LogAttributes,
+                groupName: 'Log attributes',
+                value: 'message',
+                item: { name: 'message' },
+                propertyFilter: {
+                    type: PropertyFilterType.Log,
+                    key: 'message',
+                    value: 'blah',
+                    operator: PropertyOperator.IContains,
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.LogAttributes,
+                groupName: 'Log attributes',
+                value: 'level',
+                item: { name: 'level' },
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'logs-group-by-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.LogAttributes, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+                excludedProperties: { [TaxonomicFilterGroupType.LogAttributes]: ['message'] },
+                selectingKeyOnly: true,
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredRecentItems
+                .filter((i) => 'name' in i)
+                .map((i) => (i as { name: string }).name)
+            expect(names).not.toContain('message')
+            expect(names).toContain('level')
         })
 
         it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {

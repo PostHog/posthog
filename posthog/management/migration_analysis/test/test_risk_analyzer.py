@@ -7,7 +7,12 @@ from parameterized import parameterized
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.models import RiskLevel
-from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy, HotTableAlterPolicy
+from posthog.management.migration_analysis.policies import (
+    AtomicFalsePolicy,
+    ConcurrentIndexIdempotencyPolicy,
+    HotTableAlterPolicy,
+)
+from posthog.management.migration_analysis.utils import _model_name_for_table
 from posthog.migration_helpers import (
     AddConstraintNotValid,
     AddForeignKeyNotValid,
@@ -1077,6 +1082,88 @@ class TestDropTableValidation:
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
 
+    def test_drop_column_with_prior_state_removal_custom_db_table(self):
+        # ai_observability's EvaluationConfig model has a legacy custom db_table
+        # ("llm_analytics_evaluationconfig") that the app-label-derived string heuristic can't
+        # resolve; resolving through the app registry must still recognize this as staged.
+        mock_migration = MagicMock()
+        mock_migration.app_label = "ai_observability"
+        mock_migration.name = "0027_drop_trial_eval_limit_column"
+        mock_migration.dependencies = [("ai_observability", "0026_remove_trial_eval_limit_from_state")]
+
+        drop_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE llm_analytics_evaluationconfig DROP COLUMN IF EXISTS trial_eval_limit;",
+        )
+        mock_migration.operations = [drop_op]
+
+        parent_migration = MagicMock()
+        parent_migration.app_label = "ai_observability"
+        parent_migration.name = "0026_remove_trial_eval_limit_from_state"
+
+        remove_field_op = create_mock_operation(
+            migrations.RemoveField, model_name="evaluationconfig", name="trial_eval_limit"
+        )
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[remove_field_op],
+            database_operations=[],
+        )
+        parent_migration.operations = [separate_op]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("ai_observability", "0026_remove_trial_eval_limit_from_state"): parent_migration,
+            ("ai_observability", "0027_drop_trial_eval_limit_column"): mock_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration, "ai_observability/migrations/0027_drop_trial_eval_limit_column.py", mock_loader
+        )
+
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
+
+    def test_drop_column_custom_db_table_without_prior_state_removal(self):
+        # Same custom-db_table table as above, but with no prior state removal - must still block.
+        mock_migration = MagicMock()
+        mock_migration.app_label = "ai_observability"
+        mock_migration.name = "0027_drop_trial_eval_limit_column"
+        mock_migration.dependencies = [("ai_observability", "0026_unrelated")]
+
+        drop_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE llm_analytics_evaluationconfig DROP COLUMN IF EXISTS trial_eval_limit;",
+        )
+        mock_migration.operations = [drop_op]
+
+        parent_migration = MagicMock()
+        parent_migration.app_label = "ai_observability"
+        parent_migration.name = "0026_unrelated"
+        parent_migration.operations = []
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("ai_observability", "0026_unrelated"): parent_migration,
+            ("ai_observability", "0027_drop_trial_eval_limit_column"): mock_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            mock_migration, "ai_observability/migrations/0027_drop_trial_eval_limit_column.py", mock_loader
+        )
+
+        assert migration_risk.level == RiskLevel.BLOCKED
+        assert migration_risk.max_score == 5
+        assert migration_risk.operations[0].reason == "DROP COLUMN - no prior state removal found"
+
+
+class TestModelNameForTable:
+    def test_returns_none_for_unknown_app_label(self):
+        assert _model_name_for_table("not_a_real_app", "whatever_table") is None
+
+    def test_returns_none_for_table_no_model_owns(self):
+        assert _model_name_for_table("ai_observability", "not_a_real_table") is None
+
 
 class TestRunPythonOperations:
     def setup_method(self):
@@ -1686,6 +1773,22 @@ class TestAtomicFalsePolicy:
 
         assert any("WARNING" in v for v in migration_risk.policy_violations)
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_acknowledged_atomic_false_data_migration_not_flagged(self, tmp_path, monkeypatch):
+        ack_file = tmp_path / "acks.txt"
+        ack_file.write_text("# comment\nposthog.0001_test\n")
+        monkeypatch.setattr(AtomicFalsePolicy, "ACKNOWLEDGMENTS_FILE", ack_file)
+
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [create_mock_operation(migrations.RunPython, code=lambda a, s: None)]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+        assert migration_risk.level != RiskLevel.BLOCKED
 
     def test_atomic_false_with_add_index_concurrently_ok(self):
         """AtomicFalsePolicy does not flag AddIndexConcurrently with atomic=False.

@@ -52,7 +52,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             metrics: [],
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
-            emailAssets: [],
+            messageAssets: [],
             ...overrides,
         }
     }
@@ -242,6 +242,20 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect(job.fail).toHaveBeenCalledTimes(1)
         })
 
+        it('should call cancel, not ack, on canceled jobs so they never count as completed', async () => {
+            const { queue } = createQueue()
+            const job = createDequeuedJob()
+            ;(queue as any).pendingJobs.set(job.id, job)
+
+            await queue.queueInvocationResults([
+                createResult({ invocation: { ...baseInvocation, id: job.id }, finished: true, canceled: true }),
+            ])
+
+            expect(job.cancel).toHaveBeenCalledTimes(1)
+            expect(job.ack).not.toHaveBeenCalled()
+            expect((queue as any).pendingJobs.has(job.id)).toBe(false)
+        })
+
         it('should call reschedule with serialized state on non-finished, non-errored jobs', async () => {
             const { queue } = createQueue()
             const job = createDequeuedJob()
@@ -327,19 +341,6 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
-    describe('cancelInvocations', () => {
-        it('should call cancel and remove from pending', async () => {
-            const { queue } = createQueue()
-            const job = createDequeuedJob()
-            ;(queue as any).pendingJobs.set(job.id, job)
-
-            await queue.cancelInvocations([{ ...baseInvocation, id: job.id }])
-
-            expect(job.cancel).toHaveBeenCalledTimes(1)
-            expect((queue as any).pendingJobs.has(job.id)).toBe(false)
-        })
-    })
-
     describe('releaseInvocations', () => {
         it('should call ack and remove from pending', async () => {
             const { queue } = createQueue()
@@ -350,6 +351,47 @@ describe('CyclotronJobQueuePostgresV2', () => {
 
             expect(job.ack).toHaveBeenCalledTimes(1)
             expect((queue as any).pendingJobs.has(job.id)).toBe(false)
+        })
+    })
+
+    describe('heartbeatInvocations', () => {
+        it('proxies to heartbeat, skips unknown ids, and distinguishes released races from real failures', async () => {
+            const { queue } = createQueue()
+            const warnSpy = jest.spyOn(require('~/common/utils/logger').logger, 'warn').mockImplementation(() => {})
+
+            const pending = createDequeuedJob()
+            const released = createDequeuedJob({
+                heartbeat: jest.fn().mockRejectedValue(new Error(`Job ${'x'} already released, cannot heartbeat`)),
+            })
+            const brokenPg = createDequeuedJob({
+                heartbeat: jest.fn().mockRejectedValue(new Error('Connection terminated unexpectedly')),
+            })
+            ;(queue as any).pendingJobs.set(pending.id, pending)
+            ;(queue as any).pendingJobs.set(released.id, released)
+            ;(queue as any).pendingJobs.set(brokenPg.id, brokenPg)
+
+            await expect(
+                queue.heartbeatInvocations([
+                    { ...baseInvocation, id: pending.id },
+                    { ...baseInvocation, id: released.id },
+                    { ...baseInvocation, id: brokenPg.id },
+                    { ...baseInvocation, id: uuidv4() }, // not in pendingJobs
+                ])
+            ).resolves.toBeUndefined()
+
+            expect(pending.heartbeat).toHaveBeenCalledTimes(1)
+            expect(released.heartbeat).toHaveBeenCalledTimes(1)
+            expect(brokenPg.heartbeat).toHaveBeenCalledTimes(1)
+            // released-race stays quiet (debug), real Postgres failure gets a warn
+            expect(warnSpy).toHaveBeenCalledTimes(1)
+            expect(warnSpy).toHaveBeenCalledWith(
+                'CyclotronV2 heartbeat failed',
+                expect.objectContaining({ error: 'Connection terminated unexpectedly' })
+            )
+            // pendingJobs is unchanged — heartbeat is not a terminal transition
+            expect((queue as any).pendingJobs.size).toBe(3)
+
+            warnSpy.mockRestore()
         })
     })
 })

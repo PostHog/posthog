@@ -1,4 +1,5 @@
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from django.db import transaction
@@ -8,20 +9,27 @@ import structlog
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import AlertCalculationInterval, AlertState
+from posthog.schema import AlertState
+
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
+from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
+from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
+    CALCULATION_INTERVAL_ORDER,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
+    get_alert_error_notification_recipients,
     next_check_time,
+    next_scheduled_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
 )
@@ -34,6 +42,8 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     PrepareAlertResult,
+    RecordFailedEvaluationActivityInputs,
+    RecordFailedEvaluationResult,
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -41,6 +51,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -53,6 +64,8 @@ from products.notifications.backend.facade.api import (
 
 logger = structlog.get_logger(__name__)
 
+_NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
+
 
 @temporalio.activity.defn
 async def retrieve_due_alerts() -> list[AlertInfo]:
@@ -60,15 +73,12 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
     def get_alerts() -> list[AlertInfo]:
         now = datetime.now(UTC)
 
-        # Hourly before daily before weekly/monthly so the cheaper, more
-        # time-sensitive checks get workers first when the due batch is large.
-        # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.REAL_TIME.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(1)),
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(2)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(3)),
-            default=Value(4),
+            *(
+                When(calculation_interval=interval.value, then=Value(order))
+                for interval, order in CALCULATION_INTERVAL_ORDER.items()
+            ),
+            default=Value(max(CALCULATION_INTERVAL_ORDER.values())),
             output_field=IntegerField(),
         )
 
@@ -105,7 +115,9 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     @database_sync_to_async(thread_sensitive=False)
     def _prepare() -> PrepareAlertResult:
         try:
-            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
+            alert = AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold").get(
+                id=inputs.alert_id
+            )
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert not found", alert_id=inputs.alert_id)
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.NOT_FOUND)
@@ -121,6 +133,16 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 insight_id=alert.insight_id,
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.INSIGHT_DELETED)
+
+        # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
+        # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
+        entitlement_error = AlertConfiguration.interval_entitlement_error(
+            calculation_interval=alert.calculation_interval,
+            organization=alert.team.organization,
+        )
+        if entitlement_error:
+            disable_invalid_alert(alert, entitlement_error)
+            return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=entitlement_error)
 
         now = datetime.now(UTC)
 
@@ -153,8 +175,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.SNOOZED)
             # Snooze expired — persist clear so evaluate_alert reads the fresh state.
             alert.snoozed_until = None
-            alert.state = AlertState.NOT_FIRING
-            alert.save(update_fields=["snoozed_until", "state"])
+            state_fields = apply_unsnooze(alert)
+            alert.save(update_fields=["snoozed_until", *state_fields])
 
         try:
             insight = alert.insight
@@ -178,6 +200,15 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
     async with Heartbeater():
         return await _prepare()
+
+
+def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[AlertCheck, bool]:
+    """Write an errored AlertCheck for an already-locked alert and return it with the notify decision.
+
+    Both evaluate_alert's failure path and the retry-exhausted record_failed_evaluation activity go
+    through here, so the errored-check write stays in one place.
+    """
+    return add_alert_check(alert, None, error)
 
 
 @temporalio.activity.defn
@@ -204,20 +235,22 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             )
 
         # CH workload management keys off these tags to isolate alert queries from other tenants.
-        tag_queries(alert_config_id=str(alert.id), product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
+        # calculation_interval / config_type also let query_log cost be grouped by alert cadence
+        # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
+        tag_queries(
+            alert_config_id=str(alert.id),
+            product=Product.PRODUCT_ANALYTICS,
+            feature=Feature.ALERTING,
+            alert_calculation_interval=alert.calculation_interval,
+            alert_config_type=(alert.config or {}).get("type"),
+        )
 
-        # Snapshot before add_alert_check mutates alert.state — needed to detect the
-        # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.
-        previous_state = alert.state
-
-        value: float | None = None
         breaches: list[str] | None = None
         error: dict | None = None
         alert_evaluation_result = None
 
         try:
             alert_evaluation_result = check_alert_for_insight(alert)
-            value = alert_evaluation_result.value
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
             raise
@@ -232,8 +265,31 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 should_notify=False,  # disable_invalid_alert already emailed subscribers
                 new_state=AlertState.ERRORED,
             )
+        except TableAccessDeniedError as err:
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
+            # A revoked creator's access-denied error is a known limitation - report it as an event
+            # rather than capturing it, which would recur on every check until the alert is fixed.
+            if creator_access_revoked(alert.created_by, alert.team):
+                report_creator_access_revoked(
+                    user=alert.created_by,
+                    team=alert.team,
+                    source="alert",
+                    error=err,
+                    properties={"alert_id": str(alert.id), "insight_id": alert.insight_id},
+                )
+                error = {"message": str(err)}
+            else:
+                capture_exception(
+                    err,
+                    additional_properties={
+                        "alert_configuration_id": str(alert.id),
+                        "insight_id": alert.insight_id,
+                        "team_id": alert.team_id,
+                    },
+                )
+                error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
-            logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
                 err,
                 additional_properties={
@@ -244,26 +300,34 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             )
             error = {"message": str(err), "traceback": traceback.format_exc()}
 
-        anomaly_scores = alert_evaluation_result.anomaly_scores if alert_evaluation_result else None
-        triggered_points = alert_evaluation_result.triggered_points if alert_evaluation_result else None
-        triggered_dates = alert_evaluation_result.triggered_dates if alert_evaluation_result else None
-        interval = alert_evaluation_result.interval if alert_evaluation_result else None
-        triggered_metadata = alert_evaluation_result.triggered_metadata if alert_evaluation_result else None
+        # A non-transient failure: write the errored check and return. Transient errors were
+        # re-raised above for the retry policy, and the investigation gating below only fires on a
+        # FIRING transition, so the errored path skips it.
+        if error is not None:
+            with transaction.atomic():
+                alert = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                alert_check, should_notify = _write_errored_alert_check(alert, error)
+            return EvaluateAlertResult(
+                alert_check_id=str(alert_check.id),
+                should_notify=should_notify,
+                new_state=AlertState.ERRORED,
+            )
 
         should_start_investigation = False
         should_gate_notification = False
+        should_run_metrics_investigation = False
         with transaction.atomic():
-            alert_check, should_notify = add_alert_check(
-                alert,
-                value,
-                breaches,
-                error,
-                anomaly_scores,
-                triggered_points,
-                triggered_dates,
-                interval,
-                triggered_metadata,
+            alert = (
+                AlertConfiguration.objects.select_for_update(of=("self",))
+                .select_related("insight", "team", "threshold")
+                .get(id=inputs.alert_id)
             )
+            previous_state = alert.state
+            alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
 
             if should_trigger_investigation(
                 alert,
@@ -273,6 +337,19 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 if claim_investigation_slot(alert, alert_check):
                     should_start_investigation = True
                     should_gate_notification = bool(alert.investigation_gates_notifications)
+
+            # Claim the cooldown slot inside the transaction so a flapping or
+            # concurrently-retried alert can't pile up investigations.
+            if should_investigate_metrics_alert(
+                alert, previous_state=previous_state, new_state=alert_check.state
+            ) and claim_investigation_slot(alert, alert_check):
+                should_run_metrics_investigation = True
+
+        # Outside the persistence transaction: the metrics investigation issues
+        # ClickHouse queries and must never hold the row lock; a failure is
+        # recorded on the check and can't affect the alert outcome.
+        if should_run_metrics_investigation:
+            run_metrics_alert_investigation(alert, alert_check)
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
@@ -288,7 +365,58 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         return await _evaluate()
 
 
-def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:
+@temporalio.activity.defn
+async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs) -> RecordFailedEvaluationResult:
+    """Persist an errored AlertCheck for an evaluation that never got to write one itself.
+
+    evaluate_alert re-raises transient ClickHouse errors so its retry policy can get past a busy
+    cluster. Nothing has written an AlertCheck by the time those attempts run out, and next_check_at
+    is still in the past, so the one-minute sweep would start the whole chain over again: an alert
+    whose query fails every time would run forever, and its owner would never be told. Recording the
+    failure here advances next_check_at to the alert's normal cadence slot, which caps a permanently
+    failing alert at one chain of attempts per cadence period.
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _record() -> RecordFailedEvaluationResult:
+        try:
+            with transaction.atomic():
+                alert = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                # Disabling an alert mid-check makes evaluate_alert raise a non-retryable "disabled
+                # between prepare and evaluate" error into this path. That is a normal user action,
+                # not an alert failure, so it must not gain an errored check or email subscribers.
+                if not alert.enabled:
+                    logger.info("alerts.skip_failed_evaluation_disabled", alert_id=inputs.alert_id)
+                    return RecordFailedEvaluationResult()
+                # add_alert_check advances next_check_at, so skipping once it is in the future keeps a
+                # committed-but-undelivered retry from writing a duplicate errored check. Best effort:
+                # a real-time alert lagging past its short cadence can still write one, but the state
+                # machine keeps that from sending a duplicate notification.
+                if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
+                    return RecordFailedEvaluationResult()
+                alert_check, should_notify = _write_errored_alert_check(alert, {"message": inputs.error_message})
+        except AlertConfiguration.DoesNotExist:
+            logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
+            return RecordFailedEvaluationResult()
+
+        logger.warning(
+            "alerts.recorded_failed_evaluation",
+            alert_id=inputs.alert_id,
+            alert_check_id=str(alert_check.id),
+        )
+        return RecordFailedEvaluationResult(alert_check_id=str(alert_check.id), should_notify=should_notify)
+
+    async with Heartbeater():
+        return await _record()
+
+
+def dispatch_alert_firing_realtime_notification(
+    alert: AlertConfiguration, alert_check: AlertCheck, breaches: list[str]
+) -> None:
     """Fan out one realtime in-app notification per subscribed user when an alert fires.
 
     Exceptions are caught and logged internally so a realtime delivery failure does not
@@ -315,10 +443,59 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
                     source_url=source_url,
                     source_type=SourceType.INSIGHT,
                     source_id=str(alert.insight.short_id),
+                    # A dispatch that accepted nothing leaves targets_notified empty, so a
+                    # retried activity reaches this again; dedupe here rather than on that.
+                    idempotency_key=f"alert-firing:{alert_check.id}:{user_id}",
                 )
             )
     except Exception:
         logger.exception("alerts.realtime_notification_failed", alert_id=str(alert.id))
+
+
+def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_check: AlertCheck) -> None:
+    """Create one best-effort in-app notification per eligible recipient for an errored check."""
+    error = alert_check.error if isinstance(alert_check.error, dict) else {}
+    error_message = str(error.get("message") or "Unknown error").strip().rstrip(".")[:1000] or "Unknown error"
+    alert_name = alert.name or "Alert"
+    source_url = f"/project/{alert.team_id}/insights/{alert.insight.short_id}?alert_id={alert.id}"
+    next_check_at = next_scheduled_check_time(alert)
+    next_check_message = (
+        f"PostHog will try again on {next_check_at}."
+        if next_check_at
+        else "PostHog will try again at the next scheduled check."
+    )
+
+    for user_id, _ in get_alert_error_notification_recipients(alert):
+        try:
+            create_notification(
+                NotificationData(
+                    team_id=alert.team_id,
+                    notification_type=NotificationType.PIPELINE_FAILURE,
+                    priority=Priority.NORMAL,
+                    title=f"{alert_name[:75]} could not be evaluated",
+                    body=(
+                        f"PostHog could not evaluate this alert: {error_message}. "
+                        "This can happen when the insight or alert settings need attention, or when PostHog has a "
+                        f"temporary problem. Review the alert settings. {next_check_message} If it fails again, "
+                        "contact support."
+                    ),
+                    target_type=TargetType.USER,
+                    target_id=str(user_id),
+                    resource_type="insight",
+                    resource_id=str(alert.insight.short_id),
+                    source_url=source_url,
+                    source_type=None,
+                    source_id=str(alert_check.id),
+                    idempotency_key=f"alert-evaluation-failure:{alert_check.id}:{user_id}",
+                )
+            )
+        except Exception:
+            logger.exception(
+                "alerts.error_realtime_notification_failed",
+                alert_id=str(alert.id),
+                alert_check_id=str(alert_check.id),
+                user_id=user_id,
+            )
 
 
 # Idempotency: empty targets_notified = not yet delivered; non-empty = already delivered.
@@ -327,10 +504,12 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
 async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
     """Send notifications for a previously evaluated alert check (idempotent)."""
 
-    @database_sync_to_async(thread_sensitive=False)
+    @database_sync_to_async(thread_sensitive=False, executor=_NOTIFICATION_DELIVERY_EXECUTOR)
     def _notify() -> None:
         # Mismatched pair surfaces as DoesNotExist instead of notifying the wrong alert.
-        alert_check = AlertCheck.objects.select_related("alert_configuration", "alert_configuration__team").get(
+        alert_check = AlertCheck.objects.select_related(
+            "alert_configuration", "alert_configuration__team", "alert_configuration__insight"
+        ).get(
             pk=inputs.alert_check_id,
             alert_configuration_id=inputs.alert_id,
         )
@@ -346,21 +525,22 @@ async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
         alert = alert_check.alert_configuration
 
         # Raises if FIRING with no breaches; caller (workflow) must pipe breaches from evaluate.
-        targets = dispatch_alert_notification(alert, alert_check, inputs.breaches)
-        if targets is None:
+        deliveries = dispatch_alert_notification(alert, alert_check, inputs.breaches)
+        if deliveries is None:
             return
 
         with transaction.atomic():
-            record_alert_delivery(alert, alert_check, targets)
-            # Stamp notification_sent_at in lock-step with delivery — the investigation
-            # workflow and safety-net both read this column to decide whether they still
+            # Writes the sentinel + notification_sent_at together — the investigation
+            # workflow and safety-net read that column to decide whether they still
             # need to dispatch, and the gating path relies on it for idempotency.
-            AlertCheck.objects.filter(id=alert_check.id).update(notification_sent_at=datetime.now(UTC))
+            record_alert_delivery(alert, alert_check, deliveries)
 
-        # Realtime in-app dispatch sits AFTER record_alert_delivery so a Temporal retry
-        # past this point sees `targets_notified` populated and skips the whole _notify.
+        # Both in-app paths dedupe on their own idempotency key, so neither depends on
+        # record_alert_delivery having written the sentinel.
         if alert_check.state == AlertState.FIRING.value and inputs.breaches:
-            dispatch_alert_firing_realtime_notification(alert, inputs.breaches)
+            dispatch_alert_firing_realtime_notification(alert, alert_check, inputs.breaches)
+        elif alert_check.state == AlertState.ERRORED.value:
+            dispatch_alert_error_in_app_notifications(alert, alert_check)
 
     async with Heartbeater():
         await _notify()

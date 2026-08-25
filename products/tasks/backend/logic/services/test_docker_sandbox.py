@@ -1,9 +1,12 @@
 import os
+import shlex
 import subprocess
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
@@ -43,25 +46,46 @@ def is_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") is not None or os.environ.get("CI") is not None
 
 
+class TestSandboxProviderGuard:
+    """The docker/modal_docker provider guards run at module import time. They must block
+    production (neither DEBUG nor TEST) but never trip test collection, where settings load
+    with DEBUG off but TEST on. No Docker daemon needed, so this runs in CI unlike the classes below."""
+
+    @parameterized.expand(
+        [
+            ("docker_production_blocked", "docker", False, False, True),
+            ("docker_local_dev_debug", "docker", True, False, False),
+            ("docker_test_context", "docker", False, True, False),
+            # MODAL_DOCKER blocked in production — the guard fires before the modal import.
+            ("modal_docker_production_blocked", "MODAL_DOCKER", False, False, True),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_provider_guard(self, _name, provider, debug, test, expect_raise, mock_settings):
+        mock_settings.SANDBOX_PROVIDER = provider
+        mock_settings.DEBUG = debug
+        mock_settings.TEST = test
+
+        if expect_raise:
+            with pytest.raises(RuntimeError, match="for local development only"):
+                get_sandbox_class()
+        else:
+            assert get_sandbox_class() is DockerSandbox
+
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_modal_evals_provider_uses_dedicated_app(self, mock_settings):
+        mock_settings.SANDBOX_PROVIDER = "MODAL_EVALS"
+        mock_settings.DEBUG = False
+        mock_settings.TEST = True
+
+        sandbox_class = get_sandbox_class()
+
+        assert getattr(sandbox_class, "DEFAULT_APP_NAME", None) == "posthog-sandbox-evals"
+
+
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
 class TestSandboxFactory:
     """Tests for sandbox factory and production safety."""
-
-    @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_docker_sandbox_blocked_in_production(self, mock_settings):
-        mock_settings.SANDBOX_PROVIDER = "docker"
-        mock_settings.DEBUG = False
-
-        with pytest.raises(RuntimeError, match="DockerSandbox cannot be used in production"):
-            get_sandbox_class()
-
-    @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_docker_sandbox_opt_in_with_debug(self, mock_settings):
-        mock_settings.SANDBOX_PROVIDER = "docker"
-        mock_settings.DEBUG = True
-
-        sandbox_class = get_sandbox_class()
-        assert sandbox_class == DockerSandbox
 
     @patch("products.tasks.backend.logic.services.sandbox.settings")
     def test_modal_sandbox_default_in_debug(self, mock_settings):
@@ -115,6 +139,49 @@ class TestDockerSandboxUnit:
     def test_transform_url_for_docker(self, input_url, expected_url):
         result = DockerSandbox._transform_url_for_docker(input_url)
         assert result == expected_url
+
+    def test_get_local_posthog_code_root(self, tmp_path, monkeypatch):
+        for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
+            (tmp_path / file_name).touch()
+        (tmp_path / "patches").mkdir()
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "rimraf.mjs").touch()
+        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            package_path = tmp_path / "packages" / package_name
+            package_path.mkdir(parents=True)
+            (package_path / "package.json").touch()
+        monkeypatch.setenv("LOCAL_POSTHOG_CODE_MONOREPO_ROOT", str(tmp_path))
+
+        assert DockerSandbox._get_local_posthog_code_root() == str(tmp_path)
+
+    def test_build_local_image_copies_minimal_workspace_into_docker_context(self, tmp_path):
+        monorepo_path = tmp_path / "code"
+        context_path = tmp_path / "context"
+        for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
+            monorepo_path.mkdir(exist_ok=True)
+            (monorepo_path / file_name).touch()
+        (monorepo_path / "patches").mkdir()
+        (monorepo_path / "scripts").mkdir()
+        (monorepo_path / "scripts" / "rimraf.mjs").touch()
+        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            package_path = monorepo_path / "packages" / package_name
+            package_path.mkdir(parents=True)
+            (package_path / "package.json").touch()
+
+        with (
+            patch.object(DockerSandbox, "_run") as run,
+            patch("products.tasks.backend.logic.services.docker_sandbox.tempfile.TemporaryDirectory") as temporary,
+        ):
+            temporary.return_value.__enter__.return_value = str(context_path)
+            DockerSandbox._build_local_image(str(monorepo_path))
+
+        workspace_path = context_path / "local-workspace"
+        assert (workspace_path / "pnpm-workspace.yaml").is_file()
+        assert (workspace_path / "scripts" / "rimraf.mjs").is_file()
+        assert (workspace_path / "packages" / "harness" / "package.json").is_file()
+        command = run.call_args.args[0]
+        assert command[0:2] == ["docker", "build"]
+        assert command[-1] == str(context_path)
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
     @patch("products.tasks.backend.logic.services.docker_sandbox.os.path.exists")
@@ -259,8 +326,6 @@ class TestDockerSandboxUnit:
         ],
     )
     def test_clone_repository_command_escaping(self, repository):
-        import shlex
-
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -280,13 +345,14 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,expected_in_command,not_expected_in_command",
+        "shallow,blobless,expected_in_command,not_expected_in_command",
         [
-            (True, "--depth 1", None),
-            (False, "--single-branch", "--depth"),
+            (True, False, "--depth 1", "--filter=blob:"),
+            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -294,12 +360,28 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                sandbox.clone_repository(
+                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    def test_clone_repository_branch_flag(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        branch = "feature/branch; echo hacked"
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository("PostHog/posthog", github_token="test-token", branch=branch)
+                command = mock_execute.call_args[0][0]
+
+                assert f"--branch {shlex.quote(branch)}" in command
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
@@ -335,8 +417,60 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(repo_path) in command
                 assert shlex.quote(task_id) in command
                 assert shlex.quote(run_id) in command
+                assert "POSTHOG_SANDBOX_ID=abc123" in command
+                assert "--sandboxId" not in command
                 assert shlex.quote(mode) in command
                 assert "--createPr true" in command
+
+    def test_start_agent_server_preserves_pi_protocol_without_branch_retry(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "write_file"),
+            patch.object(sandbox, "agent_server_supports_auto_publish", return_value=True),
+            patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=True),
+            patch.object(sandbox, "execute") as mock_execute,
+            patch.object(sandbox, "_launch_and_check", side_effect=[False, True]),
+            patch.object(
+                sandbox, "_build_agent_server_command", wraps=sandbox._build_agent_server_command
+            ) as mock_build,
+        ):
+            mock_execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+            sandbox.start_agent_server(
+                "posthog/posthog",
+                "task-123",
+                "run-456",
+                branch="main",
+                agent_runtime="pi",
+            )
+
+        assert mock_build.call_count == 2
+        assert mock_build.call_args_list[1].kwargs["agent_runtime"] == "pi"
+
+    def test_start_agent_server_rejects_an_image_without_pi_support(self) -> None:
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "write_file"),
+            patch.object(sandbox, "agent_server_supports_pi_runtime", return_value=False),
+            pytest.raises(RuntimeError, match="does not support the Pi runtime"),
+        ):
+            sandbox.start_agent_server(
+                "posthog/posthog",
+                "task-123",
+                "run-456",
+                agent_runtime="pi",
+            )
 
     def test_parse_repo_mount_map_empty(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -550,22 +684,62 @@ class TestDockerSandboxUnit:
                     "task-123",
                     "run-456",
                     "background",
+                    agent_runtime="pi",
                     runtime_adapter="codex",
                     provider="openai",
                     model="gpt-5.3-codex",
                     reasoning_effort="medium",
+                    context_window="1m",
+                    fast_mode=True,
+                    initial_permission_mode="plan",
                     event_ingest_token="ingest-token",
                     event_ingest_url="http://localhost:8003",
                 )
 
         command = _agent_server_launch_command(mock_execute)
+        assert "POSTHOG_AGENT_RUNTIME=pi" in command
+        assert "POSTHOG_SANDBOX_ID=abc123" in command
         assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=medium" in command
+        assert "POSTHOG_CODE_CONTEXT_WINDOW=1m" in command
+        assert "POSTHOG_CODE_FAST_MODE=true" in command
+        assert "POSTHOG_CODE_INITIAL_PERMISSION_MODE=plan" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
         # The host proxy URL is rewritten so it resolves from inside the container.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=http://host.docker.internal:8003" in command
+
+    @pytest.mark.parametrize(
+        "fast_mode, expected_env",
+        [
+            (False, "POSTHOG_CODE_FAST_MODE=false"),
+            (None, None),
+        ],
+    )
+    def test_start_agent_server_fast_mode_env(self, fast_mode, expected_env):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+                sandbox.start_agent_server(
+                    "posthog/posthog",
+                    "task-123",
+                    "run-456",
+                    "background",
+                    fast_mode=fast_mode,
+                )
+
+        command = _agent_server_launch_command(mock_execute)
+        if expected_env is not None:
+            assert expected_env in command
+        else:
+            assert "POSTHOG_CODE_FAST_MODE" not in command
 
     @pytest.mark.parametrize(
         "keep_stream_open, expected_env_present",

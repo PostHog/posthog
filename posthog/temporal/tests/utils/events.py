@@ -14,6 +14,10 @@ from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_S
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 from posthog.temporal.tests.utils.datetimes import date_range
 
+# Far enough above any real test team's sequential pk that synthetic rows can never
+# land on a team a later test asserts counts for.
+OTHER_TEAM_ID_OFFSET = 1_000_000_000
+
 
 @retry(
     retry=retry_if_exception_type(
@@ -167,12 +171,11 @@ async def insert_event_values_in_clickhouse(
 
 
 async def insert_sessions_in_clickhouse(client: ClickHouseClient, table: str = "sharded_events"):
-    generate_sessions_query = RAW_SESSION_TABLE_BACKFILL_SELECT_SQL()
-    if table == "events_recent":
-        generate_sessions_query = generate_sessions_query.replace("posthog_test.events", "posthog_test.events_recent")
-        generate_sessions_query = generate_sessions_query.replace(
-            "`$session_id`", "JSONExtractString(properties, '$session_id')"
-        )
+    session_id_expr = "JSONExtractString(properties, '$session_id')" if table == "events_recent" else "`$session_id`"
+    generate_sessions_query = RAW_SESSION_TABLE_BACKFILL_SELECT_SQL(
+        events_table=table,
+        session_id_expr=session_id_expr,
+    )
 
     await execute_query(
         client,
@@ -280,7 +283,7 @@ async def generate_test_events_in_clickhouse(
     # Events generated for a different team
     events_from_other_team = generate_test_events(
         count=count_other_team,
-        team_id=team_id + random.randint(1, 1000),
+        team_id=team_id + OTHER_TEAM_ID_OFFSET,
         possible_datetimes=possible_datetimes,
         event_name=event_name,
         properties=properties,

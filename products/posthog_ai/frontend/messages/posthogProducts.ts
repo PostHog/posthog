@@ -1,18 +1,19 @@
 /**
  * PostHog product taxonomy for the sandbox resources bar. Ported from the agent's
  * `POSTHOG_PRODUCTS` (ids + labels are authoritative there) with icons sourced from
- * `@posthog/icons`. The `_posthog/resources_used` wire frame already carries `{id, label}`, so this
+ * `@posthog/icons` (plus the in-house SQL icon). The `_posthog/resources_used` wire frame already carries `{id, label}`, so this
  * map is the icon source plus a fallback label for any id the wire omits. Labels are NOT a
  * mechanical sentence-casing of the id (e.g. `llm_analytics → "AI observability"`,
  * `cdp → "Data pipelines"`, acronyms stay all-caps), so they are copied verbatim.
  */
+import { ComponentType } from 'react'
+
 import {
     IconAI,
     IconCursor,
     IconDatabase,
     IconFlask,
     IconGraph,
-    IconHogQL,
     IconLogomark,
     IconMessage,
     IconPlug,
@@ -22,6 +23,8 @@ import {
     IconToggle,
     IconWarning,
 } from '@posthog/icons'
+
+import { IconBracketsChart } from 'lib/lemon-ui/icons'
 
 export type PostHogProductId =
     | 'product_analytics'
@@ -41,7 +44,8 @@ export type PostHogProductId =
 
 export interface PostHogProductMeta {
     label: string
-    Icon: typeof IconGraph
+    // wide enough for both @posthog/icons components and lemon-ui LemonIcons
+    Icon: ComponentType<{ className?: string }>
 }
 
 export const POSTHOG_PRODUCTS: Record<PostHogProductId, PostHogProductMeta> = {
@@ -57,7 +61,7 @@ export const POSTHOG_PRODUCTS: Record<PostHogProductId, PostHogProductMeta> = {
     cdp: { label: 'Data pipelines', Icon: IconPlug },
     logs: { label: 'Logs', Icon: IconServer },
     apm: { label: 'APM', Icon: IconCursor },
-    sql: { label: 'SQL', Icon: IconHogQL },
+    sql: { label: 'SQL', Icon: IconBracketsChart },
     posthog: { label: 'PostHog', Icon: IconLogomark },
 }
 

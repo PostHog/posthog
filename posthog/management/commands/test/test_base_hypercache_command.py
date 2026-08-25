@@ -8,6 +8,7 @@ Tests cover:
 - Continued processing after individual team errors
 """
 
+from functools import partial
 from io import StringIO
 from typing import Any
 
@@ -119,6 +120,9 @@ def create_mock_config():
     mock_config.cache_display_name = "test cache"
     mock_config.get_teams_queryset_fn = None  # Match real config default
     mock_config.get_teams_queryset.return_value = Team.objects.all()
+    # Run narrowing for real so the command gets an actual queryset back
+    mock_config.refresh_only_fields = None
+    mock_config.narrow_team_queryset.side_effect = partial(HyperCacheManagementConfig.narrow_team_queryset, mock_config)
     return mock_config
 
 

@@ -76,6 +76,8 @@ export type HumanizedActivityLogItem = {
     name?: string
     isSystem?: boolean
     wasImpersonated?: boolean
+    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    client?: string | null
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
@@ -123,6 +125,7 @@ export function humanize(
                     : impersonatedUserName,
                 isSystem: logItem.is_system,
                 wasImpersonated: logItem.was_impersonated,
+                client: logItem.client,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
@@ -139,10 +142,21 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
         return 'PostHog'
     }
     if (logItem.was_impersonated) {
-        const impersonatedUserName = logItem.user ? fullName(logItem.user) : 'a user'
-        return `PostHog Support (as ${impersonatedUserName})`
+        return `PostHog Support (as ${nameOrEmailForUser(logItem.user, 'a user')})`
     }
-    return logItem.user ? fullName(logItem.user) : 'A user'
+    return nameOrEmailForUser(logItem.user, 'A user')
+}
+
+// The user's name can be blank (e.g. SCIM-provisioned members whose IdP omits a name), so fall
+// back to their email — which is always in the payload — before the generic placeholder.
+function nameOrEmailForUser(
+    user: Pick<UserBasicType, 'email' | 'first_name' | 'last_name'> | undefined,
+    fallback: string
+): string {
+    if (!user) {
+        return fallback
+    }
+    return fullName(user) || user.email || fallback
 }
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
@@ -151,6 +165,7 @@ const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
+    [ActivityScope.CANVAS]: { singular: 'Canvas', plural: 'Canvases' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API key', plural: 'Personal API keys' },
@@ -160,6 +175,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
         singular: 'Project secret API key',
         plural: 'Project secret API keys',
     },
+    [ActivityScope.TICKET]: { singular: 'Support ticket', plural: 'Support tickets' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconChevronDown, IconCursor } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { availableOnboardingProducts, getProductIcon } from 'scenes/onboarding/shared/utils'
 
@@ -46,7 +46,7 @@ function ChoosePathStep(): JSX.Element {
     return (
         <div className="max-w-6xl w-full">
             <div className="flex justify-center mb-4">
-                <Logomark />
+                <Logomark size="md" />
             </div>
             <h1 className="text-4xl font-bold text-center mb-2">{heading}</h1>
             <p className="text-center text-muted mb-8">{subheading}</p>
@@ -153,7 +153,7 @@ function ProductSelectionStep(): JSX.Element {
     return (
         <div className="max-w-6xl w-full">
             <div className="flex justify-center mb-4">
-                <Logomark />
+                <Logomark size="md" />
             </div>
             <h1 className="text-4xl font-bold text-center mb-2">Which products would you like to use?</h1>
             <p className="text-center text-muted mb-8">

@@ -68,6 +68,8 @@ mod tests {
             person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
             last_updated: "2026-05-26 12:34:56.789123".to_string(),
             status: MembershipStatus::Entered,
+            origin: None,
+            run_id: None,
         };
         assert_eq!(membership_key(&change), Some(change.person_id.clone()));
     }

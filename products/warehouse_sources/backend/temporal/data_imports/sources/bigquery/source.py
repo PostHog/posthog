@@ -12,18 +12,27 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_API_VERSION_V2,
+    BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
+    BIGQUERY_INVALID_KEY_FILE_ERROR,
+    BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
     validate_bigquery_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
+    BigQuerySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 __all__ = ["BigQuerySource", "build_destination_table_prefix"]
@@ -33,6 +42,13 @@ _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 
 @SourceRegistry.register
 class BigQuerySource(SQLSource[BigQuerySourceConfig]):
+    # BigQuery's core REST API is stable at v2. Existing sources stay on the legacy unversioned pin;
+    # new sources start on v2. Both resolve to the same /bigquery/v2/ REST endpoint, so the default
+    # bump leaves existing syncs byte-for-byte unchanged.
+    supported_versions = (UNVERSIONED_API_VERSION, BIGQUERY_API_VERSION_V2)
+    default_version = BIGQUERY_API_VERSION_V2
+    api_docs_url = "https://cloud.google.com/bigquery/docs/release-notes"
+
     @property
     def get_implementation(self) -> BigQueryImplementation:
         return _BIGQUERY_IMPLEMENTATION
@@ -51,14 +67,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # can't recover invalid credentials; the user must upload a new key file. Matched on the
             # stable `invalid_grant` code rather than `RefreshError`, which can also wrap transient
             # token-endpoint failures that should stay retryable.
-            "invalid_grant": "Your BigQuery service account credentials were rejected by Google. The key may have been rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file.",
+            "invalid_grant": BIGQUERY_CREDENTIALS_REJECTED_ERROR,
             # Raised from `bigquery_client` when `service_account.Credentials.from_service_account_info`
             # parses the uploaded key file's `private_key`. A truncated or corrupted PEM body (wrong
             # padding, stray characters, copy-paste damage) makes the `cryptography` backend reject it
             # as a `ValueError: Unable to load PEM file. ... InvalidData(InvalidPadding)`. The key can't
             # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
             # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
-            "Unable to load PEM file": "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file.",
+            "Unable to load PEM file": BIGQUERY_INVALID_KEY_FILE_ERROR,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
             # row-filtered reads) needs write access on the dataset those tables live in. When the
@@ -91,6 +107,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Deterministic IAM config problem; retrying can't grant the permission. Matched on the
             # stable permission name, not the volatile project id.
             "bigquery.jobs.create": "BigQuery denied your service account permission to run query jobs — it's missing the bigquery.jobs.create permission on the project it queries. Read access alone isn't enough, because PostHog runs query jobs to sync your data. Please grant your service account permission to run jobs (for example the BigQuery Job User role) on that project, then reconnect the source.",
+            # Raised as a 403 Forbidden when a table or view being synced reads through a BigQuery
+            # connection (used for federated queries or BigLake external tables) that the service
+            # account isn't authorized to use, e.g. "Access Denied: Connection projects/<p>/
+            # locations/<l>/connections/<c>: User does not have bigquery.connections.use permission
+            # for connection projects/<p>/locations/<l>/connections/<c>.". This is a separate IAM
+            # grant from table/dataset access — it lives on the connection resource itself, not the
+            # dataset — so the generic "Access Denied:" key below would match first and misdirect the
+            # customer to grant table read access (Data Viewer), which can't authorize connection use.
+            # Deterministic IAM config problem; retrying can't grant the permission. Matched on the
+            # stable permission name, not the volatile project/location/connection id.
+            "bigquery.connections.use": "BigQuery denied access to a BigQuery connection that a table or view being synced depends on (used for federated queries or external/BigLake tables). Please grant your service account the bigquery.connections.use permission (for example the BigQuery Connection User role) on that connection, then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
@@ -150,6 +177,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # carrying this exact wording (so the create/validate path shows it instead of the raw
             # 404). Match it here too so the discovery activity treats it as non-retryable.
             BIGQUERY_DATASET_NOT_FOUND_ERROR: BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            # `bq_client.get_table(...)` in `_build_source_response` (see `bigquery.py`) issues a
+            # direct REST GET rather than a query job, so a dataset deleted or renamed after schema
+            # discovery surfaces as "GET .../tables/<table>?prettyPrint=false: Not found: Dataset
+            # <project>:<dataset>" — with no "was not found in location" suffix, since no query job
+            # (and therefore no queried-region mismatch) is involved. The "was not found in location"
+            # key above only covers the query-job path, so this slips through and retries forever.
+            # Retrying can't recover a deleted dataset; the user must restore or rename it back, or
+            # remove it from the sync. Matched on the stable "Not found: Dataset" wording rather than
+            # the volatile project/dataset id.
+            "Not found: Dataset": BIGQUERY_DATASET_NOT_FOUND_ERROR,
             # A syntactically invalid project/dataset ID (e.g. a value carrying parentheses like
             # "(default)") is rejected as a 400 "Invalid dataset ID ..." / "Invalid project ID ...".
             # Schema discovery re-raises it as `BigQueryInvalidIdentifierError` carrying the friendly
@@ -176,6 +213,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # rename it back, or remove it from the sync. Matched on the stable "Not found: Table"
             # wording rather than the volatile table id.
             "Not found: Table": "BigQuery couldn't find a table this source is syncing — it was deleted or renamed after the source was set up. Restore or rename the table in BigQuery, or remove it from this source's synced tables, then re-enable the source.",
+            # Raised from `bq_client.get_table(...)` in `_build_source_response` (and other calls) when
+            # the GCP project the source references no longer exists — it was deleted, or the Project ID
+            # in the service account key file (or the configured dataset project) is wrong. The google
+            # exception stringifies as "... Project <id> is not found. Make sure it references valid GCP
+            # project that hasn't been deleted.", which the table/dataset "Not found" keys don't cover, so
+            # it slips through and retries forever. Retrying can't conjure a missing project; the user
+            # must fix the project reference. Matched on the stable guidance wording rather than the
+            # volatile project id that appears earlier in the message.
+            "Make sure it references valid GCP project": "BigQuery couldn't find the Google Cloud project this source references — it may have been deleted, or the Project ID in your service account key file (or the configured dataset project) may be incorrect. Verify the project exists in Google Cloud and correct the project details in your source configuration, then reconnect the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
@@ -186,7 +232,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # has billing disabled (BigQuery sandbox mode), so any query job is rejected before it
             # runs. There's nothing we can do but stop retrying until they enable billing.
             "Billing has not been enabled for this project": "BigQuery billing is not enabled for your Google Cloud project. Enable billing in the Google Cloud console (https://console.cloud.google.com/billing), then resume this source.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
             # type. Delta Lake can't widen an existing column in place, so retrying won't help —
@@ -204,6 +250,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # user must fix their key file; retrying can't recover. Matched on ngrok's stable
             # offline-endpoint code rather than the volatile tunnel subdomain in the page.
             "ERR_NGROK_3200": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an offline endpoint, not Google's OAuth token endpoint. Please re-upload your service account key file and verify its token_uri.",
+            # A service-account key whose `token_uri` points at a non-globally-routable address
+            # (for example a cloud metadata endpoint). PostHog's egress proxy denies the request
+            # before it leaves our network and google-auth surfaces that denial as a `RefreshError`
+            # naming the proxy's stable rule. The proxy rejects the same non-public host on every
+            # retry, so retrying just hammers a request that can never succeed. Google's real OAuth
+            # token endpoint is always a public host, so this is a misconfigured `token_uri` — the
+            # user must fix their key file. Matched on the proxy's stable rule name rather than the
+            # volatile denied host.
+            "denied by rule 'Deny: Not Global Unicast'": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an address PostHog can't reach. Please re-upload your service account key file and verify its token_uri is Google's OAuth token endpoint.",
             # Raised as a `Forbidden` (403, reason `quotaExceeded`) when the customer's BigQuery
             # project hits an administrator-configured custom cost control, e.g. "Custom quota
             # exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, which is set by
@@ -236,10 +291,67 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # source view. Matched on BigQuery's stable wording, not the volatile peak-usage percentage
             # or job id.
             BIGQUERY_RESOURCES_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it exceeded the memory allowed for a single query. This is usually caused by heavy sorts or analytic (window) functions over a large table or view. Retrying won't help — please reduce how much data you're syncing (for example add row filters or an incremental field), or simplify the source view, then re-enable the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (reason `billingTierLimitExceeded`)
+            # when a query's CPU-second usage relative to the bytes it billed exceeds the ratio the
+            # on-demand pricing model allows, e.g. "Query exceeded resource limits. This query used
+            # <N> CPU seconds but would charge only <M> Analysis bytes. This exceeds the ratio
+            # supported by the on-demand pricing model.". We copy incremental / view / row-filtered
+            # reads into a temp table before reading them (`_run_destination_query_with_job_retry` in
+            # `bigquery.py`), and a CPU-heavy source view or query shape carries this ratio into that
+            # copy. It's a deterministic property of the customer's query shape and billing tier —
+            # retrying the identical query always fails identically, so it just spams error tracking.
+            # BigQuery itself tells the user to move to capacity-based pricing or reduce the workload.
+            # Matched on BigQuery's stable wording, not the volatile CPU-second/byte counts or job id.
+            BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it used too many CPU seconds relative to the data it billed, which exceeds the ratio the on-demand pricing model allows. Retrying won't help — please move this workload to a capacity-based pricing model, or reduce how much data you're syncing (for example add row filters or an incremental field, or simplify the source view), then re-enable the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (the poll `_run_destination_query_
+            # with_job_retry` / `_query_result_with_job_retry` in `bigquery.py` do while awaiting a query
+            # job) when the job's result set holds a NaN in a column typed NUMERIC/BIGNUMERIC — that type
+            # can't represent NaN the way FLOAT64 can. This traces back to the source table or view itself
+            # (a computed column doing arithmetic like division by zero) rather than anything our SELECT
+            # constructs, so it's a deterministic property of the customer's data: the same query keeps
+            # producing the same NaN on every retry, and Google's own default job-retry doesn't cover it.
+            # The user must fix the source view/column; retrying just spams error tracking. Matched on
+            # BigQuery's stable wording, not the volatile job id/URL.
+            "Invalid NUMERIC value: NaN": "BigQuery couldn't complete a query for this source because it produced a NaN (not-a-number) value in a column typed NUMERIC, which that type can't represent. This is usually caused by a computed column or view doing arithmetic like division by zero. Please fix the underlying view or column in BigQuery, then re-enable the source.",
+            # Raised as a 400 BadRequest (reason `invalidQuery`) when the table or view being synced
+            # has a column name BigQuery can't resolve to a single source, e.g. "Column name x is
+            # ambiguous". We select each configured column by its own unqualified name (see
+            # `_get_query`/`_bq_select_clause` in `bigquery.py`), so this only happens when the
+            # underlying relation itself has the conflict — a view that joins tables sharing a column
+            # name, or a table/external table with two columns differing only by letter case. It's a
+            # deterministic property of the customer's view/table definition: the same query fails
+            # identically on every retry, so it just hammers BigQuery and spams error tracking. The
+            # user must fix the view or table definition. Matched on BigQuery's stable wording, not
+            # the volatile column name or [row:col] location.
+            "is ambiguous": "BigQuery couldn't run a query for this source because a column name in the table or view being synced is ambiguous. This usually happens when a view joins tables that share a column name, or two columns differ only by letter case. Retrying won't help — please update the view or table definition to remove the naming conflict (for example by aliasing the duplicate column), then reconnect the source.",
+            # Raised as a 400 BadRequest (reason `invalidQuery`) when a query we build references a
+            # column that no longer exists on the table, e.g. "Unrecognized name: ingested_at at
+            # [1:37]". We only reference columns the customer configured — the incremental field, an
+            # enabled column, or a row filter — so this means that column was renamed or dropped from
+            # the source table after the source (or its incremental field) was set up. It's a
+            # deterministic mismatch between our stored config and the customer's live schema: the
+            # same query fails identically on every retry. The user must update the source's column
+            # selection or incremental field to match the table's current schema. Matched on
+            # BigQuery's stable wording, not the volatile column name or [row:col] location.
+            "Unrecognized name:": "BigQuery couldn't run a query for this source because it referenced a column that no longer exists on the table — usually the configured incremental field, or a column selected for syncing, was renamed or removed. Retrying won't help — please update the source's column selection or incremental field to match the table's current schema, then reconnect the source.",
+            # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
+            # `bigquery.py`) when a column selected for syncing no longer exists on the live table —
+            # the direct-read counterpart of "Unrecognized name:" above, which covers the same drift
+            # on the query-job path (incremental / view / row-filtered reads). The google.api_core
+            # InvalidArgument stringifies as "request failed: The following selected fields do not
+            # exist in the table schema: <col1>, <col2>, ...". It's a deterministic mismatch between
+            # our stored config and the customer's live schema: the same read fails identically on
+            # every retry. The user must update the source's column selection to match the table's
+            # current schema. Matched on the stable wording, not the volatile list of column names.
+            "do not exist in the table schema": "BigQuery couldn't read this table because it referenced columns that no longer exist on it — usually columns selected for syncing were renamed or removed. Retrying won't help — please update the source's column selection to match the table's current schema, then reconnect the source.",
         }
 
     def validate_credentials(
-        self, config: BigQuerySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         region: str | None = None
         if (
@@ -249,7 +361,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             and config.use_custom_region.region != ""
         ):
             region = config.use_custom_region.region
-        if validate_bigquery_credentials(
+        return validate_bigquery_credentials(
             config.dataset_id,
             {
                 "project_id": config.key_file.project_id,
@@ -260,18 +372,20 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             },
             config.dataset_project.dataset_project_id if config.dataset_project else None,
             region,
-        ):
-            return True, None
-
-        return False, "Invalid BigQuery credentials"
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["bq", "gbq", "sql", "gcp", "google cloud"],
             featured=True,
             iconPath="/static/services/bigquery.png",
+            caption=(
+                "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
+                "warehouse. To send PostHog data to BigQuery instead, set up a batch export."
+            ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
                 list[FieldType],

@@ -1,8 +1,18 @@
 import { useCallback, useMemo } from 'react'
 
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    BarChart,
+    type BarChartConfig,
+    type DateRangeZoomData,
+    DefaultTooltip,
+    HighlightedRange,
+    type Series,
+} from '@posthog/quill-charts'
 
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
     formatBucketLabel,
@@ -18,24 +28,10 @@ interface OperationHistogramProps {
     selection: DurationRange | null
     onSelect: (selection: DurationRange) => void
     onClear: () => void
-}
-
-// Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is already
-// log-spaced, so a plain category axis renders it evenly (mirrors TracingSparkline).
-function withCategoryXScale(scale: AnyScaleOptions): AnyScaleOptions {
-    return {
-        ...scale,
-        type: 'category',
-        ticks: {
-            display: true,
-            maxRotation: 0,
-            maxTicksLimit: 8,
-            font: {
-                size: 10,
-                lineHeight: 1,
-            },
-        },
-    } as AnyScaleOptions
+    /** Clearing the selection refetches samples — disable the button while that's in flight. */
+    samplesLoading?: boolean
+    /** Extra header content, right-aligned (e.g. the histogram/heatmap chart toggle). */
+    actions?: React.ReactNode
 }
 
 export function OperationHistogram({
@@ -44,9 +40,25 @@ export function OperationHistogram({
     selection,
     onSelect,
     onClear,
+    samplesLoading = false,
+    actions,
 }: OperationHistogramProps): JSX.Element {
+    const theme = useChartTheme()
+    const config = useChartConfig<BarChartConfig>(() => ({}), [])
+
+    const series = useMemo<Series[]>(
+        () =>
+            data.data.map((s) => ({
+                key: s.name,
+                label: s.name,
+                data: s.values,
+                color: getColorVar(s.color),
+            })),
+        [data.data]
+    )
+
     const onSelectionChange = useCallback(
-        ({ startIndex, endIndex }: { startIndex: number; endIndex: number }): void => {
+        ({ startIndex, endIndex }: DateRangeZoomData): void => {
             const range = selectionToDurationRange(data.bucketsNs, startIndex, endIndex)
             if (range) {
                 onSelect(range)
@@ -65,12 +77,13 @@ export function OperationHistogram({
         const startIndexRaw = bucketsNs.indexOf(snapDurationToBucket(selection.minNs))
         // maxNs is the exclusive upper edge — the highlight ends at the bar before it.
         const endIndexRaw = bucketsNs.indexOf(snapDurationToBucket(selection.maxNs))
-        const startIndex = startIndexRaw === -1 ? 0 : startIndexRaw
-        const endIndex = endIndexRaw === -1 ? bucketsNs.length : endIndexRaw
+        const startIndex = startIndexRaw !== -1 ? startIndexRaw : selection.minNs <= bucketsNs[0] ? 0 : bucketsNs.length
+        const endIndex =
+            endIndexRaw !== -1 ? endIndexRaw : selection.maxNs > bucketsNs[bucketsNs.length - 1] ? bucketsNs.length : 0
         if (startIndex >= endIndex) {
             return null
         }
-        return { xMin: labels[startIndex], xMax: labels[endIndex] ?? labels[labels.length - 1] }
+        return { start: labels[startIndex], end: labels[endIndex - 1] ?? labels[labels.length - 1] }
     }, [selection, data])
 
     return (
@@ -82,28 +95,41 @@ export function OperationHistogram({
                         <span className="text-xs font-mono">
                             {formatBucketLabel(selection.minNs)} – {formatBucketLabel(selection.maxNs)}
                         </span>
-                        <LemonButton size="xsmall" type="tertiary" onClick={onClear}>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={onClear}
+                            disabledReason={samplesLoading ? 'Loading samples…' : undefined}
+                        >
                             Clear
                         </LemonButton>
                     </>
                 ) : (
                     <span className="text-xs text-muted italic">Drag to select a duration range</span>
                 )}
+                {actions && <div className="ml-auto">{actions}</div>}
             </div>
-            <div className="relative h-32">
+            <div className="relative h-32 flex flex-col">
                 {data.data.length > 0 ? (
-                    <Sparkline
+                    <BarChart
+                        series={series}
                         labels={data.labels}
-                        data={data.data}
-                        className="w-full h-full"
-                        onSelectionChange={onSelectionChange}
-                        withXScale={withCategoryXScale}
-                        renderLabel={(label) => label}
-                        tooltipRowCutoff={100}
-                        hideZerosInTooltip
-                        sortTooltipByCount
-                        highlightedRange={highlightedRange}
-                    />
+                        theme={theme}
+                        config={config}
+                        onDateRangeZoom={onSelectionChange}
+                        tooltip={(ctx) => (
+                            <DefaultTooltip
+                                {...ctx}
+                                hideZeroRows
+                                sortedByValue
+                                valueFormatter={(value) => humanFriendlyNumber(value)}
+                            />
+                        )}
+                    >
+                        {highlightedRange && (
+                            <HighlightedRange start={highlightedRange.start} end={highlightedRange.end} />
+                        )}
+                    </BarChart>
                 ) : !loading ? (
                     <div className="h-full text-muted flex items-center justify-center">No spans in this range</div>
                 ) : null}

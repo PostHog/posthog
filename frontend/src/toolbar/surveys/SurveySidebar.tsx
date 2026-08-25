@@ -10,9 +10,9 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { urls } from '~/toolbar/urls'
 import { joinWithUiHost } from '~/toolbar/utils'
 import { SurveyMatchType } from '~/types'
 

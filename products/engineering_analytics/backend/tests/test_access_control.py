@@ -31,7 +31,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
     resolve_github_tables,
 )
-from products.engineering_analytics.backend.tests.test_views import (
+from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     connect_github_source_without_data,
     create_github_source,
@@ -39,7 +39,7 @@ from products.engineering_analytics.backend.tests.test_views import (
     link_schema,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 # Every curated query runs HogQL through this method; stub it to empty so a resolved source
 # returns 200 with no rows, leaving the resolver's access-control decision as the only variable.

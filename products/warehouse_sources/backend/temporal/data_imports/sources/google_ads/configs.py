@@ -9,10 +9,31 @@ run path in ``source.py``. See ``google_ads.py`` for the SDK-backed functions.
 """
 
 import re
+import datetime
 import dataclasses
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
+
+# Declared as the source's `history_lookback`. Not an API limit — Google serves older rows, so
+# this costs first-sync catch-up time rather than correctness.
+GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
+
+
+def parse_start_date(value: str) -> datetime.date:
+    """Read a configured start date, or raise `ValueError`.
+
+    Strict where a cursor's own coercion is lenient: a permissive parser fills the missing part of
+    "2020" from the current date, so the same stored value would mean a different day on a different
+    run and import less than it plainly reads as, without failing. Stripped because the field is
+    free text and a date pasted from a spreadsheet carries whitespace.
+
+    Shared with `validate_credentials` deliberately: a value accepted at setup and rejected at sync
+    time, or the reverse, is the shape that puts an unasked-for range in a table.
+    """
+    return datetime.datetime.fromisoformat(value.strip()).date()
 
 
 @dataclasses.dataclass
@@ -38,6 +59,14 @@ def clean_customer_id(s: str | None) -> str | None:
         return s
 
     return re.sub(r"\D", "", s)
+
+
+def format_customer_id(s: str) -> str:
+    """Render a bare 10-digit customer ID the way the Google Ads UI shows it (``123-456-7890``); anything else is returned untouched."""
+    digits = re.sub(r"\D", "", s)
+    if len(digits) != 10:
+        return s
+    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
 
 
 @config.config

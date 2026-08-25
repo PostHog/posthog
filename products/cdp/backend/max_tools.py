@@ -7,29 +7,27 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from posthog.hogql import errors as hogql_errors
-from posthog.hogql.ai import (
-    DESTINATION_LIMITATIONS_MESSAGE,
-    EVENT_PROPERTY_TAXONOMY_MESSAGE,
-    EVENT_TAXONOMY_MESSAGE,
-    FILTER_TAXONOMY_MESSAGE,
-    HOG_EXAMPLE_MESSAGE,
-    HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
-    HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
-    HOG_GRAMMAR_MESSAGE,
-    IDENTITY_MESSAGE_HOG,
-    INPUT_SCHEMA_TYPES_MESSAGE,
-    PERSON_TAXONOMY_MESSAGE,
-    TRANSFORMATION_LIMITATIONS_MESSAGE,
-    TRANSFORMATION_STRUCTURE_MESSAGE,
-)
 from posthog.hogql.parser import parse_program
 
 from posthog.cdp.validation import compile_hog
 
 from products.cdp.backend.prompts import (
+    DESTINATION_LIMITATIONS_MESSAGE,
+    EVENT_PROPERTY_TAXONOMY_MESSAGE,
+    EVENT_TAXONOMY_MESSAGE,
+    FILTER_TAXONOMY_MESSAGE,
+    HOG_EXAMPLE_MESSAGE,
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
+    HOG_GRAMMAR_MESSAGE,
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
+    IDENTITY_MESSAGE_HOG,
+    INPUT_SCHEMA_TYPES_MESSAGE,
+    PERSON_TAXONOMY_MESSAGE,
+    TRANSFORMATION_LIMITATIONS_MESSAGE,
+    TRANSFORMATION_STRUCTURE_MESSAGE,
 )
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
@@ -55,7 +53,7 @@ class HogFunctionFiltersOutput(BaseModel):
 
 class CreateHogTransformationFunctionTool(MaxTool):
     name: str = "create_hog_transformation_function"  # Must match a value in AssistantTool enum
-    description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
+    description: str = "Write or edit the Hog code for the data pipeline transformation function currently open in the editor, and apply the result to the editor"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
     context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT

@@ -38,6 +38,8 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response.json()["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
 
         self.maxDiff = None
         assert activity == expected

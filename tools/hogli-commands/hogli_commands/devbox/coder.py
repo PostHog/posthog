@@ -27,6 +27,7 @@ from typing import Any, NoReturn
 
 import click
 import requests
+from hogli import telemetry
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -68,16 +69,18 @@ AUTO_START_APP_PARAMETER = "auto_start_app"
 # parameters, so forwarding the region here breaks every resume instead of
 # suppressing a picker. Valid values match the template contract exactly.
 WORKSPACE_REGION_PARAMETER = "workspace_region"
+DISK_SIZE_PARAMETER = "disk_size"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
 
-# Immutable, create-time AMI override consumed by `devbox:clone`. A clone boots
-# the new box from a per-clone image captured off the source box's root volume,
-# so the duplicate comes up with that box's full disk state instead of a blank
-# golden AMI. Empty everywhere else.
-BASE_AMI_PARAMETER = "base_ami"
-# Key of the workspace metadata item the template publishes the region back as.
+# Immutable, create-time parameter consumed by `devbox:clone`: the EC2 instance
+# of the source devbox. The template images that instance server-side and boots
+# the new box from the capture, so the duplicate comes up with the source's full
+# disk state instead of a blank golden AMI. Empty everywhere else.
+CLONE_SOURCE_PARAMETER = "clone_source_instance_id"
+# Keys of the workspace metadata items the template publishes back.
 REGION_METADATA_KEY = "region"
+DISK_METADATA_KEY = "disk"
 # Workspace-name suffix per region. us-east-1 is the historical default and
 # carries no suffix, so existing workspace names stay unchanged. Non-default
 # regions append `-{suffix}` at the end of the name so that a single user can
@@ -117,9 +120,15 @@ class CoderUserInfo(dict[str, str]):
     """Normalized subset of Coder user fields used by hogli."""
 
 
-def _fail(message: str) -> NoReturn:
-    """Print a short actionable error and exit."""
+def _fail(message: str, *, cause: str | None = None) -> NoReturn:
+    """Print a short actionable error and exit.
+
+    ``cause`` is a stable slug recorded on the command's telemetry event.
+    Without it every distinct failure reads as one undifferentiated error.
+    """
     click.echo(click.style(message, fg="red"))
+    if cause:
+        telemetry.add_command_properties(devbox_failure_cause=cause)
     raise SystemExit(1)
 
 
@@ -400,7 +409,8 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "Tailscale is not installed.\n"
             f"  {_tailscale_install_hint()}\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} for joining the PostHog tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_installed",
         )
 
     # CLI is resolvable, but the daemon is not running -- the user needs to
@@ -415,14 +425,16 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "  To use the CLI from your shell, symlink it once:\n"
             f"    sudo ln -sfn {_MACOS_TAILSCALE_CLI} /usr/local/bin/tailscale\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_connected_cli_missing",
         )
 
     _fail(
         "Tailscale is installed but not connected.\n"
         f"  {_tailscale_connect_hint()}\n"
         f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-        f"  Then {setup_hint}"
+        f"  Then {setup_hint}",
+        cause="tailscale_not_connected",
     )
 
 
@@ -446,6 +458,10 @@ def ensure_tailscale_routes_accepted() -> None:
     if _tailscale_routes_accepted():
         return
 
+    # The fix below is silent, so without this the number of hosts that land
+    # here stays unknowable.
+    telemetry.add_command_properties(devbox_routes_were_off=True)
+
     tailscale_path = _resolve_tailscale()
     if not tailscale_path:
         return
@@ -458,7 +474,10 @@ def ensure_tailscale_routes_accepted() -> None:
     result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
     if result.returncode != 0:
         manual = "tailscale set --accept-routes" if sys.platform == "darwin" else "sudo tailscale set --accept-routes"
-        _fail(f"Failed to enable Tailscale subnet routes. Run manually: {manual}")
+        _fail(
+            f"Failed to enable Tailscale subnet routes. Run manually: {manual}",
+            cause="accept_routes_failed",
+        )
 
 
 def coder_reachable(timeout: float = 5.0) -> bool:
@@ -479,8 +498,12 @@ class CoderReachabilityDiagnosis:
     fix rather than a list of commands the user has to interpret. ``facts``
     is a short list of diagnostic data (tailnet name, resolved IP, peer
     health) that is safe to share verbatim when asking for help.
+
+    ``code`` is the same cause as a stable slug. ``cause`` interpolates
+    hostnames and peer names, so it cannot be grouped on.
     """
 
+    code: str
     cause: str
     next_step: str
     facts: list[str]
@@ -540,6 +563,7 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     if resolved_ip is None:
         facts.append(f"DNS for {host}: failed")
         return CoderReachabilityDiagnosis(
+            code="dns_lookup_failed",
             cause=f"DNS lookup for {host} failed.",
             next_step=(
                 "MagicDNS may be off or you may be on the wrong tailnet. "
@@ -553,6 +577,7 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     if _tcp_reachable(host, 443):
         facts.append(f"TCP {host}:443: open")
         return CoderReachabilityDiagnosis(
+            code="https_probe_failed",
             cause=f"TCP to {host}:443 works but the HTTPS probe failed.",
             next_step=(
                 "The Coder deployment may be restarting, or your system clock "
@@ -589,6 +614,7 @@ def _diagnose_blocked_route(
 
     if not routers:
         return CoderReachabilityDiagnosis(
+            code="no_subnet_routes_advertised",
             cause="No peer on your tailnet advertises subnet routes.",
             next_step=(
                 "Either you are not on the PostHog tailnet (check the name "
@@ -602,6 +628,7 @@ def _diagnose_blocked_route(
     if not online_routers:
         names = ", ".join(str(p.get("HostName") or "?") for p in routers)
         return CoderReachabilityDiagnosis(
+            code="subnet_router_offline",
             cause=f"Subnet router peer is offline ({names}).",
             next_step=(
                 "Wait a minute and retry. If it stays offline, reach out to Team DevEx — the relay likely needs a bounce."
@@ -610,6 +637,7 @@ def _diagnose_blocked_route(
         )
 
     return CoderReachabilityDiagnosis(
+        code="tcp_blocked",
         cause="TCP is blocked despite an online subnet router on your tailnet.",
         next_step=(
             "A non-Tailscale VPN or a local firewall is likely intercepting, "
@@ -645,7 +673,7 @@ def ensure_coder_reachable() -> None:
             *(f"  - {fact}" for fact in diagnosis.facts),
         ]
     )
-    _fail(body)
+    _fail(body, cause=diagnosis.code)
 
 
 def _encode_ssh_option(value: str) -> str:
@@ -828,7 +856,7 @@ def ensure_coder_authenticated() -> None:
         return
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
     click.echo(f"Logging in to {coder_url}...")
@@ -844,10 +872,10 @@ def ensure_runtime_ready() -> None:
     ensure_coder_reachable()
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
+        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
 
     _warn_version_mismatch()
 
@@ -1094,22 +1122,42 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
-def get_workspace_region(workspace: dict[str, Any]) -> str | None:
-    """Return the region a workspace lives in, or ``None`` when unknown.
+def _workspace_metadata_value(workspace: dict[str, Any], key: str) -> str | None:
+    """Return a ``coder_metadata`` item value the template publishes back.
 
-    The template publishes the region as a ``coder_metadata`` item (key
-    ``region``), which surfaces under ``latest_build.resources[].metadata[]``
-    in the ``coder list`` payload. Returns ``None`` for boxes created before
-    the metadata item existed so callers can render their own placeholder.
+    Items surface under ``latest_build.resources[].metadata[]`` in the ``coder
+    list`` payload. Returns ``None`` when the key is absent (e.g. boxes created
+    before that item existed) so callers can decide on a fallback.
     """
-    resources = workspace.get("latest_build", {}).get("resources", [])
-    for resource in resources:
+    for resource in workspace.get("latest_build", {}).get("resources", []):
         for item in resource.get("metadata", []):
-            if isinstance(item, dict) and item.get("key") == REGION_METADATA_KEY:
+            if isinstance(item, dict) and item.get("key") == key:
                 value = item.get("value")
                 if isinstance(value, str) and value:
                     return value
     return None
+
+
+def get_workspace_region(workspace: dict[str, Any]) -> str | None:
+    """Return the region a workspace lives in, or ``None`` when unknown.
+
+    The template publishes the region as a ``coder_metadata`` item (key
+    ``region``). Returns ``None`` for boxes created before the metadata item
+    existed so callers can render their own placeholder.
+    """
+    return _workspace_metadata_value(workspace, REGION_METADATA_KEY)
+
+
+def get_workspace_disk_size(workspace: dict[str, Any]) -> int | None:
+    """Return a workspace's root disk size in GiB, or ``None`` when unknown.
+
+    The template publishes it as a ``coder_metadata`` item (key ``disk``, value
+    like ``"100 GiB"``). A clone must request at least the source's size or the
+    instance fails to launch from the captured AMI (``InvalidBlockDeviceMapping``).
+    """
+    value = _workspace_metadata_value(workspace, DISK_METADATA_KEY)
+    match = re.search(r"^(\d+)\s*GiB$", value.strip()) if value else None
+    return int(match.group(1)) if match else None
 
 
 def _list_template_presets(template: str) -> list[str]:
@@ -1211,7 +1259,7 @@ def create_workspace(
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
-        "disk_size": str(disk_size),
+        DISK_SIZE_PARAMETER: str(disk_size),
         "repo": repo,
         WORKSPACE_REGION_PARAMETER: region,
     }
@@ -1240,89 +1288,35 @@ def create_workspace(
         raise SystemExit(result.returncode)
 
 
-# Imaging a tens-of-GiB root volume to an AMI takes a few minutes; allow ample
-# headroom (includes a possible one-time AWS CLI install on older golden AMIs).
-CLONE_IMAGE_TIMEOUT = 1800
+# A metadata read over ssh is near-instant; keep the ceiling tight so a wedged
+# box fails fast instead of hanging the clone.
+INSTANCE_ID_TIMEOUT = 60
 
-# Tag values ride into the AWS CLI tag shorthand; keep them to a safe charset so
-# neither the shorthand parser nor the IAM tag conditions can be subverted.
-_CLONE_TAG_VALUE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-_CLONE_READY_RE = re.compile(r"^CLONE_READY=(ami-[0-9a-f]+)$", re.MULTILINE)
+_INSTANCE_ID_RE = re.compile(r"\bi-[0-9a-f]{8,17}\b")
 
-# Runs ON the source devbox (over its ssh alias) and images the box's own root
-# volume into a private, tagged AMI the clone boots from. The box authenticates
-# with its instance profile, so no human AWS credentials are involved. The AWS
-# CLI is installed on demand for golden AMIs that predate it. --no-reboot keeps
-# this box running (the clone is driven from a live ssh session) at the cost of
-# a crash-consistent (not application-consistent) image -- quiesce the dev stack
-# first for the latter. __OWNER__/__SOURCE__ are substituted with shell-quoted,
-# validated values before transport.
-_CLONE_IMAGE_SCRIPT = """#!/usr/bin/env bash
+# Runs ON the source devbox (over its ssh alias) and prints the box's own EC2
+# instance id from IMDSv2. A read-only metadata lookup -- no AWS credentials and
+# no imaging permissions. The clone template captures the AMI from this id
+# server-side, after verifying the instance carries the requester's owner tag.
+_INSTANCE_ID_SCRIPT = """#!/usr/bin/env bash
 set -euo pipefail
-
-OWNER=__OWNER__
-SOURCE=__SOURCE__
-
-if ! command -v aws >/dev/null 2>&1; then
-  echo "clone: installing AWS CLI on the devbox (one-time)..." >&2
-  sudo apt-get update -qq >/dev/null 2>&1 || true
-  sudo apt-get install -y -qq unzip >/dev/null 2>&1 || true
-  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip
-  (cd /tmp && unzip -q -o awscliv2.zip && sudo ./aws/install --update)
-  rm -rf /tmp/awscliv2.zip /tmp/aws
-fi
-
-TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 120")
-IID=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
-REGION=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
-
-CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-NAME="posthog-devbox-clone-${OWNER}-$(date +%s)"
-TAGS="{Key=Coder_CloneArtifact,Value=true},{Key=Coder_CloneOwner,Value=${OWNER}},{Key=Coder_CloneSource,Value=${SOURCE}},{Key=Coder_CloneCreatedAt,Value=${CREATED_AT}}"
-
-# Flush dirty pages so the crash-consistent snapshot is as clean as possible.
-sync
-
-AMI=$(aws ec2 create-image --region "$REGION" --instance-id "$IID" --no-reboot --name "$NAME" --description "devbox clone of ${SOURCE} for ${OWNER}" --tag-specifications "ResourceType=image,Tags=[${TAGS},{Key=Name,Value=${NAME}}]" "ResourceType=snapshot,Tags=[${TAGS}]" --query ImageId --output text)
-
-echo "CLONE_AMI=${AMI}"
-echo "clone: baking ${AMI}; waiting for it to become available..." >&2
-aws ec2 wait image-available --region "$REGION" --image-ids "$AMI"
-echo "CLONE_READY=${AMI}"
+TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id
 """
 
 
-def _parse_clone_ami(output: str) -> str | None:
-    """Pull the AMI id out of the remote clone script's CLONE_READY line."""
-    match = _CLONE_READY_RE.search(output)
-    return match.group(1) if match else None
+def get_source_instance_id(workspace_name: str, *, timeout: int = INSTANCE_ID_TIMEOUT) -> str:
+    """Return the source devbox's own EC2 instance id (``i-...``), read from IMDS.
 
-
-def create_clone_image(
-    workspace_name: str,
-    *,
-    owner: str,
-    source_label: str,
-    timeout: int = CLONE_IMAGE_TIMEOUT,
-) -> str:
-    """Capture the source devbox's root volume into a tagged AMI; return its id.
-
-    Runs on the box itself over the ssh alias so the capture uses the
-    instance's own profile -- no human AWS credentials. Blocks until the image
-    is ``available`` (a fresh root-volume snapshot of tens of GiB takes a few
-    minutes), then returns the AMI id for :func:`clone_workspace` to boot from.
-    The image is private and reaped by the cloud-infra clone reaper.
+    A read-only metadata lookup over the box's ssh alias -- hogli makes no AWS
+    calls and needs no imaging permissions. The clone template captures the AMI
+    from this id server-side, after verifying the instance carries the
+    requester's ownership tag.
     """
     if not coder_ssh_alias_configured(workspace_name):
         _fail(f"ssh alias for '{workspace_name}' is not configured. {RUNTIME_SETUP_HINT}")
-    for value, what in ((owner, "owner"), (source_label, "source")):
-        if not _CLONE_TAG_VALUE_RE.match(value):
-            _fail(f"Refusing to clone: {what} '{value}' has characters unsafe for an AWS tag.")
 
-    script = _CLONE_IMAGE_SCRIPT.replace("__OWNER__", shlex.quote(owner)).replace(
-        "__SOURCE__", shlex.quote(source_label)
-    )
-    encoded = base64.b64encode(script.encode()).decode()
+    encoded = base64.b64encode(_INSTANCE_ID_SCRIPT.encode()).decode()
     try:
         result = subprocess.run(
             ["ssh", _ssh_host_alias(workspace_name), f"echo {encoded} | base64 -d | bash"],
@@ -1331,43 +1325,48 @@ def create_clone_image(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        _fail(f"Timed out after {timeout}s waiting for the clone image to build.")
+        _fail(f"Timed out after {timeout}s reading the source devbox's instance id.")
 
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
-        _fail("Failed to capture a clone image from the source devbox.")
+        _fail("Failed to read the source devbox's instance id over ssh.")
 
-    ami = _parse_clone_ami(result.stdout)
-    if ami is None:
+    match = _INSTANCE_ID_RE.search(result.stdout)
+    if match is None:
         sys.stderr.write(result.stdout)
         sys.stderr.write(result.stderr)
-        _fail("Clone image build did not report an AMI id.")
-    return ami
+        _fail("Could not determine the source devbox's EC2 instance id.")
+    return match.group(0)
 
 
 def clone_workspace(
-    source: str,
     target: str,
     *,
-    base_ami: str,
+    source_instance_id: str,
+    disk_size: int,
+    region: str,
     template: str = DEFAULT_TEMPLATE,
     verbose: bool = False,
 ) -> None:
-    """Create ``target`` as a copy of ``source``, booting from the clone AMI.
+    """Create ``target`` as a clone via server-side AMI capture.
 
-    ``--copy-parameters-from`` carries the source's parameter values (disk
-    size, region, git identity, ...) so the duplicate matches it; the explicit
-    ``base_ami`` override points the new box at the captured image.
+    ``clone_source_instance_id`` tells the template which instance to image; the
+    template verifies ownership and captures the AMI itself, so hogli passes
+    only the id. ``disk_size`` must be at least the source's or the clone fails
+    to launch from the captured snapshot; ``region`` must match the source's
+    (the AMI is region-scoped). Every other parameter falls back to the
+    template default (``--use-parameter-defaults``), which resolves git identity
+    to the workspace owner -- the source's on-disk config rides in via the AMI.
 
-    Unlike create/update, this does NOT go through the param-retry shim: that
-    path silently drops a parameter the template does not declare, which for a
-    clone would boot the golden AMI and present a blank box as a successful
-    clone. If ``base_ami`` is rejected, the template predates the clone change
-    and we fail loudly instead.
+    ``--copy-parameters-from`` is deliberately NOT used: Coder resolves a copied
+    value ahead of an explicit ``--parameter``, so it silently overrides
+    ``clone_source_instance_id`` back to the source's empty value and boots a
+    blank golden box as a successful clone. This also skips the param-retry
+    shim, which would drop ``clone_source_instance_id`` on a template that
+    predates the clone change; that key is load-bearing, so we fail loudly.
     """
     # --preset none is required: newer Coder shows an interactive preset picker
-    # that --yes does not bypass, which would hang clone_workspace. The source's
-    # own parameters arrive via --copy-parameters-from, so no preset is wanted.
+    # that --yes does not bypass, which would hang the build.
     args = _append_parameter_flags(
         [
             "coder",
@@ -1377,19 +1376,26 @@ def clone_workspace(
             template,
             "--preset",
             NO_PRESET,
-            "--copy-parameters-from",
-            source,
+            "--use-parameter-defaults",
             "--yes",
         ],
-        {BASE_AMI_PARAMETER: base_ami},
+        {
+            CLONE_SOURCE_PARAMETER: source_instance_id,
+            DISK_SIZE_PARAMETER: str(disk_size),
+            WORKSPACE_REGION_PARAMETER: region,
+        },
     )
     result = _run_build(args, verbose=verbose)
     if result.returncode != 0:
-        if _PARAM_NOT_PRESENT_RE.search(result.stdout or ""):
+        match = _PARAM_NOT_PRESENT_RE.search(result.stdout or "")
+        missing = match.group(1) if match else None
+        if missing == CLONE_SOURCE_PARAMETER:
             _fail(
-                f"This Coder template does not accept '{BASE_AMI_PARAMETER}', so it cannot be "
+                f"This Coder template does not accept '{CLONE_SOURCE_PARAMETER}', so it cannot be "
                 "cloned. Deploy the cloud-infra devbox-clone template change first."
             )
+        if missing is not None:
+            _fail(f"This Coder template does not accept the '{missing}' parameter.")
         raise SystemExit(result.returncode)
 
 

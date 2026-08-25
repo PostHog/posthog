@@ -74,7 +74,7 @@ def _free_tier_subscription_limit() -> int:
 # Max length of the prompt snippet used as an AI subscription's display name when it has no title.
 AI_PROMPT_DISPLAY_MAX_LEN = 60
 
-RRULE_WEEKDAY_MAP = {
+DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME = {
     "monday": MO,
     "tuesday": TU,
     "wednesday": WE,
@@ -88,7 +88,7 @@ WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
 
 
 @dataclass
-class SubscriptionResourceInfo:
+class SubscriptionResource:
     kind: str
     name: str
     url: str
@@ -125,6 +125,11 @@ class Subscription(ModelActivityMixin, models.Model):
         INSIGHT = "insight"
         DASHBOARD = "dashboard"
         AI_PROMPT = "ai_prompt", "AI prompt"
+
+    class AIWindowMode(models.TextChoices):
+        SINCE_LAST_SENT = "since_last_sent", "Since last report"
+        LAST_N_DAYS = "last_n_days", "Last N days"
+        DAYS_AGO_RANGE = "days_ago_range", "Between X and Y days ago"
 
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
@@ -163,6 +168,14 @@ class Subscription(ModelActivityMixin, models.Model):
     )
 
     prompt = models.TextField(null=True, blank=True)
+
+    # Frozen by the first successful delivery so later runs reuse the same HogQL deterministically
+    # instead of re-running the planner LLM; cleared on prompt change (see save()). Shape is versioned —
+    # see report_pipeline._plan_to_freeze.
+    ai_query_plan = models.JSONField(null=True, blank=True, default=None)
+    # Source of truth for the shape: ee.api.subscription.AIPromptConfigSerializer (writes) and
+    # normalize_ai_window below (reads).
+    ai_prompt_config = models.JSONField(default=dict, blank=True)
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -212,6 +225,8 @@ class Subscription(ModelActivityMixin, models.Model):
         # a new instance with OTHER fields deferred, causing infinite recursion.
         if not (self.get_deferred_fields() & self.RRULE_FIELDS):
             self._rrule = self.rrule
+        if "prompt" not in self.get_deferred_fields():
+            self._initial_prompt = self.prompt
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
@@ -220,7 +235,14 @@ class Subscription(ModelActivityMixin, models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
+        # A changed prompt invalidates the frozen AI query plan at the model level (same pattern as
+        # next_delivery_date above), so ORM-path edits can't leave a plan answering the old prompt.
+        if self.id and self.prompt != getattr(self, "_initial_prompt", self.prompt) and self.ai_query_plan is not None:
+            self.ai_query_plan = None
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = [*kwargs["update_fields"], "ai_query_plan"]
         super().save(*args, **kwargs)
+        self._initial_prompt = self.prompt
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:
@@ -261,12 +283,23 @@ class Subscription(ModelActivityMixin, models.Model):
             interval=interval,
             dtstart=start_date,
             until=until_date,
-            bysetpos=bysetpos if byweekday else None,
+            bysetpos=bysetpos if byweekday and frequency == Subscription.SubscriptionFrequency.MONTHLY else None,
             byweekday=to_rrule_weekdays(byweekday) if byweekday else None,
         )
 
     @staticmethod
     def _compute_next_delivery_date(*, from_dt: Optional[datetime] = None, **rrule_fields: Any) -> Optional[datetime]:
+        interval = rrule_fields.get("interval") or 1
+        byweekday = rrule_fields.get("byweekday")
+        start_date = rrule_fields.get("start_date")
+        if (
+            rrule_fields.get("frequency") == Subscription.SubscriptionFrequency.DAILY
+            and interval % 7 == 0
+            and byweekday
+            and start_date
+            and start_date.strftime("%A").lower() not in byweekday
+        ):
+            return None
         # Buffer of 15 minutes since we might run a bit early — never schedule into the past.
         now = timezone.now() + timedelta(minutes=15)
         return Subscription._build_rrule(**rrule_fields).after(dt=max(from_dt or now, now), inc=False)
@@ -319,6 +352,56 @@ class Subscription(ModelActivityMixin, models.Model):
         """Days of history an AI report for this subscription should analyse, derived from its cadence."""
         return self._AI_REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_AI_REPORT_WINDOW_DAYS)
 
+    AI_WINDOW_MAX_DAYS = 365
+
+    @classmethod
+    def normalize_ai_window(cls, window: Any) -> dict:
+        """Coerce an arbitrary ai_prompt_config["window"] shape to the serializer's contract —
+        the JSONField is untyped at runtime, so a row edited out-of-band can carry anything and
+        must degrade to the default window instead of crashing reads or delivery runs. Shared by
+        the model readers and the API read path."""
+
+        def day_bound(value: Any, minimum: int) -> Optional[int]:
+            if isinstance(value, bool) or not isinstance(value, int):
+                return None
+            return value if minimum <= value <= cls.AI_WINDOW_MAX_DAYS else None
+
+        raw = window if isinstance(window, dict) else {}
+        raw_mode = raw.get("mode")
+        mode = raw_mode if raw_mode in cls.AIWindowMode.values else cls.AIWindowMode.SINCE_LAST_SENT
+        start = day_bound(raw.get("start_days_ago"), 1)
+        end = day_bound(raw.get("end_days_ago"), 0)
+        # Mirror AIWindowConfigSerializer's per-mode normalisation, so a garbage value in a field
+        # the mode ignores can't affect the fields it uses.
+        if mode == cls.AIWindowMode.SINCE_LAST_SENT:
+            start, end = None, None
+        elif mode == cls.AIWindowMode.LAST_N_DAYS:
+            end = None
+        elif start is not None and end is not None and end >= start:
+            start, end = None, None
+        return {
+            "mode": mode,
+            "start_days_ago": start,
+            "end_days_ago": end,
+        }
+
+    @property
+    def _ai_window_config(self) -> dict:
+        config = self.ai_prompt_config if isinstance(self.ai_prompt_config, dict) else {}
+        return self.normalize_ai_window(config.get("window"))
+
+    @property
+    def ai_window_mode(self) -> str:
+        return self._ai_window_config["mode"]
+
+    @property
+    def ai_window_start_days_ago(self) -> Optional[int]:
+        return self._ai_window_config["start_days_ago"]
+
+    @property
+    def ai_window_end_days_ago(self) -> Optional[int]:
+        return self._ai_window_config["end_days_ago"]
+
     @property
     def url(self) -> str | None:
         if not self._has_resource:
@@ -333,21 +416,21 @@ class Subscription(ModelActivityMixin, models.Model):
         return None
 
     @property
-    def resource_info(self) -> Optional[SubscriptionResourceInfo]:
+    def resource_info(self) -> Optional[SubscriptionResource]:
         if not self._has_resource:
             return None
         match self.resource_type:
             case self.ResourceType.INSIGHT if self.insight:
-                return SubscriptionResourceInfo(
+                return SubscriptionResource(
                     "Insight",
                     f"{self.insight.name or self.insight.derived_name}",
                     self.insight.url,
                 )
             case self.ResourceType.DASHBOARD if self.dashboard:
-                return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
+                return SubscriptionResource("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
             case self.ResourceType.AI_PROMPT:
                 ai_name = self.title or (self.prompt or "").strip()[:AI_PROMPT_DISPLAY_MAX_LEN] or "AI report"
-                return SubscriptionResourceInfo("AI", ai_name, self.url or "")
+                return SubscriptionResource("AI", ai_name, self.url or "")
         return None
 
     @property
@@ -371,7 +454,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
             summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{human_frequency}"
 
-            if self.byweekday and self.bysetpos:
+            if self.frequency == self.SubscriptionFrequency.MONTHLY and self.byweekday and self.bysetpos:
                 human_bysetpos = {
                     1: "first",
                     2: "second",
@@ -386,6 +469,18 @@ class Subscription(ModelActivityMixin, models.Model):
                 else:
                     day_label = "day"
                 summary += f" on the {human_bysetpos} {day_label}"
+            elif self.byweekday and (
+                self.frequency != self.SubscriptionFrequency.DAILY
+                or set(self.byweekday) != set(DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME)
+            ):
+                if set(self.byweekday) == WEEKDAY_SET:
+                    summary += " on weekdays"
+                else:
+                    day_labels = [day.capitalize() for day in self.byweekday]
+                    if len(day_labels) == 1:
+                        summary += f" on {day_labels[0]}"
+                    else:
+                        summary += f" on {', '.join(day_labels[:-1])} and {day_labels[-1]}"
             return summary
         except KeyError as e:
             capture_exception(e)
@@ -395,7 +490,7 @@ class Subscription(ModelActivityMixin, models.Model):
         """
         Returns serialized information about the object for analytics reporting.
         """
-        return {
+        metadata: dict[str, Any] = {
             "id": self.id,
             "resource_type": self.resource_type,
             "target_type": self.target_type,
@@ -405,7 +500,14 @@ class Subscription(ModelActivityMixin, models.Model):
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
+            "ai_window_mode": self.ai_window_mode if self.resource_type == self.ResourceType.AI_PROMPT else None,
         }
+        # For insight subscriptions, attribute the subscribed insight's query type (e.g. TrendsQuery,
+        # FunnelsQuery) using the same keys as the "insight created/updated" events, so subscriptions
+        # can be sliced by which kinds of insights people subscribe to.
+        if self.resource_type == self.ResourceType.INSIGHT and self.insight:
+            metadata.update(self.insight.get_analytics_query_kinds())
+        return metadata
 
 
 @receiver(post_save, sender=Subscription, dispatch_uid="hook-subscription-saved")
@@ -457,7 +559,7 @@ def log_subscription_activity(
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):
-    return {RRULE_WEEKDAY_MAP.get(x) for x in weekday}
+    return {DATEUTIL_WEEKDAY_SHORTHAND_BY_NAME.get(x) for x in weekday}
 
 
 def get_unsubscribe_token(subscription: Subscription, email: str) -> str:
@@ -518,6 +620,8 @@ class SubscriptionDelivery(UUIDModel):
         indexes = [
             models.Index(fields=["subscription", "-created_at"], name="posthog_subdel_sub_crtd"),
             models.Index(fields=["team", "-created_at"], name="posthog_subdel_team_crtd"),
+            # Serves the per-run "last successful delivery" anchor lookup.
+            models.Index(fields=["subscription", "status", "-finished_at"], name="posthog_subdel_sub_fin"),
         ]
         ordering = ["-created_at"]
 

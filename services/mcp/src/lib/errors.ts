@@ -56,7 +56,7 @@ function formatMissingProjectContextMessage(organizationId: string | undefined):
         '2. If you already know the project id, call `switch-project { projectId: <id> }` directly.\n' +
         '3. (For MCP client maintainers) Pin a project at session start by sending the `x-posthog-project-id` header on the initialize request.' +
         '\n\n' +
-        'If `projects-get` returns nothing, call `organizations-list` followed by `switch-organization` to pick a different org first — then retry `projects-get`.'
+        'If `projects-get` returns nothing, call `organizations-get` followed by `switch-organization` to pick a different org first — then retry `projects-get`.'
     )
 }
 
@@ -79,7 +79,7 @@ function formatMissingOrganizationContextMessage(): string {
         'No PostHog organization is selected for this MCP session, and a default could not be derived from your API key.' +
         '\n\n' +
         'To pick one (in order of preference):\n' +
-        '1. Call `organizations-list` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
+        '1. Call `organizations-get` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
         '2. (For MCP client maintainers) Pin an organization at session start by sending the `x-posthog-organization-id` header on the initialize request.'
     )
 }
@@ -129,9 +129,47 @@ export class PostHogValidationError extends Error {
  * noise problem the 4xx short-circuit exists to prevent.
  */
 export class ToolInputValidationError extends Error {
-    constructor(message: string) {
+    /** Value-free descriptors of the rejection for telemetry: offending
+     *  field paths + issue codes, and the top-level keys the caller sent. Never
+     *  includes input VALUES — see `describeValidationError`. */
+    public readonly fields: string[]
+    public readonly inputKeys: string[]
+
+    constructor(message: string, detail?: { fields?: string[]; inputKeys?: string[] }) {
         super(message)
         this.name = 'ToolInputValidationError'
+        this.fields = detail?.fields ?? []
+        this.inputKeys = detail?.inputKeys ?? []
+    }
+}
+
+export type ExecCommandErrorReason =
+    | 'unknown_command'
+    | 'unknown_tool'
+    | 'deprecated_tool'
+    | 'missing_scope'
+    | 'invalid_json'
+    | 'usage'
+    | 'invalid_regex'
+    | 'unknown_learn_topic'
+    | 'needs_confirmation'
+
+/**
+ * Thrown by the `exec` dispatcher when it rejects a command before any inner
+ * tool runs. Typed so these classify as agent mistakes rather than falling
+ * through to the `internal` bucket ops alerts on.
+ *
+ * `message` goes back to the agent verbatim so it can self-correct, but is
+ * never captured into analytics — it can echo the caller's tool name or a JSON
+ * parser fragment. `$mcp_error_message` is derived from the `reason` enum.
+ */
+export class ExecCommandError extends Error {
+    public readonly reason: ExecCommandErrorReason
+
+    constructor(message: string, reason: ExecCommandErrorReason) {
+        super(message)
+        this.name = 'ExecCommandError'
+        this.reason = reason
     }
 }
 
@@ -396,25 +434,16 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
 export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
     const toolName = tool || 'unknown'
 
-    // Recoverable: agent can fix it via switch-project / projects-get. Skip
-    // exception capture (this is expected user state, not a bug) and return the
-    // typed error's pre-formatted multi-line message verbatim.
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: `Error: [${toolName}]: ${error.message}`,
-                },
-            ],
-            isError: true,
-        }
-    }
-
-    // Recoverable: input rejected by the tool's schema before any handler ran —
-    // an agent slip-up, not a bug. The message already names the offending
-    // field(s); skip exception capture like the API 4xx branch below.
-    if (error instanceof ToolInputValidationError) {
+    // Recoverable: expected agent or user state, not a bug — no project picked,
+    // input the schema rejected, a mistyped exec command. Each of these classes
+    // pre-formats a message the agent can self-correct from, so return it verbatim
+    // and skip exception capture, which would mint an issue per slip-up.
+    if (
+        error instanceof MissingProjectContextError ||
+        error instanceof MissingOrganizationContextError ||
+        error instanceof ToolInputValidationError ||
+        error instanceof ExecCommandError
+    ) {
         return {
             content: [
                 {

@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -17,8 +18,18 @@ import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic
 const DEFINITIONS_URL = '/api/projects/:team_id/custom_property_definitions/'
 const DEFINITION_URL = '/api/projects/:team_id/custom_property_definitions/:id/'
 const SAVED_QUERIES_URL = '/api/environments/:team_id/warehouse_saved_queries/'
+const WAREHOUSE_TABLES_URL = '/api/environments/:team_id/warehouse_tables/'
 const SOURCES_URL = '/api/projects/:team_id/custom_property_sources/'
 const SOURCE_URL = '/api/projects/:team_id/custom_property_sources/:id/'
+const PROPERTY_DEFINITIONS_URL = '/api/projects/:team_id/property_definitions/'
+
+// Loosely-typed warehouse table — the logic only reads id/name/external_schema.id.
+const buildTable = (overrides: Record<string, any> = {}): any => ({
+    id: 'table-1',
+    name: 'users',
+    external_schema: { id: 'schema-1', name: 'users' },
+    ...overrides,
+})
 
 const buildSource = (overrides: Partial<CustomPropertySourceApi> = {}): CustomPropertySourceApi =>
     ({
@@ -65,6 +76,8 @@ const defaultMocks = (): Parameters<typeof useMocks>[0] => ({
     get: {
         [DEFINITIONS_URL]: { count: 1, results: [buildDefinition()] },
         [SAVED_QUERIES_URL]: { count: 1, results: [buildView()] },
+        [WAREHOUSE_TABLES_URL]: { count: 1, results: [buildTable()] },
+        [PROPERTY_DEFINITIONS_URL]: { count: 1, results: [{ id: 'p1', name: 'existing_prop' }] },
     },
     post: {
         [DEFINITIONS_URL]: buildDefinition({ id: 'def-2' }),
@@ -93,12 +106,42 @@ describe('customPropertyDefinitionsLogic', () => {
         jest.spyOn(window, 'open').mockReturnValue(null)
     })
 
+    afterEach(resumeKeaLoadersErrors)
+
     it('loads definitions on mount', async () => {
         useMocks(defaultMocks())
         mountLogic()
         await expectLogic(logic)
             .toDispatchActions(['loadDefinitions', 'loadDefinitionsSuccess'])
             .toMatchValues({ definitions: [expect.objectContaining({ id: 'def-1', name: 'ARR' })] })
+    })
+
+    it('filters definitions by target type combined with search', async () => {
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [DEFINITIONS_URL]: {
+                    count: 3,
+                    results: [
+                        buildDefinition({ id: 'def-a', name: 'ARR', target_type: 'account' }),
+                        buildDefinition({ id: 'def-p', name: 'Plan', target_type: 'person' }),
+                        buildDefinition({ id: 'def-g', name: 'Region', target_type: 'group' }),
+                    ],
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+
+        logic.actions.setTargetTypeFilter('person')
+        expect(logic.values.filteredDefinitions.map((d) => d.id)).toEqual(['def-p'])
+
+        logic.actions.setSearchTerm('arr')
+        expect(logic.values.filteredDefinitions).toEqual([])
+
+        logic.actions.setTargetTypeFilter('all')
+        expect(logic.values.filteredDefinitions.map((d) => d.id)).toEqual(['def-a'])
     })
 
     it('hydrates the form, including the source fields, when editing a synced definition', async () => {
@@ -116,10 +159,15 @@ describe('customPropertyDefinitionsLogic', () => {
             description: '',
             displayType: 'currency',
             isBigNumber: true,
+            options: [],
+            targetType: 'account',
+            groupTypeIndex: null,
             sourceMode: 'data_warehouse',
             savedQuery: 'view-1',
             sourceColumn: 'mrr',
             keyColumn: 'org_id',
+            warehouseSource: null,
+            columnMappings: [{ column: '', property: '', description: '' }],
             isEnabled: true,
         })
     })
@@ -213,6 +261,21 @@ describe('customPropertyDefinitionsLogic', () => {
             .toMatchValues({ definitions: [] })
     })
 
+    it('treats an already-deleted definition (404) as a successful delete', async () => {
+        silenceKeaLoadersErrors() // the 404 loader failure is the scenario under test
+        useMocks({
+            ...defaultMocks(),
+            delete: { ...defaultMocks().delete, [DEFINITION_URL]: () => [404, { detail: 'Not found.' }] },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+        // A 404 refreshes the table instead of surfacing a failure toast/exception.
+        await expectLogic(logic, () => logic.actions.deleteDefinition({ id: 'def-1' })).toDispatchActions([
+            'deleteDefinitionFailure',
+            'loadDefinitions',
+        ])
+    })
+
     it('exposes the selected view columns for the pickers', async () => {
         useMocks(defaultMocks())
         mountLogic()
@@ -258,6 +321,411 @@ describe('customPropertyDefinitionsLogic', () => {
         })
     })
 
+    it('creates a person-target definition and binds it to a warehouse schema', async () => {
+        let definitionBody: Record<string, any> | null = null
+        let sourceBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [DEFINITIONS_URL]: async ({ request }) => {
+                    definitionBody = (await request.json()) as Record<string, any>
+                    return buildDefinition({ id: 'def-2', target_type: 'person' })
+                },
+                [SOURCES_URL]: async ({ request }) => {
+                    sourceBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValues({
+            name: 'Plan tier',
+            targetType: 'person',
+            warehouseSource: 'table:table-1',
+            keyColumn: 'distinct_id',
+            columnMappings: [
+                { column: 'plan', property: 'plan_tier', description: 'The plan tier' },
+                // A half-filled row is dropped rather than sent.
+                { column: '', property: '', description: '' },
+            ],
+            isEnabled: true,
+        })
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'setEditingDefinition',
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(definitionBody).toMatchObject({ name: 'Plan tier', target_type: 'person' })
+        // The person source binds to the table's schema id, not the table id, with the mapped columns
+        // and each mapping's description keyed by warehouse column.
+        expect(sourceBody).toEqual({
+            definition: 'def-2',
+            external_data_schema: 'schema-1',
+            column_property_map: { plan: 'plan_tier' },
+            column_descriptions: { plan: 'The plan tier' },
+            key_column: 'distinct_id',
+            is_enabled: true,
+        })
+    })
+
+    it('resolves the selected table binding and serialized column map for the person source', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValues({
+            targetType: 'person',
+            warehouseSource: 'table:table-1',
+            columnMappings: [
+                { column: ' plan ', property: ' plan_tier ', description: ' The plan tier ' },
+                { column: 'seats', property: '', description: 'ignored — no property' },
+            ],
+        })
+        expect(logic.values.profileSourceBinding).toEqual({ field: 'external_data_schema', id: 'schema-1' })
+        // Trims and drops incomplete pairs.
+        expect(logic.values.serializedColumnPropertyMap).toEqual({ plan: 'plan_tier' })
+        // Descriptions trim and drop alongside their pair; a description without a complete pair is dropped.
+        expect(logic.values.serializedColumnDescriptions).toEqual({ plan: 'The plan tier' })
+    })
+
+    describe('mapping every column at once', () => {
+        const openWithColumns = async (formValues: Record<string, any>): Promise<void> => {
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks(defaultMocks())
+            mountLogic()
+            await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+                'loadSavedQueriesSuccess',
+            ])
+            logic.actions.setCustomPropertyFormValues({ targetType: 'person', ...formValues })
+            await expectLogic(logic, () =>
+                logic.actions.loadSelectedTableColumns({ source: 'view:view-1' })
+            ).toDispatchActions(['loadSelectedTableColumnsSuccess'])
+        }
+
+        const mapAll = async (formValues: Record<string, any>): Promise<void> => {
+            await openWithColumns(formValues)
+            logic.actions.mapAllColumns()
+        }
+
+        it('maps every column but the key column, keeping the warehouse names', async () => {
+            // The whole point of the action: a wide table should not have to be mapped by hand, and the
+            // key column must not become a property, since its values identify the person.
+            await mapAll({ keyColumn: 'org_id' })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: 'mrr', property: 'mrr', description: '' },
+            ])
+            expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+        })
+
+        it('keeps rows the user already started and never duplicates their columns', async () => {
+            // Bulk mapping on top of hand-entered work must not discard a renamed property or map the
+            // same column twice.
+            await mapAll({
+                keyColumn: 'org_id',
+                columnMappings: [{ column: 'mrr', property: 'monthly_revenue', description: '' }],
+            })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: 'mrr', property: 'monthly_revenue', description: '' },
+            ])
+        })
+
+        it('keeps a started row that has a property but no column yet', async () => {
+            // A property typed before its column, or left after a source switch clears columns but keeps
+            // the name, must not be discarded by the bulk map.
+            await mapAll({
+                keyColumn: 'org_id',
+                columnMappings: [{ column: '', property: 'monthly_revenue', description: '' }],
+            })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: '', property: 'monthly_revenue', description: '' },
+                { column: 'mrr', property: 'mrr', description: '' },
+            ])
+        })
+
+        it('offers nothing to map once every column is spoken for', async () => {
+            await mapAll({ keyColumn: 'org_id' })
+            expect(logic.values.mappableColumns).toEqual([])
+        })
+
+        it('never serializes the key column as a property, even after the key changes', async () => {
+            // Bulk mapping excludes whatever key column is set at the time, but the key can change
+            // afterwards. The column_property_map is create-only, so writing the new identifier column as
+            // a property would be unrecoverable, and it must be dropped from the payload.
+            await mapAll({ keyColumn: 'org_id' })
+            expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+
+            logic.actions.setCustomPropertyFormValue('keyColumn', 'mrr')
+
+            expect(logic.values.serializedColumnPropertyMap).toEqual({})
+        })
+
+        it('leaves the key column mappable until one is chosen', async () => {
+            // The button is gated on this in the modal — without a key column the action would map the
+            // identifier as a property.
+            await openWithColumns({ keyColumn: '' })
+            expect(logic.values.mappableColumns.map((column) => column.name)).toEqual(['org_id', 'mrr'])
+        })
+    })
+
+    it('binds a person source to a materialized view when one is picked', async () => {
+        let sourceBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [SOURCES_URL]: async ({ request }) => {
+                    sourceBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions(['loadSavedQueriesSuccess'])
+        logic.actions.setCustomPropertyFormValues({
+            name: 'Plan tier',
+            targetType: 'person',
+            warehouseSource: 'view:view-1',
+            keyColumn: 'org_id',
+            columnMappings: [{ column: 'mrr', property: 'mrr', description: '' }],
+            isEnabled: true,
+        })
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        // A view binds by its own id under saved_query; sending external_data_schema would 400.
+        expect(sourceBody).toEqual({
+            definition: 'def-2',
+            saved_query: 'view-1',
+            column_property_map: { mrr: 'mrr' },
+            column_descriptions: {},
+            key_column: 'org_id',
+            is_enabled: true,
+        })
+    })
+
+    it('offers synced tables and materialized views in one picker', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        // The table loader debounces, so it lands after the saved queries — wait on the later one.
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseSourceOptions).toEqual([
+            { value: 'table:table-1', label: 'users', kind: 'table' },
+            { value: 'view:view-1', label: 'billing_view', kind: 'view' },
+        ])
+        // A project with views but no synced tables can still map properties.
+        expect(logic.values.hasWarehouseSourceOptions).toBe(true)
+    })
+
+    it("loads a view's columns from the saved query rather than fetching a table", async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions(['loadSavedQueriesSuccess'])
+        await expectLogic(logic, () =>
+            logic.actions.loadSelectedTableColumns({ source: 'view:view-1' })
+        ).toDispatchActions(['loadSelectedTableColumnsSuccess'])
+        expect(logic.values.selectedTableColumns.map((column) => column.name)).toEqual(['org_id', 'mrr'])
+    })
+
+    it('follows pagination so warehouse tables past the first page are reachable', async () => {
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    if (offset === 0) {
+                        // A full page (100) plus a next pointer — the loader must fetch the next page too.
+                        return [
+                            200,
+                            {
+                                count: 101,
+                                next: 'http://localhost/api/environments/1/warehouse_tables/?offset=100',
+                                results: Array.from({ length: 100 }, (_, i) =>
+                                    buildTable({ id: `t${i}`, name: `t${i}` })
+                                ),
+                            },
+                        ]
+                    }
+                    return [200, { count: 101, next: null, results: [buildTable({ id: 't100', name: 't100' })] }]
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseTables).toHaveLength(101)
+    })
+
+    it('passes the search term to the backend when the picker searches', async () => {
+        let searchedFor: string | null = null
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: ({ request }) => {
+                    searchedFor = new URL(request.url).searchParams.get('search')
+                    return [200, { count: 1, next: null, results: [buildTable()] }]
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.loadWarehouseTables({ search: 'user' })).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(searchedFor).toBe('user')
+    })
+
+    it.each([
+        ['a search that matches nothing', 'nope', true],
+        ['a cleared search', '', false],
+    ])('keeps the empty-catalog flag intact across %s', async (_name, search, expectedAfterEmpty) => {
+        let emptyResponse = false
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [WAREHOUSE_TABLES_URL]: () =>
+                    emptyResponse
+                        ? [200, { count: 0, next: null, results: [] }]
+                        : [200, { count: 1, results: [buildTable()] }],
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.hasSyncedWarehouseTables).toBe(true)
+
+        // A searched load that comes back empty must not read as "this project has no synced tables"
+        // — that would collapse the whole person editor into the empty-state banner, search box and all.
+        emptyResponse = true
+        await expectLogic(logic, () => logic.actions.loadWarehouseTables({ search })).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseTables).toEqual([])
+        expect(logic.values.hasSyncedWarehouseTables).toBe(expectedAfterEmpty)
+    })
+
+    it('locks the target type when the modal is opened from a profile settings page', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        logic.actions.openCreateModal('group', true)
+        expect(logic.values.customPropertyForm.targetType).toBe('group')
+        expect(logic.values.targetTypeLocked).toBe(true)
+        // Opening the generic "New custom property" flow leaves the switch available again.
+        logic.actions.openCreateModal()
+        expect(logic.values.targetTypeLocked).toBe(false)
+    })
+
+    it('keeps polling a triggered backfill until its run finishes', async () => {
+        // The workflow creates the run row after the trigger call returns, so the first refreshes see
+        // no run at all. The poll has to survive that instead of reading it as already settled and
+        // leaving the row stuck on "Awaiting first sync" until a manual page refresh.
+        const runPerCall: (Record<string, string> | null)[] = [
+            null,
+            null,
+            { id: 'run-1', status: 'running' },
+            { id: 'run-1', status: 'completed' },
+        ]
+        let call = 0
+        useMocks({
+            ...defaultMocks(),
+            get: {
+                ...defaultMocks().get,
+                [DEFINITIONS_URL]: () => {
+                    const latestRun = runPerCall[Math.min(call++, runPerCall.length - 1)]
+                    return [
+                        200,
+                        {
+                            count: 1,
+                            results: [
+                                buildDefinition({
+                                    target_type: 'person',
+                                    source: buildSource({
+                                        latest_run: latestRun,
+                                        last_synced_at:
+                                            latestRun?.status === 'completed' ? '2026-01-03T00:00:00Z' : null,
+                                    } as Partial<CustomPropertySourceApi>),
+                                }),
+                            ],
+                        },
+                    ]
+                },
+            },
+            post: { ...defaultMocks().post, [`${SOURCE_URL}backfill/`]: { status: 'started', already_running: false } },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+
+        jest.useFakeTimers()
+        try {
+            await expectLogic(logic, () => logic.actions.triggerBackfill({ sourceId: 'src-1' })).toDispatchActions([
+                'pollRunsStatus',
+            ])
+            // Three rounds: no run yet, no run yet, running — none of which may stop the poll.
+            for (let round = 0; round < 3; round++) {
+                await jest.advanceTimersByTimeAsync(3000)
+            }
+            expect(logic.values.definitions[0].source?.latest_run?.status).toBe('completed')
+            expect(logic.values.definitions[0].source?.last_synced_at).toBe('2026-01-03T00:00:00Z')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('hydrates per-mapping descriptions when editing a person source', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        logic.actions.openEditModal(
+            buildDefinition({
+                target_type: 'person',
+                source: buildSource({
+                    saved_query: null,
+                    source_column: null,
+                    key_column: 'distinct_id',
+                    column_property_map: { plan: 'plan_tier', seats: 'seat_count' },
+                    column_descriptions: { plan: 'The plan tier' },
+                } as Partial<CustomPropertySourceApi>),
+            })
+        )
+        // Descriptions fold back in per column; a column without one gets an empty description.
+        expect(logic.values.customPropertyForm.columnMappings).toEqual([
+            { column: 'plan', property: 'plan_tier', description: 'The plan tier' },
+            { column: 'seats', property: 'seat_count', description: '' },
+        ])
+    })
+
+    it('warns when a person mapping targets an identity or already-existing property', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadPersonPropertyDefinitionsSuccess',
+        ])
+        logic.actions.setCustomPropertyFormValue('columnMappings', [
+            { column: 'a', property: 'plan_tier', description: '' }, // fine
+            { column: 'b', property: 'email', description: '' }, // identity property
+            { column: 'c', property: '$browser', description: '' }, // $-prefixed
+            { column: 'd', property: 'existing_prop', description: '' }, // already defined on persons
+        ])
+        const warnings = logic.values.columnMappingWarnings
+        expect(warnings[0]).toBeNull()
+        expect(warnings[1]).toContain('identity property')
+        expect(warnings[2]).toContain('identity property')
+        expect(warnings[3]).toContain('already exists')
+    })
+
     it('updates an existing source via PATCH without the create-only fields', async () => {
         let patchedBody: Record<string, any> | null = null
         useMocks({
@@ -278,6 +746,41 @@ describe('customPropertyDefinitionsLogic', () => {
             'submitCustomPropertyFormSuccess',
         ])
         expect(patchedBody).toEqual({ source_column: 'mrr', key_column: 'org_id', is_enabled: false })
+    })
+
+    it('saves an existing person source even when its warehouse table is no longer selectable', async () => {
+        // The table + column map are create-only and hidden on edit, so form validation must not
+        // require a re-selected warehouse table — only key_column and is_enabled stay editable.
+        let patchedBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            get: { ...defaultMocks().get, [WAREHOUSE_TABLES_URL]: { count: 0, results: [] } },
+            patch: {
+                ...defaultMocks().patch,
+                [SOURCE_URL]: async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openEditModal(
+            buildDefinition({
+                target_type: 'person',
+                source: buildSource({
+                    saved_query: null,
+                    source_column: null,
+                    key_column: 'distinct_id',
+                    column_property_map: { plan: 'plan_tier' },
+                } as Partial<CustomPropertySourceApi>),
+            })
+        )
+        logic.actions.setCustomPropertyFormValue('isEnabled', false)
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(patchedBody).toEqual({ key_column: 'distinct_id', is_enabled: false })
     })
 
     it('deletes the source when saving after switching away from data warehouse mode', async () => {
@@ -303,6 +806,7 @@ describe('customPropertyDefinitionsLogic', () => {
     })
 
     it('fails the workflow CTA with a field error when the name is missing', async () => {
+        silenceKeaLoadersErrors() // the MissingNameError loader failure is the scenario under test
         useMocks(defaultMocks())
         mountLogic()
         logic.actions.openCreateModal()

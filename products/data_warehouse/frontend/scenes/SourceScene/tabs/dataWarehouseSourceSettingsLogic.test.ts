@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
@@ -37,6 +38,9 @@ const makeSource = (schemas: ExternalDataSourceSchema[]): ExternalDataSource =>
     }) as ExternalDataSource
 
 describe('sourceSettingsLogic', () => {
+    // Safety net for the test that calls silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof sourceSettingsLogic.build>
 
     beforeEach(() => {
@@ -79,6 +83,39 @@ describe('sourceSettingsLogic', () => {
         expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
             expect.objectContaining({ id: 'schema-1', should_sync: false }),
         ])
+    })
+
+    it('updates a large schema group optimistically with one batch save', async () => {
+        const schemas = Array.from({ length: 300 }, (_, index) =>
+            makeSchema({ id: `schema-${index}`, name: `public.table_${index}` })
+        )
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(makeSource(schemas))
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            .mockImplementation(async (_id, updates) =>
+                updates.map((update) => ({ ...schemas.find((schema) => schema.id === update.id)!, ...update }))
+            )
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.updateSchemas(schemas.map((schema) => ({ ...schema, should_sync: true })))
+
+        expect(logic.values.source?.schemas.every((schema) => schema.should_sync)).toBe(true)
+        expect(bulkUpdateSchemasSpy).not.toHaveBeenCalled()
+
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
+        expect(bulkUpdateSchemasSpy.mock.calls[0][1]).toHaveLength(300)
+        expect(bulkUpdateSchemasSpy.mock.calls[0][1]).toEqual(
+            expect.arrayContaining([
+                { id: 'schema-0', should_sync: true },
+                { id: 'schema-299', should_sync: true },
+            ])
+        )
     })
 
     it('keeps newer queued changes when an older save resolves later', async () => {
@@ -286,6 +323,8 @@ describe('sourceSettingsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        // Deliberate loader failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         const serverError = Object.assign(new Error('boom'), { status: 500 })
         jest.spyOn(api.externalDataSources, 'jobs').mockRejectedValueOnce(serverError)
 

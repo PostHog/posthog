@@ -1,7 +1,8 @@
 """
 Facade API for user_interviews.
 
-This is the ONLY module other apps are allowed to import.
+The primary facade module for data capabilities. Other facade submodules
+(max_tools.py) expose wiring; external code must import only from backend/facade/.
 
 Responsibilities:
 - Accept primitives / contracts as input
@@ -19,16 +20,31 @@ from uuid import UUID
 from products.user_interviews.backend import logic
 from products.user_interviews.backend.classification import derive_auto_classifications
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
-from products.user_interviews.backend.max_tools import AnalyzeUserInterviewsTool, CreateUserInterviewTopicTool
 
 __all__ = [
-    "AnalyzeUserInterviewsTool",
-    "CreateUserInterviewTopicTool",
+    "SHARED_INTERVIEWEE_IDENTIFIER",
     "IntervieweeIdentity",
     "derive_auto_classifications",
     "has_replied",
+    "is_shared_interviewee_context",
     "parse_interviewee_identifier",
+    "valid_distinct_id",
+    "valid_session_id",
 ]
+
+SHARED_INTERVIEWEE_IDENTIFIER = logic.SHARED_INTERVIEWEE_IDENTIFIER
+
+
+def is_shared_interviewee_context(interviewee_identifier: str) -> bool:
+    return logic.is_shared_interviewee_context(interviewee_identifier)
+
+
+def valid_distinct_id(value: object) -> str:
+    return logic.valid_distinct_id(value)
+
+
+def valid_session_id(value: object) -> str:
+    return logic.valid_session_id(value)
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.errors import QueryError
 
 if TYPE_CHECKING:
     from posthog.hogql.database.models import DatabaseField
@@ -159,6 +160,14 @@ INTEGER_RUNTIME_TYPE = RuntimeType(family="integer", signed=True, bits=64)
 FLOAT_RUNTIME_TYPE = RuntimeType(family="float", bits=64)
 DATE_RUNTIME_TYPE = RuntimeType(family="date")
 DATETIME_RUNTIME_TYPE = RuntimeType(family="datetime")
+
+# Families least_common_runtime_type() already unifies with boolean (bool literals read as 0/1).
+_BOOLEAN_COMPATIBLE_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"boolean", "integer", "float", "decimal"})
+
+# JSON is what a property access falls back to when no property-definition metadata is available,
+# and it also covers native JSON/Dynamic columns. Either way the family says nothing about the type
+# ClickHouse ends up with, so a mismatch against it is never trustworthy enough to raise on.
+_UNTRUSTWORTHY_BRANCH_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"json"})
 
 
 _INTEGER_RE = re.compile(r"^(U?Int)(8|16|32|64|128|256)$", re.IGNORECASE)
@@ -693,8 +702,8 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
 
 # Scalar constant types whose runtime type is fully determined by (class, nullable) — used to
 # dedupe before unification so large homogeneous literal arrays don't allocate per element.
-# Only families where unifying N identical types equals unifying one belong here; UUIDType and
-# IntervalType don't (a lone uuid keeps its family, but several unify to string via the subset rule).
+# Only families where unifying N identical types equals unifying one belong here; IntervalType
+# doesn't (a lone interval keeps its family, but several unify via the subset rules).
 _SIMPLE_CONSTANT_TYPE_CLASSES = frozenset(
     {
         ast.BooleanType,
@@ -706,6 +715,7 @@ _SIMPLE_CONSTANT_TYPE_CLASSES = frozenset(
         ast.StringArrayType,
         ast.DateType,
         ast.DateTimeType,
+        ast.UUIDType,
     }
 )
 
@@ -723,6 +733,72 @@ def least_common_supertype(types: Sequence[ast.ConstantType], dialect: HogQLDial
             seen_simple.add(key)
         runtime_types.append(runtime_type_from_constant_type(type_))
     return constant_type_from_runtime_type(least_common_runtime_type(runtime_types, dialect=dialect))
+
+
+def _branch_type_is_untrustworthy(branch_type: ast.ConstantType, expr: Optional[ast.Expr]) -> bool:
+    """Whether a branch's inferred type is too weak a signal to raise a user-facing error over.
+
+    A property access (`properties.blocked`) is typed from property-definition metadata, which the
+    resolver frequently does not have loaded - it then falls back to the JSON type of the parent
+    `properties` column, regardless of what the property actually holds. The printer resolves the
+    physical read separately, so `coalesce(properties.blocked, false)` reaches ClickHouse with two
+    compatible branches even though inference reports JSON and Boolean.
+
+    Every property access is skipped, not only the metadata-missing fallback: a loaded property
+    definition types the property from the values seen so far, which is still a guess about what a
+    given row holds, so it is no safer to raise on than the JSON fallback."""
+    if runtime_type_from_constant_type(branch_type).family in _UNTRUSTWORTHY_BRANCH_FAMILIES:
+        return True
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    return expr is not None and isinstance(expr.type, ast.PropertyType)
+
+
+def _branch_supertype_or_raise(
+    branch_types: list[ast.ConstantType],
+    branch_args: Sequence[Optional[ast.Expr]],
+    dialect: HogQLDialect,
+    function_name: str,
+) -> ast.ConstantType:
+    """Like least_common_supertype, but raises a user-facing error naming the conflicting branch
+    types and their source span when a boolean branch is mixed with a non-numeric branch, rather
+    than silently degrading to UnknownType and failing downstream in ClickHouse.
+
+    Scoped to boolean mismatches specifically (the reported symptom: `if(cond, false, someDate)`)
+    rather than raising on every family combination with no explicit unification rule: many
+    generated queries elsewhere in the codebase mix families (e.g. DateTime with a String
+    placeholder, JSON with a String default) that silently degrade to UnknownType today and work
+    fine against ClickHouse, so raising there would be a false positive. Branches whose inferred
+    type is a guess rather than a fact are skipped for the same reason - see
+    _branch_type_is_untrustworthy."""
+    result = least_common_supertype(branch_types, dialect=dialect)
+    if not isinstance(result, ast.UnknownType) or result.unanalyzable:
+        return result
+    known = [
+        (branch_type, branch_args[index] if index < len(branch_args) else None)
+        for index, branch_type in enumerate(branch_types)
+        if not isinstance(branch_type, ast.UnknownType)
+    ]
+    if len(known) < 2:
+        return result
+    if any(_branch_type_is_untrustworthy(branch_type, expr) for branch_type, expr in known):
+        return result
+    families = {runtime_type_from_constant_type(branch_type).family for branch_type, _ in known}
+    if "boolean" not in families or not (families - _BOOLEAN_COMPATIBLE_FAMILIES):
+        return result
+    type_names = sorted({branch_type.print_type() for branch_type, _ in known})
+    positions = [
+        (expr.start, expr.end)
+        for _, expr in known
+        if expr is not None and expr.start is not None and expr.end is not None
+    ]
+    start = min((position[0] for position in positions), default=None)
+    end = max((position[1] for position in positions), default=None)
+    raise QueryError(
+        f"Cannot find a common type between `{function_name}` branches of type {' and '.join(type_names)}",
+        start=start,
+        end=end,
+    )
 
 
 def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDialect = "clickhouse") -> RuntimeType:
@@ -758,6 +834,8 @@ def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDi
             if "datetime" in families
             else DATE_RUNTIME_TYPE.with_nullable(nullable)
         )
+    if families == {"uuid"}:
+        return RuntimeType(family="uuid", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if families <= {"string", "fixed_string", "enum", "uuid"}:
         return STRING_RUNTIME_TYPE.with_nullable(nullable)
     if families == {"json"}:
@@ -841,7 +919,7 @@ def infer_function_return_type(
     dialect: HogQLDialect = "clickhouse",
 ) -> FunctionTypeInference:
     normalized_name = name.lower()
-    generic_type = _infer_generic_function_type(normalized_name, arg_types, args=args, dialect=dialect)
+    generic_type = _infer_generic_function_type(normalized_name, arg_types, args=args, dialect=dialect, meta=meta)
     if generic_type is not None:
         return FunctionTypeInference(
             return_type=generic_type,
@@ -949,6 +1027,7 @@ def _infer_generic_function_type(
     arg_types: list[ast.ConstantType],
     args: Optional[list[ast.Expr]],
     dialect: HogQLDialect,
+    meta: Optional[HogQLFunctionMeta] = None,
 ) -> ast.ConstantType | None:
     if normalized_name in {
         "equals",
@@ -983,17 +1062,28 @@ def _infer_generic_function_type(
         return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
     if normalized_name == "if":
-        return least_common_supertype(arg_types[1:], dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+        if len(arg_types) <= 1:
+            return ast.UnknownType()
+        branch_types = arg_types[1:]
+        return _branch_supertype_or_raise(branch_types, (args or [])[1:], dialect=dialect, function_name="if")
 
     if normalized_name == "ifnull":
-        return least_common_supertype(arg_types, dialect=dialect) if len(arg_types) > 1 else ast.UnknownType()
+        if len(arg_types) <= 1:
+            return ast.UnknownType()
+        return _branch_supertype_or_raise(arg_types, args or [], dialect=dialect, function_name="ifNull")
 
     if normalized_name == "multiif":
         if len(arg_types) < 3:
             return ast.UnknownType()
-        return least_common_supertype([*arg_types[1::2], arg_types[-1]], dialect=dialect)
+        branch_indices = [*range(1, len(arg_types) - 1, 2), len(arg_types) - 1]
+        branch_types = [arg_types[i] for i in branch_indices]
+        branch_args = [args[i] if args is not None and i < len(args) else None for i in branch_indices]
+        return _branch_supertype_or_raise(branch_types, branch_args, dialect=dialect, function_name="multiIf")
 
-    if normalized_name in {"coalesce", "least", "greatest"}:
+    if normalized_name == "coalesce":
+        return _branch_supertype_or_raise(arg_types, args or [], dialect=dialect, function_name="coalesce")
+
+    if normalized_name in {"least", "greatest"}:
         return least_common_supertype(arg_types, dialect=dialect)
 
     if normalized_name == "nullif" and arg_types:
@@ -1148,10 +1238,10 @@ def _infer_generic_function_type(
         return ast.DecimalType(nullable=True)
 
     if normalized_name in {"todate", "to_date", "_todate"}:
-        return ast.DateType(nullable=_conversion_nullable(normalized_name, arg_types))
+        return ast.DateType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
     if normalized_name in {"todatetime", "todatetime64", "todatetimeus", "parsedatetime", "parsedatetimebesteffort"}:
-        return ast.DateTimeType(nullable=_conversion_nullable(normalized_name, arg_types))
+        return ast.DateTimeType(nullable=_conversion_nullable(normalized_name, arg_types, meta))
 
     if normalized_name.startswith("tointerval"):
         return ast.IntervalType(nullable=False)
@@ -1262,6 +1352,59 @@ def _infer_generic_function_type(
     if normalized_name == "arrayreduce":
         return _infer_array_reduce_type(arg_types=arg_types, args=args)
 
+    if (
+        normalized_name
+        in {
+            "arrayresize",
+            "arrayrotateleft",
+            "arrayrotateright",
+            "arraycumsum",
+            "arraycumsumnonnegative",
+            "arraydifference",
+        }
+        and arg_types
+    ):
+        # Return an array whose element type matches the input. Width/sign details (e.g. a cumulative
+        # sum widening, or a difference turning unsigned into signed) aren't tracked by the
+        # compatibility layer, so the family-preserving input type is the precise-enough answer.
+        return infer_array_slice_constant_type(arg_types[0])
+
+    # Array-returning helpers: array-level nullability propagates from the arguments (a nullable input
+    # can make the whole result NULL), while the element type comes from _array_element_type so array
+    # nullability isn't folded into the element. Matches _infer_array_concat_type.
+    if normalized_name in {"arraypushback", "arraypushfront"} and len(arg_types) >= 2:
+        item_type = least_common_supertype([_array_element_type(arg_types[0]), arg_types[1]], dialect=dialect)
+        return ast.ArrayType(nullable=any(arg_type.nullable for arg_type in arg_types), item_type=item_type)
+
+    if normalized_name == "arraywithconstant" and len(arg_types) >= 2:
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types), item_type=dataclasses.replace(arg_types[1])
+        )
+
+    if normalized_name == "arrayintersect" and arg_types:
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_type=least_common_supertype(
+                [_array_element_type(arg_type) for arg_type in arg_types], dialect=dialect
+            ),
+        )
+
+    # Fixed result families. Propagate input nullability (matching arraySum/arrayAvg) rather than
+    # asserting non-null: over a nullable array these can be NULL, and claiming non-null would let the
+    # printer drop a load-bearing null wrapper. Keeping the wrapper when unsure is the safe direction.
+    if normalized_name == "arrayuniq":
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "arraystringconcat":
+        return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in {"arrayproduct", "arrayauc"}:
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "reverse" and arg_types:
+        # reverse is polymorphic identity: String -> String, Array[T] -> Array[T].
+        return dataclasses.replace(arg_types[0])
+
     if normalized_name == "tuple":
         return ast.TupleType(nullable=False, item_types=[dataclasses.replace(arg_type) for arg_type in arg_types])
 
@@ -1287,10 +1430,41 @@ def _infer_generic_function_type(
     return None
 
 
-def _conversion_nullable(normalized_name: str, arg_types: list[ast.ConstantType]) -> bool:
+# HogQL date conversions whose printed ClickHouse function depends on the argument: `toDate` ->
+# `toDateOrNull`, `toDateTime` -> `parseDateTime64BestEffortOrNull`, `toDateTimeUS` ->
+# `parseDateTime64BestEffortUSOrNull`, each falling back to a plain constructor for the argument
+# types in its `overloads` (and `toDateTimeUS` declares none, so it always parses). Nullability
+# has to follow whichever name is actually printed: claiming non-nullable for a parse path makes
+# a caller's `assumeNotNull(...)` look redundant when it is load-bearing. Deliberately excludes
+# `_toDate`, which always prints the plain, non-nullable `toDate`.
+_ARGUMENT_DEPENDENT_DATE_CONVERSIONS = {"todate", "to_date", "todatetime", "todatetimeus"}
+
+
+def _printed_clickhouse_name(meta: Optional[HogQLFunctionMeta], arg_types: list[ast.ConstantType]) -> Optional[str]:
+    """The ClickHouse function the printer will emit, mirroring its overload selection."""
+    if meta is None:
+        return None
+    if meta.overloads and arg_types:
+        for overload_types, overload_clickhouse_name in meta.overloads:
+            if isinstance(arg_types[0], overload_types):
+                return overload_clickhouse_name
+    return meta.clickhouse_name
+
+
+def _conversion_nullable(
+    normalized_name: str,
+    arg_types: list[ast.ConstantType],
+    meta: Optional[HogQLFunctionMeta] = None,
+) -> bool:
     if normalized_name.endswith("orzero") or normalized_name.endswith("ordefault"):
         return False
-    return any(arg_type.nullable for arg_type in arg_types) or normalized_name in {
+    if any(arg_type.nullable for arg_type in arg_types):
+        return True
+    if normalized_name in _ARGUMENT_DEPENDENT_DATE_CONVERSIONS:
+        printed_name = _printed_clickhouse_name(meta, arg_types)
+        # Without meta the winning overload is unknowable, so assume the parse path and stay nullable.
+        return printed_name is None or printed_name.lower().endswith("ornull")
+    return normalized_name in {
         "toint",
         "tofloat",
         "tobool",
@@ -1425,27 +1599,23 @@ def _normalize_array_reduce_aggregate_name(aggregate_name: str) -> str:
 
 
 def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.ConstantType]) -> ast.ConstantType | None:
+    # A ClickHouse aggregate is a base aggregate plus zero or more stackable combinator suffixes
+    # (-If, -Array, -ForEach, -OrNull, -OrDefault, -Distinct, -State, -Merge). Peel known combinators
+    # first so the base return type is computed once and each suffix transforms it, instead of
+    # enumerating every base×combinator permutation. This must run before the base checks below so a
+    # greedy `startswith` match (e.g. "quantiles") can't swallow a combinator such as -ForEach.
+    combinator_type = _infer_aggregate_combinator_type(normalized_name, arg_types)
+    if combinator_type is not None:
+        return combinator_type
+
     state_or_merge_type = _infer_aggregate_state_or_merge_type(normalized_name, arg_types)
     if state_or_merge_type is not None:
         return state_or_merge_type
 
-    if normalized_name in {
-        "count",
-        "countif",
-        "countdistinct",
-        "countdistinctif",
-        "uniq",
-        "uniqif",
-        "uniqexact",
-        "uniqexactif",
-        "uniqhll12",
-        "uniqhll12if",
-        "uniqtheta",
-        "uniqthetaif",
-    }:
+    if normalized_name in {"count", "uniq", "uniqexact", "uniqhll12", "uniqtheta"}:
         return ast.IntegerType(nullable=False)
 
-    if normalized_name in {"sum", "sumif"} and arg_types:
+    if normalized_name == "sum" and arg_types:
         input_type = arg_types[0]
         if isinstance(input_type, ast.FloatType):
             return ast.FloatType(nullable=input_type.nullable)
@@ -1460,39 +1630,66 @@ def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.Con
         )
 
     if (
-        normalized_name in {"avg", "avgif", "stddevpop", "stddevsamp", "varpop", "varsamp"}
+        normalized_name in {"avg", "stddevpop", "stddevsamp", "varpop", "varsamp"}
         or normalized_name.startswith("median")
         or normalized_name.startswith("quantile")
     ) and not _is_aggregate_state_or_merge(normalized_name):
         return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
-    if (
-        normalized_name
-        in {
-            "min",
-            "minif",
-            "max",
-            "maxif",
-            "any",
-            "anyif",
-            "anylast",
-            "anylastif",
-            "argmin",
-            "argminif",
-            "argmax",
-            "argmaxif",
-        }
-        and arg_types
-    ):
+    if normalized_name in {"min", "max", "any", "anylast", "argmin", "argmax"} and arg_types:
         return dataclasses.replace(arg_types[0])
 
-    if (
-        normalized_name in {"grouparray", "array_agg", "groupuniqarray", "grouparrayif", "groupuniqarrayif"}
-        and arg_types
-    ):
+    if normalized_name in {"grouparray", "array_agg", "groupuniqarray"} and arg_types:
         return ast.ArrayType(nullable=False, item_type=dataclasses.replace(arg_types[0]))
 
     return None
+
+
+# ClickHouse aggregate combinator suffixes this rule understands. Each one transforms the base
+# aggregate's return type. Combinators not listed here (-Map, -Resample, -SimpleState, -MergeState,
+# argument-shape variants, …) are deliberately left to fall through to UnknownType rather than risk a
+# confidently-wrong type. -State/-Merge keep their dedicated handling in
+# _infer_aggregate_state_or_merge_type because they carry/consume AggregateState payloads.
+_AGGREGATE_COMBINATOR_SUFFIXES: tuple[str, ...] = ("ordefault", "ornull", "distinct", "foreach", "array", "if")
+
+
+def _infer_aggregate_combinator_type(
+    normalized_name: str, arg_types: list[ast.ConstantType]
+) -> ast.ConstantType | None:
+    for suffix in _AGGREGATE_COMBINATOR_SUFFIXES:
+        if not normalized_name.endswith(suffix) or len(normalized_name) <= len(suffix):
+            continue
+        base_name = normalized_name[: -len(suffix)]
+        base_arg_types = _aggregate_combinator_base_arg_types(suffix, arg_types)
+        # Only accept the peel if what remains is itself a known aggregate (possibly with further
+        # combinators). Otherwise the suffix was a coincidence — try the next, then fall through to
+        # Unknown. This keeps the rule conservative: a wrong type is worse than no type.
+        base_type = _infer_aggregate_function_type(base_name, base_arg_types)
+        if base_type is None:
+            continue
+        return _apply_aggregate_combinator(suffix, base_type)
+    return None
+
+
+def _aggregate_combinator_base_arg_types(suffix: str, arg_types: list[ast.ConstantType]) -> list[ast.ConstantType]:
+    if suffix == "if":
+        # -If appends a UInt8 condition the base aggregate never sees.
+        return arg_types[:-1]
+    if suffix in {"array", "foreach"}:
+        # -Array/-ForEach aggregate over array arguments, so the base sees each element type.
+        return [infer_array_access_constant_type(arg_type) for arg_type in arg_types]
+    return arg_types
+
+
+def _apply_aggregate_combinator(suffix: str, base_type: ast.ConstantType) -> ast.ConstantType:
+    if suffix == "ornull":
+        return dataclasses.replace(base_type, nullable=True)
+    if suffix == "ordefault":
+        return dataclasses.replace(base_type, nullable=False)
+    if suffix == "foreach":
+        return ast.ArrayType(nullable=False, item_type=base_type)
+    # -If, -Array and -Distinct change which rows/values are aggregated, not the result type.
+    return base_type
 
 
 def _is_aggregate_state_or_merge(normalized_name: str) -> bool:

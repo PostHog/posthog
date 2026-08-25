@@ -1,11 +1,14 @@
 import { useValues } from 'kea'
 
-import { HedgehogStop } from '@posthog/brand/hoggies'
+import * as stopPng from '@posthog/brand/hoggies/png/stop'
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+
+const HedgehogStop = pngHoggie(stopPng)
 
 export const scene: SceneExport = {
     component: OrganizationDeactivated,
@@ -21,7 +24,7 @@ export function OrganizationDeactivated(): JSX.Element {
                 <div className="flex flex-col gap-4 items-center text-center">
                     <HedgehogStop className="w-52 h-52" />
                     <h3>Your organization has been deactivated. {isNotActiveReason}</h3>
-                    <SupportModalButton kind="support" target_area="billing" label="Contact support" />
+                    <SupportModalButton kind="support" billingIssue label="Contact support" />
                 </div>
             </LemonCard>
         </div>

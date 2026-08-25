@@ -7,7 +7,7 @@ from collections import OrderedDict
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
+from typing import Any, NoReturn, Optional, Protocol
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
@@ -23,6 +23,7 @@ from rest_framework_csv.renderers import CSVRenderer
 from posthog.schema import QuerySchemaRoot
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.query import LimitContext
 
 from posthog.api.services.query import process_query_dict
@@ -37,6 +38,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
@@ -397,15 +399,51 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
+def _raise_invalid_export_authorization(exported_asset: ExportedAsset, reason: str) -> NoReturn:
+    logger.error(
+        "csv_exporter.invalid_authentication_source",
+        exported_asset_id=exported_asset.id,
+        reason=reason,
+    )
+    raise ValueError("This export could not verify its original authorization. Create a new export and try again.")
+
+
 def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any]:
     path: str = resource["path"]
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
+    if method.upper() != "GET" or body is not None:
+        logger.error(
+            "csv_exporter.unsupported_api_request",
+            exported_asset_id=exported_asset.id,
+            method=method,
+            has_body=body is not None,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
+    source_authentication = exported_asset.source_authentication
+    if source_authentication is None:
+        _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
     next_url = None
+    token_payload: dict[str, int | str | None] = {"id": exported_asset.created_by_id}
+    if source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
+        if not exported_asset.source_credential_id:
+            _raise_invalid_export_authorization(exported_asset, "missing_personal_api_key")
+        token_payload["personal_api_key_id"] = exported_asset.source_credential_id
+    elif source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
+        if not exported_asset.source_credential_id:
+            _raise_invalid_export_authorization(exported_asset, "missing_oauth_access_token")
+        token_payload["oauth_access_token_id"] = exported_asset.source_credential_id
+    elif source_authentication != ExportedAsset.SourceAuthentication.SESSION:
+        _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
+    token_audience = (
+        PosthogJwtAudience.IMPERSONATED_USER
+        if source_authentication == ExportedAsset.SourceAuthentication.SESSION
+        else PosthogJwtAudience.DELEGATED_USER
+    )
     access_token = encode_jwt(
-        {"id": exported_asset.created_by_id},
+        token_payload,
         datetime.timedelta(minutes=15),
-        PosthogJwtAudience.IMPERSONATED_USER,
+        token_audience,
     )
     total = 0
     while total < CSV_EXPORT_LIMIT:
@@ -695,6 +733,23 @@ def export_tabular(
         else:
             team_id = "unknown"
 
-        capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
+        # A revoked creator's access-denied error is a known limitation - report it as an event
+        # rather than surfacing it in error tracking.
+        if isinstance(e, TableAccessDeniedError) and creator_access_revoked(
+            exported_asset.created_by, exported_asset.team
+        ):
+            report_creator_access_revoked(
+                user=exported_asset.created_by,
+                team=exported_asset.team,
+                source="export",
+                error=e,
+                properties={
+                    "exported_asset_id": exported_asset.id,
+                    "insight_id": exported_asset.insight_id,
+                    "dashboard_id": exported_asset.dashboard_id,
+                },
+            )
+        else:
+            capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         raise

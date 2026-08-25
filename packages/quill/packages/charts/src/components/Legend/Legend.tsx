@@ -1,4 +1,4 @@
-/* eslint-disable react/forbid-dom-props -- swatch background-color is dynamic per item */
+/* eslint-disable react/forbid-dom-props -- swatch color and the per-count row cap are dynamic values */
 import React from 'react'
 
 export interface LegendItem {
@@ -9,11 +9,19 @@ export interface LegendItem {
     secondaryLabel?: string
 }
 
+/** Which gesture a legend row click was: a plain click means "isolate this series", a modified one
+ *  means "add/remove this series from the visible set". The legend only reports the intent — what
+ *  each one does is the click handler's business. */
+export interface LegendItemClickModifiers {
+    /** The user held ⌘/Ctrl (or Shift) while clicking. */
+    additive: boolean
+}
+
 export interface LegendProps {
     items: LegendItem[]
     orientation?: 'horizontal' | 'vertical'
     align?: 'start' | 'center' | 'end'
-    onItemClick?: (key: string) => void
+    onItemClick?: (key: string, modifiers: LegendItemClickModifiers) => void
     hiddenKeys?: string[]
     className?: string
     dataAttr?: string
@@ -45,17 +53,31 @@ export function Legend({
         return null
     }
     const hidden = hiddenKeys?.length ? new Set(hiddenKeys) : null
+    const isVertical = orientation === 'vertical'
     // A vertical legend stacks from the start edge (justify-start) so it scrolls cleanly when it overflows
     // its slot — vertical packing is `align-content`, untouched here. Horizontal aligns via `justify-content`.
-    const layout =
-        orientation === 'horizontal'
-            ? `flex-row flex-wrap gap-x-3 gap-y-1 ${JUSTIFY_CLASS[align]}`
-            : 'flex-col gap-1 justify-start'
+    const layout = isVertical
+        ? 'flex-col gap-1 justify-start'
+        : `flex-row flex-wrap gap-x-3 gap-y-1 ${JUSTIFY_CLASS[align]}`
+    // Truncation is driven by the space actually available, not a fixed max width — but flexbox wraps rows
+    // before shrinking them, so a long label would take a whole line instead of clipping. Each horizontal
+    // row is therefore capped at an equal share of the line, floored at 180px: with many series the floor
+    // wins and long labels pack into tidy 180px columns; with few series and room to spare each row can use
+    // its full share, so labels show unclipped whenever they fit (a lone series gets the whole line).
+    const gapRem = (items.length - 1) * 0.75
+    const horizontalRowMax = `max(180px, calc((100% - ${gapRem}rem) / ${items.length}))`
+    const rowWidth = isVertical ? 'flex w-full' : 'inline-flex max-w-(--legend-row-max)'
     return (
-        <div className={`flex ${layout} ${className ?? ''}`} data-attr={dataAttr}>
+        <div
+            className={`flex ${layout} ${className ?? ''}`}
+            style={isVertical ? undefined : ({ '--legend-row-max': horizontalRowMax } as React.CSSProperties)}
+            data-attr={dataAttr}
+        >
             {items.map((item) => {
                 const dimmed = hidden?.has(item.key) ? ' opacity-40' : ''
-                const rowClass = `inline-flex items-center gap-1.5 text-xs leading-none${dimmed}`
+                // leading-4, not leading-none: the truncating label clips its overflow, and a line box with
+                // no slack cuts off descenders (the tail of a "g").
+                const rowClass = `${rowWidth} min-w-0 items-center gap-1.5 text-xs leading-4${dimmed}`
                 const inner = (
                     <>
                         <span
@@ -63,7 +85,7 @@ export function Legend({
                             className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
                             style={{ backgroundColor: item.color }}
                         />
-                        <span className="truncate" style={{ maxWidth: 180 }} title={item.label}>
+                        <span className="truncate min-w-0" title={item.label}>
                             {item.label}
                         </span>
                         {item.secondaryLabel != null && item.secondaryLabel !== '' && (
@@ -76,8 +98,13 @@ export function Legend({
                 const node = onItemClick ? (
                     <button
                         type="button"
-                        className={`${rowClass} cursor-pointer bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
-                        onClick={() => onItemClick(item.key)}
+                        // select-none: clicking rows in quick succession would otherwise select their labels.
+                        className={`${rowClass} cursor-pointer select-none bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
+                        onClick={(event) =>
+                            onItemClick(item.key, {
+                                additive: event.metaKey || event.ctrlKey || event.shiftKey,
+                            })
+                        }
                     >
                         {inner}
                     </button>

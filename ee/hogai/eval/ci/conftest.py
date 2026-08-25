@@ -11,6 +11,13 @@ from posthog.schema import FailureMessage, HumanMessage
 from posthog.models import Organization, Team, User
 
 from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
+from products.posthog_ai.eval_harness.data_setup import (
+    EVAL_USER_FULL_NAME,  # noqa: F401 — re-exported for eval_root_style.py
+    DashboardWithInsightsFixture,
+    create_core_memory,
+    create_dashboard_with_insights,
+    create_demo_org_team_user,
+)
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
@@ -19,13 +26,6 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
-from ee.hogai.eval.data_setup import (
-    EVAL_USER_FULL_NAME,  # noqa: F401 — re-exported for eval_root_style.py
-    DashboardWithInsightsFixture,
-    create_core_memory,
-    create_dashboard_with_insights,
-    create_demo_org_team_user,
-)
 from ee.hogai.eval.scorers import PlanAndQueryOutput
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage

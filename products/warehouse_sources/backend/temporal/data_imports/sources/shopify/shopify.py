@@ -5,13 +5,16 @@ from collections.abc import Iterator
 from typing import Any
 
 import requests
+import structlog
 from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
@@ -26,11 +29,13 @@ from .constants import (
     SHOPIFY_ACCESS_TOKEN_GRANT,
     SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
-    SHOPIFY_API_VERSION,
+    SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
     SHOPIFY_PAGE_SIZE_OVERRIDES,
 )
+
+logger = structlog.get_logger(__name__)
 
 # Resume phases for the shopify source. "all" is the non-incremental branch;
 # "earliest" and "latest" are the two incremental sweeps in shopify_source.get_rows.
@@ -38,12 +43,48 @@ PHASE_ALL = "all"
 PHASE_EARLIEST = "earliest"
 PHASE_LATEST = "latest"
 
-# Raised when Shopify's OAuth token endpoint returns a 4xx — the app credentials are
-# invalid or the app was uninstalled, so re-auth is the only fix. `ShopifySource.
-# get_non_retryable_errors` matches on this exact text to fail the job fast.
+# Raised when Shopify's OAuth token endpoint returns a 4xx that we can't attribute to a more
+# specific cause below. The app credentials are invalid or revoked, so re-entering them is the
+# only fix. `ShopifySource.get_non_retryable_errors` matches on this exact text to fail the job
+# fast. The raised message also carries Shopify's own `error`/`error_description` (see
+# `_oauth_error_detail`) so support can see what Shopify objected to.
 SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
-    "Failed to retrieve Shopify access token: the app credentials are invalid or the "
-    "app was uninstalled. Please reconnect your Shopify integration."
+    "Shopify rejected your app credentials. Check the client ID and secret in your Shopify app and re-enter them here."
+)
+
+# Raised on a 4xx whose body reports `error: invalid_client` — the client ID or secret does not
+# match a Shopify app. Surfaced separately so the message names the field to fix.
+SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR = (
+    "Shopify rejected your app credentials (invalid_client). Check that the client ID and "
+    "secret both come from the same Shopify app, then re-enter them here."
+)
+
+# Raised on a 4xx whose body reports `error: unsupported_grant_type` — the app can't use the
+# client_credentials grant PostHog mints tokens with. This is the legacy store-admin custom app
+# type; PostHog needs a Dev Dashboard app. Surfaced separately so the message points at the fix.
+SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR = (
+    "This Shopify app does not support the sign-in method PostHog uses "
+    "(unsupported_grant_type). Create a Dev Dashboard app by following the PostHog Shopify "
+    "docs, then enter its client ID and secret."
+)
+
+# Raised on a 4xx whose body reports `error: shop_not_permitted`. Shopify only allows the
+# client_credentials grant when the app and the store belong to the same Shopify organization,
+# so re-entering credentials can never fix it. Surfaced separately so the message points at the
+# organization rather than the credentials.
+SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR = (
+    "Shopify doesn't allow this app to connect to this store (shop_not_permitted). The app and "
+    "the store must be in the same Shopify organization. In the Shopify Dev Dashboard, open the "
+    "organization that contains your store and create the app there."
+)
+
+# Raised when the OAuth token endpoint returns 404 — there is no store at
+# `<store-id>.myshopify.com`, so the store id is wrong or the store no longer exists.
+# Reconnecting the app can't fix a bad store id, so this is surfaced separately from the
+# credentials error above (both are matched by `get_non_retryable_errors` to fail fast).
+SHOPIFY_STORE_NOT_FOUND_ERROR = (
+    "Couldn't find a Shopify store at that address. Check that your store id (the "
+    "'my-store' in 'my-store.myshopify.com') is correct and the store is still active."
 )
 
 # Substring of the GraphQL error Shopify returns when the connected access token lacks the
@@ -65,6 +106,18 @@ SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
     "Shopify returned 402 Payment Required — your Shopify store appears to be frozen due to "
     "an unpaid bill. Settle your outstanding balance in Shopify to unfreeze the store, then "
     "the import will resume."
+)
+
+# 401 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint
+# above) — the token was accepted when minted but is no longer valid for the store, e.g. the
+# app was uninstalled or the token revoked mid-sync. Re-minting on retry can't fix that, so
+# `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
+# per-store URL) to fail the job fast.
+SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH = "401 Client Error: Unauthorized"
+SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
+    "Shopify rejected the request with 401 Unauthorized — your Shopify access token is no "
+    "longer valid, likely because the app was uninstalled or access was revoked. Please "
+    "reconnect your Shopify integration."
 )
 
 
@@ -290,6 +343,9 @@ def normalize_store_id(raw: str) -> str:
         store_id = store_id.removeprefix("admin.shopify.com/store/")
     # Drop any path/query/fragment that rode along with a pasted URL.
     store_id = store_id.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    # A trailing dot (FQDN form, e.g. "my-store.myshopify.com.") otherwise defeats the suffix
+    # strip below and leaves a value the subdomain regex rejects.
+    store_id = store_id.rstrip(".")
     # Strip the domain suffix, looping to collapse an accidental double suffix.
     while store_id.endswith(".myshopify.com"):
         store_id = store_id.removesuffix(".myshopify.com")
@@ -301,17 +357,67 @@ def normalize_store_id(raw: str) -> str:
     return store_id
 
 
+@frozen
+class _OAuthError:
+    code: str | None
+    description: str | None
+
+
+def _parse_oauth_error(response: requests.Response) -> _OAuthError:
+    """Shopify's OAuth token endpoint returns `{"error": ..., "error_description": ...}` on a 4xx.
+    An edge or proxy can return non-JSON (e.g. an HTML error page) instead, so parse defensively
+    and leave the fields None when the body has no usable error code."""
+    try:
+        body = response.json()
+    except ValueError:
+        return _OAuthError(code=None, description=None)
+    if not isinstance(body, dict):
+        return _OAuthError(code=None, description=None)
+    error = body.get("error")
+    description = body.get("error_description")
+    return _OAuthError(
+        code=error if isinstance(error, str) else None,
+        description=description if isinstance(description, str) else None,
+    )
+
+
+def _access_token_auth_error_message(error_code: str | None) -> str:
+    """The user-facing message for a token-endpoint 4xx, chosen from Shopify's `error` code."""
+    if error_code == "invalid_client":
+        return SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR
+    if error_code == "unsupported_grant_type":
+        return SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR
+    if error_code == "shop_not_permitted":
+        return SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR
+    return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
+
+
+def _oauth_error_detail(error: _OAuthError, status_code: int) -> str:
+    """Shopify's raw error appended to the raised message so support can see what Shopify said."""
+    if error.code and error.description:
+        return f"Shopify {error.code}: {error.description}, HTTP {status_code}"
+    if error.code:
+        return f"Shopify {error.code}, HTTP {status_code}"
+    return f"HTTP {status_code}"
+
+
 @retry(
     # A transient TLS/connection drop on the token endpoint (e.g. SSL EOF, proxy/egress hiccup,
     # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
     # is a ConnectionError. A connection dropped mid-response surfaces as ChunkedEncodingError,
     # which is a RequestException rather than a ConnectionError, so it must be listed explicitly.
-    # The adapter's own urllib3 retries back off for only ~1.5s, too short to ride out a
-    # multi-second blip. Minting a token is idempotent, so reissue with backoff rather than failing
-    # the whole import. 4xx/5xx are raised as plain Exceptions below and so are untouched here —
-    # auth failures still fail fast.
+    # A 429/5xx returns a completed response and is raised as ShopifyRetryableError below, so it
+    # is listed here too. The adapter's own urllib3 retries back off for only ~1.5s, too short to
+    # ride out a multi-second blip. Minting a token is idempotent, so reissue with backoff rather
+    # than failing the whole import. 4xx auth failures are raised as plain Exceptions and so are
+    # untouched here — they still fail fast.
     retry=retry_if_exception_type(
-        (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError)
+        (
+            ShopifyRetryableError,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        )
     ),
     stop=stop_after_attempt(5),
     wait=_shopify_backoff,
@@ -325,14 +431,35 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
         "client_secret": shopify_client_secret,
         "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
     }
-    access_res = make_tracked_session().post(access_token_url, data=access_data)
+    # The Accept header is load-bearing: without it Shopify renders 4xx OAuth errors as an HTML
+    # page instead of JSON, which leaves `_parse_oauth_error` with no error code to read.
+    access_res = make_tracked_session(headers={"Accept": "application/json"}).post(access_token_url, data=access_data)
     if not access_res.ok:
-        # A 4xx means the app credentials are invalid/revoked (e.g. the app was
-        # uninstalled) — re-auth is the only fix, so surface a non-retryable message.
-        # 429 (rate limit) and 5xx are transient and stay retryable via the generic message.
+        # A 404 means there's no store at this subdomain — the store id is wrong or the store
+        # is gone. Reconnecting the app can't fix that, so point the user at the store id
+        # instead of telling them their credentials are bad.
+        if access_res.status_code == 404:
+            raise Exception(f"{SHOPIFY_STORE_NOT_FOUND_ERROR} (HTTP 404)")
+        # Any other 4xx means the app credentials are invalid/revoked — re-auth is the only fix,
+        # so surface a non-retryable message. Read Shopify's own `error`/`error_description` so
+        # the user gets the specific cause and support can see what Shopify rejected.
         if 400 <= access_res.status_code < 500 and access_res.status_code != 429:
-            raise Exception(f"{SHOPIFY_ACCESS_TOKEN_AUTH_ERROR} (HTTP {access_res.status_code})")
-        raise Exception(f"Failed to retrieve Shopify access token: {access_res}")
+            oauth_error = _parse_oauth_error(access_res)
+            logger.warning(
+                "Shopify OAuth token request failed",
+                store_id=shopify_store_id,
+                status_code=access_res.status_code,
+                shopify_error=oauth_error.code,
+                shopify_error_description=oauth_error.description,
+            )
+            message = _access_token_auth_error_message(oauth_error.code)
+            detail = _oauth_error_detail(oauth_error, access_res.status_code)
+            raise Exception(f"{message} ({detail})")
+        # 429 (rate limit) and 5xx (e.g. a 502 Bad Gateway from Shopify's edge) are transient —
+        # retry locally with backoff instead of failing the import, mirroring the GraphQL path.
+        raise ShopifyRetryableError(
+            f"Failed to retrieve Shopify access token: {access_res.status_code} {access_res.reason}"
+        )
     return access_res.json()["access_token"]
 
 
@@ -358,10 +485,11 @@ def shopify_source(
     db_incremental_field_earliest_value: Any | None,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
 ):
     store_id = normalize_store_id(shopify_store_id)
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    api_url = SHOPIFY_API_URL.format(store_id, api_version)
     shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     schema_name = resolve_schema_name(graphql_object_name)
 
@@ -486,9 +614,16 @@ def _format_graphql_errors(errors: Any) -> str:
     return str(errors)
 
 
-def _authenticated_session(store_id: str, client_id: str, client_secret: str) -> tuple[str, requests.Session]:
-    """Fetch an access token and return the GraphQL URL plus a session that carries it."""
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+def _authenticated_session(
+    store_id: str, client_id: str, client_secret: str, api_version: str = SHOPIFY_API_VERSION_2026_07
+) -> tuple[str, requests.Session]:
+    """Fetch an access token and return the GraphQL URL plus a session that carries it.
+
+    Shopify carries the version in the URL path, so callers that have a source pin must pass it:
+    a 2025-10-pinned source has to validate and probe permissions against 2025-10, not the
+    current default. Pre-creation callers omit it and get `default_version`.
+    """
+    api_url = SHOPIFY_API_URL.format(store_id, api_version)
     access_token = _get_shopify_access_token(store_id, client_id, client_secret)
     sess = make_tracked_session(headers={"Content-Type": "application/json", "X-Shopify-Access-Token": access_token})
     return api_url, sess
@@ -509,7 +644,11 @@ def _probe_resource_permission(api_url: str, sess: requests.Session, resource: S
 
 
 def validate_credentials(
-    shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, resources: list[str] | None = None
+    shopify_store_id: str,
+    shopify_client_id: str,
+    shopify_client_secret: str,
+    resources: list[str] | None = None,
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
 ) -> bool:
     """Validate Shopify credentials.
 
@@ -519,7 +658,7 @@ def validate_credentials(
       naming any whose scope is missing.
     """
     store_id = normalize_store_id(shopify_store_id)
-    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
+    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret, api_version)
 
     # A valid token can always read the shop resource.
     try:
@@ -548,13 +687,17 @@ def validate_credentials(
 
 
 def check_endpoint_permissions(
-    shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, endpoints: list[str]
+    shopify_store_id: str,
+    shopify_client_id: str,
+    shopify_client_secret: str,
+    endpoints: list[str],
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
 ) -> dict[str, str | None]:
     """Per-endpoint read-scope probe for the schema picker: {name: None} if reachable, else a
     message naming the missing scope. A throttle/5xx/transport blip on one endpoint leaves that
     table unknown rather than aborting the batch; only failing to obtain the access token raises."""
     store_id = normalize_store_id(shopify_store_id)
-    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
+    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret, api_version)
     results: dict[str, str | None] = {}
     for name in endpoints:
         resource = SHOPIFY_GRAPHQL_OBJECTS.get(resolve_schema_name(name))

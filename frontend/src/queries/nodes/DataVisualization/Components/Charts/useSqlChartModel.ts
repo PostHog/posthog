@@ -4,9 +4,10 @@ import { useEffect, useMemo } from 'react'
 import { type ChartTheme, type Series } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
+import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import {
     type BuildBarConfigArgs,
     type SqlLineSeriesMeta,
@@ -24,7 +25,7 @@ export interface SqlChartModel<TConfig> {
 }
 
 export function useSqlChartModel<TConfig extends object>(
-    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines }: LineGraphProps,
+    { xData, yData, visualizationType, chartSettings, dashboardId, goalLines }: SqlChartProps,
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
@@ -44,6 +45,8 @@ export function useSqlChartModel<TConfig extends object>(
 
     const theme = useChartTheme()
 
+    const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })
+
     const config = useChartConfig(
         () =>
             xData
@@ -54,9 +57,10 @@ export function useSqlChartModel<TConfig extends object>(
                       goalLines,
                       visualizationType,
                       ySeriesData,
+                      legendRenderItem,
                   })
                 : undefined,
-        [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig, ySeriesData]
+        [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig, ySeriesData, legendRenderItem]
     )
 
     if (!xData || !ySeriesData || series.length === 0 || !config) {

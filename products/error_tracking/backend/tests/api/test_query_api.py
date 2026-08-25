@@ -11,9 +11,13 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.error_tracking.backend.facade.query_utils import (
-    build_fingerprint_event_where,
+    build_issue_event_where,
     build_issue_filters,
     build_search_query,
     build_sparkline,
@@ -36,12 +40,13 @@ class FakeQueryResponse:
 
 
 def test_issue_event_search_escapes_like_wildcards_and_quotes() -> None:
-    where = build_fingerprint_event_where(["fingerprint"], r"a%_'\\")[1]
+    where = build_issue_event_where("01936e7f-d7ff-7314-b2d4-7627981e34f0", r"a%_'\\")
 
-    assert r"\%" in where
-    assert r"\_" in where
-    assert r"\'" in where
-    assert r"\\" in where
+    assert where[0] == "issue_id = toUUID('01936e7f-d7ff-7314-b2d4-7627981e34f0')"
+    assert r"\%" in where[1]
+    assert r"\_" in where[1]
+    assert r"\'" in where[1]
+    assert r"\\" in where[1]
 
 
 def test_search_query_preserves_quotes() -> None:
@@ -67,21 +72,20 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
     issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
     fingerprint = "issue-fingerprint"
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
-
-        if ("$exception_issue_id", "properties") not in get_materialized_columns("events"):
-            materialize("events", "$exception_issue_id", is_nullable=True)
-        super().setUpClass()
-
     def setUp(self) -> None:
         super().setUp()
         _create_person(team=self.team, distinct_ids=["user-1"], is_identified=True)
         flush_persons_and_events()
 
-    def create_issue(self, issue_id: str | None = None, fingerprint: str | None = None) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(id=issue_id or self.issue_id, team=self.team, name="TypeError")
+    def create_issue(
+        self,
+        issue_id: str | None = None,
+        fingerprint: str | None = None,
+        severity: str | None = None,
+    ) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(
+            id=issue_id or self.issue_id, team=self.team, name="TypeError", severity=severity
+        )
         ErrorTrackingIssueFingerprintV2.objects.create(
             team=self.team, issue=issue, fingerprint=fingerprint or self.fingerprint
         )
@@ -164,6 +168,28 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_queries_return_severity(self) -> None:
+        self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        list_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"status": "all", "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+        detail_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert list_response.status_code == 200
+        assert list_response.json()["results"][0]["severity"] == "high"
+        assert detail_response.status_code == 200
+        assert detail_response.json()["severity"] == "high"
 
     def test_rejects_hogql_property_filters(self) -> None:
         response = self.client.post(
@@ -295,7 +321,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY), (Product.ERROR_TRACKING, Feature.QUERY)]
 
-    def test_issue_detail_filters_by_fingerprint(self) -> None:
+    def test_issue_detail_does_not_expand_fingerprints(self) -> None:
         self.create_issue()
         observed_volume_resolutions: list[int] = []
         observed_filter_groups: list[dict[str, object] | None] = []
@@ -333,9 +359,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert observed_volume_resolutions == [1]
-        assert observed_filter_groups[0] is not None
-        assert "$exception_fingerprint" in str(observed_filter_groups[0])
-        assert self.fingerprint in str(observed_filter_groups[0])
+        assert observed_filter_groups == [None]
 
     def test_issue_detail_without_fingerprints_has_no_filter_group(self) -> None:
         ErrorTrackingIssue.objects.create(id=self.issue_id, team=self.team, name="TypeError")
@@ -455,7 +479,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:
-        self.create_issue()
+        self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
 
         empty_range_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issue",
@@ -473,6 +497,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert empty_range_response.status_code == 200
         assert empty_range_response.json()["impact"] == {}
+        assert empty_range_response.json()["severity"] == "high"
         assert missing_response.status_code == 404
 
     def test_issue_events_returns_404_for_foreign_issue(self) -> None:
@@ -554,6 +579,33 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json() == {"results": [], "hasMore": False, "limit": 1, "offset": 0}
 
+    def test_issue_events_honors_user_property_access(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            name="$referrer",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member=self.organization_membership,
+        )
+        self.create_issue()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": self.issue_id, "include": ["navigation"]},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "Access to property '$referrer' is restricted" in str(response.json())
+
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:
         long_text = "x" * 1200
@@ -572,23 +624,84 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
             format="json",
         )
-        raw_response = self.client.post(
+        assert summary_response.status_code == 200
+        summary_event = summary_response.json()["results"][0]
+        assert summary_event["properties"]["$exception_types"] == ["TypeError"]
+        assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_values"][0]
+        assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_list"][0]["value"]
+        assert summary_event["properties"]["$session_id"] == "session-id-1"
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_events_returns_only_requested_context_groups(self) -> None:
+        self.create_issue()
+        self.create_exception_event(
+            properties={
+                "$lib": "posthog-js",
+                "$current_url": "https://example.test/checkout",
+                "$exception_level": "error",
+                "$exception_handled": False,
+                "$exception_releases": {"release-id": {"version": "2026.04.24"}},
+                "$cymbal_errors": ["source map unavailable"],
+                "$trace_id": "00000000000000000000000000000123",
+                "$span_id": "0000000000000456",
+                "$ai_trace_id": "ai-trace-id",
+                "$ai_span_id": "ai-span-id",
+                "$exception_list": [
+                    {
+                        "type": "TypeError",
+                        "value": "Cannot read properties of undefined",
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "mangled_name": "submitOrder",
+                                    "source": "src/checkout.ts",
+                                    "line": 42,
+                                    "in_app": True,
+                                    "code_variables": {"order": {"customer": None}},
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        )
+        flush_persons_and_events()
+
+        stack_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
             data={
                 "issueId": self.issue_id,
                 "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
-                "verbosity": "raw",
+                "include": ["stacktrace"],
+            },
+            format="json",
+        )
+        variables_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={
+                "issueId": self.issue_id,
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                "include": ["exception", "code_variables", "release", "correlation", "diagnostics"],
             },
             format="json",
         )
 
-        assert summary_response.status_code == 200
-        assert raw_response.status_code == 200
-        summary_event = summary_response.json()["results"][0]
-        raw_event = raw_response.json()["results"][0]
-        assert summary_event["properties"]["$exception_types"] == ["TypeError"]
-        assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_values"][0]
-        assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_list"][0]["value"]
-        assert raw_event["properties"]["$exception_values"][0] == long_text
-        assert raw_event["properties"]["$exception_list"][0]["value"] == long_text
-        assert summary_event["properties"]["$session_id"] == "session-id-1"
+        assert stack_response.status_code == 200
+        assert variables_response.status_code == 200
+        stack_properties = stack_response.json()["results"][0]["properties"]
+        variables_properties = variables_response.json()["results"][0]["properties"]
+        stack_frame = stack_properties["$exception_list"][0]["stacktrace"]["frames"][0]
+        variables_frame = variables_properties["$exception_list"][0]["stacktrace"]["frames"][0]
+        assert "code_variables" not in stack_frame
+        assert variables_frame["code_variables"] == {"order": {"customer": None}}
+        assert variables_properties["$exception_level"] == "error"
+        assert variables_properties["$exception_handled"] is False
+        assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}
+        assert variables_properties["$cymbal_errors"] == ["source map unavailable"]
+        assert variables_properties["$trace_id"] == "00000000000000000000000000000123"
+        assert variables_properties["$span_id"] == "0000000000000456"
+        assert variables_properties["$ai_trace_id"] == "ai-trace-id"
+        assert variables_properties["$ai_span_id"] == "ai-span-id"
+        assert "$exception_issue_id" not in variables_properties
+        assert "$lib" not in variables_properties
+        assert "$current_url" not in variables_properties

@@ -1,7 +1,7 @@
 from products.revenue_analytics.backend.views.schemas.charge import SCHEMA as CHARGE_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.charge import build
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME
+from products.warehouse_sources.backend.facade.sources import CHARGE_RESOURCE_NAME
 
 
 class TestChargeStripeBuilder(StripeSourceBaseTest):
@@ -51,10 +51,6 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
         self.setup_stripe_external_data_source_with_specific_schemas(
             [{"name": CHARGE_RESOURCE_NAME, "table_name": None}]
         )
-
-        # Set the table to None to simulate missing table
-        charge_schema = self.get_stripe_schema_by_name(CHARGE_RESOURCE_NAME)
-        charge_schema.table = None
 
         query = build(self.stripe_handle)
 

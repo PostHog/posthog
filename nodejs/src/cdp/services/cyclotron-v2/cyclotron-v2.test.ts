@@ -1,7 +1,10 @@
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
-import { CyclotronV2Janitor } from './janitor'
+import { parseJSON } from '~/common/utils/json-parse'
+
+import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 import { CyclotronV2Worker } from './worker'
@@ -34,14 +37,45 @@ function createWorker(queueName = QUEUE, overrides?: Record<string, unknown>): C
     })
 }
 
-function createJanitor(overrides?: Record<string, unknown>): CyclotronV2Janitor {
-    return new CyclotronV2Janitor({
-        pool: { dbUrl: DB_URL },
-        cleanupGraceMs: 0,
-        stallTimeoutMs: 0,
-        maxTouchCount: 2,
-        ...overrides,
-    })
+function createMockResults(ok = true): {
+    service: HogInvocationResultsService
+    recordTerminalFailureDurably: jest.Mock
+} {
+    const recordTerminalFailureDurably = jest.fn().mockResolvedValue(ok)
+    return {
+        service: { recordTerminalFailureDurably } as unknown as HogInvocationResultsService,
+        recordTerminalFailureDurably,
+    }
+}
+
+// A real HogInvocationResultsService over a fake producer — exercises the actual
+// give-up row build (buildLifecycleRow + serialization), which the mock skips.
+// This is the Postgres-rung guard for the invalid-date RangeError class.
+function createRealResults(): { service: HogInvocationResultsService; produce: jest.Mock } {
+    const produce = jest.fn().mockResolvedValue(undefined)
+    const service = new HogInvocationResultsService({ produce } as any, { HOG_INVOCATION_RESULTS_ENABLED: true })
+    return { service, produce }
+}
+
+function parseProducedResult(produce: jest.Mock): Record<string, any> {
+    const value = produce.mock.calls[0][1].value as Buffer
+    return parseJSON(value.toString('utf-8'))
+}
+
+function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocationResultsService): CyclotronV2Janitor {
+    return new CyclotronV2Janitor(
+        {
+            pool: { dbUrl: DB_URL },
+            cleanupGraceMs: 0,
+            stallTimeoutMs: 0,
+            maxTouchCount: 2,
+            // Off by default so existing reset tests keep immediate-retry semantics;
+            // the backoff tests opt in explicitly.
+            stallBackoffBaseMs: 0,
+            ...overrides,
+        },
+        results
+    )
 }
 
 interface RawJobRow {
@@ -63,6 +97,7 @@ interface RawJobRow {
     distinct_id: string | null
     person_id: string | null
     action_id: string | null
+    cancel_requested_at: string | Date | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -254,6 +289,288 @@ describe('Cyclotron V2', () => {
             }
         )
 
+        it('countInFlightJobs counts available and running jobs grouped by action', async () => {
+            const functionId = uuidv7()
+            const otherFunctionId = uuidv7()
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, actionId: 'delay_1' })
+            const runningId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, actionId: 'delay_1' })
+            await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningId])
+            // No actionId: a job written before the lookup column existed → position unknown
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+            // Not counted: terminal status, other function, other team
+            const completedId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+            await assertPool.query(`UPDATE cyclotron_jobs SET status = 'completed' WHERE id = $1`, [completedId])
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId: otherFunctionId, actionId: 'delay_1' })
+            await manager.createJob({ teamId: 2, queueName: QUEUE, functionId, actionId: 'delay_1' })
+
+            expect(await manager.countInFlightJobs(1, functionId)).toEqual({
+                count: 3,
+                byAction: { delay_1: 2 },
+                positionUnknown: 1,
+            })
+        })
+
+        describe('rescheduleParkedJobs', () => {
+            const FAR_FUTURE = () => new Date(Date.now() + 7 * 24 * 3600 * 1000)
+
+            async function seedParked(
+                functionId: string,
+                over?: Partial<CyclotronV2JobInit> & { scheduled?: Date }
+            ): Promise<string> {
+                return await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId,
+                    actionId: 'delay_1',
+                    scheduled: FAR_FUTURE(),
+                    ...over,
+                })
+            }
+
+            it('sweeps only matching parked rows into the window, regardless of queue', async () => {
+                const functionId = uuidv7()
+                const before = Date.now()
+                const sweptId = await seedParked(functionId)
+                const emailQueueId = await seedParked(functionId, { queueName: 'email' })
+                const otherActionId = await seedParked(functionId, { actionId: 'message_1' })
+                const otherFunctionId = await seedParked(uuidv7())
+                const otherTeamId = await seedParked(functionId, { teamId: 2 })
+                const runningId = await seedParked(functionId)
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningId])
+                const wakingSoon = new Date(Date.now() + 60_000)
+                const wakingSoonId = await seedParked(functionId, { scheduled: wakingSoon })
+
+                const result = await manager.rescheduleParkedJobs({ teamId: 1, functionId, actionIds: ['delay_1'] })
+
+                expect(result.swept).toBe(2)
+                expect(result.done).toBe(true)
+                // Swept rows (hogflow-queue and email-queue alike — parked waits can sit on any
+                // queue) land inside [sweepFloor, sweepUntil]: never sooner than the floor, never
+                // later than their original wake.
+                for (const id of [sweptId, emailQueueId]) {
+                    const scheduled = new Date((await queryJob(id)).scheduled).getTime()
+                    expect(scheduled).toBeGreaterThanOrEqual(result.sweepFloor.getTime() - 1000)
+                    expect(scheduled).toBeLessThanOrEqual(result.sweepUntil.getTime() + 1000)
+                }
+                expect(result.sweepFloor.getTime()).toBeGreaterThan(before)
+                // Untouched: other action/function/team, running rows, rows already waking soon
+                for (const id of [otherActionId, otherFunctionId, otherTeamId, runningId]) {
+                    const scheduled = new Date((await queryJob(id)).scheduled).getTime()
+                    expect(scheduled).toBeGreaterThan(Date.now() + 6 * 24 * 3600 * 1000)
+                }
+                expect(new Date((await queryJob(wakingSoonId)).scheduled).getTime()).toBe(wakingSoon.getTime())
+            })
+
+            it('is idempotent: a second call with the same bounds sweeps nothing', async () => {
+                const functionId = uuidv7()
+                const id = await seedParked(functionId)
+
+                const first = await manager.rescheduleParkedJobs({ teamId: 1, functionId, actionIds: ['delay_1'] })
+                expect(first.swept).toBe(1)
+                const scheduledAfterFirst = new Date((await queryJob(id)).scheduled).getTime()
+
+                const second = await manager.rescheduleParkedJobs({
+                    teamId: 1,
+                    functionId,
+                    actionIds: ['delay_1'],
+                    sweepFloor: first.sweepFloor,
+                    sweepUntil: first.sweepUntil,
+                })
+                expect(second).toMatchObject({ swept: 0, remaining: 0, done: true })
+                expect(new Date((await queryJob(id)).scheduled).getTime()).toBe(scheduledAfterFirst)
+            })
+
+            it('honors explicitly passed bounds and echoes them back', async () => {
+                const functionId = uuidv7()
+                const id = await seedParked(functionId)
+                const sweepFloor = new Date(Date.now() + 1800_000)
+                const sweepUntil = new Date(Date.now() + 3600_000)
+
+                const result = await manager.rescheduleParkedJobs({
+                    teamId: 1,
+                    functionId,
+                    actionIds: ['delay_1'],
+                    sweepFloor,
+                    sweepUntil,
+                })
+
+                expect(result.sweepFloor).toEqual(sweepFloor)
+                expect(result.sweepUntil).toEqual(sweepUntil)
+                const scheduled = new Date((await queryJob(id)).scheduled).getTime()
+                expect(scheduled).toBeGreaterThanOrEqual(sweepFloor.getTime())
+                expect(scheduled).toBeLessThanOrEqual(sweepUntil.getTime())
+            })
+
+            it('re-sizes stale bounds instead of sweeping the remainder into the past', async () => {
+                const functionId = uuidv7()
+                await seedParked(functionId)
+                const staleFloor = new Date(Date.now() - 3600_000)
+                const staleUntil = new Date(Date.now() - 1800_000)
+
+                const result = await manager.rescheduleParkedJobs({
+                    teamId: 1,
+                    functionId,
+                    actionIds: ['delay_1'],
+                    sweepFloor: staleFloor,
+                    sweepUntil: staleUntil,
+                })
+
+                expect(result.swept).toBe(1)
+                expect(result.sweepFloor.getTime()).toBeGreaterThan(Date.now())
+                const parked = await assertPool.query(
+                    `SELECT COUNT(*)::int AS c FROM cyclotron_jobs WHERE function_id = $1 AND scheduled <= NOW()`,
+                    [functionId]
+                )
+                expect(parked.rows[0].c).toBe(0)
+            })
+
+            it('clamps a caller-passed floor to the server floor so bounds cannot mass-wake the backlog', async () => {
+                // A past floor with a still-fresh until would land the random targets in the
+                // past — the floor is the sweep's safety property and is enforced server-side.
+                const functionId = uuidv7()
+                const id = await seedParked(functionId)
+
+                const result = await manager.rescheduleParkedJobs({
+                    teamId: 1,
+                    functionId,
+                    actionIds: ['delay_1'],
+                    sweepFloor: new Date(Date.now() - 3600_000),
+                    sweepUntil: new Date(Date.now() + 3600_000),
+                })
+
+                expect(result.swept).toBe(1)
+                // Default floor is 600s: the swept row must never wake sooner than that
+                const scheduled = new Date((await queryJob(id)).scheduled).getTime()
+                expect(scheduled).toBeGreaterThanOrEqual(Date.now() + 600_000 - 5000)
+                expect(result.sweepFloor.getTime()).toBeGreaterThanOrEqual(Date.now() + 600_000 - 5000)
+            })
+
+            it.each([
+                ['count / rate inside the clamps', 30, 30],
+                ['clamped up to the min window', 5, 10],
+                ['clamped down to the max window', 100, 50],
+            ])('sizes the window from the parked count: %s', async (_desc, jobCount, expectedWindowSeconds) => {
+                const sizingManager = createManager({
+                    rescheduleFloorSeconds: 60,
+                    rescheduleWakeRatePerSecond: 1,
+                    rescheduleMinWindowSeconds: 10,
+                    rescheduleMaxWindowSeconds: 50,
+                    rescheduleChunkSleepMs: 0,
+                })
+                await sizingManager.connect()
+                try {
+                    const functionId = uuidv7()
+                    await sizingManager.bulkCreateJobs(
+                        Array.from({ length: jobCount }, () => ({
+                            teamId: 1,
+                            queueName: QUEUE,
+                            functionId,
+                            actionId: 'delay_1',
+                            scheduled: FAR_FUTURE(),
+                        }))
+                    )
+
+                    const result = await sizingManager.rescheduleParkedJobs({
+                        teamId: 1,
+                        functionId,
+                        actionIds: ['delay_1'],
+                    })
+
+                    expect(result.sweepUntil.getTime() - result.sweepFloor.getTime()).toBe(expectedWindowSeconds * 1000)
+                } finally {
+                    await sizingManager.disconnect()
+                }
+            })
+
+            it('slices work across calls, keeping the window fixed', async () => {
+                const slicingManager = createManager({
+                    rescheduleChunkSize: 2,
+                    rescheduleMaxChunksPerCall: 2,
+                    rescheduleChunkSleepMs: 0,
+                })
+                await slicingManager.connect()
+                try {
+                    const functionId = uuidv7()
+                    await slicingManager.bulkCreateJobs(
+                        Array.from({ length: 5 }, () => ({
+                            teamId: 1,
+                            queueName: QUEUE,
+                            functionId,
+                            actionId: 'delay_1',
+                            scheduled: FAR_FUTURE(),
+                        }))
+                    )
+
+                    const first = await slicingManager.rescheduleParkedJobs({
+                        teamId: 1,
+                        functionId,
+                        actionIds: ['delay_1'],
+                    })
+                    expect(first).toMatchObject({ swept: 4, remaining: 1, done: false })
+
+                    const second = await slicingManager.rescheduleParkedJobs({
+                        teamId: 1,
+                        functionId,
+                        actionIds: ['delay_1'],
+                        sweepFloor: first.sweepFloor,
+                        sweepUntil: first.sweepUntil,
+                    })
+                    expect(second).toMatchObject({ swept: 1, remaining: 0, done: true })
+                    // sweepUntil is the idempotency bound and must stay fixed across slices;
+                    // the floor legitimately drifts forward per slice (clamped to now + floor).
+                    expect(second.sweepUntil).toEqual(first.sweepUntil)
+                    expect(second.sweepFloor.getTime()).toBeGreaterThanOrEqual(first.sweepFloor.getTime())
+                } finally {
+                    await slicingManager.disconnect()
+                }
+            })
+
+            it('skips rows locked by a concurrent transaction', async () => {
+                const functionId = uuidv7()
+                const lockedId = await seedParked(functionId)
+                const freeId = await seedParked(functionId)
+
+                const client = await assertPool.connect()
+                try {
+                    await client.query('BEGIN')
+                    await client.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [lockedId])
+
+                    const result = await manager.rescheduleParkedJobs({
+                        teamId: 1,
+                        functionId,
+                        actionIds: ['delay_1'],
+                    })
+
+                    expect(result.swept).toBe(1)
+                    expect(result.done).toBe(false)
+                    expect(new Date((await queryJob(freeId)).scheduled).getTime()).toBeLessThanOrEqual(
+                        result.sweepUntil.getTime() + 1000
+                    )
+                    expect(new Date((await queryJob(lockedId)).scheduled).getTime()).toBeGreaterThan(
+                        Date.now() + 6 * 24 * 3600 * 1000
+                    )
+                } finally {
+                    await client.query('ROLLBACK')
+                    client.release()
+                }
+            })
+
+            it('returns done immediately when nothing is parked beyond the floor', async () => {
+                const result = await manager.rescheduleParkedJobs({
+                    teamId: 1,
+                    functionId: uuidv7(),
+                    actionIds: ['delay_1'],
+                })
+                expect(result).toMatchObject({ swept: 0, remaining: 0, done: true })
+            })
+
+            it('rejects an empty action id list', async () => {
+                await expect(
+                    manager.rescheduleParkedJobs({ teamId: 1, functionId: uuidv7(), actionIds: [] })
+                ).rejects.toThrow(/at least one action id/)
+            })
+        })
+
         it('backpressure throws when queue depth exceeds limit', async () => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
             await smallManager.connect()
@@ -439,6 +756,210 @@ describe('Cyclotron V2', () => {
                 )
             })
         })
+
+        describe('cancelJobs', () => {
+            const FAR_FUTURE = () => new Date(Date.now() + 7 * 24 * 3600 * 1000)
+
+            async function seedParked(functionId: string, over?: Partial<CyclotronV2JobInit>): Promise<string> {
+                return await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId,
+                    scheduled: FAR_FUTURE(),
+                    ...over,
+                })
+            }
+
+            it('jobIds mode: wakes and flags parked rows, flags running rows in place, leaves terminal rows untouched', async () => {
+                const functionId = uuidv7()
+                const parkedId = await seedParked(functionId)
+                const runningId = await seedParked(functionId)
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningId])
+                const completedId = await seedParked(functionId)
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'completed' WHERE id = $1`, [completedId])
+
+                const result = await manager.cancelJobs({
+                    teamId: 1,
+                    functionId,
+                    jobIds: [parkedId, runningId, completedId, uuidv7()],
+                })
+
+                expect(result).toEqual({ marked: 2, remaining: 0, done: true })
+
+                // Parked row: flagged AND woken, so the worker terminates it promptly
+                // instead of after the remaining (potentially days-long) delay.
+                const parked = await queryJob(parkedId)
+                expect(parked.cancel_requested_at).not.toBeNull()
+                expect(new Date(parked.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+
+                // Running row: flagged only. Its wake is pulled forward by the
+                // worker's release, never by an external write racing the lock.
+                const running = await queryJob(runningId)
+                expect(running.cancel_requested_at).not.toBeNull()
+                expect(new Date(running.scheduled).getTime()).toBeGreaterThan(Date.now())
+
+                // Terminal row: untouched, so a later rerun doesn't inherit a flag.
+                const completed = await queryJob(completedId)
+                expect(completed.cancel_requested_at).toBeNull()
+            })
+
+            it('all mode: flags every in-flight row of the function across queues, and nothing beyond it', async () => {
+                const functionId = uuidv7()
+                const parkedId = await seedParked(functionId)
+                const emailQueueId = await seedParked(functionId, { queueName: 'email' })
+                const excludedQueueId = await seedParked(functionId, { queueName: 'orchestration' })
+                const otherFunctionId = await seedParked(uuidv7())
+                const otherTeamId = await seedParked(functionId, { teamId: 2 })
+
+                const result = await manager.cancelJobs({
+                    teamId: 1,
+                    functionId,
+                    all: true,
+                    excludeQueueNames: ['orchestration'],
+                })
+
+                expect(result).toEqual({ marked: 2, remaining: 0, done: true })
+                // A run's job can sit on another queue mid-step (e.g. email) - still flagged.
+                expect((await queryJob(parkedId)).cancel_requested_at).not.toBeNull()
+                expect((await queryJob(emailQueueId)).cancel_requested_at).not.toBeNull()
+                // Excluded queues are neither flagged nor counted as remaining.
+                expect((await queryJob(excludedQueueId)).cancel_requested_at).toBeNull()
+                expect((await queryJob(otherFunctionId)).cancel_requested_at).toBeNull()
+                expect((await queryJob(otherTeamId)).cancel_requested_at).toBeNull()
+            })
+
+            it("parentRunId mode: flags the run's resolver job and children, and nothing beyond the run", async () => {
+                const functionId = uuidv7()
+                const parentRunId = uuidv7()
+                // The resolver orchestration job and its children share parent_run_id but
+                // sit on different queues - one selector must flag all of them.
+                const resolverId = await seedParked(functionId, { queueName: 'orchestration', parentRunId })
+                const parkedChildId = await seedParked(functionId, { parentRunId })
+                const runningChildId = await seedParked(functionId, { parentRunId })
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningChildId])
+                const otherRunId = await seedParked(functionId, { parentRunId: uuidv7() })
+                const otherTeamId = await seedParked(functionId, { parentRunId, teamId: 2 })
+
+                const result = await manager.cancelJobs({ teamId: 1, functionId, parentRunId })
+
+                expect(result).toEqual({ marked: 3, remaining: 0, done: true })
+                // Parked rows (resolver included) are flagged AND woken; the running child is
+                // flagged in place, its wake pulled forward by the worker's release.
+                const resolver = await queryJob(resolverId)
+                expect(resolver.cancel_requested_at).not.toBeNull()
+                expect(new Date(resolver.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+                expect((await queryJob(parkedChildId)).cancel_requested_at).not.toBeNull()
+                expect((await queryJob(runningChildId)).cancel_requested_at).not.toBeNull()
+                expect((await queryJob(otherRunId)).cancel_requested_at).toBeNull()
+                expect((await queryJob(otherTeamId)).cancel_requested_at).toBeNull()
+            })
+
+            it('rejects an empty parentRunId instead of widening to the whole workflow', async () => {
+                await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), parentRunId: '' })).rejects.toThrow(
+                    /non-empty/
+                )
+            })
+
+            it('bulkCreateAndCheckIn refuses the page when a cancel flag landed while the worker held the job', async () => {
+                const functionId = uuidv7()
+                const parentRunId = uuidv7()
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, parentRunId })
+                const worker = createWorker()
+                const [job] = await dequeueOneBatch(worker)
+                expect(job.id).toBe(id)
+
+                // The mid-page window: the flag lands after the worker dequeued (and checked)
+                // the job but before it commits the page it is building.
+                await manager.cancelJobs({ teamId: 1, functionId, parentRunId })
+
+                const result = await job.bulkCreateAndCheckIn({
+                    newJobs: [{ teamId: 1, queueName: QUEUE, functionId, parentRunId }],
+                    selfDisposition: { kind: 'reschedule', scheduledAt: FAR_FUTURE() },
+                })
+
+                expect(result).toEqual({ newJobIds: [], cancelRequested: true })
+                // Nothing committed: no child row, and the self row kept its state.
+                expect(await totalJobCount()).toBe(1)
+                const row = await queryJob(id)
+                expect(row.status).toBe('running')
+                // The job is still held - the caller disposes of it.
+                await job.cancel()
+                expect((await queryJob(id)).status).toBe('canceled')
+            })
+
+            it('reports remaining and done=false when the chunk budget runs out, and the next call finishes', async () => {
+                const functionId = uuidv7()
+                await Promise.all(Array.from({ length: 3 }, () => seedParked(functionId)))
+                const smallChunkManager = createManager({ rescheduleChunkSize: 2, rescheduleMaxChunksPerCall: 1 })
+
+                const first = await smallChunkManager.cancelJobs({ teamId: 1, functionId, all: true })
+                expect(first).toEqual({ marked: 2, remaining: 1, done: false })
+
+                const second = await smallChunkManager.cancelJobs({ teamId: 1, functionId, all: true })
+                expect(second).toEqual({ marked: 1, remaining: 0, done: true })
+
+                await smallChunkManager.disconnect()
+            })
+
+            it('a worker releasing a flagged job wakes it immediately instead of honoring the requested delay', async () => {
+                const functionId = uuidv7()
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+                const worker = createWorker()
+                const [job] = await dequeueOneBatch(worker)
+                expect(job.id).toBe(id)
+
+                await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
+                await job.reschedule({ scheduledAt: FAR_FUTURE() })
+
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+            })
+
+            it('dequeued jobs expose cancelRequestedAt so consumers can terminate instead of executing', async () => {
+                const functionId = uuidv7()
+                const id = await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId,
+                    scheduled: FAR_FUTURE(),
+                })
+                await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
+
+                const worker = createWorker()
+                const [job] = await dequeueOneBatch(worker)
+                expect(job.id).toBe(id)
+                expect(job.cancelRequestedAt).not.toBeNull()
+            })
+
+            it('overwriteExisting re-enqueue clears the flag so a rerun does not instantly self-cancel', async () => {
+                const functionId = uuidv7()
+                const id = await seedParked(functionId)
+                await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'canceled' WHERE id = $1`, [id])
+
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE, functionId, overwriteExisting: true })
+
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.cancel_requested_at).toBeNull()
+            })
+
+            it.each([
+                ['no selector', {}],
+                ['two selectors', { jobIds: [uuidv7()], all: true }],
+                ['two selectors (parentRunId and all)', { parentRunId: uuidv7(), all: true }],
+            ])('rejects a call with %s instead of guessing scope', async (_name, selector) => {
+                await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), ...selector })).rejects.toThrow(
+                    /exactly one selector/
+                )
+            })
+
+            it('empty jobIds is a no-op', async () => {
+                const result = await manager.cancelJobs({ teamId: 1, functionId: uuidv7(), jobIds: [] })
+                expect(result).toEqual({ marked: 0, remaining: 0, done: true })
+            })
+        })
     })
 
     // ── Worker ───────────────────────────────────────────────────────
@@ -487,6 +1008,21 @@ describe('Cyclotron V2', () => {
 
             expect(jobs).toHaveLength(1)
             expect(jobs[0].queueName).toBe(QUEUE)
+        })
+
+        // Guards against the reschedule options schema silently stripping `priority`
+        // (zod .parse drops unknown keys), which would break the email queue's
+        // class assignment on the hogflow → email reschedule path.
+        it.each([
+            [{ priority: 10 }, 10],
+            [{}, 1],
+        ])('reschedule with options %o leaves the row at priority %i', async (options, expected) => {
+            const { id, job } = await seedAndDequeue({ priority: 1 })
+
+            await job.reschedule(options)
+
+            const res = await assertPool.query('SELECT priority FROM cyclotron_jobs WHERE id = $1', [id])
+            expect(res.rows[0].priority).toBe(expected)
         })
 
         describe('bulkCreateAndCheckIn', () => {
@@ -562,6 +1098,26 @@ describe('Cyclotron V2', () => {
                 expect(result.newJobIds).toEqual([])
                 expect((await queryJob(parentId)).status).toBe('completed')
             })
+
+            it.each(['ack', 'fail', 'reschedule'] as const)(
+                'checks self in via %s and zeros janitor_touch_count (consecutive-stall counting)',
+                async (kind) => {
+                    const { id: parentId, job } = await seedAndDequeue()
+                    // Simulate prior stalls the janitor had counted.
+                    await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [
+                        parentId,
+                    ])
+
+                    await job.bulkCreateAndCheckIn({
+                        newJobs: [],
+                        selfDisposition:
+                            kind === 'reschedule' ? { kind: 'reschedule', scheduledAt: new Date() } : { kind },
+                    })
+
+                    // A deliberate self-checkin is a healthy release — the count resets.
+                    expect((await queryJob(parentId)).janitor_touch_count).toBe(0)
+                }
+            )
 
             it('rolls back both writes if the insert fails (atomicity)', async () => {
                 const { id: parentId, job } = await seedAndDequeue()
@@ -821,6 +1377,28 @@ describe('Cyclotron V2', () => {
             expect(row.status).toBe(expectedStatus)
             expect(row.lock_id).toBeNull()
             expect(row.last_heartbeat).toBeNull()
+        })
+
+        it.each(['ack', 'fail', 'cancel'] as const)(
+            '%s() resets janitor_touch_count to 0 on a deliberate release',
+            async (method) => {
+                const { id, job } = await seedAndDequeue()
+                // Simulate prior stalls the janitor had counted.
+                await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [id])
+
+                await job[method]()
+
+                expect((await queryJob(id)).janitor_touch_count).toBe(0)
+            }
+        )
+
+        it('reschedule() resets janitor_touch_count to 0 so the poison budget counts consecutive stalls', async () => {
+            const { id, job } = await seedAndDequeue()
+            await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [id])
+
+            await job.reschedule()
+
+            expect((await queryJob(id)).janitor_touch_count).toBe(0)
         })
 
         it('reschedule() returns job to available', async () => {
@@ -1167,6 +1745,52 @@ describe('Cyclotron V2', () => {
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
                 createWorker(EMAIL_QUEUE, overrides)
 
+            it('dequeues the fast class before an earlier-enqueued bulk backlog', async () => {
+                // A bulk broadcast (priority 1) is already queued when two fast-class
+                // sends (priority 0) arrive, one from the same team. Without priority
+                // ordering, the same-team fast job waits behind the whole backlog.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
+                    { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
+                ])
+
+                const worker = createFairWorker({ batchMaxSize: 2 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs.map((j) => j.priority)).toEqual([0, 0])
+                expect(new Set(jobs.map((j) => j.teamId))).toEqual(new Set([teamA, teamB]))
+            })
+
+            it('keeps the per-team interleave within a priority class', async () => {
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE, priority: 1 })),
+                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
+                ])
+
+                const drained: Array<[number, number]> = []
+                for (let i = 0; i < 5; i++) {
+                    const worker = createFairWorker({ batchMaxSize: 1 })
+                    const batch = await dequeueOneBatch(worker)
+                    expect(batch).toHaveLength(1)
+                    drained.push([batch[0].priority, batch[0].teamId])
+                    await batch[0].ack()
+                }
+
+                expect(drained).toEqual([
+                    [0, teamA],
+                    [1, teamA],
+                    [1, teamB],
+                    [1, teamA],
+                    [1, teamB],
+                ])
+            })
+
             it('picks small-tenant jobs into the same batch as big-tenant jobs', async () => {
                 // The 2M-vs-1 scenario at a smaller scale: team A enqueues 5,
                 // team B enqueues 1. With strict FIFO, B's 1 sits behind A's 5.
@@ -1411,7 +2035,10 @@ describe('Cyclotron V2', () => {
             const defaults = {
                 team_id: 1,
                 function_id: null,
-                queue_name: QUEUE,
+                // Default to a real invocation queue so a poisoned genuine invocation is recorded.
+                // The janitor only records give-ups on invocation queues; anything else is a
+                // wrapper/meta job that's dropped without a record (see WRAPPER drop tests below).
+                queue_name: 'hogflow',
                 status: 'available',
                 priority: 0,
                 scheduled: new Date(),
@@ -1503,7 +2130,205 @@ describe('Cyclotron V2', () => {
             expect(row.janitor_touch_count).toBe(1)
         })
 
-        it('failPoisonPills fails jobs exceeding maxTouchCount', async () => {
+        // Backoff on the reset job's next scheduled time, keyed on
+        // janitor_touch_count. The FIRST stall retries within the small jittered
+        // spread (~5s), not the full base — the exponential term is shifted
+        // (2^touch - 1 = 0 on the first strike) so a transient stall recovers fast.
+        // Repeat stalls then pay a growing, capped backoff. Bounds are loose to
+        // absorb jitter + db clock skew. maxTouchCount is high so these aren't given
+        // up as poison before reset.
+        it('resetStalledJobs retries the first stall fast (spread only, not the full base)', async () => {
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+                scheduled: new Date(Date.now() - 60_000),
+                janitor_touch_count: 0,
+            })
+
+            const before = Date.now()
+            const janitor = createJanitor({
+                stallTimeoutMs: 1_000,
+                stallBackoffBaseMs: 10_000,
+                stallBackoffMaxMs: 600_000,
+            })
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.stalled).toBe(1)
+            const row = await queryJob(jobId)
+            expect(row.status).toBe('available')
+            const deferMs = new Date(row.scheduled).getTime() - before
+            // Rescheduled to ~now (not left 60s in the past → backoff ran) but only
+            // by the ~5s spread — well under the 10s base, so a first stall is fast.
+            expect(deferMs).toBeGreaterThanOrEqual(-500)
+            expect(deferMs).toBeLessThanOrEqual(6_000)
+        })
+
+        it.each([
+            { touchCount: 1, baseMs: 10_000, maxMs: 600_000, minDeferMs: 4_000, maxDeferMs: 18_000 },
+            { touchCount: 2, baseMs: 10_000, maxMs: 600_000, minDeferMs: 13_000, maxDeferMs: 38_000 },
+            { touchCount: 2, baseMs: 10_000, maxMs: 5_000, minDeferMs: 2_000, maxDeferMs: 12_000 },
+        ])(
+            'resetStalledJobs backs off repeat stalls exponentially, capped (touch=$touchCount, cap=$maxMs)',
+            async ({ touchCount, baseMs, maxMs, minDeferMs, maxDeferMs }) => {
+                const jobId = uuidv7()
+                await insertRawJob({
+                    id: jobId,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                    janitor_touch_count: touchCount,
+                })
+
+                const before = Date.now()
+                const janitor = createJanitor({
+                    stallTimeoutMs: 1_000,
+                    maxTouchCount: 100,
+                    stallBackoffBaseMs: baseMs,
+                    stallBackoffMaxMs: maxMs,
+                })
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.stalled).toBe(1)
+                const row = await queryJob(jobId)
+                expect(row.status).toBe('available')
+                const deferMs = new Date(row.scheduled).getTime() - before
+                expect(deferMs).toBeGreaterThan(minDeferMs)
+                expect(deferMs).toBeLessThanOrEqual(maxDeferMs)
+            }
+        )
+
+        it('resetStalledJobs leaves scheduled immediate when backoff is disabled (base 0)', async () => {
+            const jobId = uuidv7()
+            const pastScheduled = new Date(Date.now() - 5_000)
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+                scheduled: pastScheduled,
+                janitor_touch_count: 0,
+            })
+
+            const before = Date.now()
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, stallBackoffBaseMs: 0 })
+            await janitor.runOnce()
+            await janitor.stop()
+
+            const row = await queryJob(jobId)
+            expect(row.status).toBe('available')
+            // scheduled untouched → still in the past → immediately re-dequeuable.
+            expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(before)
+        })
+
+        it('records a poison pill as a failed result and deletes it once recorded', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                function_id: uuidv7(),
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 3,
+            })
+
+            const { service, recordTerminalFailureDurably } = createMockResults(true)
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.poisoned).toBe(1)
+            expect(result.poisonedIds).toEqual([jobId])
+            // Recorded as a failed, replayable invocation result first...
+            expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
+            expect(recordTerminalFailureDurably).toHaveBeenCalledWith(
+                expect.objectContaining({ id: jobId }),
+                expect.objectContaining({ errorKind: JANITOR_POISON_PILL_ERROR_KIND })
+            )
+            // ...then the cyclotron row is gone (no silent delete, no leftover).
+            expect(await totalJobCount()).toBe(0)
+        })
+
+        // Both meta/wrapper queues share cyclotron_jobs with real invocations and
+        // stamp function_id to a target function, so both must be dropped without a
+        // record — else the autodrain replays a real flow with fabricated globals.
+        // 'some_future_meta_queue' is an unknown, non-invocation queue: it guards the allow-list's
+        // fail-safe. Under the old deny-list a queue nobody listed would be RECORDED as a replayable
+        // hog_flow (the autodrain would then replay a phantom flow) — with the allow-list any queue
+        // not in CYCLOTRON_INVOCATION_JOB_QUEUES is dropped without a record by default.
+        it.each(['rerun', 'hogflow_batch_resolve', 'some_future_meta_queue'])(
+            'drops a poisoned %s wrapper without recording it, still records real invocations',
+            async (wrapperQueue) => {
+                const staleHeartbeat = new Date(Date.now() - 60_000)
+                const wrapperId = uuidv7()
+                const invocationId = uuidv7()
+                // A poisoned WRAPPER job and a genuine poisoned invocation, same sweep.
+                await insertRawJob({
+                    id: wrapperId,
+                    function_id: uuidv7(),
+                    queue_name: wrapperQueue,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 3,
+                })
+                await insertRawJob({
+                    id: invocationId,
+                    function_id: uuidv7(),
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 3,
+                })
+
+                const { service, recordTerminalFailureDurably } = createMockResults(true)
+                const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                // The wrapper is dropped with NO replay record — recording it would let
+                // the autodrain rediscover it as a hog_flow and replay a real flow with
+                // fabricated globals. Only the genuine invocation is recorded.
+                expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
+                expect(recordTerminalFailureDurably).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: invocationId }),
+                    expect.anything()
+                )
+                expect(result.poisonedIds).toEqual([invocationId])
+                // Both cyclotron rows are gone — the wrapper is given up on, just untraced.
+                expect(await totalJobCount()).toBe(0)
+            }
+        )
+
+        it('keeps a poison pill (does not delete) when the recovery record cannot be produced', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 3,
+            })
+
+            // produce fails → never delete, so the job is never silently dropped.
+            const { service } = createMockResults(false)
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.poisoned).toBe(0)
+            expect(await totalJobCount()).toBe(1)
+            // It is still reset to available so a recovered worker retries it.
+            expect((await queryJob(jobId)).status).toBe('available')
+        })
+
+        it('keeps poison pills (never deletes) when no results service is wired', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
             const jobId = uuidv7()
             await insertRawJob({
@@ -1518,18 +2343,43 @@ describe('Cyclotron V2', () => {
             const result = await janitor.runOnce()
             await janitor.stop()
 
-            expect(result.poisoned).toBe(1)
-            const row = await queryJob(jobId)
-            expect(row.status).toBe('failed')
+            expect(result.poisoned).toBe(0)
+            expect(await totalJobCount()).toBe(1)
         })
 
-        it('poison pills are failed before stalled jobs are reset', async () => {
+        it('marks poison pills failed (legacy behavior, no record) when recovery is disabled (kill-switch)', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 3,
+            })
+
+            // A results service is wired, but the kill-switch reverts to master's
+            // pre-recovery path: mark the pill failed, never record a replay row.
+            const { service, recordTerminalFailureDurably } = createMockResults(true)
+            const janitor = createJanitor(
+                { stallTimeoutMs: 1_000, maxTouchCount: 2, poisonRecoveryEnabled: false },
+                service
+            )
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.poisoned).toBe(1)
+            expect(recordTerminalFailureDurably).not.toHaveBeenCalled()
+            expect((await queryJob(jobId)).status).toBe('failed')
+        })
+
+        it('gives up on poison pills before stalled jobs are reset', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
 
-            // This job has been touched enough times to be a poison pill
             const poisonId = uuidv7()
             await insertRawJob({
                 id: poisonId,
+                function_id: uuidv7(),
                 status: 'running',
                 lock_id: uuidv7(),
                 last_heartbeat: staleHeartbeat,
@@ -1546,19 +2396,70 @@ describe('Cyclotron V2', () => {
                 janitor_touch_count: 0,
             })
 
-            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 })
+            const { service } = createMockResults(true)
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
             const result = await janitor.runOnce()
             await janitor.stop()
 
             expect(result.poisoned).toBe(1)
             expect(result.stalled).toBe(1)
 
-            const poison = await queryJob(poisonId)
-            expect(poison.status).toBe('failed')
-
+            // Poison pill recorded + deleted; the merely-stalled job survives, reset.
+            await expect(queryJob(poisonId)).rejects.toThrow()
             const stalled = await queryJob(stalledId)
             expect(stalled.status).toBe('available')
         })
+
+        it.each(['hogflow', 'email'])(
+            'builds and produces a valid failed hog_flow result for a poisoned %s-queue job',
+            async (queueName) => {
+                // Realistic parked-mid-flow state; the scheduled/created columns come
+                // back from pg as ISO strings — the give-up row build must parse them
+                // without throwing (the RangeError this guards against).
+                const id = uuidv7()
+                const functionId = uuidv7()
+                const state = Buffer.from(
+                    JSON.stringify({
+                        state: {
+                            event: { uuid: uuidv7(), distinct_id: 'd1' },
+                            actionStepCount: 1,
+                            variables: { foo: 'bar' },
+                            currentAction: { id: 'wait_1', startedAtTimestamp: 1 },
+                        },
+                    })
+                )
+                await insertRawJob({
+                    id,
+                    function_id: functionId,
+                    queue_name: queueName,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                    janitor_touch_count: 5,
+                    state,
+                })
+
+                const { service, produce } = createRealResults()
+                const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.poisonedIds).toEqual([id])
+                // The row was actually built + produced — where the invalid-date
+                // RangeError used to throw and leave the job undeleted.
+                expect(produce).toHaveBeenCalledTimes(1)
+                const row = parseProducedResult(produce)
+                expect(row.status).toBe('failed')
+                expect(row.function_kind).toBe('hog_flow')
+                expect(row.function_id).toBe(functionId)
+                expect(row.error_kind).toBe(JANITOR_POISON_PILL_ERROR_KIND)
+                // Timestamps must be real ISO microsecond strings, never NaN/"Invalid".
+                expect(row.scheduled_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+                expect(row.finished_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+                // Recorded first, then deleted.
+                await expect(queryJob(id)).rejects.toThrow()
+            }
+        )
 
         it('measureQueueDepths returns correct counts per queue', async () => {
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })

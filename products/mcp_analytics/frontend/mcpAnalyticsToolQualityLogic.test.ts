@@ -20,39 +20,37 @@ function dailyStat(overrides: Partial<DailyToolStat> & { day: string }): DailyTo
 
 describe('mcpAnalyticsToolQualityLogic', () => {
     describe('buildDailyChartData', () => {
-        it('fills missing days so the x-axis stays linear', () => {
-            const data = buildDailyChartData([
-                dailyStat({ day: '2026-06-05', calls: 100, errors: 10, p50: 200, p95: 900, p99: 2100 }),
-                dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 }),
-            ])
-            expect(data.labels).toEqual(['2026-06-05', '2026-06-06', '2026-06-07'])
+        it('projects rows onto the bucket keys, zero/NaN-filling gaps', () => {
+            const data = buildDailyChartData(
+                [
+                    dailyStat({ day: '2026-06-05', calls: 100, errors: 10, p50: 200, p95: 900, p99: 2100 }),
+                    dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 }),
+                ],
+                ['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00']
+            )
+            expect(data.labels).toEqual(['2026-06-05 00:00:00', '2026-06-06 00:00:00', '2026-06-07 00:00:00'])
             expect(data.calls).toEqual([100, 0, 50])
             expect(data.errors).toEqual([10, 0, 0])
-            // Gap days get NaN (skipped by the chart), not a dip to zero.
+            // Gap buckets get NaN (skipped by the chart), not a dip to zero.
             expect(data.successRate[0]).toBeCloseTo(90)
             expect(data.successRate[1]).toBeNaN()
             expect(data.p99).toEqual([2100, NaN, 1500])
         })
 
-        it('returns empty series for no rows', () => {
-            expect(buildDailyChartData([]).labels).toEqual([])
+        it('returns empty series for empty bucket keys', () => {
+            expect(buildDailyChartData([], []).labels).toEqual([])
         })
 
-        it('spans the full range when given one, zero-filling days outside the data', () => {
+        // Sub-day windows bucket by hour: rows keyed to an hour must line up with hourly keys, so the
+        // "12 hours collapses to a single point" bug can't come back.
+        it('lines up hourly rows with hourly bucket keys', () => {
             const data = buildDailyChartData(
-                [dailyStat({ day: '2026-06-07', calls: 50, errors: 0, p50: 150, p95: 800, p99: 1500 })],
-                { start: '2026-06-05', end: '2026-06-08' }
+                [dailyStat({ day: '2026-06-07 10:00:00', calls: 12, errors: 3, p50: 80, p95: 200, p99: 400 })],
+                ['2026-06-07 09:00:00', '2026-06-07 10:00:00', '2026-06-07 11:00:00']
             )
-            expect(data.labels).toEqual(['2026-06-05', '2026-06-06', '2026-06-07', '2026-06-08'])
-            expect(data.calls).toEqual([0, 0, 50, 0])
-            expect(data.successRate[0]).toBeNaN()
-            expect(data.successRate[2]).toBeCloseTo(100)
-        })
-
-        it('zero-fills the whole range when there is no data at all', () => {
-            const data = buildDailyChartData([], { start: '2026-06-05', end: '2026-06-07' })
-            expect(data.labels).toEqual(['2026-06-05', '2026-06-06', '2026-06-07'])
-            expect(data.calls).toEqual([0, 0, 0])
+            expect(data.calls).toEqual([0, 12, 0])
+            expect(data.errors).toEqual([0, 3, 0])
+            expect(data.successRate[1]).toBeCloseTo(75)
         })
     })
 
@@ -73,6 +71,29 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         })
     })
 
+    describe('incompleteTail', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+        })
+
+        // An open-ended relative window always ends in the bucket that is still collecting, and a
+        // window that closed in the past never does, so this holds whenever the suite runs.
+        it.each([
+            ['an open-ended window', '-7d', null, true],
+            ['a window that already closed', '2026-06-01', '2026-06-10', false],
+        ])('is %s: %s', async (_label, dateFrom, dateTo, expected) => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter(dateFrom, dateTo)
+            }).toFinishAllListeners()
+
+            expect(logic.values.incompleteTail).toBe(expected)
+        })
+    })
+
     describe('date range and tool filters', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -80,11 +101,11 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
         })
 
-        function queryCallsSince(callIndex: number): { query: string; filters: Record<string, any> }[] {
+        function queryCallsSince(callIndex: number): Record<string, any>[] {
             return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
         }
 
-        it('reloads the tool rows and daily stats with the new date range when the date filter changes', async () => {
+        it('reloads the tool rows, daily stats and category counts with the new date range when the date filter changes', async () => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -95,14 +116,16 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             }).toFinishAllListeners()
 
             const newCalls = queryCallsSince(callsBefore)
-            expect(newCalls.length).toBe(2) // tool rows + daily stats
-            expect(newCalls.map((call) => call.filters.dateRange)).toEqual([
+            expect(newCalls.length).toBe(3) // tool rows + daily stats + category counts
+            // The scope-share headline must track the same window as the rest of the tab.
+            expect(newCalls.map((call) => call.dateRange)).toEqual([
+                { date_from: '-30d', date_to: null },
                 { date_from: '-30d', date_to: null },
                 { date_from: '-30d', date_to: null },
             ])
         })
 
-        it('reloads daily stats with the tool as a property filter when a tool is selected', async () => {
+        it('reloads daily stats scoped to the tool when one is selected, passing it as a typed param', async () => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -114,20 +137,25 @@ describe('mcpAnalyticsToolQualityLogic', () => {
 
             const newCalls = queryCallsSince(callsBefore)
             expect(newCalls.length).toBe(1) // daily stats only
-            expect(newCalls[0].filters.properties).toEqual([
-                expect.objectContaining({
-                    key: '$mcp_tool_name',
-                    value: ["evil'); DROP TABLE events; --"],
-                    operator: 'exact',
-                    type: 'event',
-                }),
-            ])
-            // The tool value must never be interpolated into the HogQL string.
-            expect(newCalls[0].query).not.toContain('DROP TABLE')
+            // The tool rides as a typed toolName param (the runner binds it as a constant), never as raw SQL.
+            expect(newCalls[0].toolName).toBe("evil'); DROP TABLE events; --")
+            expect(newCalls[0].query).toBeUndefined()
         })
 
-        // Tool-quality row tuple as returned by the query (tool, calls, errors, then unused cols)
-        const toolRowResult = (tool: string): unknown[] => [tool, 1, 0, 0, 0, 0, 0, 0, 0, '', '']
+        // Tool-quality row item as returned by the runner.
+        const toolRowResult = (tool: string): Record<string, unknown> => ({
+            tool,
+            total_calls: 1,
+            errors: 0,
+            error_rate_pct: 0,
+            p50_duration_ms: 0,
+            p95_duration_ms: 0,
+            p99_duration_ms: 0,
+            users: 0,
+            sessions: 0,
+            first_seen: '',
+            last_seen: '',
+        })
 
         it('clears the selected tool when a reload no longer includes it', async () => {
             mockApi.query.mockResolvedValue({ results: [toolRowResult('tool_a')] })
@@ -159,6 +187,36 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.selectedTool).toBe('tool_a')
+        })
+
+        it('refetches the charts at the picked grouping, leaving the table alone', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPinnedInterval('hour')
+            }).toFinishAllListeners()
+
+            const newCalls = queryCallsSince(callsBefore)
+            expect(newCalls.length).toBe(1) // daily stats only — the table is a single-window aggregate
+            expect(newCalls[0].interval).toBe('hour')
+        })
+
+        // The two filters are independent: changing the window must not silently undo the grouping.
+        it('keeps the picked grouping when the date range changes', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setPinnedInterval('hour')
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-14d', null)
+            }).toFinishAllListeners()
+
+            // Two weeks would auto-group by day.
+            expect(logic.values.interval).toBe('hour')
         })
     })
 })

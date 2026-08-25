@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 from typing import Any, Optional, Union
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NewEventsSchemaSnapshotExtension
+
+from django.conf import settings
 
 from posthog.schema import SessionTableVersion
 
@@ -463,6 +465,8 @@ SELECT
 
 
 class TestSessionsV3QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
+    allow_dual_schema_snapshots = True
+
     def print_query(self, query: str) -> str:
         team = self.team
         modifiers = create_default_modifiers_for_team(team)
@@ -479,9 +483,19 @@ class TestSessionsV3QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
         pretty = print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True)
         return pretty
 
+    def assert_printed_matches_snapshot(self, actual: str) -> None:
+        generalized_sql = self.generalize_sql(actual)
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in generalized_sql:
+            assert generalized_sql == self.snapshot(
+                name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension
+            )
+            return
+        assert generalized_sql == self.snapshot
+
     def test_select_with_timestamp(self):
         actual = self.print_query("SELECT session_id FROM sessions WHERE $start_timestamp > '2021-01-01'")
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_join_with_events(self):
         actual = self.print_query(
@@ -496,7 +510,7 @@ WHERE events.timestamp > '2021-01-01'
 GROUP BY sessions.session_id
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_union(self):
         actual = self.print_query(
@@ -508,7 +522,7 @@ FROM events
 WHERE events.timestamp < today()
             """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_session_breakdown(self):
         actual = self.print_query(
@@ -552,7 +566,7 @@ WHERE and(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(toDateTime('2024
 GROUP BY day_start,
          breakdown_value"""
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_session_replay_query(self):
         actual = self.print_query(
@@ -565,7 +579,7 @@ WHERE s.session.$entry_pathname = '/home' AND min_first_timestamp >= '2021-01-01
 GROUP BY session_id
         """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_urls_in_sessions_in_timestamp_query(self):
         actual = self.print_query(
@@ -578,7 +592,7 @@ from sessions
 where `$start_timestamp` >= now() - toIntervalDay(7)
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_point_query(self):
         actual = self.print_query(
@@ -589,7 +603,7 @@ where `$start_timestamp` >= now() - toIntervalDay(7)
     where session_id == '01995624-6a63-7cc4-800c-f5a45d99fa9b'
     """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_select_query_alias_type_does_not_crash(self):
         # Regression test: queries with aliased subqueries should not crash when
@@ -609,7 +623,7 @@ FROM (
 WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_single_session_lookup_with_uuidv7_timestamp(self):
         actual = self.print_query(
@@ -625,7 +639,7 @@ WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32
 LIMIT 1
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)
 
     def test_single_session_lookup_with_uuidv7_timestamp_simple(self):
         actual = self.print_query(
@@ -637,4 +651,4 @@ WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32
     AND session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
 """
         )
-        assert self.generalize_sql(actual) == self.snapshot
+        self.assert_printed_matches_snapshot(actual)

@@ -3,18 +3,28 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.llm_prompt import LLMPromptViewSet
-from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES, LLMPromptDuplicateSerializer
+from posthog.api.llm_prompt_serializers import (
+    MAX_PROMPT_PAYLOAD_BYTES,
+    LLMPromptDuplicateSerializer,
+    LLMPromptListQuerySerializer,
+    LLMPromptPublishSerializer,
+    validate_prompt_label_name_value,
+)
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
 
 
 class TestLLMPromptAPI(APIBaseTest):
@@ -23,6 +33,7 @@ class TestLLMPromptAPI(APIBaseTest):
         *,
         name: str = "my-prompt",
         prompt: Any = "Prompt content",
+        config: Any | None = None,
         version: int = 1,
         is_latest: bool = True,
         deleted: bool = False,
@@ -31,6 +42,7 @@ class TestLLMPromptAPI(APIBaseTest):
             team=self.team,
             name=name,
             prompt=prompt,
+            config=config,
             version=version,
             is_latest=is_latest,
             deleted=deleted,
@@ -43,6 +55,7 @@ class TestLLMPromptAPI(APIBaseTest):
             data={
                 "name": "my-prompt",
                 "prompt": "You are a helpful assistant.",
+                "version_description": "Initial version",
             },
             format="json",
         )
@@ -52,6 +65,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["is_latest"] is True
         assert response.json()["latest_version"] == 1
         assert response.json()["version_count"] == 1
+        assert response.json()["version_description"] == "Initial version"
 
     def test_create_prompt_with_duplicate_active_name_fails(self):
         self.create_prompt_version(name="my-prompt")
@@ -344,6 +358,23 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["latest_version"] == 2
         assert response.json()["version_count"] == 2
 
+    def test_publish_persists_version_description_and_returns_it_in_version_summaries(self):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
+            data={"prompt": "v2", "base_version": 1, "version_description": "Tightened the refusal criteria"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version_description"] == "Tightened the refusal criteria"
+
+        resolve_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/publish-prompt/")
+        assert resolve_response.status_code == status.HTTP_200_OK
+        versions = resolve_response.json()["versions"]
+        assert [v["version_description"] for v in versions] == ["Tightened the refusal criteria", None]
+
     def test_update_prompt_by_name_falls_back_when_post_publish_refresh_misses_row(self):
         first_version = self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
 
@@ -374,6 +405,23 @@ class TestLLMPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["current_version"] == 2
+
+    @parameterized.expand([("latest_version", 2), ("historical_version", 1)])
+    def test_update_prompt_by_version_id_publishes_against_the_prompt(self, _name, version):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="publish-prompt", version=2, is_latest=True, prompt="v2")
+        requested = LLMPrompt.objects.get(team=self.team, name="publish-prompt", version=version)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/{requested.id}/",
+            data={"prompt": "v3", "base_version": 2},
+            format="json",
+        )
+
+        # PATCH shares the GET's route, so an id the GET accepts has to publish rather than 404.
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "publish-prompt"
+        assert response.json()["version"] == 3
 
     def test_update_prompt_by_name_rejects_payload_above_max_size(self):
         self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
@@ -772,7 +820,64 @@ class TestLLMPromptAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/non-existent/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert "not found" in response.json()["detail"].lower()
+        detail = response.json()["detail"]
+        assert "non-existent" in detail
+        # The 404 has to name a recovery path for a caller that guessed the name.
+        assert "list the project's prompts" in detail.lower()
+
+    def test_fetch_prompt_at_unknown_version_points_at_the_version_not_the_name(self):
+        self.create_prompt_version(name="my-prompt", version=1, is_latest=True)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/?version=7")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        detail = response.json()["detail"]
+        # The name resolved, so sending the caller off to list prompts would be the wrong recovery path.
+        assert "version 7" in detail
+        assert "list the project's prompts" not in detail.lower()
+
+    @parameterized.expand([("latest_version", 2), ("historical_version", 1)])
+    def test_fetch_prompt_by_version_id_resolves_to_the_prompt(self, _name, version):
+        self.create_prompt_version(name="by-id", version=1, is_latest=False, prompt="v1")
+        self.create_prompt_version(name="by-id", version=2, is_latest=True, prompt="v2")
+        requested = LLMPrompt.objects.get(team=self.team, name="by-id", version=version)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{requested.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        # The id identifies the prompt, not the version, so the route still answers with the latest.
+        assert response.json()["name"] == "by-id"
+        assert response.json()["version"] == 2
+
+    def test_fetch_prompt_by_unknown_version_id_is_not_found(self):
+        self.create_prompt_version(name="by-id")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/019f5632-6df1-0000-5093-46d18b1bc987/"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_fetch_prompt_named_like_a_uuid_wins_over_the_id_lookup(self):
+        other = self.create_prompt_version(name="other", prompt="other content")
+        self.create_prompt_version(name=str(other.id), prompt="named like a uuid")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{other.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["prompt"] == "named like a uuid"
+
+    def test_fetch_prompt_by_version_id_from_another_team_is_not_found(self):
+        from posthog.models import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_prompt = LLMPrompt.objects.create(
+            team=other_team, name="other-team-prompt", prompt="Content", created_by=self.user
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{other_prompt.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_fetch_prompt_by_name_other_team_not_accessible(self):
         from posthog.models import Team
@@ -842,7 +947,9 @@ class TestLLMPromptAPI(APIBaseTest):
 
     def test_duplicate_prompt_creates_new_prompt_with_latest_content(self):
         self.create_prompt_version(name="original", version=1, is_latest=False, prompt="v1")
-        self.create_prompt_version(name="original", version=2, is_latest=True, prompt="v2-latest")
+        self.create_prompt_version(
+            name="original", version=2, is_latest=True, prompt="v2-latest", config={"model": "gpt-4o"}
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
@@ -854,6 +961,7 @@ class TestLLMPromptAPI(APIBaseTest):
         data = response.json()
         assert data["name"] == "copy-of-original"
         assert data["prompt"] == "v2-latest"
+        assert data["config"] == {"model": "gpt-4o"}
         assert data["version"] == 1
         assert data["is_latest"] is True
         assert data["latest_version"] == 1
@@ -922,6 +1030,248 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["name"] == "archived-name"
         assert response.json()["version"] == 1
 
+    def test_prompt_lifecycle_events_are_activity_logged_into_the_history_stream(self):
+        create = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "my-prompt", "prompt": "v1 content"},
+            format="json",
+        )
+        assert create.status_code == status.HTTP_201_CREATED
+        publish = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/",
+            data={"prompt": "v2 content", "base_version": 1, "version_description": "tightened wording"},
+            format="json",
+        )
+        assert publish.status_code == status.HTTP_200_OK
+        label = self.client.put(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/labels/production/",
+            data={"version": 2},
+            format="json",
+        )
+        assert label.status_code == status.HTTP_201_CREATED
+        duplicate = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/duplicate/",
+            data={"new_name": "my-prompt-copy"},
+            format="json",
+        )
+        assert duplicate.status_code == status.HTTP_201_CREATED
+        archive = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+        assert archive.status_code == status.HTTP_204_NO_CONTENT
+
+        entries = ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPrompt")
+        assert sorted((entry.item_id, entry.activity) for entry in entries) == [
+            ("my-prompt", "archived"),
+            ("my-prompt", "created"),
+            ("my-prompt", "duplicated"),
+            ("my-prompt", "published"),
+            ("my-prompt-copy", "created"),
+        ]
+
+        published = entries.get(activity="published")
+        assert published.user is not None and published.user.id == self.user.id
+        published_detail = published.detail
+        assert published_detail is not None
+        assert published_detail["changes"][0]["field"] == "version"
+        assert published_detail["changes"][0]["before"] == 1
+        assert published_detail["changes"][0]["after"] == 2
+        assert published_detail["changes"][1]["field"] == "version_description"
+        assert published_detail["changes"][1]["after"] == "tightened wording"
+
+        copy_detail = entries.get(item_id="my-prompt-copy").detail
+        assert copy_detail is not None
+        assert copy_detail["changes"][0]["field"] == "duplicated_from"
+        assert copy_detail["changes"][0]["after"] == "my-prompt"
+
+        # The History tab queries both scopes by the shared item_id in one request;
+        # lifecycle and label entries must come back as one merged stream.
+        history = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log/?scopes=LLMPrompt,LLMPromptLabel&item_id=my-prompt"
+        )
+        assert history.status_code == status.HTTP_200_OK
+        rows = history.json()["results"]
+        assert {row["scope"] for row in rows} == {"LLMPrompt", "LLMPromptLabel"}
+        # 4 lifecycle entries for my-prompt (the copy's "created" is keyed to the copy)
+        # + label created and label deleted-on-archive.
+        assert len(rows) == 6
+
+
+class TestLLMPromptConfigAPI(APIBaseTest):
+    def create_prompt_version(
+        self,
+        *,
+        name: str = "my-prompt",
+        prompt: Any = "Prompt content",
+        config: Any | None = None,
+        version: int = 1,
+        is_latest: bool = True,
+    ) -> LLMPrompt:
+        return LLMPrompt.objects.create(
+            team=self.team,
+            name=name,
+            prompt=prompt,
+            config=config,
+            version=version,
+            is_latest=is_latest,
+            created_by=self.user,
+        )
+
+    def test_create_prompt_with_config_persists_it_and_fetch_returns_it(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "with-config", "prompt": "content", "config": {"model": "gpt-4o", "temperature": 0}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["config"] == {"model": "gpt-4o", "temperature": 0}
+
+        fetch_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/with-config/")
+        assert fetch_response.status_code == status.HTTP_200_OK
+        assert fetch_response.json()["config"] == {"model": "gpt-4o", "temperature": 0}
+
+    @parameterized.expand(
+        [
+            ("full", True),
+            ("preview", False),
+            ("none", False),
+        ]
+    )
+    def test_fetch_prompt_by_name_content_mode_controls_config(self, mode: str, has_config: bool):
+        self.create_prompt_version(name="config-prompt", config={"model": "gpt-4o"})
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/config-prompt/?content={mode}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert ("config" in response.json()) is has_config
+        if has_config:
+            assert response.json()["config"] == {"model": "gpt-4o"}
+
+    @parameterized.expand(
+        [
+            ("full_prompt", {"prompt": "v2"}),
+            ("edits", {"edits": [{"old": "v1", "new": "v2"}]}),
+        ]
+    )
+    def test_publish_without_config_key_carries_config_forward(self, _name: str, payload: dict):
+        self.create_prompt_version(name="carry-prompt", prompt="v1", config={"temperature": 0.7})
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/carry-prompt/",
+            data={**payload, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] == {"temperature": 0.7}
+        published = LLMPrompt.objects.get(team=self.team, name="carry-prompt", version=2)
+        assert published.config == {"temperature": 0.7}
+        assert published.prompt == "v2"
+
+    def test_publish_with_null_config_clears_it(self):
+        self.create_prompt_version(name="clear-prompt", prompt="v1", config={"temperature": 0.7})
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/clear-prompt/",
+            data={"prompt": "v2", "config": None, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] is None
+        assert LLMPrompt.objects.get(team=self.team, name="clear-prompt", version=2).config is None
+
+    def test_config_only_publish_creates_version_with_prompt_carried_forward(self):
+        self.create_prompt_version(name="config-only", prompt="unchanged", config={"temperature": 0.2})
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/config-only/",
+            data={"config": {"temperature": 0.9}, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 2
+        assert response.json()["config"] == {"temperature": 0.9}
+        published = LLMPrompt.objects.get(team=self.team, name="config-only", version=2)
+        assert published.prompt == "unchanged"
+        assert published.is_latest is True
+
+    def test_publish_rejects_non_object_config(self):
+        self.create_prompt_version(name="bad-config", prompt="v1")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/bad-config/",
+            data={"prompt": "v2", "config": "gpt-4o", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "config"
+        assert LLMPrompt.objects.filter(team=self.team, name="bad-config", version=2).count() == 0
+
+    def test_create_rejects_non_object_config(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "bad-config", "prompt": "content", "config": ["gpt-4o"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "config"
+
+    def test_fetch_returns_null_config_for_cache_entries_written_before_config_existed(self):
+        from posthog.storage.llm_prompt_cache import llm_prompts_hypercache
+        from posthog.storage.llm_prompt_cache_keys import prompt_latest_cache_key
+
+        self.create_prompt_version(name="legacy-cached", prompt="v1", config={"model": "gpt-4o"})
+        cache_key = prompt_latest_cache_key(self.team.id, "legacy-cached")
+
+        first_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/legacy-cached/")
+        assert first_response.status_code == status.HTTP_200_OK
+
+        cached_entry = llm_prompts_hypercache.get_from_cache(cache_key)
+        assert isinstance(cached_entry, dict)
+        legacy_entry = dict(cached_entry)
+        legacy_entry.pop("config", None)
+        llm_prompts_hypercache.set_cache_value(cache_key, legacy_entry)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/legacy-cached/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["config"] is None
+
+
+class TestLLMPromptConfigValidationNoDB(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("string", "gpt-4o"),
+            ("array", ["gpt-4o"]),
+            ("number", 42),
+            ("oversized_object", {"x": "a" * (MAX_PROMPT_PAYLOAD_BYTES + 1)}),
+        ]
+    )
+    def test_rejects_invalid_config(self, _name: str, bad_config: Any) -> None:
+        serializer = LLMPromptPublishSerializer(data={"prompt": "v2", "config": bad_config, "base_version": 1})
+        assert not serializer.is_valid()
+        # The error must talk about config, not "Prompt payload" — the size check is shared.
+        assert str(serializer.errors["config"][0]).startswith("Config")
+
+    @parameterized.expand(
+        [
+            ("object", {"model": "gpt-4o", "tools": [{"name": "search"}]}),
+            ("null", None),
+        ]
+    )
+    def test_accepts_object_or_null_config(self, _name: str, good_config: Any) -> None:
+        serializer = LLMPromptPublishSerializer(data={"prompt": "v2", "config": good_config, "base_version": 1})
+        assert serializer.is_valid(), serializer.errors
+
+    def test_config_only_publish_payload_is_valid(self) -> None:
+        serializer = LLMPromptPublishSerializer(data={"config": {"temperature": 0.5}, "base_version": 1})
+        assert serializer.is_valid(), serializer.errors
+
+    def test_payload_without_prompt_edits_or_config_is_rejected(self) -> None:
+        serializer = LLMPromptPublishSerializer(data={"base_version": 1})
+        assert not serializer.is_valid()
+
 
 class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     # validate_new_name is a pure regex + reserved-name check (no context, no DB). The duplicate
@@ -943,3 +1293,341 @@ class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     def test_accepts_valid_new_name(self) -> None:
         serializer = LLMPromptDuplicateSerializer(data={"new_name": "a-valid_name1"})
         assert serializer.is_valid(), serializer.errors
+
+
+class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
+    def test_rejects_unknown_order_by(self) -> None:
+        # order_by used to be read from raw query params with a silent fallback; the serializer
+        # now owns the contract, so an unknown value must fail validation (and 400 at the endpoint).
+        serializer = LLMPromptListQuerySerializer(data={"order_by": "prompt"})
+        assert not serializer.is_valid()
+        assert "order_by" in serializer.errors
+
+
+class TestLLMPromptLabelsAPI(APIBaseTest):
+    def create_prompt_version(
+        self,
+        *,
+        name: str = "my-prompt",
+        prompt: Any = "Prompt content",
+        version: int = 1,
+        is_latest: bool = True,
+    ) -> LLMPrompt:
+        return LLMPrompt.objects.create(
+            team=self.team,
+            name=name,
+            prompt=prompt,
+            version=version,
+            is_latest=is_latest,
+            created_by=self.user,
+        )
+
+    def _label_url(self, prompt_name: str, label_name: str) -> str:
+        return f"/api/environments/{self.team.id}/llm_prompts/name/{prompt_name}/labels/{label_name}/"
+
+    def _set_label(self, prompt_name: str, label_name: str, version: int):
+        return self.client.put(self._label_url(prompt_name, label_name), data={"version": version}, format="json")
+
+    def _resolve_labels_by_version(self, prompt_name: str) -> dict[int, list[str]]:
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/{prompt_name}/")
+        assert response.status_code == status.HTTP_200_OK
+        return {entry["version"]: entry["labels"] for entry in response.json()["versions"]}
+
+    def test_set_label_creates_pointer_and_exposes_it_on_versions(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+
+        response = self._set_label("my-prompt", "production", 1)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["name"] == "production"
+        assert data["prompt_name"] == "my-prompt"
+        assert data["version"] == 1
+        assert self._resolve_labels_by_version("my-prompt") == {1: ["production"], 2: []}
+
+    def test_set_label_moves_existing_label_instead_of_duplicating(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+
+        response = self._set_label("my-prompt", "production", 2)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 2
+        assert self._resolve_labels_by_version("my-prompt") == {1: [], 2: ["production"]}
+        assert LLMPromptLabel.objects.filter(team=self.team).count() == 1
+
+    def test_version_can_hold_multiple_labels(self):
+        self.create_prompt_version(version=1)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("my-prompt", "staging", 1).status_code == status.HTTP_201_CREATED
+
+        assert self._resolve_labels_by_version("my-prompt") == {1: ["production", "staging"]}
+
+    def test_set_label_unknown_version_returns_404(self):
+        self.create_prompt_version(version=1)
+
+        response = self._set_label("my-prompt", "production", 7)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_set_label_rejects_invalid_name(self):
+        self.create_prompt_version(version=1)
+
+        response = self._set_label("my-prompt", "latest", 1)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_set_label_limit_blocks_creates_but_not_moves(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+
+        with patch("posthog.api.services.llm_prompt.MAX_PROMPT_LABELS", 1):
+            assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+            assert self._set_label("my-prompt", "staging", 1).status_code == status.HTTP_400_BAD_REQUEST
+            assert self._set_label("my-prompt", "production", 2).status_code == status.HTTP_200_OK
+
+    def test_delete_label_removes_pointer(self):
+        self.create_prompt_version(version=1)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.delete(self._label_url("my-prompt", "production"))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._resolve_labels_by_version("my-prompt") == {1: []}
+
+        response = self.client.delete(self._label_url("my-prompt", "production"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_resolve_returns_all_labels_including_versions_beyond_loaded_page(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2, is_latest=False)
+        self.create_prompt_version(version=3)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/my-prompt/?limit=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [entry["version"] for entry in data["versions"]] == [3]
+        assert [(label["name"], label["version"]) for label in data["labels"]] == [("production", 1)]
+
+    def test_list_all_labels_includes_labels_on_non_latest_versions_in_one_query(self):
+        self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
+        self.create_prompt_version(name="prompt-a", version=2)
+        self.create_prompt_version(name="prompt-b", version=1)
+        assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-b", "staging", 1).status_code == status.HTTP_201_CREATED
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/")
+
+        assert response.status_code == status.HTTP_200_OK
+        labels_by_prompt = {entry["name"]: entry["all_labels"] for entry in response.json()["results"]}
+        assert labels_by_prompt == {
+            "prompt-a": [{"name": "production", "version": 1}],
+            "prompt-b": [{"name": "staging", "version": 1}],
+        }
+        # One batched all_labels query + one prefetch_related("labels") query — must not scale with prompt count.
+        label_queries = [q for q in queries.captured_queries if "llmpromptlabel" in q["sql"].lower()]
+        assert len(label_queries) == 2
+
+    def test_archive_prompt_deletes_its_labels(self):
+        self.create_prompt_version(version=1)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert LLMPromptLabel.objects.filter(team=self.team).count() == 0
+
+    def _fetch_by_label(self, prompt_name: str, label_name: str):
+        return self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/{prompt_name}/?label={label_name}")
+
+    def _set_label_committed(self, prompt_name: str, label_name: str, version: int):
+        # Cache invalidation rides on transaction.on_commit, which TestCase never fires
+        # on its own — execute the callbacks so these tests exercise the invalidation
+        # exactly as a committed request would.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self._set_label(prompt_name, label_name, version)
+
+    def test_fetch_by_label_returns_resolved_version_and_survives_label_move(self):
+        self.create_prompt_version(version=1, is_latest=False, prompt="v1 content")
+        self.create_prompt_version(version=2, prompt="v2 content")
+        self._set_label_committed("my-prompt", "production", 1)
+
+        first_fetch = self._fetch_by_label("my-prompt", "production")
+        assert first_fetch.status_code == status.HTTP_200_OK
+        assert first_fetch.json()["version"] == 1
+        assert first_fetch.json()["prompt"] == "v1 content"
+        assert first_fetch.json()["label"] == "production"
+
+        # The move must invalidate the cached label entry the first fetch created —
+        # a stale entry here means the promote button silently doesn't promote.
+        self._set_label_committed("my-prompt", "production", 2)
+
+        second_fetch = self._fetch_by_label("my-prompt", "production")
+        assert second_fetch.status_code == status.HTTP_200_OK
+        assert second_fetch.json()["version"] == 2
+        assert second_fetch.json()["prompt"] == "v2 content"
+
+    def test_fetch_by_label_after_cached_miss_sees_newly_created_label(self):
+        self.create_prompt_version(version=1)
+
+        # This 404 caches a miss sentinel; creating the label must clear it.
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_404_NOT_FOUND
+
+        self._set_label_committed("my-prompt", "production", 1)
+
+        response = self._fetch_by_label("my-prompt", "production")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 1
+
+    def test_fetch_rejects_invalid_label_params(self):
+        self.create_prompt_version(version=1)
+        self._set_label("my-prompt", "production", 1)
+
+        both_params = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/?label=production&version=1"
+        )
+        # Invalid names must be rejected before any cache touch — an unvalidated fetch
+        # writes a miss sentinel under a caller-controlled key and silently 404s.
+        bad_name = self._fetch_by_label("my-prompt", "Production")
+
+        assert both_params.status_code == status.HTTP_400_BAD_REQUEST
+        assert bad_name.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_fetch_by_label_404s_after_label_delete_and_prompt_archive(self):
+        self.create_prompt_version(version=1)
+        self._set_label_committed("my-prompt", "production", 1)
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_200_OK
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.delete(self._label_url("my-prompt", "production"))
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_404_NOT_FOUND
+
+        self._set_label_committed("my-prompt", "production", 1)
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_200_OK
+
+        # Archive removes labels via a queryset delete — its post_delete signals must
+        # clear the label cache entries too, not just the explicit delete endpoint path.
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+        assert self._fetch_by_label("my-prompt", "production").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_label_changes_are_activity_logged_with_version_movement(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+
+        self._set_label("my-prompt", "production", 1)
+        self._set_label("my-prompt", "production", 2)
+        self._set_label("my-prompt", "production", 2)  # no-op move must not log
+        self.client.delete(self._label_url("my-prompt", "production"))
+
+        entries = list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").order_by("created_at"))
+        assert [entry.activity for entry in entries] == ["created", "updated", "deleted"]
+        # item_id is the prompt name: the prompt page History tab queries by it.
+        assert all(entry.item_id == "my-prompt" for entry in entries)
+        move_detail = entries[1].detail
+        assert move_detail is not None
+        assert move_detail["name"] == "my-prompt: production"
+        assert move_detail["changes"][0]["before"] == 1
+        assert move_detail["changes"][0]["after"] == 2
+        assert entries[1].user is not None and entries[1].user.id == self.user.id
+
+    def test_label_activity_survives_prompt_names_longer_than_item_id_column(self):
+        long_name = "a" * 100  # valid prompt name (max 255) but longer than ActivityLog.item_id's varchar(72)
+        self.create_prompt_version(name=long_name, version=1)
+
+        response = self._set_label(long_name, "production", 1)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        entry = ActivityLog.objects.get(team_id=self.team.id, scope="LLMPromptLabel")
+        assert entry.item_id == "a" * 39 + "#2816597888e4a0d3a36b82b83316ab32"
+        # The History tab queries by the serializer-provided key; it must match what was logged.
+        resolve = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/{long_name}/")
+        assert resolve.json()["prompt"]["activity_item_id"] == entry.item_id
+
+    def test_long_prompt_names_sharing_a_prefix_get_distinct_activity_keys(self):
+        shared_prefix = "b" * 80
+        self.create_prompt_version(name=shared_prefix + "-one", version=1)
+        self.create_prompt_version(name=shared_prefix + "-two", version=1)
+
+        assert self._set_label(shared_prefix + "-one", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label(shared_prefix + "-two", "production", 1).status_code == status.HTTP_201_CREATED
+
+        item_ids = set(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel").values_list("item_id", flat=True)
+        )
+        assert len(item_ids) == 2
+
+    def test_archive_logs_label_deletion(self):
+        self.create_prompt_version(version=1)
+        self._set_label("my-prompt", "production", 1)
+
+        self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+
+        deletions = ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPromptLabel", activity="deleted")
+        assert deletions.count() == 1
+
+    def test_label_writes_forbidden_for_read_only_personal_api_key(self):
+        self.create_prompt_version(version=1)
+        api_key = self.create_personal_api_key_with_scopes(["llm_prompt:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        put_response = self._set_label("my-prompt", "production", 1)
+        delete_response = self.client.delete(self._label_url("my-prompt", "production"))
+
+        assert put_response.status_code == status.HTTP_403_FORBIDDEN
+        assert delete_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_label_writes_allowed_for_write_scoped_personal_api_key(self):
+        self.create_prompt_version(version=1)
+        api_key = self.create_personal_api_key_with_scopes(["llm_prompt:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        put_response = self._set_label("my-prompt", "production", 1)
+        # DELETE is a mapped method on the set_label action; it must share the
+        # action's required_scopes rather than fall back to "not supported" 403.
+        delete_response = self.client.delete(self._label_url("my-prompt", "production"))
+
+        assert put_response.status_code == status.HTTP_201_CREATED
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+
+class TestLLMPromptLabelNameValidationNoDB(SimpleTestCase):
+    # validate_prompt_label_name_value is a pure string check (no context, no DB). The endpoint's
+    # use of it is guarded by test_set_label_rejects_invalid_name.
+    @parameterized.expand(
+        [
+            ("uppercase", "Production"),
+            ("reserved_latest", "latest"),
+            ("reserved_latest_upper", "LATEST"),
+            ("numeric", "3"),
+            ("numeric_long", "42"),
+            ("space", "my label"),
+            ("slash", "prod/eu"),
+            ("leading_dash", "-prod"),
+            ("trailing_dot", "prod."),
+            ("empty", ""),
+            ("too_long", "a" * 129),
+            ("non_ascii", "café"),
+        ]
+    )
+    def test_rejects_invalid_label_name(self, _label: str, bad_name: str) -> None:
+        with self.assertRaises(DRFValidationError):
+            validate_prompt_label_name_value(bad_name)
+
+    @parameterized.expand(
+        [
+            ("word", "production"),
+            ("single_char", "a"),
+            ("digit_mix", "v2.rollout"),
+            ("dashes", "staging-eu"),
+            ("underscore", "tenant_b"),
+            ("max_length", "a" * 128),
+        ]
+    )
+    def test_accepts_valid_label_name(self, _label: str, good_name: str) -> None:
+        assert validate_prompt_label_name_value(good_name) == good_name

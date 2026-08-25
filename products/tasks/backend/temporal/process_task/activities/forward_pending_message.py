@@ -3,14 +3,22 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
+from products.tasks.backend.temporal.process_task.utils import (
+    get_actor_distinct_id,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
+)
 
 logger = get_logger(__name__)
+
+PENDING_MESSAGE_TIMEOUT_SECONDS = 90
 
 
 def _task_run_log_context(task_run: Any) -> dict[str, Any]:
@@ -54,13 +62,20 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
     from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
     from products.tasks.backend.metrics import observe_followup_delivery_failed
-    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.models import TaskRun, stamp_pending_user_message_id
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team", "task__loop").get(id=run_id)
     except TaskRun.DoesNotExist:
+        # The run existed when this workflow started, so a missing row means it was
+        # hard-deleted mid-run (team/org deletion cascade). Fail the workflow rather
+        # than letting the agent session run on with no rows to report into.
         logger.warning("forward_pending_message_run_not_found", run_id=run_id)
-        return
+        raise ApplicationError(
+            f"TaskRun {run_id} no longer exists; cannot forward the pending user message",
+            non_retryable=True,
+            type="TaskRunDeletedError",
+        )
 
     retryable_delivery_error: str | None = None
 
@@ -74,11 +89,25 @@ def forward_pending_user_message(run_id: str) -> None:
         activity_failure=activity_failure,
         **_task_run_log_context(task_run),
     ):
-        state = task_run.state or {}
+        state = dict(task_run.state or {})
+        if not state.get("pending_user_message_id"):
+            state = TaskRun.mutate_state_atomic(run_id, stamp_pending_user_message_id)
         pending_message = state.get("pending_user_message")
         pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
         if not pending_message and not pending_user_artifact_ids:
             return
+
+        if state.get("await_user_message"):
+            from products.tasks.backend.exceptions import ComputeBillingLimitError
+            from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
+
+            if reason := get_compute_quota_denial_reason(task_run.task):
+                raise ComputeBillingLimitError(
+                    {"team_id": task_run.team_id, "task_id": str(task_run.task_id), "run_id": run_id}, reason
+                )
+
+        pending_message_id = state.get("pending_user_message_id")
+        assert isinstance(pending_message_id, str) and pending_message_id
 
         pending_artifacts: list[dict[str, Any]] = []
         if pending_user_artifact_ids:
@@ -93,17 +122,26 @@ def forward_pending_user_message(run_id: str) -> None:
                 raise RuntimeError(f"Pending task artifacts not found on this run: {missing_ids}")
 
         auth_token = None
-        created_by = task_run.task.created_by
-        if created_by and created_by.id:
-            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        actor_user = get_task_run_credential_user(task_run.task, state)
+        if is_slack_interaction_state(state) and actor_user is None:
+            raise RuntimeError("Slack task run is missing an acting user")
+        if actor_user and actor_user.id:
+            auth_token = create_sandbox_connection_token(
+                task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
+            )
 
+        from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
+            measure_task_run_cpu_attribution,
+        )
+
+        cpu_attribution = measure_task_run_cpu_attribution(run_id, task_run.team_id)
         result = send_user_message(
             task_run,
             pending_message,
             artifacts=pending_artifacts or None,
             auth_token=auth_token,
-            timeout=90,
+            timeout=PENDING_MESSAGE_TIMEOUT_SECONDS,
+            message_id=pending_message_id,
         )
         logger.info(
             "forward_pending_message_attempted",
@@ -111,16 +149,25 @@ def forward_pending_user_message(run_id: str) -> None:
             has_message=bool(pending_message),
             artifact_count=len(pending_artifacts),
         )
-        if not result.success and result.retryable and result.status_code != 504:
+        if result.turn_in_flight:
+            logger.info(
+                "forward_pending_message_turn_still_running",
+                run_id=run_id,
+                timeout_seconds=PENDING_MESSAGE_TIMEOUT_SECONDS,
+            )
+        elif not result.success and result.retryable and result.status_code != 504:
             result = send_user_message(
                 task_run,
                 pending_message,
                 artifacts=pending_artifacts or None,
                 auth_token=auth_token,
-                timeout=90,
+                timeout=PENDING_MESSAGE_TIMEOUT_SECONDS,
+                message_id=pending_message_id,
             )
 
-        if not result.success and result.retryable:
+        if not result.success and not result.turn_in_flight and result.retryable:
+            from products.tasks.backend.logic.services.agent_command import user_facing_agent_error
+
             retryable_delivery_error = result.error or "Retryable pending message delivery failed"
             observe_followup_delivery_failed(task_run, retryable=True)
             logger.warning(
@@ -128,22 +175,41 @@ def forward_pending_user_message(run_id: str) -> None:
                 run_id=run_id,
                 error=result.error,
             )
-            return
+            if state.get("interaction_origin") == "slack":
+                _enqueue_pending_delivery_failure_relay(task_run, state.get("pending_user_message_ts"), result.error)
+            raise ApplicationError(
+                f"forward pending message failed: {user_facing_agent_error(result.error)}",
+                non_retryable=True,
+            )
 
         pending_message_ts = state.get("pending_user_message_ts")
 
         if state.get("interaction_origin") == "slack":
             if result.success:
                 _enqueue_pending_reply_relay(task_run, pending_message_ts, result.data)
-            else:
+            elif not result.turn_in_flight:
                 _enqueue_pending_delivery_failure_relay(task_run, pending_message_ts, result.error)
 
         TaskRun.update_state_atomic(
             run_id,
-            remove_keys=["pending_user_message", "pending_user_artifact_ids", "pending_user_message_ts"],
+            remove_keys=[
+                "pending_user_message",
+                "pending_user_artifact_ids",
+                "pending_user_message_id",
+                "pending_user_message_ts",
+            ],
         )
 
-        if result.success:
+        if result.success or result.turn_in_flight:
+            # Attribution stamp for the sandbox usage ledger: the initial prompt is a
+            # user message, so its delivery starts the user-attributable window even
+            # when the run state carried a warm marker at provision time. A turn in
+            # flight counts: the message reached the sandbox and it is doing work.
+            from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
+                record_task_run_user_activity,
+            )
+
+            record_task_run_user_activity(run_id, task_run.team_id, cpu_attribution)
             logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
             observe_followup_delivery_failed(task_run, retryable=False)
@@ -155,9 +221,10 @@ def forward_pending_user_message(run_id: str) -> None:
 
 
 def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str | None, error: str | None) -> None:
+    from products.tasks.backend.logic.services.agent_command import user_facing_agent_error
     from products.tasks.backend.temporal.client import execute_posthog_code_agent_relay_workflow
 
-    error_suffix = f" ({error})" if error else ""
+    error_suffix = f" ({user_facing_agent_error(error)})" if error else ""
     try:
         execute_posthog_code_agent_relay_workflow(
             run_id=str(task_run.id),

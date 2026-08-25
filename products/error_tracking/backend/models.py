@@ -20,6 +20,7 @@ from posthog.kafka_client.topics import (
 )
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
@@ -33,15 +34,21 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
-        return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
+        first_seen = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=models.OuterRef("pk"))
+            .order_by("first_seen")
+            .values("first_seen")[:1]
+        )
+        return self.annotate(first_seen=models.Subquery(first_seen))
 
 
 class ErrorTrackingIssueMergeResult(StrEnum):
     # The merge completed and moved source fingerprints onto the target issue.
     MERGED = "merged"
-    # The request only referenced the target issue, duplicate source IDs, or no source IDs.
+    # The request only referenced the target issue, duplicate source IDs, no source IDs, or every
+    # source issue had already disappeared before row locks were acquired (nothing left to merge).
     NO_SOURCE_ISSUES = "no_source_issues"
-    # The target or at least one source issue disappeared before row locks were acquired.
+    # The target issue itself disappeared before row locks were acquired, so there's nothing to merge into.
     STALE_ISSUES = "stale_issues"
     # A guarded fingerprint no longer belongs to the issue observed before the merge transaction.
     STALE_FINGERPRINTS = "stale_fingerprints"
@@ -55,9 +62,17 @@ class ErrorTrackingIssue(UUIDTModel):
         PENDING_RELEASE = "pending_release", "Pending release"
         SUPPRESSED = "suppressed", "Suppressed"
 
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+    state_updated_at = models.DateTimeField(null=True, blank=True)
     status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
+    severity = models.TextField(choices=Severity, null=True, default=None)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
@@ -65,6 +80,13 @@ class ErrorTrackingIssue(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingissue"
+        indexes = [
+            models.Index(
+                fields=["team", "-state_updated_at"],
+                name="et_issue_team_state_idx",
+                condition=models.Q(state_updated_at__isnull=False),
+            )
+        ]
 
     def merge(
         self, issue_ids: Sequence[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None
@@ -79,8 +101,10 @@ class ErrorTrackingIssue(UUIDTModel):
             existing_source_issue_ids = _lock_merge_issues(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
             )
-            if not existing_source_issue_ids:
+            if existing_source_issue_ids is None:
                 return ErrorTrackingIssueMergeResult.STALE_ISSUES
+            if not existing_source_issue_ids:
+                return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
             if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
                 team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
             ):
@@ -101,6 +125,10 @@ class ErrorTrackingIssue(UUIDTModel):
             # Reassign spike events from merged issues before deleting them
             ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id__in=existing_source_issue_ids).update(
                 issue_id=target_issue_id
+            )
+            # Read source assignees before the delete cascades their assignment rows away
+            _adopt_source_assignee_on_merge(
+                team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
             )
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
 
@@ -222,17 +250,52 @@ def _normalize_source_issue_ids(*, issue_ids: Sequence[str | UUID], target_issue
     return sorted(source_issue_ids, key=lambda issue_id: issue_id.hex)
 
 
-def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> list[UUID]:
+def _lock_merge_issues(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> list[UUID] | None:
+    """Row-lock the target and the sources that still exist, tolerating a partially stale selection.
+
+    Returns None when the target issue itself is gone (nothing to merge into). Otherwise returns the
+    subset of source ids that still exist — sources that disappeared before the lock (already merged,
+    deleted, or lost to a concurrent merge) are dropped so the merge proceeds with what remains,
+    instead of rejecting the whole request.
+    """
     locked_issue_ids = {
         issue.id
         for issue in ErrorTrackingIssue.objects.select_for_update()
         .filter(team_id=team_id, id__in=[target_issue_id, *source_issue_ids])
         .order_by("id")
     }
-    if target_issue_id not in locked_issue_ids or not set(source_issue_ids).issubset(locked_issue_ids):
-        return []
+    if target_issue_id not in locked_issue_ids:
+        return None
 
-    return source_issue_ids
+    return [issue_id for issue_id in source_issue_ids if issue_id in locked_issue_ids]
+
+
+def _adopt_source_assignee_on_merge(*, team_id: int, target_issue_id: UUID, source_issue_ids: list[UUID]) -> None:
+    """Carry a single shared assignee from merged issues onto an unassigned target.
+
+    Only fires when the target has no assignee and the sources resolve to exactly one
+    distinct assignee — ambiguous (2+) or empty assignee sets leave the target untouched.
+    Source issue ids are already team-scoped and row-locked by the caller.
+    """
+    if ErrorTrackingIssueAssignment.objects.filter(issue_id=target_issue_id).exists():
+        return
+
+    # Lock the source assignments so a concurrent assign can't commit a new assignee that we then
+    # read as stale and delete via cascade — matches the fingerprint locking in merge().
+    distinct_assignees = {
+        (assignment.user_id, assignment.role_id)
+        for assignment in ErrorTrackingIssueAssignment.objects.select_for_update().filter(issue_id__in=source_issue_ids)
+    }
+    if len(distinct_assignees) != 1:
+        return
+
+    user_id, role_id = next(iter(distinct_assignees))
+    if user_id is None and role_id is None:
+        return
+
+    ErrorTrackingIssueAssignment.objects.create(
+        team_id=team_id, issue_id=target_issue_id, user_id=user_id, role_id=role_id
+    )
 
 
 def _lock_expected_fingerprint_issue_ids(*, team_id: int, expected_fingerprint_issue_ids: dict[str, UUID]) -> bool:
@@ -326,8 +389,9 @@ class ErrorTrackingSymbolSet(UUIDTModel):
             delete_symbol_set_contents(storage_ptr)
 
     class Meta:
+        # No (team_id, ref) index here on purpose: `unique_ref_per_team` below already
+        # provides one on the same columns, so a second is pure write and storage cost.
         indexes = [
-            models.Index(fields=["team_id", "ref"]),
             # Composite covers the cleanup filter's two OR branches: `last_used < cutoff`
             # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
             # then created_at range), so batch cleanup avoids a full PK-ordered scan.
@@ -365,6 +429,20 @@ class ErrorTrackingAssignmentRule(UUIDTModel):
         # constraints = [
         #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
         # ]
+
+
+class ErrorTrackingSeverityRule(TeamScopedRootMixin, UUIDTModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    filters = models.JSONField(null=False, blank=False)
+    bytecode = models.JSONField(null=False, blank=False)
+    severity = models.TextField(choices=ErrorTrackingIssue.Severity)
+    order_key = models.IntegerField(null=False, blank=False)
+    disabled_data = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingseverityrule"
 
 
 # A custom grouping rule works as follows:
@@ -676,6 +754,7 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
                 "issue_name": issue.name,
                 "issue_description": issue.description,
                 "issue_status": _clickhouse_status(issue.status),
+                "issue_severity": issue.severity,
                 "assigned_user_id": assigned_user_id,
                 "assigned_role_id": assigned_role_id,
                 "first_seen": first_seen,

@@ -4,7 +4,8 @@ from typing import Any
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 
-from openai import OpenAI
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 from rest_framework.serializers import ValidationError as DRFValidationError
 
@@ -56,8 +57,17 @@ class AnalyzeUserInterviewsTool(MaxTool):
         interview_summaries_text = "\n\n".join(interview_summaries)
 
         # Use GPT to analyze the summaries
-        analysis_response = OpenAI(base_url=settings.OPENAI_BASE_URL).responses.create(
+        analysis_response = OpenAI(
+            posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL
+        ).responses.create(  # type: ignore[call-overload]
             model="gpt-4.1-mini",
+            posthog_privacy_mode=True,
+            posthog_distinct_id=self._user.distinct_id,
+            posthog_properties={
+                "ai_product": "user_interviews",
+                "ai_feature": "analyze-interviews",
+                "team_id": self._team.id,
+            },
             input=[
                 {
                     "role": "system",

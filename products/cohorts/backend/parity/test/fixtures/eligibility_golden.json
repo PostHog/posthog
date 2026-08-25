@@ -1,0 +1,261 @@
+{
+  "_comment": "Golden vectors mirroring the Rust unit tests in leaf_classifier.rs, eligibility.rs, and pick_state.rs. expected_window_days: number of days, 'inf' for absolute explicit ranges, null for no kept behavioral leaf.",
+  "cases": [
+    {
+      "name": "performed_event_daily_window_is_single_leaf",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": 7
+    },
+    {
+      "name": "performed_event_multiple_daily_window_is_kept",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_multiple", "key": "$pageview", "time_value": 7, "time_interval": "day", "operator": "gte", "operator_value": 3, "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": 7
+    },
+    {
+      "name": "performed_event_multiple_sub_day_window_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_multiple", "key": "$pageview", "time_value": 5, "time_interval": "hour", "operator": "gte", "operator_value": 3, "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_multiple_365_day_window_is_kept",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_multiple", "key": "$pageview", "time_value": 365, "time_interval": "day", "operator": "gte", "operator_value": 3, "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": 365
+    },
+    {
+      "name": "performed_event_multiple_explicit_relative_lower_7d_is_kept",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_multiple", "key": "$pageview", "explicit_datetime": "-7d", "operator": "gte", "operator_value": 3, "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": 7
+    },
+    {
+      "name": "performed_event_multiple_explicit_relative_lower_1y_is_kept",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_multiple", "key": "$pageview", "explicit_datetime": "-1y", "operator": "gte", "operator_value": 3, "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": 365
+    },
+    {
+      "name": "performed_event_multiple_explicit_sub_day_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_multiple", "key": "$pageview", "explicit_datetime": "-2h", "operator": "gte", "operator_value": 3, "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_multiple_explicit_whole_day_hours_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_multiple", "key": "$pageview", "explicit_datetime": "-24h", "operator": "gte", "operator_value": 3, "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_multiple_explicit_absolute_range_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_multiple", "key": "$pageview", "explicit_datetime": "2026-01-01", "explicit_datetime_to": "2026-12-31", "operator": "gte", "operator_value": 3, "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_without_window_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_sequence_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_sequence", "key": "$pageview", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "action_keyed_behavioral_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": 12345, "time_value": 7, "time_interval": "day", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "behavioral_without_condition_hash_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "short_condition_hash_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "conditionHash": "tooshort", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "behavioral_without_bytecode_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "conditionHash": "0123456789abcdef"}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "non_array_bytecode_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "conditionHash": "0123456789abcdef", "bytecode": "not-an-array"}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "person_leaf_is_single_leaf_without_window",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 1, 2, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": null
+    },
+    {
+      "name": "person_without_condition_hash_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 1, 2, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "person_without_bytecode_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "0123456789abcdef"}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "unknown_leaf_type_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "event", "key": "$pageview", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_sub_day_window_is_kept_fractional",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 12, "time_interval": "hour", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": 0.5
+    },
+    {
+      "name": "performed_event_explicit_absolute_range_is_permanent",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "explicit_datetime": "2026-01-01", "explicit_datetime_to": "2026-12-31", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": "inf"
+    },
+    {
+      "name": "performed_event_explicit_relative_upper_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "explicit_datetime": "2026-01-01", "explicit_datetime_to": "-7d", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_explicit_unparseable_bound_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "explicit_datetime": "not-a-date", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_explicit_quarter_unit_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "explicit_datetime": "-2q", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "performed_event_string_time_value_reads_as_zero_window",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": "30", "time_interval": "day", "conditionHash": "0123456789abcdef", "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]}]}},
+      "expected": "single_leaf",
+      "expected_window_days": 0
+    },
+    {
+      "name": "two_person_leaves_are_composable",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}, {"type": "person", "key": "plan", "value": "pro", "conditionHash": "bbbbbbbbbbbbbbbb", "bytecode": ["_H", 1]}]}},
+      "expected": "stage2_composable"
+    },
+    {
+      "name": "behavioral_plus_person_is_composable_with_window",
+      "filters": {"properties": {"type": "OR", "values": [{"type": "behavioral", "value": "performed_event", "key": "$pageview", "time_value": 7, "time_interval": "day", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}, {"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "bbbbbbbbbbbbbbbb", "bytecode": ["_H", 1]}]}},
+      "expected": "stage2_composable",
+      "expected_window_days": 7
+    },
+    {
+      "name": "empty_group_is_excluded",
+      "filters": {"properties": {"type": "AND", "values": []}},
+      "expected": "excluded_empty_group"
+    },
+    {
+      "name": "nested_empty_group_is_excluded",
+      "filters": {"properties": {"type": "OR", "values": [{"type": "AND", "values": []}, {"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}]}},
+      "expected": "excluded_empty_group"
+    },
+    {
+      "name": "single_negated_person_is_top_level_negation",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1], "negation": true}]}},
+      "expected": "excluded_top_level_negation"
+    },
+    {
+      "name": "or_with_any_negated_child_is_top_level_negation",
+      "filters": {"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1], "negation": true}, {"type": "person", "key": "plan", "value": "pro", "conditionHash": "bbbbbbbbbbbbbbbb", "bytecode": ["_H", 1]}]}},
+      "expected": "excluded_top_level_negation"
+    },
+    {
+      "name": "and_with_one_negated_child_is_composable",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1], "negation": true}, {"type": "person", "key": "plan", "value": "pro", "conditionHash": "bbbbbbbbbbbbbbbb", "bytecode": ["_H", 1]}]}},
+      "expected": "stage2_composable"
+    },
+    {
+      "name": "single_not_in_cohort_ref_is_top_level_negation",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 99, "operator": "not_in"}]}},
+      "extra_cohorts": {"99": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}]}}},
+      "expected": "excluded_top_level_negation"
+    },
+    {
+      "name": "resolvable_cohort_ref_promotes_under_cascade",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 99}]}},
+      "extra_cohorts": {"99": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}]}}},
+      "expected": "stage2_composable_ref"
+    },
+    {
+      "name": "string_cohort_ref_id_promotes_under_cascade",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": "99"}]}},
+      "extra_cohorts": {"99": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}]}}},
+      "expected": "stage2_composable_ref"
+    },
+    {
+      "name": "cohort_ref_without_cascade_stays_excluded",
+      "cascade_enabled": false,
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 99}]}},
+      "extra_cohorts": {"99": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}]}}},
+      "expected": "excluded_has_cohort_ref"
+    },
+    {
+      "name": "self_reference_is_cycle",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 1}]}},
+      "expected": "excluded_cycle_detected"
+    },
+    {
+      "name": "two_cohort_cycle_is_cycle",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 99}]}},
+      "extra_cohorts": {"99": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 1}]}}},
+      "expected": "excluded_cycle_detected"
+    },
+    {
+      "name": "absent_ref_target_is_unresolved",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 424242}]}},
+      "expected": "excluded_unresolved_ref"
+    },
+    {
+      "name": "structurally_excluded_ref_target_is_unresolved",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 99}]}},
+      "extra_cohorts": {"99": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_sequence", "key": "$pageview", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}]}}},
+      "expected": "excluded_unresolved_ref"
+    },
+    {
+      "name": "negated_ref_to_absent_target_does_not_block",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 424242, "negation": true}, {"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}]}},
+      "expected": "stage2_composable_ref"
+    },
+    {
+      "name": "ref_chain_promotes_through_refined_target",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 99}]}},
+      "extra_cohorts": {
+        "99": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 98}]}},
+        "98": {"properties": {"type": "AND", "values": [{"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}]}}
+      },
+      "expected": "stage2_composable_ref"
+    },
+    {
+      "name": "dropped_leaf_takes_precedence_over_negation",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "behavioral", "value": "performed_event_sequence", "key": "$pageview", "conditionHash": "aaaaaaaaaaaaaaaa", "bytecode": ["_H", 1]}, {"type": "person", "key": "email", "value": "a@b.com", "conditionHash": "bbbbbbbbbbbbbbbb", "bytecode": ["_H", 1], "negation": true}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "malformed_cohort_ref_is_dropped",
+      "filters": {"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id"}]}},
+      "expected": "excluded_has_dropped_leaf"
+    },
+    {
+      "name": "missing_properties_is_parse_error",
+      "filters": {"groups": []},
+      "expected": "parse_error"
+    },
+    {
+      "name": "null_filters_is_parse_error",
+      "filters": null,
+      "expected": "parse_error"
+    }
+  ]
+}

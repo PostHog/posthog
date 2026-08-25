@@ -191,6 +191,37 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .build()
             )
         )
+
+        hogFlows.push(
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Test Hog Flow with a wait')
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: { type: 'event', filters: {} },
+                            },
+                            wait: {
+                                type: 'wait_until_condition',
+                                config: {
+                                    condition: { filters: { properties: [{ key: 'email', type: 'person' }] } },
+                                    max_wait_duration: '1h',
+                                } as any,
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'wait', type: 'continue' },
+                            { from: 'wait', to: 'exit', type: 'continue' },
+                        ],
+                    } as any)
+                    .build()
+            )
+        )
     })
 
     afterEach(async () => {
@@ -356,7 +387,49 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
         })
 
-        it('should skip invocations when workflow is disabled after being queued', async () => {
+        it('persists the resolved person UUID into state so a re-parked wait keeps its person_id', async () => {
+            const results = (await processor.processInvocations(
+                invocations
+            )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            // invocation1 (distinct_A_1) resolves to Person A 1 — its UUID is written back into
+            // state.personId, so a later re-park keeps person_id even if re-resolution transiently misses.
+            // clickhouse_person wakes match on person_id only, so this is what lets a person-property
+            // change wake the wait without relying on the polling backstop.
+            expect(results[0].invocation.state.personId).toBe('dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1')
+            // invocation4 (missing_person) resolves to nothing — no person_id to persist.
+            expect(results[3].invocation.state.personId).toBeUndefined()
+        })
+
+        it('supplies a refreshPerson hook that re-reads uncached and rebuilds the filter globals', async () => {
+            // A wait step calls this before its first evaluation. Without it the wait evaluates the
+            // person the dequeue cached, and a run that parks on a stale read has nothing left to wake it.
+            const results = (await processor.processInvocations([
+                createSerializedHogFlowInvocation(hogFlows[2], {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                }),
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            const getPerson = jest.spyOn(processor['personsManager'], 'getCyclotronPerson').mockResolvedValue({
+                id: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                properties: { name: 'Person A 1', email: 'written-after-caching@posthog.com' },
+                name: 'Person A 1',
+                url: 'http://localhost:8000/project/1/person/distinct_A_1',
+                distinct_id: 'distinct_A_1',
+            })
+
+            const refreshed = await results[0].invocation.refreshPerson!()
+
+            expect(getPerson).toHaveBeenCalledWith(expect.any(Number), 'distinct_A_1', 'distinct_id', {
+                forceFresh: true,
+            })
+            expect(refreshed.filterGlobals.person?.properties).toEqual({
+                name: 'Person A 1',
+                email: 'written-after-caching@posthog.com',
+            })
+        })
+
+        it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
             const hogFlow = hogFlows[0]
 
             const invocation1 = createSerializedHogFlowInvocation(hogFlow, {
@@ -392,19 +465,69 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             // Mark the hogflow for refresh so it fetches fresh data
             ;(processor['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
 
-            // Mock cancelInvocations to track what gets skipped
-            const cancelInvocationsSpy = jest.spyOn(processor['cyclotronJobQueue'], 'cancelInvocations')
+            // Second batch: invocation2 wakes under a disabled workflow. It must terminate
+            // through the result pipeline (terminal row, metric, log): a silent queue-side
+            // flip would leave the run showing 'running' in the Invocations UI forever.
+            const results2 = await processor.processInvocations([invocation2])
 
-            // Second batch: invocation2 should be skipped because workflow is now disabled
-            const results2 = (await processor.processInvocations([
-                invocation2,
-            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+            expect(results2).toHaveLength(1)
+            expect(results2[0].finished).toBe(true)
+            expect(results2[0].canceled).toBe(true)
+            expect(results2[0].error).toBeUndefined()
+            expect(results2[0].logs.map((l) => l.message)).toContain('Run canceled: the workflow is no longer active')
+            expect(results2[0].metrics).toEqual([
+                expect.objectContaining({
+                    team_id: hogFlow.team_id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'other',
+                    metric_name: 'canceled',
+                    count: 1,
+                }),
+            ])
+            // The flow must ride along on the canceled result: the monitoring services key the
+            // terminal lifecycle row off its presence, so without it the row keys `hog_function`,
+            // never collapses the `running` row, and the run stays stuck at `running` in the UI.
+            expect((results2[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(hogFlow.id)
+        })
 
-            // No results because the workflow is disabled
-            expect(results2).toHaveLength(0)
+        it('attaches the live flow to a cancel-requested run so the terminal row keys as hog_flow', async () => {
+            const hogFlow = hogFlows[0]
+            const invocation = createSerializedHogFlowInvocation(hogFlow, {
+                event: { distinct_id: 'distinct_person_1', properties: { foo: 'bar1' } } as any,
+            })
+            invocation.cancelRequestedAt = DateTime.now()
 
-            // The invocation should have been canceled (not failed)
-            expect(cancelInvocationsSpy).toHaveBeenCalledWith([invocation2])
+            const results = await processor.processInvocations([invocation])
+
+            expect(results).toHaveLength(1)
+            expect(results[0].finished).toBe(true)
+            expect(results[0].canceled).toBe(true)
+            expect((results[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(hogFlow.id)
+        })
+
+        it('terminates cancel-requested invocations without loading the flow, so cancel works for deleted flows', async () => {
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: 'distinct_A_1',
+                    properties: { foo: 'bar1' },
+                } as any,
+            })
+            invocation.functionId = new UUIDT().toString() // flow no longer exists
+            invocation.cancelRequestedAt = DateTime.now()
+
+            const results = await processor.processInvocations([invocation])
+
+            expect(results).toHaveLength(1)
+            expect(results[0].finished).toBe(true)
+            expect(results[0].canceled).toBe(true)
+            expect(results[0].logs.map((l) => l.message)).toContain('Run canceled')
+            expect(results[0].metrics).toEqual([
+                expect.objectContaining({ metric_name: 'canceled', metric_kind: 'other', count: 1 }),
+            ])
+            // Even with no flow to load, the canceled result must still carry the flow id so the
+            // invocation keys the terminal lifecycle row as `hog_flow` (not `hog_function`) and
+            // collapses the earlier `running` row instead of leaving the run stuck at `running`.
+            expect((results[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(invocation.functionId)
         })
     })
 })

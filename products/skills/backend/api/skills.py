@@ -1,7 +1,8 @@
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.http import HttpResponse
 
@@ -25,8 +26,8 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import AccessControlPermission
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.permissions import AccessControlPermission, get_authenticator_scopes
+from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -42,8 +43,20 @@ from ..marketplace.credentials import (
 )
 from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
+from .community_publish_services import (
+    CommunitySkillPublishError,
+    CommunitySkillPublishNotConfiguredError,
+    CommunitySkillPublishValidationError,
+    publish_skill_to_community,
+    publishable_tags,
+)
+from .community_skills import CommunitySkillFeatureFlagPermission
 from .skill_serializers import (
+    DEFAULT_BODY_PAGE_LENGTH,
     MAX_SKILL_FILE_BYTES,
+    PUBLISH_CONTENT_FIELDS,
+    CommunitySkillPublishResultSerializer,
+    LLMSkillBodyFetchQuerySerializer,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
@@ -57,6 +70,7 @@ from .skill_serializers import (
     LLMSkillMarketplaceCommandSerializer,
     LLMSkillMarketplaceIssueSerializer,
     LLMSkillPublishSerializer,
+    LLMSkillPublishToCommunitySerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
@@ -73,6 +87,7 @@ from .skill_services import (
     LLMSkillFileNotFoundError,
     LLMSkillFilePathConflictError,
     LLMSkillNotFoundError,
+    LLMSkillOwnerNotFoundError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
@@ -85,12 +100,15 @@ from .skill_services import (
     get_skill_by_name_from_db,
     publish_skill_version,
     rename_skill_file,
+    resolve_owner_users,
+    resolve_skill_owners_for_names,
     resolve_versions_page,
+    set_skill_owners,
 )
 
 logger = structlog.get_logger(__name__)
 
-# Generous ceiling for an uploaded skill zip — per-skill content (body, 50 files × 1 MB) is
+# Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
 
@@ -151,6 +169,44 @@ ALLOWED_LIST_ORDERINGS = frozenset(
 )
 
 
+class CommunityPublishFeatureFlagPermission(CommunitySkillFeatureFlagPermission):
+    """Gates publishing to the community marketplace, and nothing else on this viewset.
+
+    The Skills product is GA and the marketplace is not, so the flag can only bind to the one action —
+    otherwise the whole product goes dark, and without it publish goes live everywhere the moment the
+    GitHub App is installed and the 503 fail-safe stops firing.
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if getattr(view, "action", None) != "publish_to_community":
+            return True
+        return super().has_permission(request, view)
+
+
+class _CommunityPublishThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Publishing opens a pull request in a public repo, so the ceiling is "a handful, by hand", not
+    # the API-shaped hundreds-per-minute of BurstRateThrottle. That one also extends
+    # PersonalApiKeyRateThrottle, which ignores session traffic.
+    def get_cache_key(self, request, view):
+        # Per team, not per credential. The inherited key prefers the personal API key hash, so one
+        # member holding several keys would get a fresh budget with each of them — and the skill
+        # being published belongs to the team either way.
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id is None:
+            return super().get_cache_key(request, view)
+        return self.cache_format % {"scope": self.scope, "ident": f"team-{team_id}"}
+
+
+class CommunityPublishBurstThrottle(_CommunityPublishThrottle):
+    scope = "community_skill_publish_burst"
+    rate = "6/hour"
+
+
+class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
+    scope = "community_skill_publish_sustained"
+    rate = "20/day"
+
+
 class LLMSkillViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -161,12 +217,14 @@ class LLMSkillViewSet(
     scope_object = "llm_skill"
     queryset = LLMSkill.objects.all()
     serializer_class = LLMSkillSerializer
-    permission_classes = [AccessControlPermission]
+    permission_classes = [AccessControlPermission, CommunityPublishFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
 
     def get_throttles(self):
+        if self.action == "publish_to_community":
+            return [CommunityPublishBurstThrottle(), CommunityPublishSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -244,14 +302,40 @@ class LLMSkillViewSet(
             )
         return None
 
-    def _serialize_skill(self, skill: LLMSkill) -> dict[str, Any]:
-        return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
+    def _is_scout_sandbox_caller(self) -> bool:
+        """Whether the request is authenticated with a Signals scout sandbox token.
+
+        The scout harness's sandbox token is the only issuer of `signal_scout_internal:*`
+        scopes, so their presence identifies a scout run. Session auth and ordinary API
+        keys never carry them.
+        """
+        scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
+        return scopes is not None and any(scope.startswith("signal_scout_internal:") for scope in scopes)
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        if self._is_scout_sandbox_caller():
+            context["scout_sandbox_caller"] = True
+        return context
+
+    def _serialize_skill(
+        self, skill: LLMSkill, *, body_offset: int | None = None, body_length: int | None = None
+    ) -> dict[str, Any]:
+        context = self.get_serializer_context()
+        if body_offset is not None or body_length is not None:
+            context = {**context, "body_offset": body_offset, "body_length": body_length}
+        return cast(dict[str, Any], LLMSkillSerializer(skill, context=context).data)
 
     def _serialize_version_summaries(self, skills: list[LLMSkill]) -> list[dict[str, Any]]:
         return cast(list[dict[str, Any]], LLMSkillVersionSummarySerializer(skills, many=True).data)
 
     def _get_requested_version_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMSkillFetchQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+    def _get_body_fetch_params(self, request: Request) -> dict[str, Any]:
+        serializer = LLMSkillBodyFetchQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
@@ -313,14 +397,14 @@ class LLMSkillViewSet(
         )
 
     @extend_schema(
-        parameters=[LLMSkillFetchQuerySerializer],
+        parameters=[LLMSkillBodyFetchQuerySerializer],
         responses={200: LLMSkillSerializer},
     )
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)")
     @llma_track_latency("llma_skills_get_by_name")
     @monitor(feature=None, endpoint="llma_skills_get_by_name", method="GET")
     def get_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        version_params = self._get_requested_version_params(request)
+        version_params = self._get_body_fetch_params(request)
         version = cast(int | None, version_params.get("version"))
         skill = get_skill_by_name_from_db(self.team, skill_name, version)
 
@@ -332,7 +416,19 @@ class LLMSkillViewSet(
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
-        return Response(self._serialize_skill(skill))
+        # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
+        # valid continuation offset even when the full body would be truncated in transit.
+        body_length = cast(int | None, version_params.get("body_length"))
+        if body_length is None:
+            body_length = DEFAULT_BODY_PAGE_LENGTH
+
+        return Response(
+            self._serialize_skill(
+                skill,
+                body_offset=cast(int | None, version_params.get("body_offset")),
+                body_length=body_length,
+            )
+        )
 
     def _redirect_to_name(self, request: Request, skill_name: str) -> Response | None:
         skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
@@ -357,22 +453,76 @@ class LLMSkillViewSet(
         payload = LLMSkillPublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
+        # Resolve owners before publishing so a bad UUID 400s without minting a version. `owner_uuids`
+        # is None when omitted (owners left untouched), [] when the caller clears them.
+        owner_uuids = payload.validated_data.get("owners")
+        owner_users = None
+        if owner_uuids is not None:
+            try:
+                owner_users = resolve_owner_users(self.team, [str(u) for u in owner_uuids])
+            except LLMSkillOwnerNotFoundError as err:
+                raise serializers.ValidationError(
+                    {"owners": f"User '{err.user_uuid}' is not a member of this project."},
+                    code="invalid_owner",
+                )
+
+        # An owner-only PATCH must not publish a version: owners live on the logical skill, not a
+        # version row, so minting an identical version would rewrite version-history authorship, bump
+        # marketplace/update timestamps, and burn toward MAX_SKILL_VERSION for a no-op body. Same
+        # optimistic-concurrency contract as a publish when `base_version` is supplied: a stale value
+        # still 409s. It may be omitted (the generated PATCH schema marks it optional), which skips
+        # the version check — ownership isn't version-keyed, so the replace is still exact.
+        if owner_uuids is not None and all(payload.validated_data.get(p) is None for p in PUBLISH_CONTENT_FIELDS):
+            base_version = payload.validated_data.get("base_version")
+            # Lock the latest row for the check + replace (mirrors publish_skill_version): requests
+            # run autocommit, so without the lock an owner update racing a publish from the same
+            # base_version could pass a stale check and 200 where the contract advertises 409.
+            with transaction.atomic():
+                current_latest = (
+                    LLMSkill.objects.select_for_update()
+                    .filter(team=self.team, name=skill_name, deleted=False, is_latest=True)
+                    .order_by("-version", "-created_at", "-id")
+                    .first()
+                )
+                if current_latest is None:
+                    return self._skill_not_found_response(skill_name)
+                if base_version is not None and base_version != current_latest.version:
+                    return Response(
+                        {
+                            "detail": "The skill changed since you opened it. Reload the latest version and try again.",
+                            "current_version": current_latest.version,
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                set_skill_owners(self.team, skill_name, cast(list, owner_users))
+            refreshed = get_skill_by_name_from_db(self.team, skill_name=skill_name)
+            return Response(self._serialize_skill(cast(LLMSkill, refreshed)))
+
         try:
-            published_skill = publish_skill_version(
-                self.team,
-                user=cast(User, request.user),
-                skill_name=skill_name,
-                body=payload.validated_data.get("body"),
-                edits=payload.validated_data.get("edits"),
-                description=payload.validated_data.get("description"),
-                license=payload.validated_data.get("license"),
-                compatibility=payload.validated_data.get("compatibility"),
-                allowed_tools=payload.validated_data.get("allowed_tools"),
-                metadata=payload.validated_data.get("metadata"),
-                files=payload.validated_data.get("files"),
-                file_edits=payload.validated_data.get("file_edits"),
-                base_version=payload.validated_data["base_version"],
-            )
+            # One transaction for the version publish *and* the owner replacement: if setting owners
+            # fails, the published version rolls back with it — otherwise the new body/files would be
+            # live while ownership stayed stale, and a retry with the original base_version would 409.
+            with transaction.atomic():
+                published_skill = publish_skill_version(
+                    self.team,
+                    user=cast(User, request.user),
+                    skill_name=skill_name,
+                    body=payload.validated_data.get("body"),
+                    edits=payload.validated_data.get("edits"),
+                    description=payload.validated_data.get("description"),
+                    license=payload.validated_data.get("license"),
+                    compatibility=payload.validated_data.get("compatibility"),
+                    allowed_tools=payload.validated_data.get("allowed_tools"),
+                    metadata=payload.validated_data.get("metadata"),
+                    files=payload.validated_data.get("files"),
+                    file_edits=payload.validated_data.get("file_edits"),
+                    base_version=payload.validated_data["base_version"],
+                    version_description=payload.validated_data.get("version_description"),
+                )
+                # Owners are keyed on the logical skill, so this runs only when the caller passed
+                # `owners` — a plain body edit never touches ownership.
+                if owner_uuids is not None:
+                    set_skill_owners(self.team, skill_name, cast(list, owner_users))
         except IntegrityError as err:
             if "unique_skill_file_path" in str(err):
                 raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
@@ -423,6 +573,8 @@ class LLMSkillViewSet(
             "compatibility_changed": payload.validated_data.get("compatibility") is not None,
             "allowed_tools_changed": payload.validated_data.get("allowed_tools") is not None,
             "metadata_changed": payload.validated_data.get("metadata") is not None,
+            "owners_changed": owner_uuids is not None,
+            "version_description_set": payload.validated_data.get("version_description") is not None,
         }
         logger.info(
             "llma_skill_version_published",
@@ -806,6 +958,90 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/publish-community",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_publish_community")
+    @monitor(feature=None, endpoint="llma_skills_publish_community", method="POST")
+    def publish_to_community(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        skill = get_skill_by_name_from_db(self.team, skill_name)
+        if skill is None:
+            return self._skill_not_found_response(skill_name)
+
+        payload = LLMSkillPublishToCommunitySerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
+        supplied_tags = payload.validated_data.get("tags")
+        # An explicit empty list means "publish with no tags", so fall back to the skill's own tags
+        # only when the caller omitted the field. Those are unvalidated metadata, unlike the ones the
+        # serializer checked, so they go through publishable_tags first.
+        if supplied_tags is None:
+            supplied_tags = publishable_tags((skill.metadata or {}).get("tags"))
+        # The LLMSkill name is the kebab slug; default the community display name to a title-cased form.
+        display_name = payload.validated_data.get("display_name") or skill.name.replace("-", " ").title()
+
+        try:
+            result = publish_skill_to_community(
+                slug=skill.name,
+                # Scopes the publish branch to this team, so one team cannot rewrite another team's
+                # open pull request for the same slug.
+                publisher_id=str(self.team.uuid),
+                name=display_name,
+                description=skill.description,
+                body=skill.body,
+                files=files or None,
+                tags=supplied_tags,
+                allowed_tools=skill.allowed_tools or [],
+                license=skill.license or "",
+                compatibility=skill.compatibility or "",
+                author_handle=payload.validated_data.get("author_handle", ""),
+            )
+        except CommunitySkillPublishNotConfiguredError:
+            return Response(
+                {"detail": "Publishing to the community is not available on this instance."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except CommunitySkillPublishValidationError as err:
+            # Nothing reached GitHub, and republishing the same skill fails the same way — the
+            # publisher has to edit it. That is a 400, not the 502 an unreachable GitHub gets.
+            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+        except CommunitySkillPublishError as err:
+            # The client sees the reason once; without this the server keeps no record of a publish
+            # that failed against GitHub.
+            logger.warning(
+                "llma_skill_publish_to_community_failed",
+                team_id=self.team.id,
+                user_id=cast(User, request.user).id,
+                skill_name=skill.name,
+                error=str(err),
+            )
+            return Response({"detail": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        props = {**_skill_analytics_props(skill), "community_pr_number": result["pr_number"]}
+        logger.info(
+            "llma_skill_published_to_community",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill published to community",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
+
     @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer],
         responses={200: LLMSkillFileSerializer},
@@ -1054,13 +1290,29 @@ class LLMSkillViewSet(
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
+            context = self._list_context_with_owners(page)
+            serializer = self.get_serializer(page, many=True, context=context)
             return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(queryset, many=True)
+        skills = list(queryset)
+        context = self._list_context_with_owners(skills)
+        serializer = self.get_serializer(skills, many=True, context=context)
         data = serializer.data
         return Response({"count": len(data), "results": data})
 
+    # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the
+    # class body where this annotation is evaluated.
+    def _list_context_with_owners(self, skills: Sequence[LLMSkill]) -> dict[str, Any]:
+        """Serializer context carrying a name→owners map, so the list serializes owners in one query."""
+        owners_by_skill_name = resolve_skill_owners_for_names(self.team, [skill.name for skill in skills])
+        return {**self.get_serializer_context(), "owners_by_skill_name": owners_by_skill_name}
+
+    # Explicit response schema: the request serializer (`LLMSkillCreateSerializer`) exposes `owners`
+    # write-only as a UUID list, but the view returns `_serialize_skill` (`LLMSkillSerializer`) with
+    # `owners` as `UserBasic[]`. Without this, drf-spectacular would infer the response from the
+    # create serializer and the generated `llmSkillsCreate` / MCP `skill-create` types would drop
+    # (or mistype) the returned owners.
+    @extend_schema(request=LLMSkillCreateSerializer, responses={201: LLMSkillSerializer})
     @llma_track_latency("llma_skills_create")
     @monitor(feature=None, endpoint="llma_skills_create", method="POST")
     def create(self, request, *args, **kwargs):

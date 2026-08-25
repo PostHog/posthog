@@ -15,10 +15,10 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -2388,6 +2388,39 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
 
+    def test_materialized_cache_ttl_derived_from_modeling_jobs(self):
+        """v2 DAG runs record success in DataModelingJob but never write saved_query.last_run_at.
+        The cache TTL must key on the job, not clamp to 1s off the frozen saved-query timestamp."""
+        endpoint = self._make_fresh_materialized_endpoint(
+            "v2-cache-ttl", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+        version = endpoint.versions.first()
+        saved_query = version.saved_query
+        saved_query.sync_frequency_interval = None  # migration cleanup nulls this on v2 teams
+        saved_query.last_run_at = timezone.now() - timedelta(days=3)
+        saved_query.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=timezone.now() - timedelta(minutes=5),
+        )
+
+        with mock.patch.object(
+            EndpointExecutionService,
+            "_execute_query_and_respond",
+            return_value=Response({"results": [[1]], "columns": ["count()"]}),
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cache_ttl = mock_exec.call_args.kwargs["cache_age_seconds"]
+        # data_freshness_seconds=86400, materialized ~5 min ago -> ~86100s remaining
+        self.assertGreater(cache_ttl, 80000, f"cache TTL clamped ({cache_ttl}s): freshness read from frozen timestamp")
+
     def test_series_mismatch_falls_back_to_inline(self):
         """Series drift triggers re-materialization AND serves the request inline."""
         from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
@@ -2423,6 +2456,36 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_trigger.assert_called_once()
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+
+    def test_unrecoverable_failure_not_labeled_materialized_fallback(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "mat-both-fail", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+        fallback_labels = {"execution_type": "materialized_fallback", "query_kind": "hogql", "status": "user_error"}
+        inline_labels = {"execution_type": "inline", "query_kind": "hogql", "status": "user_error"}
+        fallback_before = REGISTRY.get_sample_value("posthog_endpoint_execution_total", fallback_labels) or 0.0
+        inline_before = REGISTRY.get_sample_value("posthog_endpoint_execution_total", inline_labels) or 0.0
+
+        with mock.patch.object(
+            EndpointExecutionService,
+            "_execute_query_and_respond",
+            side_effect=[RuntimeError("materialized table exploded"), ExposedHogQLError("Unknown field: bad")],
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline retry")
+
+        fallback_after = REGISTRY.get_sample_value("posthog_endpoint_execution_total", fallback_labels) or 0.0
+        inline_after = REGISTRY.get_sample_value("posthog_endpoint_execution_total", inline_labels) or 0.0
+        self.assertEqual(
+            fallback_after - fallback_before, 0.0, "an unrecoverable request must not count as materialized_fallback"
+        )
+        self.assertEqual(inline_after - inline_before, 1.0)
 
     def test_emit_failure_signal_reaches_workflow_boundary(self):
         """The failure-signal plumbing must make it to the Temporal boundary when the

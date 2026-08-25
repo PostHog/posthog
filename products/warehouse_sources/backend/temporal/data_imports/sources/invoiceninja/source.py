@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InvoiceninjaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiceninja import (
+    InvoiceninjaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.invoiceninja import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
@@ -38,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://api-docs.invoicing.co"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -71,6 +73,7 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -88,7 +91,11 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
         return schemas
 
     def validate_credentials(
-        self, config: InvoiceninjaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: InvoiceninjaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_invoiceninja_credentials(config.base_url, config.api_token, schema_name, team_id)
 
@@ -105,9 +112,10 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
             base_url=config.base_url,
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
-            resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Invoice Ninja endpoint is full refresh
         )
 
     @property
@@ -117,7 +125,6 @@ class InvoiceninjaSource(ResumableSource[InvoiceninjaSourceConfig, InvoiceNinjaR
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Invoice Ninja",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["invoice ninja", "invoicing", "billing"],
             caption="""Enter your Invoice Ninja API token to pull your invoicing data into the PostHog Data warehouse.
 

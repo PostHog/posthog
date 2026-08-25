@@ -330,32 +330,34 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
     ) -> list[dict]:
         from posthog.utils import absolute_uri
 
+        from ee.vercel.integration import CLIENT_ENV_PREFIXES
+
         prod_team = teams_by_id[production_id]
         preview_team = teams_by_id[preview_id]
         dev_team = teams_by_id[development_id]
 
         all_same = production_id == preview_id == development_id
+        host = absolute_uri()
 
-        secrets: list[dict] = [
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-                "value": prod_team.api_token,
-                **(
-                    {}
-                    if all_same
-                    else {
-                        "environmentOverrides": {
-                            "preview": preview_team.api_token,
-                            "development": dev_team.api_token,
+        secrets: list[dict] = []
+        for prefix in CLIENT_ENV_PREFIXES:
+            secrets.append(
+                {
+                    "name": f"{prefix}POSTHOG_PROJECT_TOKEN",
+                    "value": prod_team.api_token,
+                    **(
+                        {}
+                        if all_same
+                        else {
+                            "environmentOverrides": {
+                                "preview": preview_team.api_token,
+                                "development": dev_team.api_token,
+                            }
                         }
-                    }
-                ),
-            },
-            {
-                "name": "NEXT_PUBLIC_POSTHOG_HOST",
-                "value": absolute_uri(),
-            },
-        ]
+                    ),
+                }
+            )
+            secrets.append({"name": f"{prefix}POSTHOG_HOST", "value": host})
         return secrets
 
     @decorators.action(detail=False, methods=["get"], url_path="session")

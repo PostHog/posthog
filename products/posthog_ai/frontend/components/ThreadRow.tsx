@@ -12,11 +12,11 @@ import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
+import { resolveToolCall } from '../utils/toolResolver'
 import { RunActivity } from './RunActivity'
 import { RunAlertActivity } from './RunAlertActivity'
-import { CompactBoundaryItem, StatusItem, TaskNotificationItem } from './ThreadItems'
+import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
-import { resolveToolCall } from './tool/toolResolver'
 
 type ToolInvocations = typeof runStreamLogic.values.toolInvocations
 
@@ -161,6 +161,9 @@ export const ThreadRow = memo(function ThreadRow({
     if (item.type === 'compact_boundary') {
         return <CompactBoundaryItem item={item} />
     }
+    if (item.type === 'conversation_cleared') {
+        return <ConversationClearedItem item={item} />
+    }
     if (item.type === 'task_notification') {
         return <TaskNotificationItem item={item} />
     }
@@ -168,7 +171,13 @@ export const ThreadRow = memo(function ThreadRow({
         return <ProgressItem item={item} />
     }
     if (item.type === 'debug') {
-        return <DebugMessage text={item.text ?? ''} level={item.debugLevel ?? 'info'} />
+        return (
+            <DebugMessage
+                text={item.text ?? ''}
+                level={item.debugLevel ?? 'info'}
+                copyable={item.debugLevel === 'context'}
+            />
+        )
     }
     return null
 })

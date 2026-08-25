@@ -7,12 +7,17 @@ import { LemonButton, LemonMenu, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getSurveyCollectionLimitSummary, getSurveyDisplayConditionsSummary } from 'scenes/surveys/utils'
+import {
+    getRecurringSurveyScheduleInfo,
+    getSurveyCollectionLimitSummary,
+    getSurveyDisplayConditionsSummary,
+} from 'scenes/surveys/utils'
 
 import {
     AccessControlLevel,
@@ -77,6 +82,7 @@ export function SurveyDetailsPanel(): JSX.Element {
     const statusLabel = !survey.start_date ? 'Draft' : survey.end_date ? 'Complete' : 'Running'
     const conditionsSummary = hasTargetingSet ? getSurveyDisplayConditionsSummary(survey as Survey) : []
     const collectionLimitSummary = getSurveyCollectionLimitSummary(survey)
+    const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
 
     return (
         <div className="flex flex-col gap-6">
@@ -138,6 +144,18 @@ export function SurveyDetailsPanel(): JSX.Element {
                         <span className="text-muted">Schedule</span>
                         <span>{formatSurveySchedule(survey as Survey)}</span>
                     </div>
+                    {scheduleInfo && (
+                        <div className="flex justify-between">
+                            <span className="text-muted">Auto-closes</span>
+                            <span>
+                                {scheduleInfo.autoCloseDate
+                                    ? scheduleInfo.autoCloseDate.isBefore(dayjs())
+                                        ? 'Soon'
+                                        : scheduleInfo.autoCloseDate.format('MMMM D, YYYY')
+                                    : `After ${pluralize(scheduleInfo.totalDurationDays, 'day')}`}
+                            </span>
+                        </div>
+                    )}
                     <div className="flex justify-between">
                         <span className="text-muted">Audience</span>
                         <span>{hasTargetingSet ? 'Targeted' : 'All users'}</span>

@@ -1,14 +1,25 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
+
+from parameterized import parameterized
+
+from posthog.schema import HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_guard
 
-from posthog.models import OrganizationMembership
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models import OrganizationMembership, User
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 
 class TestAccessControlSystemTables(BaseTest):
@@ -195,6 +206,78 @@ class TestAccessControlGuard(BaseTest):
             assert raw not in rendered
         assert "[HIDDEN]" in rendered
 
+    def test_filtering_records_restricted_resource(self):
+        # The guard silently drops rows in SQL; recording the resource is what lets the response warn
+        # that results may be partial. Regression guard for the context recording.
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="dash-1", access_level="none")
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboards"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        assert context.access_control_restricted_resources == {"dashboard"}
+
+    def test_no_warning_when_nothing_filtered(self):
+        # Admins have no deny set, so no guard and no warning - otherwise every query would nag.
+        from posthog.hogql.parser import parse_select
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboards"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        assert context.access_control_restricted_resources == set()
+
+    @parameterized.expand(
+        [
+            (["insight"], "Results may exclude insights you don't have access to"),
+            (["insight", "dashboard"], "Results may exclude dashboards and insights you don't have access to"),
+            (
+                ["insight", "dashboard", "notebook"],
+                "Results may exclude dashboards, insights and notebooks you don't have access to",
+            ),
+        ]
+    )
+    def test_build_access_control_warning_message(self, resources, expected_message):
+        # "may exclude", not "were excluded": the guard firing doesn't prove any row was actually
+        # dropped — the user's blocked objects may not have matched the query.
+        from posthog.hogql.printer.access_control import build_access_control_warning
+
+        warning = build_access_control_warning(resources)
+        assert warning is not None
+        assert warning.type == "access_control"
+        assert warning.resources == sorted(resources)
+        assert warning.message == expected_message
+
+    def test_build_access_control_warning_empty(self):
+        from posthog.hogql.printer.access_control import build_access_control_warning
+
+        assert build_access_control_warning(set()) is None
+
     def test_child_table_guard_filters_parent_fk_not_own_pk(self):
         # system.dashboard_tiles inherits the "dashboard" scope and sets access_control_id_field="dashboard_id".
         # Denying a dashboard must filter the tile rows on their dashboard_id FK, not the tile's own id -
@@ -238,14 +321,158 @@ class TestAccessControlGuard(BaseTest):
         assert f"notIn(toString(system__dashboard_tiles.dashboard_id), %({deny_key})s)" in sql
         assert "notIn(toString(system__dashboard_tiles.id)" not in sql
 
+    def test_account_custom_property_values_guard_filters_account_fk(self):
+        # The hidden EAV tables scope by a direct team guard, so the per-account deny set
+        # must be declared on the table itself (account_id FK) - without it a member denied
+        # an account could read its property values by selecting the hidden table directly.
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource="account", resource_id="acct-42", access_level="none")
+
+        for table in ("_account_custom_property_values", "_account_custom_property_values_history"):
+            context = HogQLContext(
+                team_id=self.team.pk,
+                team=self.team,
+                user=self.user,
+                enable_select_queries=True,
+            )
+            prepared = prepare_ast_for_printing(
+                parse_select(f"SELECT id FROM system.{table}"),
+                context=context,
+                dialect="clickhouse",
+            )
+            assert prepared is not None
+            sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+            deny_keys = [k for k in context.values if k.endswith("_sensitive") and isinstance(context.values[k], list)]
+            assert len(deny_keys) == 1, table
+            assert context.values[deny_keys[0]] == ["acct-42"], table
+            assert f"notIn(toString(system__{table}.account_id), %({deny_keys[0]})s)" in sql, table
+
+
+class TestRestParityForObjectGrants(BaseTest):
+    """HogQL object-level filtering must resolve the same rows REST's
+    `filter_queryset_by_access_level` does: resource-level "none" plus an object grant serves the
+    granted objects (rather than denying the table), and a creator keeps their own objects."""
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+    def _ac(self, **kwargs):
+        from ee.models import AccessControl
+
+        return AccessControl.objects.create(team=self.team, **kwargs)
+
+    def _compile(self, query: str) -> tuple[str, HogQLContext]:
+        from posthog.hogql.parser import parse_select
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(parse_select(query), context=context, dialect="clickhouse")
+        assert prepared is not None
+        return print_prepared_ast(prepared, context=context, dialect="clickhouse"), context
+
+    def _id_list_placeholders(self, context: HogQLContext) -> dict[str, list]:
+        return {k: v for k, v in context.values.items() if k.endswith("_sensitive") and isinstance(v, list)}
+
+    def test_resource_denial_with_an_object_grant_narrows_instead_of_denying(self):
+        # REST serves the dashboards route on an object grant alone and returns just the granted
+        # dashboard. Removing system.dashboards outright made the granted dashboard unreachable.
+        self._ac(resource="dashboard", access_level="none")
+        self._ac(
+            resource="dashboard",
+            resource_id="dash-granted",
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        assert "system.dashboards" not in database._denied_tables
+
+        sql, context = self._compile("SELECT id FROM system.dashboards")
+        placeholders = self._id_list_placeholders(context)
+        assert list(placeholders.values()) == [["dash-granted"]]
+        allow_key = next(iter(placeholders))
+        assert f"in(toString(system__dashboards.id), %({allow_key})s)" in sql
+
+    def test_object_grant_reaches_child_rows_of_the_granted_object(self):
+        # The narrowing keys off the parent id on child tables, so a grant on one dashboard exposes
+        # that dashboard's tiles and nothing else.
+        self._ac(resource="dashboard", access_level="none")
+        self._ac(
+            resource="dashboard",
+            resource_id="dash-granted",
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+
+        sql, context = self._compile("SELECT id FROM system.dashboard_tiles")
+        allow_key = next(iter(self._id_list_placeholders(context)))
+        assert f"in(toString(system__dashboard_tiles.dashboard_id), %({allow_key})s)" in sql
+
+    def test_resource_denial_still_denies_a_table_the_grant_cannot_narrow(self):
+        # message_categories is team-level data under the "hog_flow" scope, so a per-flow grant says
+        # nothing about which rows are readable. It has to keep failing closed.
+        self._ac(resource="hog_flow", access_level="none")
+        self._ac(
+            resource="hog_flow",
+            resource_id="flow-granted",
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        assert "system.message_categories" in database._denied_tables
+
+    @parameterized.expand(
+        [
+            ("resource_denied", "none", "in(toString(system__dashboards.id)"),
+            ("resource_granted", "editor", "notIn(toString(system__dashboards.id)"),
+        ]
+    )
+    def test_creator_keeps_their_own_denied_object(self, _name, resource_level, expected_id_guard):
+        # REST exempts the creator from object-level denial on both branches of the filter, so a
+        # dashboard's creator must not lose it to HogQL either.
+        self._ac(resource="dashboard", access_level=resource_level)
+        self._ac(
+            resource="dashboard",
+            resource_id="dash-mine",
+            access_level="none" if resource_level == "editor" else "viewer",
+            organization_member=self.membership,
+        )
+
+        sql, _context = self._compile("SELECT id FROM system.dashboards")
+        assert expected_id_guard in sql
+        assert f"ifNull(equals(system__dashboards.created_by_id, {self.user.pk}), 0)" in sql
+        assert sql.count("or(") == 1
+
 
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
 
     def test_denied_table_shows_access_error(self):
         """When a table is denied, error should say 'no access' not 'unknown'."""
-        from posthog.hogql.errors import QueryError
-
         from posthog.constants import AvailableFeature
 
         from ee.models import AccessControl
@@ -272,17 +499,18 @@ class TestDeniedTableError(BaseTest):
         # Verify the table is in denied list
         assert "system.dashboards" in database._denied_tables
 
-        # Try to get the table and verify error message
-        with self.assertRaises(QueryError) as cm:
+        # The other denial sites assert the type; this one pins what it reports to callers. The code
+        # is what API clients should match on; the message is still a de-facto contract while
+        # accountOpportunitiesLogic.ts matches on it.
+        with self.assertRaises(TableAccessDeniedError) as cm:
             database.get_table("system.dashboards")
 
-        assert "don't have access" in str(cm.exception)
-        assert "Unknown" not in str(cm.exception)
+        assert cm.exception.table_name == "system.dashboards"
+        assert cm.exception.code_name == "table_access_denied"
+        assert str(cm.exception) == "You don't have access to table `system.dashboards`."
 
     def test_unknown_table_still_shows_unknown_error(self):
         """Tables that don't exist should still show 'unknown' error."""
-        from posthog.hogql.errors import QueryError
-
         database = Database.create_for(team=self.team, user=self.user)
 
         with self.assertRaises(QueryError) as cm:
@@ -324,8 +552,6 @@ class TestAccessControlIntegration(BaseTest):
 
     def test_query_without_user_fails_on_scoped_table(self):
         """Querying a scoped system table without user should fail with access error."""
-        from posthog.hogql.errors import QueryError
-
         context = HogQLContext(
             team_id=self.team.pk,
             team=self.team,
@@ -333,9 +559,8 @@ class TestAccessControlIntegration(BaseTest):
             enable_select_queries=True,
         )
 
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError):
             self._compile_select("SELECT id, name FROM system.dashboards", context)
-        assert "don't have access" in str(cm.exception)
 
     def test_query_without_user_works_for_unscoped_tables(self):
         """Unscoped system tables should still be queryable without user context."""
@@ -430,6 +655,43 @@ class TestWarehouseTableAccessControl(BaseTest):
             "warehouse_table", set()
         )
 
+    def test_source_denial_reaches_its_tables_but_not_self_managed(self):
+        # The gate resolves each table through RESOURCE_FALLBACK_MAP, so a rule about a source must
+        # deny the tables it syncs while leaving tables no source owns untouched. Pins the gate's
+        # resolution call: a per-table or umbrella test passes even if the gate stops consulting the
+        # source, this one doesn't.
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="stripe_",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=self.credential,
+            external_data_source=source,
+            url_pattern="s3://bucket/stripe/*",
+            columns={"id": "String"},
+        )
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert sourced_table.name in database._denied_tables
+        # allowed_table has no source, so no rule about sources may reach it.
+        assert "allowed_table" not in database._denied_tables
+
     def test_warehouse_objects_resource_none_denies_all_tables(self):
         self._create_ac(resource="warehouse_objects", access_level="none")
 
@@ -502,7 +764,6 @@ class TestWarehouseTableAccessControl(BaseTest):
         # Guards the fail-closed fix: query runners print the response HogQL userless right after the
         # user-scoped execute. Without the bypass, that print fails closed on a warehouse table; the param
         # must reach the database so warehouse-backed insights don't 500 on the print.
-        from posthog.hogql.errors import QueryError
         from posthog.hogql.parser import parse_select
         from posthog.hogql.printer import to_printed_hogql
 
@@ -513,8 +774,6 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "allowed_table" in printed
 
     def test_denied_table_lookup_raises_access_error(self):
-        from posthog.hogql.errors import QueryError
-
         self._create_ac(
             resource="warehouse_table",
             resource_id=str(self.denied_table.id),
@@ -524,10 +783,8 @@ class TestWarehouseTableAccessControl(BaseTest):
 
         database = Database.create_for(team=self.team, user=self.user)
 
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError):
             database.get_table("denied_table")
-        assert "don't have access" in str(cm.exception)
-        assert "Unknown" not in str(cm.exception)
 
 
 class TestWarehouseTableAccessControlFlagOff(BaseTest):
@@ -606,7 +863,6 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         )
 
     def test_execute_hogql_query_raises_on_denied_warehouse_table(self):
-        from posthog.hogql.errors import QueryError
         from posthog.hogql.query import execute_hogql_query
 
         from ee.models.rbac.access_control import AccessControl
@@ -624,21 +880,53 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         database = Database.create_for(team=self.team, user=self.user)
         assert "denied_warehouse_table" in database._denied_tables
 
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError) as cm:
             execute_hogql_query(
                 query="SELECT id FROM denied_warehouse_table",
                 team=self.team,
                 user=self.user,
             )
-        assert "don't have access" in str(cm.exception)
-        assert "denied_warehouse_table" in str(cm.exception)
+        assert cm.exception.table_name == "denied_warehouse_table"
+
+    def test_execute_hogql_query_raises_on_denied_warehouse_table_reached_through_a_join(self):
+        """A denied table reached through a join must raise the access error too. It is absent from
+        the schema exactly like a deleted one, so without special handling the join is dropped and
+        the denial surfaces as "Field not found", indistinguishable from a typo."""
+        from posthog.hogql.query import execute_hogql_query
+
+        from products.data_tools.backend.models.join import DataWarehouseJoin
+
+        from ee.models.rbac.access_control import AccessControl
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="denied_warehouse_table",
+            joining_table_key="id",
+            field_name="denied_join",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(self.denied_table.id),
+            access_level="none",
+            organization_member=self.membership,
+        )
+
+        with self.assertRaises(TableAccessDeniedError) as cm:
+            execute_hogql_query(
+                query="SELECT person.denied_join.id FROM events",
+                team=self.team,
+                user=self.user,
+            )
+        assert cm.exception.table_name == "denied_warehouse_table"
 
     def test_execute_hogql_query_bypass_warehouse_access_control_skips_denial(self):
         """bypass_warehouse_access_control opt-in should let the query past the access control gate
         (downstream may still fail because there's no real S3 data, but the
         gate must not block it)."""
         from posthog.hogql.context import HogQLContext
-        from posthog.hogql.errors import QueryError
         from posthog.hogql.query import execute_hogql_query
 
         from ee.models.rbac.access_control import AccessControl
@@ -661,9 +949,8 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
                 user=self.user,
                 context=context,
             )
-        except QueryError as e:
-            # Access control deny would say "don't have access"
-            assert "don't have access" not in str(e), f"bypass was not honored: {e}"
+        except TableAccessDeniedError as e:
+            raise AssertionError(f"bypass was not honored: {e}")
         except Exception:
             # Downstream errors (missing S3, etc.) are expected and irrelevant
             # to whether ACL was bypassed.
@@ -765,6 +1052,63 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
 
+    def test_shared_link_user_skips_warehouse_view_acl_but_hides_system_tables(self):
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+        viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+
+        database = Database.create_for(team=self.team, user=viewer)
+
+        # A shared-link viewer executes without warehouse access control - the deny is skipped.
+        assert "denied_view" not in database._denied_tables
+        assert "allowed_view" not in database._denied_tables
+        # But scoped system tables stay hidden, exactly like a userless build.
+        assert "system.dashboards" in database._denied_tables
+
+    def test_shared_link_user_requires_enabled_configuration(self):
+        with self.assertRaises(ValueError):
+            SharedLinkUser(SharingConfiguration(team=self.team, enabled=False))
+
+    def test_shared_link_cache_key_differs_from_denied_member(self):
+        # Resource-level deny: no per-object IDs land in the cache payload, so the restriction
+        # lists alone must keep the two principals' cache keys apart.
+        self._create_ac(resource="warehouse_objects", access_level="none")
+        query = HogQLQuery(query="SELECT id FROM denied_view")
+        shared_user = cast(User, SharedLinkUser(SharingConfiguration(team=self.team, enabled=True)))
+
+        shared_key = get_query_runner(query, self.team, user=shared_user).get_cache_key()
+        denied_key = get_query_runner(query, self.team, user=self.user).get_cache_key()
+
+        # A shared-link run executes with the warehouse bypass and writes its result to cache;
+        # if the keys collided, the denied member would be served that result on a cache hit
+        assert shared_key != denied_key
+
+        # Queries touching no access-controlled tables keep sharing one cache entry across
+        # principals - the partition must not cost public dashboards their warmed cache results
+        events_query = HogQLQuery(query="SELECT count() FROM events")
+        assert (
+            get_query_runner(events_query, self.team, user=shared_user).get_cache_key()
+            == get_query_runner(events_query, self.team, user=self.user).get_cache_key()
+        )
+
+    def test_synthetic_principal_skips_warehouse_view_acl(self):
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=SyntheticUser(self.team, "test-token"))
+
+        # Service-token principals bypass warehouse access control by design (see Database.create_for).
+        assert "denied_view" not in database._denied_tables
+        assert "system.dashboards" in database._denied_tables
+
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -803,12 +1147,8 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert not database.has_table("denied_view")
         assert backing_table.name == "denied_view"
 
-        from posthog.hogql.errors import QueryError
-
-        with self.assertRaises(QueryError) as cm:
+        with self.assertRaises(TableAccessDeniedError):
             database.get_table("denied_view")
-        assert "don't have access" in str(cm.exception)
-        assert "Unknown" not in str(cm.exception)
 
     def test_allowed_materialized_view_still_resolves(self):
         # The backing table is excluded, but the view node still exposes the name (and reads the

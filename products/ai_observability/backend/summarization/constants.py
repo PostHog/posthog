@@ -8,6 +8,3 @@ DEFAULT_MODE = SummarizationMode.MINIMAL
 
 # Timeout configuration (seconds)
 SUMMARIZATION_TIMEOUT = 120
-
-# Evaluation summary limits
-EVALUATION_SUMMARY_MAX_RUNS = 250

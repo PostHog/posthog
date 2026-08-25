@@ -111,15 +111,14 @@ that keeps the API out of Celery workers and management commands. See the
 `RouterRegistry` docstring and the discovery loop in `posthog/api/__init__.py` for
 the full reasoning.
 
-Do **not** register new endpoints under `environments_router`. Do **not** use the
-dual-route helper (`routers.register_legacy_dual_route`, or
-`register_legacy_dual_route_team_nested_viewset` in `__init__.py`) — it exists only
-for endpoints already exposed on both `/api/projects/` and `/api/environments/`
-before the rollback.
+Register team-nested endpoints under `routers.projects` with a `project_<name>`
+basename. There is no `environments_router` and no dual-route helper: the legacy
+`/api/environments/*` surface has been retired as a set of registered routes.
 
-If existing clients need `/api/environments/...` too, the OpenAPI postprocess
-hook at `posthog.api.documentation.preprocess_exclude_path_format` auto-marks
-the env-side path as `deprecated: true` whenever both routes exist.
+Existing clients that still call `/api/environments/...` are served transparently by
+`EnvironmentsRewriteMiddleware`, which rewrites the path onto the equivalent
+`/api/projects/*` viewset in-process (no 307). You never register an env route for
+this — just register under `routers.projects` and the middleware handles the alias.
 
 ### Facade products (DataclassSerializer)
 
@@ -168,9 +167,9 @@ See [common-anti-patterns.md](references/common-anti-patterns.md) for before/aft
 
 ## Canonical examples in the codebase
 
-- **JSONField + @extend_schema_field:** `posthog/api/alert.py`
-- **@validated_request:** `products/tasks/backend/api.py`
-- **help_text + typed responses:** `products/llm_analytics/backend/api/evaluation_summary.py`
+- **JSONField + @extend_schema_field:** `products/alerts/backend/api/alert.py`
+- **@validated_request:** `products/tasks/backend/presentation/views/api.py`
+- **help_text + typed responses:** `products/ai_observability/backend/api/summarization.py`
 - **Facade product:** `products/visual_review/backend/presentation/views.py`
 
 ## Related

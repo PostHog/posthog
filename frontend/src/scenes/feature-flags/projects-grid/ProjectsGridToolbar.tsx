@@ -5,7 +5,12 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridPicker } from './ProjectsGridPicker'
 
-export function ProjectsGridToolbar(): JSX.Element {
+export function ProjectsGridToolbar({
+    bulkSelectionBarRef,
+}: {
+    /** Slot the table's bulk selection bar is portaled into, so it shares this row. */
+    bulkSelectionBarRef?: (element: HTMLDivElement | null) => void
+}): JSX.Element {
     const { search } = useValues(projectsGridLogic)
     const { setSearch } = useActions(projectsGridLogic)
 
@@ -19,7 +24,10 @@ export function ProjectsGridToolbar(): JSX.Element {
                 className="max-w-80 grow"
                 data-attr="projects-grid-search"
             />
-            <ProjectsGridPicker />
+            <div className="flex flex-wrap items-center gap-2">
+                <div ref={bulkSelectionBarRef} className="flex items-center empty:hidden" />
+                <ProjectsGridPicker />
+            </div>
         </div>
     )
 }

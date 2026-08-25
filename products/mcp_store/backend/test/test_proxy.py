@@ -4,6 +4,9 @@ import uuid
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
@@ -12,7 +15,14 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
+from products.mcp_store.backend.models import (
+    MCPAuditEvent,
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerInstallationTool,
+    MCPToolPolicy,
+)
+from products.mcp_store.backend.proxy import _build_sse_response
 
 
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -710,18 +720,89 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert [entry["error"]["code"] for entry in body] == [-32001, -32002]
         mock_client_cls.assert_not_called()
 
+    def test_gateway_audit_query_count_does_not_grow_with_batch_size(self) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Audited tools",
+            url="https://mcp.audited-tools.example.com/mcp",
+        )
+        installation = self._installation()
+        installation.gateway_server = server
+        installation.save(update_fields=["gateway_server", "updated_at"])
+        for index in range(5):
+            self._tool(installation, f"pending-{index}", "needs_approval")
+
+        single_call = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "pending-0"},
+        }
+        assert self.client.post(self._proxy_url(installation.id), data=single_call, format="json").status_code == 200
+        MCPAuditEvent.objects.for_team(self.team.id).all().delete()
+
+        with CaptureQueriesContext(connection) as single_call_queries:
+            single_response = self.client.post(
+                self._proxy_url(installation.id),
+                data=single_call,
+                format="json",
+            )
+        with CaptureQueriesContext(connection) as batch_call_queries:
+            batch_response = self.client.post(
+                self._proxy_url(installation.id),
+                data=[
+                    {
+                        "jsonrpc": "2.0",
+                        "id": index,
+                        "method": "tools/call",
+                        "params": {"name": f"pending-{index}"},
+                    }
+                    for index in range(5)
+                ],
+                format="json",
+            )
+
+        assert single_response.status_code == 200
+        assert batch_response.status_code == 200
+        assert len(batch_call_queries.captured_queries) == len(single_call_queries.captured_queries)
+        assert MCPAuditEvent.objects.for_team(self.team.id).count() == 6
+
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_mixed_batch_rejects_whole_request_with_batch_code(self, mock_client_cls):
-        """Mixed batches are rejected atomically with a batch-level code, not a per-item code."""
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Audited batch",
+            url="https://mcp.audited-batch.example.com/mcp",
+        )
         installation = self._installation()
+        installation.gateway_server = server
+        installation.save(update_fields=["gateway_server", "updated_at"])
         self._tool(installation, "approved-tool", "approved")
+        self._tool(installation, "auto-tool", "approved")
         self._tool(installation, "unapproved-tool", "needs_approval")
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="approved-tool",
+            scope_type="member",
+            scope_user=self.user,
+            state="approved",
+        )
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="unapproved-tool",
+            scope_type="member",
+            scope_user=self.user,
+            state="needs_approval",
+        )
 
         response = self.client.post(
             self._proxy_url(installation.id),
             data=[
                 {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "approved-tool"}},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "unapproved-tool"}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "auto-tool"}},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "unapproved-tool"}},
             ],
             format="json",
         )
@@ -733,6 +814,13 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         for entry in body:
             assert entry["error"]["code"] == -32000
         mock_client_cls.assert_not_called()
+        assert list(
+            MCPAuditEvent.objects.for_team(self.team.id)
+            .filter(gateway_server=server)
+            .values_list("tool_name", "decision")
+        ) == [("unapproved-tool", "pending")]
+        installation.refresh_from_db()
+        assert installation.last_used_at is None
 
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_mixed_batch_with_tools_list_sibling_uses_batch_code(self, mock_client_cls):
@@ -895,3 +983,17 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED, (
                 f"Expected 405 for {method.upper()}, got {response.status_code}"
             )
+
+
+class TestBuildSSEResponseOverCap:
+    def test_over_cap_rejection_closes_upstream_resources(self):
+        # The generator that owns these resources never starts on the 503
+        # path; without the explicit close a rejected admission leaks the
+        # upstream connection and client until the upstream timeout.
+        upstream_response = MagicMock(spec=httpx.Response)
+        client = MagicMock(spec=httpx.Client)
+        with override_settings(SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS=0):
+            response = _build_sse_response(upstream_response, client)
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        upstream_response.close.assert_called_once()
+        client.close.assert_called_once()

@@ -146,9 +146,15 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_name="m1",
             points=[
                 (anchor - dt.timedelta(minutes=5), 2.0),
-                (anchor - dt.timedelta(minutes=5), 3.0),
                 (anchor - dt.timedelta(minutes=20), 4.0),
             ],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=5), 3.0)],
+            labels={"pod": "b"},
         )
         # Different metric — should be filtered out.
         seed_metric(
@@ -168,6 +174,62 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         values_by_bucket = {row["time"]: row["value"] for row in results}
         self.assertEqual(sum(values_by_bucket.values()), 9.0)
+
+    @parameterized.expand(
+        [
+            # Summing raw samples would give 66 (every sample counted), and
+            # scrape count is not constant across buckets, so the error moves.
+            ("sum", 33.0),
+            # Sample-weighted would be 11.0.
+            ("avg", 16.5),
+            # Counting raw samples would give 6.
+            ("count", 2.0),
+        ]
+    )
+    def test_aggregations_run_across_series_not_samples(self, aggregation: str, expected: float):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        bucket = anchor - dt.timedelta(minutes=5)
+        for pod, values in (("a", (1.0, 2.0, 3.0)), ("b", (10.0, 20.0, 30.0))):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_multi",
+                points=[(bucket + dt.timedelta(seconds=10 * i), value) for i, value in enumerate(values)],
+                labels={"pod": pod},
+            )
+
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_multi",
+            aggregation=aggregation,
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual([row["value"] for row in runner.run()], [expected])
+
+    def test_synthetic_original_timestamp_does_not_split_a_series(self):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        bucket = anchor - dt.timedelta(minutes=5)
+        # Ingest stamps `$originalTimestamp` on a point whose timestamp it had to
+        # override, with a different value per sample, and excludes it from the
+        # series identity it computes. Counting it here would give 6.0.
+        for index, value in enumerate((1.0, 2.0, 3.0)):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_skewed",
+                points=[(bucket + dt.timedelta(seconds=10 * index), value)],
+                labels={"pod": "a", "$originalTimestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
+            )
+
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_skewed",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual([row["value"] for row in runner.run()], [3.0])
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -203,6 +265,20 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_query_rejects_top_level_metric_type_with_clauses(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m1", "aggregation": "sum"}],
+                    "metricType": "gauge",
+                    "dateFrom": "2026-01-01T00:00:00Z",
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_query_validates_required_fields(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/query",
@@ -224,10 +300,14 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
-            points=[
-                (anchor - dt.timedelta(minutes=10), 1.0),
-                (anchor - dt.timedelta(minutes=10), 2.0),
-            ],
+            points=[(anchor - dt.timedelta(minutes=10), 1.0)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.0)],
+            labels={"pod": "b"},
         )
 
         response = self.client.post(
@@ -390,7 +470,14 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
-            points=[(anchor - dt.timedelta(minutes=10), 1.5), (anchor - dt.timedelta(minutes=10), 2.5)],
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
         )
 
         series = run_metric_query(team=self.team, request=self._request())
@@ -709,6 +796,31 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         # bucket 1: first sample contributes 0, then 5+5+5; bucket 2: 5+5
         self.assertEqual(values, [15.0, 10.0])
 
+    @parameterized.expand(
+        [
+            ("increase", [10.0, 20.0]),
+            ("rate", [10.0 / 60.0, 20.0 / 60.0]),
+        ]
+    )
+    def test_first_bucket_diffs_against_the_sample_before_the_range(self, aggregation: str, expected: list[float]):
+        # Scraped about once per bucket, which is the normal case: without a
+        # predecessor from before date_from the first point is a flat 0.
+        self._seed_counter(
+            [
+                (self.anchor - dt.timedelta(seconds=90), 100.0),
+                (self.anchor - dt.timedelta(seconds=30), 110.0),
+                (self.anchor + dt.timedelta(seconds=30), 130.0),
+            ]
+        )
+        rows = self._run(aggregation)
+        for row, expected_value in zip(rows, expected):
+            self.assertAlmostEqual(row["value"], expected_value)
+        # The pre-range sample only feeds the window function; its own bucket
+        # must not widen the grid the chart plots.
+        self.assertEqual(len(rows), len(expected))
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
+
     def test_rate_divides_by_bucket_seconds(self):
         self._seed_counter(
             [
@@ -920,6 +1032,30 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         # window contribution [10, 10, 10, 0] -> p50 = 0.3
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
+
+    def test_cumulative_lone_sample_emits_no_point(self):
+        # A cumulative histogram's first (and only) sample has no predecessor
+        # to diff against — the window has no computable increase. That must
+        # be a gap, not a fabricated p95 of 0 (which reads as "p95 is 0s").
+        self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
+        rows = self._run(0.95)
+        self.assertEqual(rows, [])
+
+    def test_first_bucket_diffs_against_the_histogram_before_the_range(self):
+        # Same missing-predecessor defect as the counter functions, but here it
+        # drops the point entirely rather than plotting a zero.
+        self._seed_histogram(
+            [
+                (self.anchor - dt.timedelta(seconds=90), [100, 100, 100, 0]),
+                (self.anchor - dt.timedelta(seconds=30), [110, 110, 110, 0]),
+            ],
+            temporality="cumulative",
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
 
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
@@ -1156,3 +1292,198 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
+    """One metric name existing as several types (e.g. a counter and a gauge)
+    must not blend into one aggregate — series identity includes the type."""
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+        # The same name recorded as a delta counter (5) and as a gauge (42).
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 5.0)],
+            metric_type="sum",
+            aggregation_temporality="delta",
+            is_monotonic=True,
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 42.0)],
+            metric_type="gauge",
+        )
+
+    def _run(self, aggregation: str, metric_type: str | None, **kwargs: Any) -> list[dict[str, Any]]:
+        return MetricQueryRunner(
+            team=self.team,
+            metric_name="m_collide",
+            aggregation=aggregation,
+            date_from=self.anchor - dt.timedelta(minutes=5),
+            date_to=self.anchor + dt.timedelta(minutes=5),
+            metric_type=metric_type,
+            **kwargs,
+        ).run()
+
+    @parameterized.expand(
+        [
+            # Without isolation these blended: avg was (5 + 42) / 2 = 23.5.
+            ("gauge_avg", "avg", "gauge", 42.0),
+            ("counter_sum", "sum", "sum", 5.0),
+            ("counter_increase", "increase", "sum", 5.0),
+        ]
+    )
+    def test_type_filter_isolates_series(self, _name: str, aggregation: str, metric_type: str, expected: float):
+        rows = self._run(aggregation, metric_type)
+        assert [row["value"] for row in rows] == [expected]
+
+    def test_without_type_filter_all_rows_still_match(self):
+        # Back-compat: no metric_type keeps the pre-filter behavior.
+        rows = self._run("count", None)
+        assert [row["value"] for row in rows] == [2]
+
+    def test_rejects_unknown_metric_type(self):
+        with self.assertRaises(ValueError):
+            self._run("avg", "flurble")
+
+    def test_histogram_quantile_ignores_same_named_non_histogram_rows(self):
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 30.0)],
+            metric_type="histogram",
+            aggregation_temporality="delta",
+            histogram_bounds=[10.0, 50.0, 100.0],
+            histogram_counts=[0, 10, 0, 0],
+        )
+        # No explicit type needed: the histogram path must constrain itself.
+        rows = self._run("histogram_quantile", None, quantile=0.5)
+        assert len(rows) == 1
+        # All 10 observations sit in the (10, 50] bucket; p50 interpolates to 30.
+        assert abs(rows[0]["value"] - 30.0) < 1e-9
+
+    def test_api_accepts_metric_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "m_collide",
+                    "aggregation": "avg",
+                    "metricType": "gauge",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        series = response.json()["results"][0]
+        self.assertEqual([p["value"] for p in series["points"]], [42.0])
+
+
+class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
+    """ClickHouse float aggregates can overflow to inf (two 1e308 series in
+    one bucket). A Python `inf` leaking into the response is at best invalid
+    JSON ("Infinity") and at worst a silent null downstream — the API contract
+    is an explicit null gap instead."""
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+
+    def _seed_huge(self, count: int) -> None:
+        # One series each: aggregation is across series, so repeated samples of
+        # a single series would collapse to one value and never overflow.
+        for index in range(count):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_huge",
+                points=[(self.anchor, 1e308)],
+                labels={"shard": str(index)},
+            )
+
+    def _run(self, aggregation: str) -> list[dict[str, Any]]:
+        return MetricQueryRunner(
+            team=self.team,
+            metric_name="m_huge",
+            aggregation=aggregation,
+            date_from=self.anchor - dt.timedelta(minutes=5),
+            date_to=self.anchor + dt.timedelta(minutes=5),
+        ).run()
+
+    @parameterized.expand([("sum",), ("avg",)])
+    def test_overflowing_bucket_returns_null_gap(self, aggregation: str):
+        self._seed_huge(2)
+        rows = self._run(aggregation)
+        assert [row["value"] for row in rows] == [None]
+
+    def test_large_finite_value_survives(self):
+        self._seed_huge(1)
+        rows = self._run("avg")
+        assert [row["value"] for row in rows] == [1e308]
+
+    def test_overflow_serializes_as_json_null_via_api(self):
+        self._seed_huge(2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "m_huge",
+                    "aggregation": "sum",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]
+
+    def test_formula_overflow_returns_null_gap(self):
+        self._seed_huge(1)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m_huge", "aggregation": "avg"}],
+                    "formula": "a * a",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]
+
+    def test_formula_propagates_clause_null_gap(self):
+        # Two 1e308 points sum to inf, so the CLAUSE aggregate is already a
+        # null gap before the formula runs — exercising the input-None guard
+        # in _evaluate_formula_point, not the formula-overflow branch above.
+        self._seed_huge(2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m_huge", "aggregation": "sum"}],
+                    "formula": "a + 1",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]

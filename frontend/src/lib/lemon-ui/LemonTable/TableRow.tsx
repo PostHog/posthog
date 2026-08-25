@@ -6,7 +6,7 @@ import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
-import { getStickyColumnInfo } from './columnUtils'
+import { getStickyColumnInfo } from './columnLayoutUtils'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, TableCellRepresentation } from './types'
 
 export interface TableRowProps<T extends Record<string, any>> {
@@ -55,6 +55,12 @@ function TableRowRaw<T extends Record<string, any>>({
 
     const isRowExpansionToggleShownLocal = !!expandable && rowExpandable >= 0
     const isRowExpansionToggleShown = expandable?.showRowExpansionToggle ?? isRowExpansionToggleShownLocal
+    const visibleDataColumnCount = columnGroups.reduce(
+        (count, columnGroup) => count + columnGroup.children.filter((column) => !column.isHidden).length,
+        0
+    )
+    const expansionColSpan =
+        visibleDataColumnCount + Number(isRowExpansionToggleShown && !!expandable?.noIndent) + Number(!!rowActions)
 
     const expandedRowClassNameDetermined =
         expandable &&
@@ -171,15 +177,8 @@ function TableRowRaw<T extends Record<string, any>>({
 
             {expandable && !!rowExpandable && isRowExpanded && (
                 <tr className={clsx('LemonTable__expansion', expandedRowClassNameDetermined)}>
-                    {!expandable.noIndent && <td />}
-                    <td
-                        colSpan={
-                            columnGroups.reduce((acc, columnGroup) => acc + columnGroup.children.length, 0) +
-                            Number(!!expandable.noIndent)
-                        }
-                    >
-                        {expandable.expandedRowRender(record, recordIndex)}
-                    </td>
+                    {isRowExpansionToggleShown && !expandable.noIndent && <td />}
+                    <td colSpan={expansionColSpan}>{expandable.expandedRowRender(record, recordIndex)}</td>
                 </tr>
             )}
         </>

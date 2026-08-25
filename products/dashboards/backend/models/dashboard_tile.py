@@ -76,6 +76,7 @@ class DashboardTile(models.Model):
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
+        db_index=False,
     )
     widget = models.ForeignKey(
         "dashboards.DashboardWidget",
@@ -160,7 +161,7 @@ class DashboardTile(models.Model):
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
-                from products.product_analytics.backend.models.insight import generate_insight_filters_hash
+                from products.product_analytics.backend.facade.models import generate_insight_filters_hash
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
@@ -168,13 +169,6 @@ class DashboardTile(models.Model):
                     update_fields.append("filters_hash")
 
         super().save(*args, **kwargs)
-
-    @property
-    def caching_state(self):
-        # uses .all and not .first so that prefetching can be used
-        for state in self.caching_states.all():
-            return state
-        return None
 
     def clean(self):
         super().clean()

@@ -30,6 +30,10 @@ PULL_REQUESTS_COLUMNS: dict[str, dict[str, str]] = {
     "updated_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "merged_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "closed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # The commit the merge produced on the base branch: the key that resolves a default-branch push
+    # run back to the PR that landed it. GitHub also populates it on OPEN PRs, where it is a
+    # throwaway test-merge SHA, so every read of it must gate on the PR being merged.
+    "merge_commit_sha": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "user": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "head": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "base": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
@@ -49,6 +53,14 @@ WORKFLOW_RUNS_COLUMNS: dict[str, dict[str, str]] = {
     "run_attempt": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "pull_requests": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "repository": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # The run's head commit object (author, message, id) verbatim as JSON. Carries the commit
+    # attribution the ci_job_history view extracts; a push run's PR number rides its squash-merge
+    # message when the pull_requests association is empty (master pushes). Nullable like every column.
+    "head_commit": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # The account GitHub recorded as triggering the run, verbatim as JSON. GitHub sets it; whoever
+    # pushed the branch cannot, which is what makes it the corroboration a merge-queue gate branch
+    # is checked against before its name is trusted for attribution (see logic/merge_queue.py).
+    "actor": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
 # Contract for the incoming ``github_workflow_jobs`` warehouse source (job-level CI: queue
@@ -73,4 +85,27 @@ WORKFLOW_JOBS_COLUMNS: dict[str, dict[str, str]] = {
     "started_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "completed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "steps": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Contract for the ``github_issue_events`` warehouse source: immutable issue/PR events, every
+# type kept (a source-side filter would pin the desc-walk watermark). ``actor`` / ``issue`` are
+# the nested GitHub objects verbatim as JSON. Same Nullable/string discipline as above.
+ISSUE_EVENTS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "event": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "actor": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "issue": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Contract for the ``github_team_members`` warehouse source (org team membership). Member rows
+# are GitHub user objects with the parent team's identity injected by the source fan-out
+# (``team_id`` / ``team_slug`` / ``team_name``); ``login`` + ``team_slug`` are the join keys the
+# membership-based merge timing reads. Same Nullable discipline as above.
+TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "login": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "team_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "team_slug": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }

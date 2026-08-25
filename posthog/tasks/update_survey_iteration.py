@@ -1,6 +1,11 @@
-from datetime import date
-from typing import Any
+from datetime import date, timedelta
 
+from django.utils import timezone
+
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+from products.feature_flags.backend.facade.api import create_flag, update_flag
+from products.feature_flags.backend.facade.filters import replace_release_conditions
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
@@ -10,59 +15,117 @@ def _update_survey_iteration(survey: Survey) -> None:
     if survey.iteration_start_dates is None or survey.end_date is not None:
         return
 
+    if _has_final_iteration_ended(survey):
+        survey.end_date = timezone.now()
+        survey.save(update_fields=["end_date"])
+        _log_survey_closed_by_schedule(survey)
+        return
+
     current_iteration = _get_current_iteration(survey)
     if (
-        current_iteration != survey.current_iteration
+        current_iteration > 0
+        and current_iteration != survey.current_iteration
         and survey.iteration_start_dates is not None
         and 0 < len(survey.iteration_start_dates)
     ):
-        survey.current_iteration = max(_get_current_iteration(survey), 1)
+        survey.current_iteration = current_iteration
         survey.current_iteration_start_date = survey.iteration_start_dates[survey.current_iteration - 1]
         survey.internal_targeting_flag = _get_targeting_flag(survey)
         survey.save(update_fields=["current_iteration", "current_iteration_start_date", "internal_targeting_flag_id"])
 
 
-def _get_targeting_flag(survey: Survey) -> FeatureFlag | Any:
+def _log_survey_closed_by_schedule(survey: Survey) -> None:
+    # Record a system activity-log entry so the survey's history explains why it stopped.
+    # Without this, the scheduler's direct save() leaves no trace, and a user who removes
+    # the end date only ever sees their own removals logged — never the automatic close.
+    log_activity(
+        organization_id=survey.team.organization_id,
+        team_id=survey.team_id,
+        user=None,  # system action: renders as PostHog in the activity log
+        was_impersonated=False,
+        item_id=survey.id,
+        scope="Survey",
+        activity="updated",
+        detail=Detail(
+            name=survey.name,
+            changes=[Change(type="Survey", field="end_date", action="created", after=survey.end_date)],
+        ),
+    )
+
+
+def _has_final_iteration_ended(survey: Survey) -> bool:
+    if not survey.iteration_start_dates or not survey.iteration_frequency_days:
+        return False
+
+    last_iteration_start = survey.iteration_start_dates[-1]
+    if last_iteration_start is None:
+        return False
+
+    try:
+        final_iteration_end = last_iteration_start.date() + timedelta(days=survey.iteration_frequency_days)
+    except OverflowError:
+        # iteration_frequency_days is not capped by the API; a huge value must not crash the task
+        return False
+    return date.today() > final_iteration_end
+
+
+def _get_targeting_flag(survey: Survey) -> FeatureFlag:
     existing_targeting_flag: FeatureFlag | None = survey.internal_targeting_flag
-    user_submitted_dismissed_filter = {
-        "groups": [
-            {
-                "variant": "",
-                "rollout_percentage": 100,
-                "properties": [
-                    {
-                        "key": f"$survey_dismissed/{survey.id}/{survey.current_iteration}",
-                        "value": "is_not_set",
-                        "operator": "is_not_set",
-                        "type": "person",
-                    },
-                    {
-                        "key": f"$survey_responded/{survey.id}/{survey.current_iteration}",
-                        "value": "is_not_set",
-                        "operator": "is_not_set",
-                        "type": "person",
-                    },
-                ],
-            }
-        ]
-    }
+    user_submitted_dismissed_groups = [
+        {
+            "variant": "",
+            "rollout_percentage": 100,
+            "properties": [
+                {
+                    "key": f"$survey_dismissed/{survey.id}/{survey.current_iteration}",
+                    "value": "is_not_set",
+                    "operator": "is_not_set",
+                    "type": "person",
+                },
+                {
+                    "key": f"$survey_responded/{survey.id}/{survey.current_iteration}",
+                    "value": "is_not_set",
+                    "operator": "is_not_set",
+                    "type": "person",
+                },
+            ],
+        }
+    ]
 
     if existing_targeting_flag is not None:
-        # Note: new filters must come LAST to overwrite old iteration-unaware properties
-        serialized_data_filters = {**existing_targeting_flag.filters, **user_submitted_dismissed_filter}
-        existing_targeting_flag.filters = serialized_data_filters
-        existing_targeting_flag.save()
-        return existing_targeting_flag
-    else:
-        new_flag = FeatureFlag.objects.create(
+        # Note: groups are replaced wholesale so old iteration-unaware properties don't survive
+        return update_flag(
+            existing_targeting_flag,
+            {
+                "filters": replace_release_conditions(
+                    existing_targeting_flag.get_filters(), user_submitted_dismissed_groups
+                )
+            },
             team=survey.team,
-            created_by=survey.created_by,
-            active=True,
-            key=str(survey.id),
-            filters=user_submitted_dismissed_filter,
+            # system write: skips the approval gate, same as the create_flag call below
+            user=None,
         )
-        new_flag.save()
-        return new_flag
+    # user=None: this is beat-task maintenance, so it must take the system-write
+    # path — a user-bearing write would engage the approval gate, and this task
+    # cannot surface an ApprovalRequired change request.
+    flag = create_flag(
+        {
+            "key": str(survey.id),
+            "active": True,
+            "filters": {"groups": user_submitted_dismissed_groups},
+            "creation_context": "surveys",
+        },
+        team=survey.team,
+        user=None,
+    )
+    # The system write nulls created_by, which would cost the survey's creator their
+    # guaranteed access to the flag. Restore attribution with a raw column update:
+    # QuerySet.update() bypasses save()/signals, so the write stays system-attributed
+    # (is_system activity log, null last_modified_by) and cannot engage the gate.
+    if survey.created_by is not None:
+        FeatureFlag.objects.filter(pk=flag.pk).update(created_by=survey.created_by)
+        flag.created_by = survey.created_by
+    return flag
 
 
 def _get_current_iteration(survey: Survey) -> int:

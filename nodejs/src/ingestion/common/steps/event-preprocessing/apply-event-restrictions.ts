@@ -2,6 +2,7 @@ import { Counter } from 'prom-client'
 
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
 import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
+import { IngestionOverflowMode } from '~/ingestion/config'
 import { dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'
@@ -12,8 +13,24 @@ export const ingestionOverflowingMessagesTotal = new Counter({
 })
 
 export type RoutingConfig = {
-    overflowEnabled: boolean
+    overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
+    /**
+     * Whether this pipeline writes persons (creates or updates rows), as
+     * opposed to only reading them or not touching persons at all.
+     *
+     * True keeps the partition key on a force-overflow redirect while person
+     * processing is on, because the overflow consumer would otherwise write
+     * the same person row from several partitions at once. False lets those
+     * redirects follow `preservePartitionLocality`, so the overflow lane can
+     * spread the load.
+     *
+     * Required, so that a new pipeline has to answer it rather than inherit
+     * a default. The answer is the repository the pipeline holds: a
+     * `PersonRepository` writes, a `PersonReadRepository` does not, and a
+     * pipeline that takes neither does not touch persons at all.
+     */
+    pipelineWritesPersons: boolean
 }
 
 /**
@@ -66,10 +83,13 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
         }
 
         // Priority 3: Overflow
-        if (routingConfig.overflowEnabled && restrictions.has(RestrictionType.FORCE_OVERFLOW)) {
+        if (routingConfig.overflowMode === 'redirect' && restrictions.has(RestrictionType.FORCE_OVERFLOW)) {
             ingestionOverflowingMessagesTotal.inc()
             const shouldProcessPerson = !restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING)
-            const preservePartitionLocality = shouldProcessPerson ? true : routingConfig.preservePartitionLocality
+            const preservePartitionLocality =
+                shouldProcessPerson && routingConfig.pipelineWritesPersons
+                    ? true
+                    : routingConfig.preservePartitionLocality
             return redirect(
                 'Event redirected to overflow due to force overflow restrictions',
                 OVERFLOW_OUTPUT,

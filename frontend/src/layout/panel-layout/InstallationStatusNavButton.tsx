@@ -5,12 +5,10 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
-import {
-    activeCloudRunLogic,
-    type CloudRunHandle,
-} from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
-import { installationProgressLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/installationProgressLogic'
+import { activeCloudRunLogic, type CloudRunHandle } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
+import { installationProgressLogic } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { urls } from 'scenes/urls'
 
 import { installationStatusNavLogic, type NavInstallationPhase } from './installationStatusNavLogic'
 
@@ -75,7 +73,7 @@ export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: b
     const sidebarEnabled = useFeatureFlag('ONBOARDING_WIZARD_SIDEBAR', 'test')
     // Gate BEFORE mounting any logic: the inner component mounts the session detector (directly and
     // via installationStatusNavLogic's connect), whose afterMount starts a 60s REST poll. Flag-off
-    // users must not pay that traffic (INC-886 pattern, mirrors WizardProgressFab).
+    // users must not pay that traffic (INC-886 pattern, mirrors WizardSyncLocalGate).
     if (!sidebarEnabled) {
         return null
     }
@@ -83,7 +81,7 @@ export function InstallationStatusNavButton({ iconOnly = false }: { iconOnly?: b
 }
 
 function InstallationStatusNavButtonInner({ iconOnly }: { iconOnly: boolean }): JSX.Element | null {
-    const { shouldShow, isRunActive, phase: logicPhase, onboardingUrl } = useValues(installationStatusNavLogic)
+    const { shouldShow, isRunActive, phase: logicPhase } = useValues(installationStatusNavLogic)
     const { openDialog } = useActions(installationStatusNavLogic)
 
     // The detector must be mounted to run the cheap REST poll that surfaces local sessions.
@@ -125,7 +123,7 @@ function InstallationStatusNavButtonInner({ iconOnly }: { iconOnly: boolean }): 
         if (isRunActive) {
             openDialog()
         } else {
-            window.location.href = onboardingUrl
+            window.location.href = urls.onboarding()
         }
     }
 

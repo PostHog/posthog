@@ -11,6 +11,7 @@ from products.signals.backend.artefact_schemas import (
     CodeReference,
     Commit,
     NoteArtefact,
+    SuggestedReviewerEntry,
     SummaryChange,
     TaskRunArtefact,
     TitleChange,
@@ -125,7 +126,13 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("note", {"note": "hello"}),
             (
                 "commit",
-                {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "abc123f", "message": "fix: x"},
+                {
+                    "repository": "PostHog/posthog",
+                    "branch": "b",
+                    "commit_sha": "abc123f",
+                    "message": "fix: x",
+                    "diff": "@@ -1 +1 @@\n-a\n+b",
+                },
             ),
             ("task_run", {"task_id": "t1", "run_id": None, "product": "signals", "type": "implementation"}),
             ("title_change", {"old_title": "before", "new_title": "after"}),
@@ -154,6 +161,11 @@ class TestValidateArtefactContent(SimpleTestCase):
     def test_rejects_invalid_content_for_type(self, artefact_type, content):
         with self.assertRaises(ArtefactContentValidationError):
             parse_artefact_content(artefact_type, content)
+
+    def test_suggested_reviewer_login_is_stripped(self):
+        # Enrichment and autostart look logins up with `login.lower()` and no strip, so a padded
+        # login that survived to storage would count as suggested but never match a user.
+        assert SuggestedReviewerEntry(github_login=" Octocat ").github_login == "Octocat"
 
     def test_parsing_normalizes_to_the_schema(self):
         # Parsing into the typed model is the boundary: unknown keys are not persisted, and

@@ -16,7 +16,7 @@ export const HealthIssuesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -44,18 +44,18 @@ export const HealthIssuesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
- * Returns aggregated counts of active, non-dismissed health issues for the project, broken down by severity and by kind. Use for a quick overview of overall project health before drilling in with the list endpoint.
+ * Returns aggregated counts of active, non-dismissed health issues for the project, split into `unsnoozed` and `snoozed` groups and broken down by severity and by kind within each. Use for a quick overview of overall project health before drilling in with the list endpoint.
  * @summary Summarize active health issues
  */
 export const HealthIssuesSummaryRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

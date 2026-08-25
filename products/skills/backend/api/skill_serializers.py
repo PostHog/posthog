@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 from django.db import transaction
@@ -10,20 +9,48 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
-from ..models.skills import LLMSkill, LLMSkillFile
+from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
+from .community_publish_services import (
+    DISPLAY_NAME_PATTERN,
+    MAX_DISPLAY_NAME_LENGTH,
+    MAX_GITHUB_HANDLE_LENGTH,
+    MAX_TAG_LENGTH,
+    OPTIONAL_GITHUB_HANDLE_PATTERN,
+)
+from .skill_services import (
+    RESERVED_SKILL_NAMES,
+    SKILL_NAME_PATTERN,
+    LLMSkillOwnerNotFoundError,
+    check_allowed_tool_name,
+    normalize_skill_file_path,
+    resolve_owner_users,
+    resolve_skill_owners,
+    seed_skill_owner,
+    set_skill_owners,
+)
 
-# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
-# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
-# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
-RESERVED_SKILL_NAMES = {"new", "scouts"}
-# Bundled-file paths that would collide with generated artifacts in the exported skill
-# tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
-RESERVED_SKILL_FILE_PATHS = {"skill.md"}
 DEFAULT_VERSION_PAGE_SIZE = 50
+# Body-paging metadata is meaningless without the body, so the list serializer drops it alongside body/files.
+_LIST_EXCLUDED_FIELDS = ("body", "body_total_length", "body_next_offset", "files")
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
-MAX_SKILL_FILE_COUNT = 50
-SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+MAX_SKILL_FILE_COUNT = 200
+# Ownership is a short routing list, not an ACL — cap it so a create/update can't resolve membership,
+# clear the owner set, and insert an owner row per entry for an oversized input before being rejected.
+MAX_SKILL_OWNERS = 25
+# skill-get returns the whole body when the caller doesn't page, but a large body is
+# truncated by the MCP transport before it reaches an agent — and an un-paged response
+# reported body_next_offset as null, so the agent had no valid offset to continue from and
+# would treat a cut-off body as complete. get_by_name caps the first page at this length so
+# body_next_offset is always a real continuation offset the caller can page from until it is
+# null, never a guess. Sized to sit under observed transport truncation with room for the
+# response envelope (outline, file manifest, metadata).
+DEFAULT_BODY_PAGE_LENGTH = 8000
+# Tools that opt a scout skill into the report channel. Local copy of
+# products/signals/backend/scout_harness/skill_loader.REPORT_CHANNEL_TOOLS — skills must not
+# import signals internals, and drift fails closed: a report tool unknown here keeps owners
+# hidden from scout callers rather than exposing them.
+SCOUT_REPORT_CHANNEL_TOOLS = frozenset({"emit_report", "edit_report"})
 
 
 def validate_skill_name_value(value: str) -> str:
@@ -52,26 +79,10 @@ def validate_skill_name_value(value: str) -> str:
 
 
 def validate_skill_file_path(value: str) -> str:
-    # Paths become git tree entries (and zip/marketplace paths), so anything that would
-    # produce an empty or ambiguous entry name must be rejected — otherwise a single bad
-    # path synthesizes a corrupt git tree and breaks the whole team's marketplace clone.
-    normalized = value.replace("\\", "/")
-    if not normalized or normalized != normalized.strip():
-        raise serializers.ValidationError("File path must be a non-empty, trimmed relative path.")
-    if normalized.startswith("/"):
-        raise serializers.ValidationError("File paths must be relative, not absolute.")
-    if normalized.endswith("/"):
-        raise serializers.ValidationError("File paths must not end with a slash.")
-    if any(part in ("", ".", "..") for part in normalized.split("/")):
-        raise serializers.ValidationError("File paths must not contain empty, '.', or '..' segments.")
-    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in normalized):
-        raise serializers.ValidationError("File paths must not contain control characters.")
-    if normalized.lower() in RESERVED_SKILL_FILE_PATHS:
-        raise serializers.ValidationError(f"'{value}' is a reserved file path and cannot be used.")
-    # Persist the normalized (forward-slash) form, not the original: backslashes mean "separator"
-    # here, so storing them verbatim would make `references\guide.md` a single flat tree entry
-    # rather than a file under `references/`, and would let the two spellings dodge dedup.
-    return normalized
+    try:
+        return normalize_skill_file_path(value)
+    except ValueError as err:
+        raise serializers.ValidationError(str(err)) from err
 
 
 def _validate_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -97,11 +108,11 @@ def validate_skill_body_size(body: str) -> str:
 
 
 def validate_allowed_tool(value: str) -> None:
-    # The Agent Skills spec serializes allowed-tools as a single space-separated string, so a tool
-    # name containing whitespace would silently fracture into multiple tools on export/round-trip.
     # Returns None (raise-only) so it fits a DRF `validators=[...]` list.
-    if any(ch.isspace() for ch in value):
-        raise serializers.ValidationError("Tool names cannot contain whitespace.")
+    try:
+        check_allowed_tool_name(value)
+    except ValueError as err:
+        raise serializers.ValidationError(str(err)) from err
 
 
 class LLMSkillFetchQuerySerializer(serializers.Serializer):
@@ -109,6 +120,25 @@ class LLMSkillFetchQuerySerializer(serializers.Serializer):
         min_value=1,
         required=False,
         help_text="Specific skill version to fetch. If omitted, the latest version is returned.",
+    )
+
+
+class LLMSkillBodyFetchQuerySerializer(LLMSkillFetchQuerySerializer):
+    """Fetch-by-name query params plus optional body paging — only the body-returning endpoint uses these."""
+
+    body_offset = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        help_text="Zero-based character offset to start the returned body from. Use with body_length to page through a "
+        "large body that a client would otherwise truncate. Compare the returned body length against body_total_length "
+        "to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).",
+    )
+    body_length = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="Maximum number of characters of the body to return starting at body_offset. Omit to return the "
+        "whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to "
+        "request next.",
     )
 
 
@@ -234,6 +264,23 @@ class LLMSkillFileEditSerializer(serializers.Serializer):
         return value
 
 
+# The fields that publish a new skill version when present on a PATCH. A payload carrying none of
+# these (owners only) replaces ownership without minting a version — the view branches on the same
+# tuple, so keep the two in sync via this constant.
+PUBLISH_CONTENT_FIELDS = (
+    "body",
+    "edits",
+    "description",
+    "license",
+    "compatibility",
+    "allowed_tools",
+    "metadata",
+    "files",
+    "file_edits",
+    "version_description",
+)
+
+
 class LLMSkillPublishSerializer(serializers.Serializer):
     body = serializers.CharField(
         required=False,
@@ -291,13 +338,34 @@ class LLMSkillPublishSerializer(serializers.Serializer):
             "Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files."
         ),
     )
+    owners = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        max_length=MAX_SKILL_OWNERS,
+        help_text="Replace the skill's owners with these user UUIDs (each a member of this project). "
+        "Omit to leave owners unchanged; pass an empty list to clear them. Owners are keyed on the "
+        "logical skill, so setting them is independent of the version being published — a body edit "
+        "alone never changes ownership.",
+    )
     base_version = serializers.IntegerField(
         min_value=1,
-        help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
+        required=False,
+        help_text="Latest version you are editing from. Used for optimistic concurrency checks. "
+        "Required when publishing content changes; optional for an owner-only update (when omitted, "
+        "owners are replaced without a concurrency check).",
+    )
+    version_description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Optional note describing what changed in this version. Shown in the version history.",
     )
 
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
+
+    def validate_version_description(self, value: str) -> str | None:
+        return value.strip() or None
 
     def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(value) == 0:
@@ -320,6 +388,15 @@ class LLMSkillPublishSerializer(serializers.Serializer):
             raise serializers.ValidationError("Provide either 'body' or 'edits', not both.")
         if "files" in attrs and "file_edits" in attrs:
             raise serializers.ValidationError("Provide either 'files' or 'file_edits', not both.")
+        # `base_version` is a plain optional field so the generated PATCH schema (which marks every
+        # body field optional) stays truthful for owner-only updates — but any payload that publishes
+        # a version still needs the optimistic-concurrency anchor, so require it here where the
+        # field-level schema can't.
+        is_owner_only = attrs.get("owners") is not None and all(attrs.get(f) is None for f in PUBLISH_CONTENT_FIELDS)
+        if not is_owner_only and attrs.get("base_version") is None:
+            raise serializers.ValidationError(
+                {"base_version": "base_version is required unless the update only sets owners."}
+            )
         return attrs
 
 
@@ -346,11 +423,25 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         "not writable via the API. Empty for an ordinary skill. Groups skills into their own surface "
         "(e.g. the Scouts tab) independently of the skill name.",
     )
+    owners = serializers.SerializerMethodField(
+        help_text="Users who own this skill, seed-creator first. Ownership is keyed on the logical skill "
+        "(not a version), so it's stable across edits. Prefer this over created_by to learn who to route "
+        "reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). "
+        "Empty for scout sandbox fetches of skills that haven't opted into the report channel.",
+    )
     files = serializers.SerializerMethodField(
         help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
     outline = serializers.SerializerMethodField(
         help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
+    )
+    body_total_length = serializers.SerializerMethodField(
+        help_text="Total length of the full body in characters, independent of any body_offset/body_length paging. "
+        "Compare against the length of the returned body to detect a truncated response.",
+    )
+    body_next_offset = serializers.SerializerMethodField(
+        help_text="When body_length paging stops before the end of the body, the character offset to request next "
+        "(pass as body_offset). Null when the returned body reaches the end.",
     )
 
     class Meta:
@@ -359,15 +450,21 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            # Body-paging metadata is ordered before `body` so it survives a client that
+            # truncates the tail of a large response — the truncation signal stays readable.
+            "body_total_length",
+            "body_next_offset",
             "body",
             "license",
             "compatibility",
             "allowed_tools",
             "metadata",
             "category",
+            "owners",
             "files",
             "outline",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "updated_at",
@@ -379,9 +476,13 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "owners",
             "files",
             "outline",
+            "body_total_length",
+            "body_next_offset",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "updated_at",
@@ -402,6 +503,9 @@ class LLMSkillSerializer(serializers.ModelSerializer):
                 "help_text": "Environment requirements (intended product, system packages, network access, etc.)."
             },
             "metadata": {"help_text": "Arbitrary key-value metadata."},
+            "version_description": {
+                "help_text": "Optional note describing what changed in this version. Set when the version is published."
+            },
         }
 
     def get_is_latest(self, instance: LLMSkill) -> bool:
@@ -421,6 +525,24 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             return value
         return value.isoformat().replace("+00:00", "Z")
 
+    @extend_schema_field(UserBasicSerializer(many=True))
+    def get_owners(self, instance: LLMSkill) -> list[dict[str, Any]]:
+        # Owner identities are member PII. A scout sandbox token only gets them on skills that
+        # opted into the report channel — owners exist to route `suggested_reviewers`, which only
+        # report-channel scouts have — mirroring how the run prompt gates its owners line.
+        if self.context.get("scout_sandbox_caller") and not (
+            SCOUT_REPORT_CHANNEL_TOOLS & set(instance.allowed_tools or [])
+        ):
+            return []
+        # The list endpoint pre-resolves owners for the whole page (one query) and passes them via
+        # context to avoid N+1; a single-skill fetch resolves on demand.
+        owners_by_name = self.context.get("owners_by_skill_name")
+        if owners_by_name is not None:
+            users = owners_by_name.get(instance.name, [])
+        else:
+            users = resolve_skill_owners(self.context["get_team"](), instance.name)
+        return list(UserBasicSerializer(users, many=True).data)
+
     @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
     def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
         return [dict(row) for row in LLMSkillFile.objects.filter(skill=instance).values("path", "content_type")]
@@ -428,6 +550,35 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
         return get_markdown_outline(instance.body)
+
+    def _body_offset(self) -> int:
+        return self.context.get("body_offset") or 0
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_body_total_length(self, instance: LLMSkill) -> int:
+        return len(instance.body or "")
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_body_next_offset(self, instance: LLMSkill) -> int | None:
+        body_length = self.context.get("body_length")
+        if body_length is None:
+            return None
+        end = self._body_offset() + body_length
+        total = len(instance.body or "")
+        return end if end < total else None
+
+    def to_representation(self, instance: LLMSkill) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # Slice the body only when the caller asked to page through it — an ordinary
+        # fetch (no paging params) returns the whole body unchanged.
+        body = data.get("body")
+        if body is not None:
+            offset = self._body_offset()
+            body_length = self.context.get("body_length")
+            if offset or body_length is not None:
+                end = None if body_length is None else offset + body_length
+                data["body"] = body[offset:end]
+        return data
 
     def validate_name(self, value: str) -> str:
         return validate_skill_name_value(value)
@@ -454,7 +605,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
 
 class LLMSkillCreateSerializer(LLMSkillSerializer):
-    """Create serializer — accepts bundled files as write-only input on POST."""
+    """Create serializer — accepts bundled files and owners as write-only input on POST."""
 
     files = LLMSkillFileInputSerializer(  # type: ignore[assignment]
         many=True,
@@ -462,9 +613,17 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         write_only=True,
         help_text="Bundled files to include with the initial version (scripts, references, assets).",
     )
+    owners = serializers.ListField(  # type: ignore[assignment]
+        child=serializers.UUIDField(),
+        required=False,
+        write_only=True,
+        max_length=MAX_SKILL_OWNERS,
+        help_text="User UUIDs to set as the skill's owners. Each must be a member of this project. "
+        "Defaults to the creating user when omitted; pass an empty list to create with no owners.",
+    )
 
     class Meta(LLMSkillSerializer.Meta):
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f != "files"]
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners")]
 
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
@@ -473,12 +632,16 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
         files = validated_data.pop("files", None)
+        owner_uuids = validated_data.pop("owners", None)
 
         with transaction.atomic():
+            # `category` is read-only on the serializer, so it can never arrive in validated_data —
+            # the server-owned prefix stamp is the only writer.
             skill = LLMSkill.objects.create(
                 team=team,
                 created_by=request.user,
                 is_latest=True,
+                category=category_for_skill_name(validated_data["name"]),
                 **validated_data,
             )
             if files:
@@ -493,6 +656,20 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
                         for f in files
                     ]
                 )
+            # `is not None`, not truthiness: an explicit empty list means "create with no owners"
+            # and must not fall through to the creator-owns default (matching the update path).
+            if owner_uuids is not None:
+                try:
+                    owner_users = resolve_owner_users(team, [str(u) for u in owner_uuids])
+                except LLMSkillOwnerNotFoundError as err:
+                    raise serializers.ValidationError(
+                        {"owners": f"User '{err.user_uuid}' is not a member of this project."},
+                        code="invalid_owner",
+                    )
+                set_skill_owners(team, skill.name, owner_users)
+            else:
+                # Creator owns by default — durable, not reconstructed from version history.
+                seed_skill_owner(team, skill.name, request.user)
         return skill
 
 
@@ -500,8 +677,8 @@ class LLMSkillListSerializer(LLMSkillSerializer):
     """List serializer that omits body and file manifest — progressive disclosure (Level 1)."""
 
     class Meta(LLMSkillSerializer.Meta):
-        fields = [f for f in LLMSkillSerializer.Meta.fields if f not in ("body", "files")]
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("body", "files")]
+        fields = [f for f in LLMSkillSerializer.Meta.fields if f not in _LIST_EXCLUDED_FIELDS]
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in _LIST_EXCLUDED_FIELDS]
 
 
 class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):
@@ -512,6 +689,7 @@ class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "is_latest",
@@ -654,3 +832,41 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
     )
     created_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was created.")
     last_rolled_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was last rotated.")
+
+
+class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
+    display_name = serializers.RegexField(
+        DISPLAY_NAME_PATTERN,
+        required=False,
+        allow_blank=True,
+        max_length=MAX_DISPLAY_NAME_LENGTH,
+        help_text=(
+            "Human-friendly display name for the community listing. Defaults to a title-cased skill slug. "
+            "Must be a single line: it is used as the pull request title and commit message."
+        ),
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_TAG_LENGTH),
+        required=False,
+        help_text="Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].",
+    )
+    author_handle = serializers.RegexField(
+        OPTIONAL_GITHUB_HANDLE_PATTERN,
+        required=False,
+        allow_blank=True,
+        # The pattern can't bound the total on its own: each of its repetitions may contribute a
+        # hyphen and a character, so it alone accepts 77 characters — not a username GitHub can hold.
+        max_length=MAX_GITHUB_HANDLE_LENGTH,
+        help_text=(
+            "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, "
+            "and self-reported: it is not verified against the publisher's PostHog account."
+        ),
+    )
+
+
+class CommunitySkillPublishResultSerializer(serializers.Serializer):
+    pr_url = serializers.URLField(
+        help_text="URL of the pull request opened in the community-skills repo for maintainer review."
+    )
+    pr_number = serializers.IntegerField(help_text="Number of the opened pull request.")
+    branch = serializers.CharField(help_text="Name of the branch created in the community-skills repo.")

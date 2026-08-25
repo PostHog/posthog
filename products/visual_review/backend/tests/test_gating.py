@@ -18,9 +18,12 @@ covers the entire state space.
 
 import pytest
 
-from products.visual_review.backend import logic
+from parameterized import parameterized
+
 from products.visual_review.backend.facade import api
+from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.logic import approvals, artifact_store, repos, runs, toleration
 from products.visual_review.backend.models import QuarantinedIdentifier, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -32,21 +35,21 @@ RESULT_ENUM = {
 }
 
 # fmt: off
-# (result, action, gate_passes, expected_changed_count)
+# (name, result, action, gate_passes, expected_changed_count)
 # gate_passes: True when unresolved=0 (action resolves the change or result is unchanged)
 # expected_changed_count: raw classifier count on the Run model (excludes quarantined only)
 GATE_CASES = [
-    pytest.param("unchanged", None,          True,  0, id="unchanged"),
-    pytest.param("changed",   None,          False, 1, id="changed-unresolved"),
-    pytest.param("changed",   "quarantine",  True,  0, id="changed-quarantined"),
-    pytest.param("changed",   "tolerate",    True,  1, id="changed-tolerated"),
-    pytest.param("changed",   "approve",     True,  1, id="changed-approved"),
-    pytest.param("new",       None,          False, 0, id="new-unresolved"),
-    pytest.param("new",       "quarantine",  True,  0, id="new-quarantined"),
-    pytest.param("new",       "approve",     True,  0, id="new-approved"),
-    pytest.param("removed",   None,          False, 0, id="removed-unresolved"),
-    pytest.param("removed",   "quarantine",  True,  0, id="removed-quarantined"),
-    pytest.param("removed",   "approve",     True,  0, id="removed-approved"),
+    ("unchanged",            "unchanged", None,          True,  0),
+    ("changed_unresolved",   "changed",   None,          False, 1),
+    ("changed_quarantined",  "changed",   "quarantine", True,  0),
+    ("changed_tolerated",    "changed",   "tolerate",   True,  1),
+    ("changed_approved",     "changed",   "approve",    True,  1),
+    ("new_unresolved",       "new",       None,          False, 0),
+    ("new_quarantined",      "new",       "quarantine", True,  0),
+    ("new_approved",         "new",       "approve",    True,  0),
+    ("removed_unresolved",   "removed",   None,          False, 0),
+    ("removed_quarantined",  "removed",   "quarantine", True,  0),
+    ("removed_approved",     "removed",   "approve",    True,  0),
 ]
 # fmt: on
 
@@ -58,44 +61,46 @@ class TestGatingInvariants:
         self.team = team
         self.user = user
         self.mocker = mocker
-        self.repo = logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test-gating")
-        mocker.patch("products.visual_review.backend.logic._post_commit_status")
+        self.repo = repos.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test-gating")
+        mocker.patch("products.visual_review.backend.logic.ci_status._post_commit_status")
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
 
     def _build_run(self, result: str, action: str | None, purpose: str = "review") -> Run:
-        snapshots: list[dict] = []
+        snapshots: list[SnapshotManifestItem] = []
         baseline: dict[str, str] = {}
 
         if result == "changed":
-            snapshots = [{"identifier": "target", "content_hash": "current_hash"}]
+            snapshots = [SnapshotManifestItem(identifier="target", content_hash="current_hash")]
             baseline = {"target": "baseline_hash"}
         elif result == "new":
-            snapshots = [{"identifier": "target", "content_hash": "current_hash"}]
+            snapshots = [SnapshotManifestItem(identifier="target", content_hash="current_hash")]
         elif result == "removed":
             baseline = {"target": "baseline_hash"}
         elif result == "unchanged":
-            snapshots = [{"identifier": "target", "content_hash": "same_hash"}]
+            snapshots = [SnapshotManifestItem(identifier="target", content_hash="same_hash")]
             baseline = {"target": "same_hash"}
 
         self.mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
             return_value=(baseline, 0),
         )
 
-        run, _ = logic.create_run(
-            repo_id=self.repo.id,
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=self.repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="feat/test",
+                pr_number=1,
+                snapshots=snapshots,
+                purpose=purpose,
+            ),
             team_id=self.team.id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="feat/test",
-            pr_number=1,
-            snapshots=snapshots,
-            purpose=purpose,
         )
-        logic.complete_run(run.id)
+        runs.complete_run(run.id)
         run.refresh_from_db()
         if run.status == RunStatus.PROCESSING:
-            logic.finish_processing(run.id)
+            runs.finish_processing(run.id)
             run.refresh_from_db()
 
         if action == "quarantine":
@@ -108,19 +113,19 @@ class TestGatingInvariants:
             )
         elif action == "tolerate":
             snapshot = run.snapshots.get(identifier="target")
-            logic.mark_snapshot_as_tolerated(run.id, snapshot.id, self.user.id, self.team.id)
+            toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, self.user.id, self.team.id)
         elif action == "approve":
             snapshot = run.snapshots.get(identifier="target")
             if result == "removed":
                 snapshot.review_state = ReviewState.APPROVED
                 snapshot.save(update_fields=["review_state"])
             else:
-                logic.get_or_create_artifact(
+                artifact_store.get_or_create_artifact(
                     repo_id=self.repo.id,
                     content_hash=snapshot.current_hash,
                     storage_path=f"p/{snapshot.current_hash}",
                 )
-                logic.approve_snapshots(
+                approvals.approve_snapshots(
                     run_id=run.id,
                     user_id=self.user.id,
                     approved_snapshots=[{"identifier": "target", "new_hash": snapshot.current_hash}],
@@ -128,35 +133,35 @@ class TestGatingInvariants:
 
         return run
 
-    @pytest.mark.parametrize("result, action, expected_gate_passes, expected_changed_count", GATE_CASES)
-    def test_gate_outcome(self, result, action, expected_gate_passes, expected_changed_count):
+    @parameterized.expand(GATE_CASES)
+    def test_gate_outcome(self, _name, result, action, expected_gate_passes, expected_changed_count):
         run = self._build_run(result, action)
-        recompute_result = logic.recompute_run(run.id, team_id=self.team.id)
+        recompute_result = runs.recompute_run(run.id, team_id=self.team.id)
         gate_passes = recompute_result["unresolved"] == 0
         assert gate_passes is expected_gate_passes
 
-    @pytest.mark.parametrize("result, action, _expected_gate, expected_changed_count", GATE_CASES)
-    def test_raw_counts_reflect_classifier_truth(self, result, action, _expected_gate, expected_changed_count):
+    @parameterized.expand(GATE_CASES)
+    def test_raw_counts_reflect_classifier_truth(self, _name, result, action, _expected_gate, expected_changed_count):
         run = self._build_run(result, action)
-        logic.recompute_run(run.id, team_id=self.team.id)
+        runs.recompute_run(run.id, team_id=self.team.id)
         run.refresh_from_db()
         assert run.changed_count == expected_changed_count
 
-    @pytest.mark.parametrize("result, action, _expected_gate, _expected_changed", GATE_CASES)
-    def test_result_not_mutated_by_action_or_recompute(self, result, action, _expected_gate, _expected_changed):
+    @parameterized.expand(GATE_CASES)
+    def test_result_not_mutated_by_action_or_recompute(self, _name, result, action, _expected_gate, _expected_changed):
         run = self._build_run(result, action)
-        logic.recompute_run(run.id, team_id=self.team.id)
+        runs.recompute_run(run.id, team_id=self.team.id)
 
         snapshot = run.snapshots.get(identifier="target")
         snapshot.refresh_from_db()
         assert snapshot.result == RESULT_ENUM[result]
 
-    @pytest.mark.parametrize("result, action, _expected_gate, _expected_changed", GATE_CASES)
-    def test_recompute_is_idempotent(self, result, action, _expected_gate, _expected_changed):
+    @parameterized.expand(GATE_CASES)
+    def test_recompute_is_idempotent(self, _name, result, action, _expected_gate, _expected_changed):
         run = self._build_run(result, action)
-        logic.recompute_run(run.id, team_id=self.team.id)
+        runs.recompute_run(run.id, team_id=self.team.id)
 
-        second = logic.recompute_run(run.id, team_id=self.team.id)
+        second = runs.recompute_run(run.id, team_id=self.team.id)
         assert second["counts_changed"] is False
 
     def test_observe_run_summary_never_gates(self):

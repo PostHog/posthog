@@ -1,15 +1,33 @@
+import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 import structlog
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
 
 logger = structlog.get_logger(__name__)
+
+# Single source of truth for the managed-alert event boundary. Also used as a Postgres regex
+# filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
+# POSIX-compatible (no (?:...) groups).
+MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$"
+LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
+_MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
+
+
+def is_managed_alert_internal_event(event_name: object) -> bool:
+    """Return whether an internal event is reserved for an alert-owned destination."""
+    return (
+        isinstance(event_name, str)
+        and event_name != LEGACY_INSIGHT_ALERT_EVENT
+        and _MANAGED_ALERT_EVENT.fullmatch(event_name) is not None
+    )
 
 
 @dataclass
@@ -54,19 +72,29 @@ def create_internal_event(
     if data.event.uuid is None:
         data.event.uuid = str(uuid.uuid4())
     if data.event.timestamp is None:
-        data.event.timestamp = datetime.now().isoformat()
+        data.event.timestamp = datetime.now(UTC).isoformat()
 
     return data
 
 
-def produce_internal_event(team_id: int, event: InternalEventEvent, person: Optional[InternalEventPerson] = None):
+def produce_internal_event(
+    team_id: int, event: InternalEventEvent, person: Optional[InternalEventPerson] = None
+) -> ProduceResult:
     data = create_internal_event(team_id, event, person)
     serialized_data = internal_event_to_dict(data)
     kafka_topic = KAFKA_CDP_INTERNAL_EVENTS
 
     try:
         producer = get_producer(topic=kafka_topic)
-        producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
+        return producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
     except Exception as e:
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)
         raise
+
+
+def flush_internal_events_producer(timeout: float) -> int:
+    """Block until previously produced internal events are delivered (or `timeout`
+    elapses), returning the number still undelivered. A zero only means all
+    delivery callbacks have fired, not that they all succeeded — check each
+    `ProduceResult` for per-message outcomes."""
+    return get_producer(topic=KAFKA_CDP_INTERNAL_EVENTS).flush(timeout)

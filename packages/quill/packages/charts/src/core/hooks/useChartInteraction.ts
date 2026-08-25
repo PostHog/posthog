@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useRef } from 'react'
 
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
@@ -10,6 +10,7 @@ import {
 } from '../interaction'
 import { defaultResolveValue } from '../types'
 import type {
+    AreaSelectData,
     ChartDimensions,
     ChartScales,
     DateRangeZoomData,
@@ -22,6 +23,13 @@ import type {
 import { useDragToZoom } from './useDragToZoom'
 import { useLatest } from './useLatest'
 import { useTooltipLifecycle } from './useTooltipLifecycle'
+
+/** The tooltip is portaled out of the wrapper's DOM tree, but React portals still bubble
+ *  synthetic events through the React tree — so a click or drag that starts inside the pinned
+ *  tooltip reaches the wrapper's handlers and would dismiss the pin or start a zoom drag. */
+function originatesInTooltip(e: React.SyntheticEvent): boolean {
+    return e.target instanceof Element && !!e.target.closest('[data-hog-charts-tooltip]')
+}
 
 interface UseChartInteractionOptions<Meta> {
     scales: ChartScales | null
@@ -36,6 +44,9 @@ interface UseChartInteractionOptions<Meta> {
     resolveClickToNearestSeries?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     onDateRangeZoom?: (data: DateRangeZoomData) => void
+    /** 2D brush — see `ChartProps.onAreaSelect`. Receives the committed `scales` so chart-type
+     *  adapters can map the y pixel range onto their own bands. */
+    onAreaSelect?: (data: AreaSelectData, scales: ChartScales) => void
     resolveValue?: ResolveValueFn
     /** Value used to *anchor* the tooltip per series. Defaults to `resolveValue`. Stacked
      *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
@@ -95,7 +106,8 @@ interface UseChartInteractionResult<Meta> {
         onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseLeave: () => void
-        onClick: () => void
+        onClick: (e: React.MouseEvent<HTMLDivElement>) => void
+        onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
     }
 }
 
@@ -111,6 +123,7 @@ export function useChartInteraction<Meta = unknown>({
     resolveClickToNearestSeries = false,
     onPointClick,
     onDateRangeZoom,
+    onAreaSelect,
     resolveValue = defaultResolveValue,
     resolvePositionValue,
     resolveBottomValue,
@@ -171,7 +184,7 @@ export function useChartInteraction<Meta = unknown>({
         ]
     )
 
-    const { hoverIndex, hoverPosition, tooltipCtx, setHover, setTooltipCtx, isPinned, clearTooltip, pin } =
+    const { hoverIndex, hoverPosition, tooltipCtx, setHover, setTooltipCtx, isPinned, clearTooltip, pin, unpin } =
         useTooltipLifecycle<Meta>({
             wrapperRef,
             rebuildPinnedCtx,
@@ -189,6 +202,13 @@ export function useChartInteraction<Meta = unknown>({
         [labels, scales, labelToCoord]
     )
 
+    // Bind the committed scales into the 2D-brush callback so chart-type adapters can map the
+    // y pixel range onto their own bands (the core has no y-band concept).
+    const onAreaSelectWithScales = useMemo(
+        () => (onAreaSelect && scales ? (data: AreaSelectData): void => onAreaSelect(data, scales) : undefined),
+        [onAreaSelect, scales]
+    )
+
     const {
         dragRect,
         onMouseDown,
@@ -196,6 +216,7 @@ export function useChartInteraction<Meta = unknown>({
         shouldSwallowClick,
     } = useDragToZoom({
         onDateRangeZoom,
+        onAreaSelect: onAreaSelectWithScales,
         scales,
         dimensions,
         labels,
@@ -204,6 +225,59 @@ export function useChartInteraction<Meta = unknown>({
         interactionAxis,
         onDragActivate: clearTooltip,
     })
+
+    // Cursor → data-index hit test, shared by mousemove hover and touch taps.
+    const resolveIndexAt = useCallback(
+        (x: number, y: number): number => {
+            if (!scales || !dimensions || !isInPlotArea(x, y, dimensions)) {
+                return -1
+            }
+            const probe = interactionAxis === 'y' ? y : x
+            const nearestIndex = findNearestIndexFromPositions(probe, labelPositions)
+            // Chart-type dead-zone veto (e.g. a funnel compare bar's blank volume gap): treat as
+            // no-hover so tooltip, pointer cursor, highlight, and click are all suppressed there.
+            return nearestIndex >= 0 && resolveHoverIndex
+                ? resolveHoverIndex(nearestIndex, { x, y }, scales)
+                : nearestIndex
+        },
+        [scales, dimensions, interactionAxis, labelPositions, resolveHoverIndex]
+    )
+
+    const buildCtxAt = useCallback(
+        (index: number, position: { x: number; y: number }): TooltipContext<Meta> | null => {
+            if (!scales) {
+                return null
+            }
+            const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+            return buildTooltipContext(
+                index,
+                series,
+                labels,
+                labelToCoord ?? scales.x,
+                scales.y,
+                canvasBounds,
+                resolveValue,
+                scales.yAxes,
+                interactionAxis,
+                position,
+                effectivePositionResolve,
+                resolveBottomValue,
+                scales.extent?.(labels[index]),
+                scales.bandSlotAtCursor?.(labels[index], position)
+            )
+        },
+        [
+            scales,
+            series,
+            labels,
+            labelToCoord,
+            canvasRef,
+            resolveValue,
+            interactionAxis,
+            effectivePositionResolve,
+            resolveBottomValue,
+        ]
+    )
 
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -224,19 +298,7 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
-            if (!isInPlotArea(mouseX, mouseY, dimensions)) {
-                clearTooltip()
-                return
-            }
-
-            const probe = interactionAxis === 'y' ? mouseY : mouseX
-            const nearestIndex = findNearestIndexFromPositions(probe, labelPositions)
-            // Chart-type dead-zone veto (e.g. a funnel compare bar's blank volume gap): treat as
-            // no-hover so tooltip, pointer cursor, highlight, and click are all suppressed there.
-            const index =
-                nearestIndex >= 0 && resolveHoverIndex
-                    ? resolveHoverIndex(nearestIndex, { x: mouseX, y: mouseY }, scales)
-                    : nearestIndex
+            const index = resolveIndexAt(mouseX, mouseY)
             if (index < 0) {
                 clearTooltip()
                 return
@@ -244,47 +306,21 @@ export function useChartInteraction<Meta = unknown>({
             setHover(index, { x: mouseX, y: mouseY })
 
             if (showTooltip) {
-                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
                 // Always propagate the result (including null) so tooltipCtx stays in sync with hoverIndex.
-                setTooltipCtx(
-                    buildTooltipContext(
-                        index,
-                        series,
-                        labels,
-                        labelToCoord ?? scales.x,
-                        scales.y,
-                        canvasBounds,
-                        resolveValue,
-                        scales.yAxes,
-                        interactionAxis,
-                        { x: mouseX, y: mouseY },
-                        effectivePositionResolve,
-                        resolveBottomValue,
-                        scales.extent?.(labels[index]),
-                        scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
-                    )
-                )
+                setTooltipCtx(buildCtxAt(index, { x: mouseX, y: mouseY }))
             }
         },
         [
             scales,
             dimensions,
-            labels,
-            series,
             showTooltip,
-            resolveValue,
-            effectivePositionResolve,
-            canvasRef,
             isPinned,
             clearTooltip,
             handleDragMouseMove,
-            labelPositions,
-            labelToCoord,
-            interactionAxis,
             setHover,
             setTooltipCtx,
-            resolveBottomValue,
-            resolveHoverIndex,
+            resolveIndexAt,
+            buildCtxAt,
         ]
     )
 
@@ -295,74 +331,166 @@ export function useChartInteraction<Meta = unknown>({
         clearTooltip()
     }, [isPinned, clearTooltip])
 
-    const onClick = useCallback(() => {
-        // A click that closes out a drag-to-zoom gesture must not also pin/unpin or fire onPointClick.
-        if (shouldSwallowClick()) {
-            return
-        }
-        const currentIndex = hoverIndexRef.current
-        if (currentIndex < 0) {
-            return
-        }
+    // Touch support state. Touch devices fire no mousemove before a tap, so hover state is
+    // absent (or stale) when the tap's click arrives; the click handler must resolve the tapped
+    // point itself. `lastPointerTypeRef` tells it whether the click came from a touch, and
+    // `tapDownTooltipIndexRef` records which point's tooltip was showing when the gesture
+    // started. Both are captured at pointerdown because a tap's compatibility mouse events
+    // (mouseover/mousemove/mousedown) fire after pointerup, which means by click time the
+    // tooltip state may already reflect this very tap.
+    const tooltipCtxRef = useLatest(tooltipCtx)
+    const lastPointerTypeRef = useRef<string>('mouse')
+    const tapDownTooltipIndexRef = useRef<number>(-1)
 
-        if (isPinned) {
-            clearTooltip()
-            return
-        }
+    const onPointerDown = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            lastPointerTypeRef.current = e.pointerType
+            tapDownTooltipIndexRef.current = tooltipCtxRef.current?.dataIndex ?? -1
+        },
+        [tooltipCtxRef]
+    )
 
-        // Pin the tooltip if pinnable and there are multiple series — first click pins,
-        // a follow-up click on a tooltip row drills into a specific series via the
-        // consumer's own row handler. With a single series there's nothing to pin, so
-        // onPointClick fires immediately instead.
-        if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
-            // Opt-in: a click nearer one series than the others is unambiguous, so resolve it
-            // and fire onPointClick directly instead of making the user pin then pick a row.
-            if (resolveClickToNearestSeries && onPointClick && hoverPositionRef.current) {
-                const clickData = resolveNearestSeriesClickData(
-                    currentIndex,
-                    series,
-                    labels,
-                    tooltipCtx,
-                    interactionAxis,
-                    hoverPositionRef.current
-                )
-                if (clickData) {
-                    onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+    const onClick = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            if (originatesInTooltip(e)) {
+                return
+            }
+            // A click that closes out a drag-to-zoom gesture must not also pin/unpin or fire onPointClick.
+            if (shouldSwallowClick()) {
+                return
+            }
+
+            let currentIndex = hoverIndexRef.current
+            let clickPosition = hoverPositionRef.current
+
+            if (lastPointerTypeRef.current === 'touch') {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                const position = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+                const index = resolveIndexAt(position.x, position.y)
+                if (index < 0) {
+                    clearTooltip()
                     return
                 }
+                // First tap on a point reveals its tooltip instead of acting on it, mirroring the
+                // desktop hover-then-click sequence. Pinned when the chart allows it, so the
+                // tooltip's rows are tappable and it survives until an outside tap or Escape.
+                // Only a tap on the point whose tooltip was already showing when the gesture
+                // started falls through to the click action below (dismiss the pin, or drill in).
+                if (index !== tapDownTooltipIndexRef.current) {
+                    setHover(index, position)
+                    if (showTooltip) {
+                        const ctx = buildCtxAt(index, position)
+                        // Mirror the mouse path: an unambiguous nearest-series tap fires the click
+                        // action directly instead of pinning first, so touch users get the same
+                        // one-tap drill-in mouse users get on a single click.
+                        if (
+                            ctx &&
+                            pinnable &&
+                            resolveClickToNearestSeries &&
+                            onPointClick &&
+                            ctx.seriesData.length > 1
+                        ) {
+                            const clickData = resolveNearestSeriesClickData(
+                                index,
+                                series,
+                                labels,
+                                ctx,
+                                interactionAxis,
+                                position
+                            )
+                            if (clickData) {
+                                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                                return
+                            }
+                        }
+                        setTooltipCtx(ctx && pinnable ? { ...ctx, isPinned: true, onUnpin: unpin } : ctx)
+                        return
+                    }
+                }
+                currentIndex = index
+                clickPosition = position
             }
-            pin()
-            return
-        }
 
-        if (onPointClick) {
-            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, hoverPositionRef.current)
-            if (clickData) {
-                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+            if (currentIndex < 0) {
+                return
             }
-        }
-    }, [
-        onPointClick,
-        series,
-        labels,
-        resolveValue,
-        pinnable,
-        resolveClickToNearestSeries,
-        interactionAxis,
-        tooltipCtx,
-        isPinned,
-        clearTooltip,
-        pin,
-        shouldSwallowClick,
-        hoverIndexRef,
-        hoverPositionRef,
-        wrapClickData,
-        scales,
-    ])
+
+            if (isPinned) {
+                clearTooltip()
+                return
+            }
+
+            // Pin the tooltip if pinnable and there are multiple series — first click pins,
+            // a follow-up click on a tooltip row drills into a specific series via the
+            // consumer's own row handler. With a single series there's nothing to pin, so
+            // onPointClick fires immediately instead.
+            if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
+                // Opt-in: a click nearer one series than the others is unambiguous, so resolve it
+                // and fire onPointClick directly instead of making the user pin then pick a row.
+                if (resolveClickToNearestSeries && onPointClick && clickPosition) {
+                    const clickData = resolveNearestSeriesClickData(
+                        currentIndex,
+                        series,
+                        labels,
+                        tooltipCtx,
+                        interactionAxis,
+                        clickPosition
+                    )
+                    if (clickData) {
+                        onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                        return
+                    }
+                }
+                pin()
+                return
+            }
+
+            if (onPointClick) {
+                const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, clickPosition)
+                if (clickData) {
+                    onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                }
+            }
+        },
+        [
+            onPointClick,
+            series,
+            labels,
+            resolveValue,
+            pinnable,
+            resolveClickToNearestSeries,
+            interactionAxis,
+            tooltipCtx,
+            isPinned,
+            clearTooltip,
+            pin,
+            unpin,
+            shouldSwallowClick,
+            hoverIndexRef,
+            hoverPositionRef,
+            wrapClickData,
+            scales,
+            showTooltip,
+            resolveIndexAt,
+            buildCtxAt,
+            setHover,
+            setTooltipCtx,
+        ]
+    )
+
+    const guardedMouseDown = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            if (originatesInTooltip(e)) {
+                return
+            }
+            onMouseDown(e)
+        },
+        [onMouseDown]
+    )
 
     const handlers = useMemo(
-        () => ({ onMouseDown, onMouseMove, onMouseLeave, onClick }),
-        [onMouseDown, onMouseMove, onMouseLeave, onClick]
+        () => ({ onMouseDown: guardedMouseDown, onMouseMove, onMouseLeave, onClick, onPointerDown }),
+        [guardedMouseDown, onMouseMove, onMouseLeave, onClick, onPointerDown]
     )
 
     return { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers }

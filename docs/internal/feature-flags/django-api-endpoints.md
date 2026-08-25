@@ -68,6 +68,10 @@ Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked â
 | `GET`  | `/api/organizations/{id}/feature_flags/{key}/`      | Get a flag by key across all accessible teams   |
 | `POST` | `/api/organizations/{id}/feature_flags/copy_flags/` | Copy a flag from one project to target projects |
 
+`copy_flags` requires editor access to `feature_flag` in each target project, not just visibility.
+A caller who can see a project but can't edit flags there gets a `failed` entry for that target instead of a copy.
+`target_project_ids` is capped at `MAX_COPY_FLAGS_TARGET_PROJECTS` (50) per call, and the endpoint has its own burst/sustained throttles since each target project can create cohorts and a flag.
+
 ## Key actions in detail
 
 ### `my_flags` and `evaluation_reasons`
@@ -92,7 +96,7 @@ Key things to know:
 - `evaluation_runtime` controls whether a flag is evaluated client-side, server-side, or both
 - The `@approval_gate` decorator on updates can require approval before changes take effect
 
-**Cache invalidation**: The `refresh_flag_cache_on_updates` signal handler fires on save/delete, calling `set_feature_flags_for_team_in_cache()` via `transaction.on_commit()`.
+**Cache invalidation**: The `feature_flag_changed_flags_cache` (`flags_cache.py`) and `feature_flag_changed` (`local_evaluation.py`) signal handlers fire on save/delete, scheduling cache rebuilds via `transaction.on_commit()`.
 
 ### Related models (same file)
 

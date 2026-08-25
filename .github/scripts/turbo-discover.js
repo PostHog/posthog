@@ -23,12 +23,20 @@
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
+const path = require('path')
 const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
+const { loadContractSurfaces } = require('./trunk-impacted-targets')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
 // fungible across products — bin-pack products into target-sized shards, and
 // multi-shard split any single product that overflows on its own.
+// The target is a per-shard test-WORK budget, not a wall-clock promise: the fixed
+// per-shard setup (docker stack + temporal boot, deps, collection, ~3-4 min) is paid
+// identically by every shard, so it can't skew the split and deliberately stays out
+// of the shard-count math — folding it in only inflates counts (see #54280). Walls
+// land at target + setup, evenly across shards. JUnit de-taxing in
+// optimize_test_durations.py keeps that setup cost out of the timings themselves.
 const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
@@ -41,18 +49,35 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that run their OWN temporal suite inside the product test job (backend:test covers
+// backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
+// the temporal durations must count toward product sizing so the product is sharded for that load —
+// otherwise a huge suite lands in one unsharded bucket and times out.
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['managed-warehouse', 'warehouse-sources'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
 const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
+
+// --- Staleness detection for .test_durations ---
+// When a product's test files on disk significantly outnumber what .test_durations
+// covers, the duration data is stale and cost estimates are unreliable. In that
+// case, fall back to a file-count-based estimate to prevent under-sharding.
+// Threshold: if fewer than 70% of on-disk test files appear in .test_durations,
+// treat the product's duration data as stale.
+const STALENESS_COVERAGE_THRESHOLD = 0.7
+// Conservative per-file fallback duration (seconds) when stale. Accounts for
+// parametrized tests that expand a single file into many test cases.
+const STALENESS_FALLBACK_SECONDS_PER_FILE = 5
 
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
 //
 // .test_durations has migration-tax contamination removed by
 // optimize_test_durations.py: tests recorded far above their JUnit call
-// time (the DB-setup walk lands on whichever test first hits the DB) are
-// floored back to that call time. Durations reflect actual test work.
+// time (the DB-setup walk lands on the first DB-touching test whenever a
+// run built the DB in-pytest) are floored back to that call time.
+// Durations reflect actual test work.
 //
 // Per-segment overhead constants below cover the fixed per-shard cost
 // outside test work: job setup, pytest collection, per-shard DB setup,
@@ -103,8 +128,19 @@ function packageToProduct(pkg) {
     return pkg.replace('@posthog/products-', '')
 }
 
-function getIsolatedProducts(contractTasks) {
-    return new Set(contractTasks.map((t) => packageToProduct(t.package)))
+// A product that ships the contract-check script but no turbo.json of its own
+// inherits the root task, whose inputs are the product's whole backend. Every
+// backend edit then reads as a contract change, so the isolation it claims can
+// never pay out. Requiring the narrowed declaration keeps "isolated" meaning
+// what turbo-discover uses it for, and reading it through loadContractSurfaces
+// keeps this reader and the Trunk lane reader on one definition.
+function getIsolatedProducts(contractTasks, repoRoot = process.cwd()) {
+    const products = contractTasks.map((t) => packageToProduct(t.package))
+    // Package names use dashes, product directories use underscores; the surface
+    // reader resolves products/<dir>/turbo.json, so look up the directory form.
+    const toDir = (product) => product.replace(/-/g, '_')
+    const surfaces = loadContractSurfaces(repoRoot, products.map(toDir))
+    return new Set(products.filter((product) => surfaces.has(toDir(product))))
 }
 
 function getAffectedTaskProducts(tasks) {
@@ -151,9 +187,9 @@ function quarantinedSkipProducts(jsonText, todayISO) {
     }
     const products = new Set()
     for (const entry of parsed.entries) {
-        if (typeof entry?.id !== 'string' || !entry.id.startsWith('product:')) continue
-        if ((entry.runner ?? 'pytest') !== 'pytest' || entry.mode !== 'skip') continue
-        if (typeof entry.expires !== 'string' || entry.expires < todayISO) continue
+        if (typeof entry?.id !== 'string' || !entry.id.startsWith('product:')) {continue}
+        if ((entry.runner ?? 'pytest') !== 'pytest' || entry.mode !== 'skip') {continue}
+        if (typeof entry.expires !== 'string' || entry.expires < todayISO) {continue}
         products.add(entry.id.slice('product:'.length))
     }
     return products
@@ -196,6 +232,173 @@ function dropProducts(products, allProducts, names, label) {
     return remaining
 }
 
+// --- Dependent cascade (tach.toml) ---
+// When a product's contract changes, Turbo's graph has no edges to the
+// products that depend on it (no workspace deps, no `dependsOn`), so those
+// dependents never get retested — see #70556. tach.toml is the graph we
+// actually have: `tach check --dependencies` runs in CI, so it can't drift
+// from what's importable. Reuse it to compute who transitively depends on a
+// changed product's contract.
+const TACH_TOML_FILE = 'tach.toml'
+const TACH_MODULE_PREFIX = 'products.'
+
+// Turbo package names are dashed; tach module paths and product directories are
+// underscored. Every boundary crossing goes through these, so the convention is
+// stated once rather than re-derived at each call site.
+const productToModule = (product) => product.replace(/-/g, '_')
+const moduleToProduct = (module) => module.replace(/_/g, '-')
+
+// Parse tach.toml's [[modules]] blocks into product -> [products it depends
+// on]. Keys/values are tach names with the "products." prefix stripped
+// (underscores preserved) — callers normalize to/from Turbo's dashed names.
+//
+// Only products.* modules become nodes or edges. posthog/ee (and the
+// common.* utility modules) are dropped on both sides deliberately: they
+// aren't products.* so they fall out of the startsWith filter for free. See
+// tachDependents for why routing through them would be wrong, not just
+// inconvenient.
+// TOML comments run to the end of the line, and a `#` inside a double-quoted
+// string does not start one. Comments have to go before the block scan below,
+// because a comment inside a depends_on list can carry a `]`: tach.toml
+// documents a facade-only edge as "enforced by stamphog's [[interfaces]]
+// block", and that bracket ends the non-greedy scan early, dropping every
+// entry after it.
+function stripTomlComments(tomlText) {
+    let out = ''
+    let inString = false
+    for (let index = 0; index < tomlText.length; index++) {
+        const char = tomlText[index]
+        if (char === '"' && tomlText[index - 1] !== '\\') {
+            inString = !inString
+        }
+        if (!inString && char === '#') {
+            while (index < tomlText.length && tomlText[index] !== '\n') {
+                index++
+            }
+            out += '\n'
+            continue
+        }
+        out += char
+    }
+    return out
+}
+
+function parseTachModules(tomlText) {
+    const graph = new Map()
+    // Each `[[modules]]` block holds exactly one `path` and one `depends_on`
+    // before the next block starts — split on the marker and take the first
+    // match of each within a block. With comments stripped, depends_on entries
+    // are plain quoted strings with no nested brackets, so a non-greedy scan to
+    // the first `]` is safe even across multi-line lists or lists split across
+    // shared lines.
+    //
+    // Only double-quoted strings are supported. Other valid TOML (single-quoted
+    // literals, inline tables) would be dropped by the regexes without error,
+    // silently shrinking the cascade — so any entry the regexes can't represent
+    // throws instead, which loadTachModuleGraph turns into "test all products".
+    // A false trip over-tests; a silent drop under-tests, so err on throwing.
+    const blocks = stripTomlComments(tomlText).split('[[modules]]').slice(1)
+    for (const block of blocks) {
+        const pathMatch = block.match(/path\s*=\s*"([^"]+)"/)
+        if (!pathMatch) {
+            if (/^\s*path\s*=/m.test(block)) {
+                throw new Error('unsupported `path` syntax in a tach.toml module block (expected a double-quoted string)')
+            }
+            continue
+        }
+        const dependsMatch = block.match(/depends_on\s*=\s*\[([\s\S]*?)\]/)
+        if (!dependsMatch) {
+            if (/^\s*depends_on\s*=/m.test(block)) {
+                throw new Error(`unsupported \`depends_on\` syntax for ${pathMatch[1]} in tach.toml (expected a list)`)
+            }
+            continue
+        }
+        // Comments are already gone, so anything left beside the quoted entries
+        // is an entry shape these regexes cannot represent.
+        const leftover = dependsMatch[1].replace(/"[^"]*"/g, '')
+        if (/[^\s,]/.test(leftover)) {
+            throw new Error(
+                `unsupported \`depends_on\` entry for ${pathMatch[1]} in tach.toml (expected double-quoted strings): ${leftover.trim().slice(0, 80)}`
+            )
+        }
+        const modulePath = pathMatch[1]
+        if (!modulePath.startsWith(TACH_MODULE_PREFIX)) {continue}
+        const product = modulePath.slice(TACH_MODULE_PREFIX.length)
+        const deps = [...dependsMatch[1].matchAll(/"([^"]+)"/g)]
+            .map((m) => m[1])
+            .filter((d) => d.startsWith(TACH_MODULE_PREFIX))
+            .map((d) => d.slice(TACH_MODULE_PREFIX.length))
+        graph.set(product, deps)
+    }
+    return graph
+}
+
+// Reverse transitive closure over the product graph: who (transitively)
+// depends on any of `changedProducts`? Input/output are Turbo-style names
+// (dashes); moduleGraph keys/values are tach-style (underscores) — convert
+// at the boundary in both directions, since a mismatch here doesn't error,
+// it just silently returns nothing (a false negative — exactly the bug this
+// is fixing).
+//
+// Deliberately never traverses through posthog/ee (moduleGraph has already
+// dropped them as nodes): routing through core degenerates the cascade to
+// "every product" — most products depend on core and core depends on most
+// products, so any path through it reaches the whole graph. Core's own tests
+// aren't at risk either way — a contract change already forces runLegacy so
+// the full Django suite runs. The accepted gap is the mediated path (product
+// A -> a core wrapper -> product X's facade); measurement showed it's mostly
+// either unreachable (no product imports the file) or funnels through a few
+// composition-root hubs where "imports Team" doesn't mean "depends on a
+// product's behavior" — the residual after excluding those is a handful of
+// narrow wrappers reaching at most a few products each.
+//
+// `direct` stops the walk after the first hop. Test selection must stay
+// transitive, because a change in A can break C's tests through B without C
+// ever importing A. Merge-queue lane assignment asks a narrower question and
+// passes direct: true; see trunk-impacted-targets.js for why one hop is the
+// boundary there.
+function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
+    const reverse = new Map()
+    for (const [product, deps] of moduleGraph) {
+        for (const dep of deps) {
+            if (!reverse.has(dep)) {reverse.set(dep, [])}
+            reverse.get(dep).push(product)
+        }
+    }
+
+    const changedSet = new Set(changedProducts.map(productToModule))
+    const visited = new Set()
+    const queue = [...changedSet]
+    while (queue.length > 0) {
+        const current = queue.shift()
+        for (const dependent of reverse.get(current) || []) {
+            if (visited.has(dependent) || changedSet.has(dependent)) {continue}
+            visited.add(dependent)
+            if (!direct) {queue.push(dependent)}
+        }
+    }
+    return [...visited].map(moduleToProduct)
+}
+
+// Returns null when the graph can't be read or parsed. Callers must treat null as
+// "unknown dependents" and widen the matrix — never as "no dependents", which would
+// silently under-test exactly the contract changes this cascade guards.
+function loadTachModuleGraph() {
+    let text
+    try {
+        text = fs.readFileSync(TACH_TOML_FILE, 'utf-8')
+    } catch (e) {
+        console.error(`::warning::Could not read ${TACH_TOML_FILE} (${e.message}) — falling back to testing all products`)
+        return null
+    }
+    try {
+        return parseTachModules(text)
+    } catch (e) {
+        console.error(`::warning::Could not parse ${TACH_TOML_FILE} (${e.message}) — falling back to testing all products`)
+        return null
+    }
+}
+
 function loadTestDurations() {
     let parsed
     try {
@@ -224,15 +427,74 @@ function loadTestDurations() {
     return parsed
 }
 
+// Recursively collect test files (test_*.py / *_test.py) under a directory.
+function collectTestFiles(dir) {
+    const files = []
+    let entries
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+        return files
+    }
+    for (const entry of entries) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+            files.push(...collectTestFiles(full))
+        } else if (
+            entry.isFile() &&
+            entry.name.endsWith('.py') &&
+            (entry.name.startsWith('test_') || entry.name.endsWith('_test.py'))
+        ) {
+            files.push(full)
+        }
+    }
+    return files
+}
+
+function productPrefix(product) {
+    return `products/${productToModule(product)}/`
+}
+
+// Check if .test_durations is stale for a product by comparing on-disk test
+// file coverage vs recorded entries. Returns { stale, fileCount, coveredCount, coverage }.
+function checkProductStaleness(product, durations) {
+    if (!durations) {return { stale: true, fileCount: 0, coveredCount: 0, coverage: 0 }}
+    const dirName = productToModule(product)
+    const productDir = path.join('products', dirName)
+    const testFiles = collectTestFiles(productDir)
+    if (testFiles.length === 0) {return { stale: false, fileCount: 0, coveredCount: 0, coverage: 0 }}
+
+    const prefix = productPrefix(product)
+    // Build set of file paths that have at least one entry in durations
+    const coveredFiles = new Set()
+    for (const testPath of Object.keys(durations)) {
+        if (testPath.startsWith(prefix)) {
+            // Extract file path (everything before ::)
+            const filePart = testPath.split('::')[0]
+            coveredFiles.add(filePart)
+        }
+    }
+
+    let coveredCount = 0
+    for (const file of testFiles) {
+        if (coveredFiles.has(file)) {coveredCount++}
+    }
+
+    const coverage = coveredCount / testFiles.length
+    return { stale: coverage < STALENESS_COVERAGE_THRESHOLD, fileCount: testFiles.length, coveredCount, coverage }
+}
+
 function getProductDuration(product, durations) {
     if (!durations) {
         return 0
     }
-    const dirName = product.replace(/-/g, '_')
-    const prefix = `products/${dirName}/`
+    const prefix = productPrefix(product)
+    // Temporal tests are normally excluded (they run in the Django Temporal segment), but a product
+    // that runs its own temporal suite in the product job must count them toward its size.
+    const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
-        if (test.startsWith(prefix) && !EXCLUDED_PATH_SEGMENTS.some((seg) => test.includes(seg))) {
+        if (test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg))) {
             total += dur
         }
     }
@@ -240,7 +502,12 @@ function getProductDuration(product, durations) {
 }
 
 function productEffectiveCost(product, durations) {
-    return getProductDuration(product, durations) * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+    let base = getProductDuration(product, durations)
+    const staleness = checkProductStaleness(product, durations)
+    if (staleness.stale && staleness.fileCount > 0) {
+        base = Math.max(base, staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE)
+    }
+    return base * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
 }
 
 // First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
@@ -269,14 +536,16 @@ function packProducts(products, durations) {
     return buckets
 }
 
-// Path filters matching the Django workflow pytest invocations.
-// Core: posthog/ + ee/ minus temporal, dags, hogvm
+// Path filters matching the Django workflow pytest invocations. A segment that
+// drifts from its pytest targets sizes shards for a run that never happens, so
+// turbo-discover.test.js asserts these against ci-backend.yml itself.
+// Core: posthog/ + ee/ minus the paths the Core invocation --ignore's
 // Core POE: subset of Core (ignores hogql, hogql_queries) — same pool, fewer tests
-// Temporal: posthog/temporal + products/batch_exports/backend/tests/temporal + products/tasks/backend/temporal
+// Temporal: posthog/temporal + the product temporal/emission suites it runs alongside
 const DJANGO_SEGMENTS = {
     Core: {
         include: ['posthog/', 'ee/'],
-        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/'],
+        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/python/test/', 'posthog/test/repo_invariants/'],
     },
     CorePOE: {
         // Keep in sync with the person-on-events pytest targets in
@@ -284,25 +553,37 @@ const DJANGO_SEGMENTS = {
         include: [
             'posthog/clickhouse/',
             'posthog/queries/',
-            'products/product_analytics/backend/api/test/',
+            'products/product_analytics/backend/tests/api/',
             'posthog/api/test/dashboards/test_dashboard.py',
             'ee/clickhouse/',
         ],
-        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/', 'posthog/hogql_queries/', 'posthog/hogql/'],
+        exclude: [
+            'posthog/temporal/',
+            'posthog/dags/',
+            'common/hogvm/python/test/',
+            'posthog/test/repo_invariants/',
+            'posthog/hogql_queries/',
+            'posthog/hogql/',
+        ],
     },
     Temporal: {
-        include: ['posthog/temporal/', 'products/batch_exports/backend/tests/temporal/', 'products/tasks/backend/temporal/'],
+        include: [
+            'posthog/temporal/',
+            'products/batch_exports/backend/tests/temporal/',
+            'products/tasks/backend/temporal/',
+            'products/signals/backend/emission/',
+        ],
         exclude: [],
     },
 }
 
 function getSegmentDuration(segment, durations) {
-    if (!durations) return 0
+    if (!durations) {return 0}
     const { include, exclude } = DJANGO_SEGMENTS[segment]
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
-        if (!include.some((p) => test.startsWith(p))) continue
-        if (exclude.some((p) => test.startsWith(p))) continue
+        if (!include.some((p) => test.startsWith(p))) {continue}
+        if (exclude.some((p) => test.startsWith(p))) {continue}
         total += dur
     }
     return total
@@ -311,11 +592,13 @@ function getSegmentDuration(segment, durations) {
 // Fallback shard counts used when .test_durations is missing.
 const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
-function calculateShards(totalWorkSeconds, overheadSeconds) {
+// minShards: full runs keep the DJANGO_MIN_SHARDS floor, but a narrowed
+// (test-selection) run may legitimately fit one shard.
+function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_MIN_SHARDS) {
     const testBudget = DJANGO_TARGET_WALL_SECONDS - overheadSeconds
-    if (testBudget <= 0) return DJANGO_MAX_SHARDS
+    if (testBudget <= 0) {return DJANGO_MAX_SHARDS}
     const shards = Math.ceil((totalWorkSeconds * DJANGO_SAFETY_FACTOR) / testBudget)
-    return Math.max(DJANGO_MIN_SHARDS, Math.min(DJANGO_MAX_SHARDS, shards))
+    return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
 function buildDjangoShards(durations) {
@@ -350,16 +633,40 @@ function buildMatrix(products, durations) {
     // can't balance well when many tests have flat-default 0.01s values),
     // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
-        const raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+        const staleness = checkProductStaleness(product, durations)
+        let raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+
+        // Staleness guard: if .test_durations has poor coverage for this product,
+        // use a file-count-based fallback to avoid under-sharding.
+        if (staleness.stale && staleness.fileCount > 0) {
+            const fallbackRaw = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+            if (fallbackRaw > raw) {
+                console.error(
+                    `  ${product}: .test_durations stale — ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
+                    `(${(staleness.coverage * 100).toFixed(0)}%). Using fallback estimate: ${(fallbackRaw / 60).toFixed(1)} min (was ${(raw / 60).toFixed(1)} min)`
+                )
+                console.error(
+                    `::warning title=Stale .test_durations::Product '${product}' has only ${staleness.coveredCount}/${staleness.fileCount} ` +
+                    `test files covered in .test_durations. Duration estimates are unreliable — using fallback sharding.`
+                )
+                raw = fallbackRaw
+            }
+        }
+
         if (raw > PRODUCT_TARGET_WALL_SECONDS) {
             const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
             console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
+            // optimal_chunks (PostHog pytest-split fork) makes the same contiguous,
+            // order-preserving cuts as duration_based_chunks but balances them
+            // optimally. The greedy rule in duration_based_chunks lets every shard
+            // overrun the per-shard average, which on skewed suites starves trailing
+            // shards down to zero tests (pytest exit 5, "no tests collected").
             for (let i = 1; i <= shards; i++) {
                 matrix.push({
                     group: `${product} (${i}/${shards})`,
                     filters,
-                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm duration_based_chunks`,
+                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
                 })
             }
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
@@ -388,7 +695,25 @@ function buildMatrix(products, durations) {
     return matrix
 }
 
+// Exported for unit tests, plus the Django sizing pieces that
+// selected-django-shards.js reuses so narrowed runs share one budget.
+module.exports = {
+    calculateShards,
+    DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
+    DJANGO_SEGMENTS,
+    getIsolatedProducts,
+    collectTestFiles,
+    checkProductStaleness,
+    productPrefix,
+    productEffectiveCost,
+    STALENESS_COVERAGE_THRESHOLD,
+    STALENESS_FALLBACK_SECONDS_PER_FILE,
+    parseTachModules,
+    tachDependents,
+}
+
 // --- Main ---
+if (require.main === module) {
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
 const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
@@ -411,14 +736,20 @@ try {
     process.exit(1)
 }
 const allProducts = getAllProducts(allTestTasks)
+const allProductSet = new Set(allProducts)
 
 let products
 let runLegacy
+// Why runLegacy was set, so ci-backend's test selection can tell a direct legacy edit
+// (which the diff-based selector handles) from an inferred product->legacy cascade
+// (which it cannot see). Empty when runLegacy is false.
+let runLegacyReason = ''
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
     products = allProducts
     runLegacy = true
+    runLegacyReason = 'legacy_changed'
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
@@ -435,6 +766,7 @@ if (legacyChanged) {
         )
         products = allProducts
         runLegacy = true
+        runLegacyReason = 'non_isolated_product'
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
         const affectedProductSet = new Set(affectedProducts)
@@ -444,11 +776,28 @@ if (legacyChanged) {
         if (affectedContracts.length > 0) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
+            runLegacyReason = 'contract_cascade'
+            const tachGraph = loadTachModuleGraph()
+            if (tachGraph === null) {
+                // Fail toward over-testing, like the quarantine loaders above: without the
+                // graph we cannot know which products depend on the changed contract, and
+                // guessing "none" silently recreates the gap this cascade exists to close.
+                console.error('Dependent cascade unavailable — testing all products rather than risk skipping a dependent')
+                products = allProducts
+            } else {
+                const dependents = tachDependents(affectedContracts, tachGraph).filter((p) => allProductSet.has(p))
+                if (dependents.length > 0) {
+                    console.error(
+                        `Dependent products cascaded in via tach.toml: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
+                    )
+                }
+                products = [...new Set([...affectedProducts, ...dependents])].sort()
+            }
         } else {
             console.error('Only isolated product internals changed — Django can be skipped')
             runLegacy = false
+            products = affectedProducts
         }
-        products = affectedProducts
     } else {
         console.error('No product changes detected')
         products = []
@@ -462,6 +811,7 @@ if (legacyChanged) {
             console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
             products = allProducts
             runLegacy = true
+            runLegacyReason = 'schema'
         } else {
             if (impact.kind === 'impacting') {
                 console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
@@ -476,6 +826,7 @@ if (legacyChanged) {
             }
             // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
             runLegacy = true
+            runLegacyReason = 'schema'
         }
     }
 }
@@ -494,18 +845,20 @@ if (quarantinedProducts.size > 0) {
     products = dropProducts(products, allProducts, quarantinedProducts, 'Quarantined products (mode: skip)')
 }
 
-// Un-quarantining must re-run the suite. Today the ci-backend `legacy` paths-
-// filter already forces a full run on any PR touching the quarantine file, so
-// this diff against the merge base rarely changes the outcome — it is the
-// backstop that keeps product re-runs correct if that coarse trigger is ever
-// narrowed (Turbo itself never sees .test_quarantine.json as a product input).
+// Un-quarantining must re-run the suite. The ci-backend `legacy` paths-filter still
+// pulls every product into the matrix on any PR touching the quarantine file, so this
+// diff against the merge base rarely changes the outcome — it is the backstop that
+// keeps product re-runs correct if that coarse trigger is ever narrowed (Turbo itself
+// never sees .test_quarantine.json as a product input). Django's side of the same
+// invariant is carried by FULL_RUN_PATTERNS in the backend test selector, since a
+// legacy diff no longer implies a full Django run on its own.
 if (process.env.TURBO_SCM_BASE) {
     const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
     const allProductSet = new Set(allProducts)
     const productSet = new Set(products)
     for (const name of baseQuarantined) {
-        if (quarantinedProducts.has(name) || skipProducts.has(name)) continue
-        if (!allProductSet.has(name) || productSet.has(name)) continue
+        if (quarantinedProducts.has(name) || skipProducts.has(name)) {continue}
+        if (!allProductSet.has(name) || productSet.has(name)) {continue}
         console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
         products.push(name)
     }
@@ -513,7 +866,7 @@ if (process.env.TURBO_SCM_BASE) {
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
-console.error(`Run legacy (Django): ${runLegacy}`)
+console.error(`Run legacy (Django): ${runLegacy}${runLegacyReason ? ` (${runLegacyReason})` : ''}`)
 
 const durations = loadTestDurations()
 
@@ -523,7 +876,10 @@ const djangoShards = buildDjangoShards(durations)
 const result = {
     matrix: buildMatrix(products, durations),
     run_legacy: runLegacy,
+    run_legacy_reason: runLegacyReason,
     django_shards: djangoShards,
 }
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')
+
+} // end if (require.main === module)

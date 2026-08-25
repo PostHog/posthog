@@ -1,6 +1,7 @@
 import time
 import datetime
-from typing import TYPE_CHECKING, Optional
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -14,6 +15,7 @@ import requests
 from celery import shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
+from rest_framework.exceptions import APIException
 from structlog import get_logger
 
 from posthog.hogql.constants import LimitContext
@@ -21,9 +23,11 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -41,6 +45,11 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOCK_CONTENTION_COUNTER = Counter(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER = Counter(
     "posthog_feature_flag_last_called_at_sync_limit_reached_total",
     "Times the ClickHouse query result limit was reached during feature flag last_called_at sync",
+)
+
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
+    "posthog_feature_flag_last_called_at_sync_chunk_failures_total",
+    "ClickHouse chunk queries that failed during feature flag last_called_at sync",
 )
 
 
@@ -83,12 +92,45 @@ PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "Errors raised while marking an orphaned prewarmed TaskRun FAILED in the prewarmed-queued cleanup sweep",
 )
 
+PREWARMED_TERMINAL_TASK_SWEPT_COUNTER = Counter(
+    "posthog_task_prewarmed_terminal_swept_total",
+    "Empty tasks hidden after their unclaimed prewarmed run reached a terminal status",
+)
+
+PREWARMED_TERMINAL_TASK_ERRORS_COUNTER = Counter(
+    "posthog_task_prewarmed_terminal_errors_total",
+    "Errors raised while hiding empty tasks left by terminal unclaimed prewarmed runs",
+)
+
+STALE_LOCAL_QUEUED_TASK_RUN_COMPLETED_COUNTER = Counter(
+    "posthog_task_run_stale_local_queued_completed_total",
+    "Idle local (desktop-driven) TaskRuns quietly marked COMPLETED by the stale-queued cleanup sweep",
+)
+
+STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
+    "posthog_task_run_stale_local_queued_errors_total",
+    "Errors raised while marking an idle local TaskRun COMPLETED in the stale-queued cleanup sweep",
+)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
     from products.exports.backend.models.exported_asset import ExportedAsset
 
     ExportedAsset.delete_expired_assets()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def fail_stuck_video_exports() -> None:
+    """Give up on video exports whose render workflow died without recording a reason.
+
+    The workflow records its own failures, but not the ones where it never got to run: its execution
+    timeout firing, a dispatch failure, a lost worker. Without this sweep those rows stay
+    indistinguishable from a render still in progress.
+    """
+    from products.exports.backend.stuck_exports import fail_stuck_video_exports as run_sweep
+
+    run_sweep()
 
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
@@ -143,16 +185,23 @@ def delete_expired_delegation_invites() -> None:
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
 def kill_stale_queued_task_runs() -> None:
-    """Mark TaskRuns stuck in QUEUED for >24h as FAILED.
+    """Terminalize TaskRuns stuck in QUEUED for >24h: cloud runs FAIL, local runs COMPLETE.
 
-    A TaskRun sits in QUEUED until the Temporal `process-task` workflow flips it
-    to IN_PROGRESS. If that workflow never starts (worker down, schedule call
-    failed), the row would otherwise stay QUEUED forever. mark_failed() (per row,
-    not bulk .update()) preserves publish_stream_state_event and the
-    `task_run_failed` analytics capture. Materializing ids first avoids
-    server-side cursor invalidation while updating the same table; the inner
-    refetch with status=QUEUED handles the race where a worker picks up the run
-    between selection and update.
+    A cloud TaskRun sits in QUEUED until the Temporal `process-task` workflow flips
+    it to IN_PROGRESS. If that workflow never starts (worker down, schedule call
+    failed), the row would otherwise stay QUEUED forever — so a stale cloud run is a
+    genuine failure. A local (desktop-driven) run, by contrast, sits in QUEUED by
+    design for its whole life: the desktop agent drives the session and never reports
+    status, so an idle local run is a session that simply ended and finalizes as
+    COMPLETED — quietly, with no push notification (see the environment discussion on
+    `get_stale_queued_task_run_ids`). Failing local runs here used to flood users with
+    bogus failures on runs that never ran in the cloud at all.
+
+    Per-row finalizers (not bulk .update()) preserve publish_stream_state_event and
+    the terminal analytics captures. Materializing ids first avoids server-side
+    cursor invalidation while updating the same table; the inner refetch with
+    status=QUEUED handles the race where a worker picks up the run between selection
+    and update.
 
     Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
@@ -160,7 +209,10 @@ def kill_stale_queued_task_runs() -> None:
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
     so a re-queued run won't appear in this candidate set until it has actually
     been QUEUED for the full STALE_AFTER window. `CREATED_HARD_CAP` is a backstop for a
-    run whose `updated_at` keeps being bumped while it stays QUEUED.
+    cloud run whose `updated_at` keeps being bumped while it stays QUEUED; the local
+    sweep deliberately has no such backstop — a local run whose `updated_at` keeps
+    advancing is a desktop session that is genuinely alive (the desktop PATCHes
+    output/branch as it works) and must not be finalized under the user.
     """
     from products.tasks.backend.facade import api as tasks_facade
 
@@ -174,13 +226,15 @@ def kill_stale_queued_task_runs() -> None:
     REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
     PREWARMED_REASON = "Prewarmed run never started its workflow and was orphaned in QUEUED; reaped by the cleanup job."
 
-    def _fail_each(run_ids: list, reason: str, swept_counter: Counter, errors_counter: Counter) -> tuple[int, int]:
+    def _sweep_each(
+        run_ids: list, finalize: Callable[[UUID], bool], swept_counter: Counter, errors_counter: Counter
+    ) -> tuple[int, int]:
         swept = errors = 0
         for run_id in run_ids:
             try:
-                # fail_task_run refetches with status=QUEUED, handling the race where a worker
+                # Finalizers refetch with status=QUEUED, handling the race where a worker
                 # picked up the run between selection and update (returns False -> skip).
-                if tasks_facade.fail_task_run(run_id, reason):
+                if finalize(run_id):
                     swept += 1
                     swept_counter.inc()
             except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
@@ -190,30 +244,68 @@ def kill_stale_queued_task_runs() -> None:
         return swept, errors
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE, created_hard_cap=CREATED_HARD_CAP)
-    swept, errors = _fail_each(
-        stale_ids, REASON, STALE_QUEUED_TASK_RUN_SWEPT_COUNTER, STALE_QUEUED_TASK_RUN_ERRORS_COUNTER
+    stale_ids = tasks_facade.get_stale_queued_task_run_ids(
+        STALE_AFTER,
+        BATCH_SIZE,
+        created_hard_cap=CREATED_HARD_CAP,
+        environment=tasks_facade.TaskRunEnvironment.CLOUD,
+    )
+    swept, errors = _sweep_each(
+        stale_ids,
+        lambda run_id: tasks_facade.fail_task_run(run_id, REASON, error_type="stale_queued_cleanup"),
+        STALE_QUEUED_TASK_RUN_SWEPT_COUNTER,
+        STALE_QUEUED_TASK_RUN_ERRORS_COUNTER,
+    )
+
+    # Idle local runs: complete quietly instead of failing (see docstring).
+    local_ids = tasks_facade.get_stale_queued_task_run_ids(
+        STALE_AFTER, BATCH_SIZE, environment=tasks_facade.TaskRunEnvironment.LOCAL
+    )
+    local_swept, local_errors = _sweep_each(
+        local_ids,
+        tasks_facade.complete_idle_local_task_run,
+        STALE_LOCAL_QUEUED_TASK_RUN_COMPLETED_COUNTER,
+        STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER,
     )
 
     # Fast-reap orphaned prewarmed runs so they don't ride QUEUED to the 24h sweep above.
     prewarmed_ids = tasks_facade.get_stale_prewarmed_queued_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
-    prewarmed_swept, prewarmed_errors = _fail_each(
+    prewarmed_swept, prewarmed_errors = _sweep_each(
         prewarmed_ids,
-        PREWARMED_REASON,
+        lambda run_id: tasks_facade.fail_task_run(run_id, PREWARMED_REASON, error_type="stale_queued_cleanup"),
         PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER,
         PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER,
     )
 
-    saturated = len(stale_ids) >= BATCH_SIZE or len(prewarmed_ids) >= BATCH_SIZE
+    terminal_prewarmed_ids = tasks_facade.get_stale_terminal_prewarmed_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
+    terminal_prewarmed_swept, terminal_prewarmed_errors = _sweep_each(
+        terminal_prewarmed_ids,
+        tasks_facade.soft_delete_unclaimed_prewarm_task,
+        PREWARMED_TERMINAL_TASK_SWEPT_COUNTER,
+        PREWARMED_TERMINAL_TASK_ERRORS_COUNTER,
+    )
+
+    saturated = (
+        len(stale_ids) >= BATCH_SIZE
+        or len(local_ids) >= BATCH_SIZE
+        or len(prewarmed_ids) >= BATCH_SIZE
+        or len(terminal_prewarmed_ids) >= BATCH_SIZE
+    )
     log = logger.warning if saturated else logger.info
     log(
         "kill_stale_queued_task_runs.sweep_done",
         candidates=len(stale_ids),
         swept=swept,
         errors=errors,
+        local_candidates=len(local_ids),
+        local_completed=local_swept,
+        local_errors=local_errors,
         prewarmed_candidates=len(prewarmed_ids),
         prewarmed_swept=prewarmed_swept,
         prewarmed_errors=prewarmed_errors,
+        terminal_prewarmed_candidates=len(terminal_prewarmed_ids),
+        terminal_prewarmed_swept=terminal_prewarmed_swept,
+        terminal_prewarmed_errors=terminal_prewarmed_errors,
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )
@@ -245,9 +337,16 @@ def redispatch_orphaned_queued_task_runs() -> None:
     RECONCILE_AFTER = datetime.timedelta(minutes=5)
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    # cloud_only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
+    # Cloud only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
     # them; cloud-dispatching one hijacks the live session and eventually marks it failed.
-    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(RECONCILE_AFTER, BATCH_SIZE, cloud_only=True)
+    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(
+        RECONCILE_AFTER,
+        BATCH_SIZE,
+        environment=tasks_facade.TaskRunEnvironment.CLOUD,
+        exclude_covered_dispatches=True,
+    )
+    saturated = len(candidate_ids) >= BATCH_SIZE
+    candidate_ids = tasks_facade.filter_uncovered_workflow_dispatch_run_ids(candidate_ids)
     outcomes: dict[str, int] = {}
     for run_id in candidate_ids:
         try:
@@ -258,7 +357,6 @@ def redispatch_orphaned_queued_task_runs() -> None:
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
         ORPHANED_QUEUED_TASK_RUN_RECONCILED_COUNTER.labels(outcome=outcome).inc()
 
-    saturated = len(candidate_ids) >= BATCH_SIZE
     log = logger.warning if saturated else logger.info
     log(
         "redispatch_orphaned_queued_task_runs.sweep_done",
@@ -271,6 +369,8 @@ def redispatch_orphaned_queued_task_runs() -> None:
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )
+
+    tasks_facade.maintain_workflow_dispatch_outbox()
 
 
 @shared_task(ignore_result=True)
@@ -293,15 +393,46 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
+def _process_query_task_failure(
+    self: Any, exc: Exception, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], einfo: Any
+) -> None:
+    # Transient errors (capacity/concurrency) clear the stored completion flags so each
+    # retry re-runs the query. Once Celery gives up, mark the status errored here so
+    # clients don't poll a forever-pending status until it expires.
+    from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager
+
+    bound = dict(zip(("team_id", "user_id", "query_id"), args))
+    bound.update(kwargs)
+    team_id = bound.get("team_id")
+    query_id = bound.get("query_id")
+    if team_id is None or query_id is None:
+        return
+
+    manager = QueryStatusManager(query_id, team_id)
+    try:
+        query_status = manager.get_query_status()
+    except QueryNotFoundError:
+        return
+
+    query_status.complete = True
+    query_status.error = True
+    if isinstance(exc, APIException):
+        # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
+        query_status.error_message = str(exc.detail)
+    query_status.end_time = datetime.datetime.now(datetime.UTC)
+    manager.store_query_status(query_status)
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
     acks_late=True,
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
-        CHQueryErrorTooManySimultaneousQueries,
+        ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
     ),
+    on_failure=_process_query_task_failure,
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=10,
@@ -324,6 +455,7 @@ def process_query_task(
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ) -> None:
     """
     Kick off query
@@ -346,6 +478,7 @@ def process_query_task(
         limit_context=limit_context,
         is_query_service=is_query_service,
         analytics_props=analytics_props,
+        sharing_configuration_id=sharing_configuration_id,
     )
 
 
@@ -440,9 +573,9 @@ def ingestion_lag() -> None:
     from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
 
-    query = """
+    query = f"""
     SELECT event, date_diff('second', max(timestamp), now())
-    FROM events
+    FROM {events_read_table(use_new_events_schema(None))}
     WHERE team_id IN %(team_ids)s
         AND event IN %(events)s
         AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
@@ -695,7 +828,9 @@ def capture_task_run_state_metrics() -> None:
             )
             oldest_age_gauge = Gauge(
                 "posthog_tasks_oldest_open_run_age_seconds",
-                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and "
+                "run_environment. For `queued` this is time spent waiting in the queue, so a re-queued run counts "
+                "from its re-queue rather than from row creation.",
                 registry=registry,
                 labelnames=["status", "origin_product", "run_environment"],
             )
@@ -876,39 +1011,6 @@ def process_scheduled_changes() -> None:
 
 
 @shared_task(ignore_result=True)
-def sync_insight_cache_states_task() -> None:
-    from posthog.caching.insight_caching_state import sync_insight_cache_states
-
-    sync_insight_cache_states()
-
-
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=10,
-    retry_backoff_max=30,
-    max_retries=3,
-    retry_jitter=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-)
-def update_cache_task(caching_state_id: UUID) -> None:
-    from posthog.caching.insight_cache import update_cache
-
-    update_cache(caching_state_id)
-
-
-@shared_task(ignore_result=True)
-def sync_insight_caching_state(
-    team_id: int,
-    insight_id: Optional[int] = None,
-    dashboard_tile_id: Optional[int] = None,
-) -> None:
-    from posthog.caching.insight_caching_state import sync_insight_caching_state
-
-    sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
-
-
-@shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
     from products.feature_flags.backend.flag_analytics import (
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
@@ -930,7 +1032,17 @@ def find_flags_with_enriched_analytics() -> None:
     end = datetime.now()
     begin = end - timedelta(hours=12)
 
-    find_flags_with_enriched_analytics(begin, end)
+    try:
+        find_flags_with_enriched_analytics(begin, end)
+    except CHQueryErrorUnknownTable as e:
+        # Expected on self-hosted instances with an incomplete ClickHouse schema (e.g. missing
+        # migrations) - not worth capturing as an exception, just skip this run.
+        logger.warning("Find flags with enriched analytics skipped, table missing", error=e)
+    except Exception as e:
+        logger.exception("Find flags with enriched analytics failed", error=e)
+        capture_exception(
+            e, additional_properties={"feature": "feature_flags", "task": "find_flags_with_enriched_analytics"}
+        )
 
 
 @shared_task(ignore_result=True)
@@ -1013,16 +1125,6 @@ def clickhouse_send_license_usage() -> None:
             from ee.tasks.send_license_usage import send_license_usage
 
             send_license_usage()
-    except ImportError:
-        pass
-
-
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
-def check_flags_to_rollback() -> None:
-    try:
-        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
-
-        check_flags_to_rollback()
     except ImportError:
         pass
 
@@ -1165,6 +1267,8 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
+    # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
     autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=30,
     retry_backoff_max=120,
@@ -1273,7 +1377,11 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             last_sync_timestamp = max_lookback
 
-        current_sync_timestamp = now
+        # Stop short of now so rows that have not reached the replica answering this query yet
+        # fall into the next run's window rather than being skipped for good.
+        current_sync_timestamp = now - timedelta(
+            seconds=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS
+        )
         window_seconds = (current_sync_timestamp - last_sync_timestamp).total_seconds()
 
         logger.info(
@@ -1297,14 +1405,24 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         merged_results: dict[tuple[int, str], tuple[datetime | None, int]] = {}
         total_clickhouse_results = 0
 
-        # ORDER BY ensures the most recent rows survive if LIMIT truncates results
+        # ORDER BY ensures the most recent rows survive if LIMIT truncates results.
+        # Celery forces Workload.OFFLINE, so this query lands on
+        # CLICKHOUSE_OFFLINE_CLUSTER_HOST. There, `events_recent` and
+        # `distributed_events_recent` are both Distributed proxies over the same
+        # `sharded_events_recent` data, but they resolve through different clusters:
+        # `distributed_events_recent` reads the batch-export shard through both of its
+        # replicas, while `events_recent` is pinned to a single replica, so one
+        # unavailable node fails the entire scan with nothing to fall back to.
+        # `posthog/models/event/sql.py` defines the two identically, so dev and CI cannot
+        # tell them apart and no test covers the difference. Check the live offline host
+        # rather than this repo before changing the table.
         chunk_query = """
             SELECT
                 team_id,
                 JSONExtractString(properties, '$feature_flag') as flag_key,
                 max(timestamp) as last_called_at,
                 count() as call_count
-            FROM events_recent
+            FROM distributed_events_recent
             PREWHERE event = '$feature_flag_called'
               AND inserted_at > %(last_sync_timestamp)s
               AND inserted_at <= %(current_sync_timestamp)s
@@ -1316,16 +1434,56 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         """
 
         limit_hit = False
+        chunk_failures = 0
+        first_chunk_error: Exception | None = None
+
+        # The checkpoint may only advance over an unbroken run of successful chunks from
+        # the start of the window. A chunk that fails leaves its window unread, so
+        # everything from that point on has to be retried by the next run rather than
+        # skipped, which would silently lose flag calls.
+        checkpoint_timestamp = last_sync_timestamp
 
         for chunk_start_ts, chunk_end_ts in chunks:
-            chunk_result = sync_execute(
-                chunk_query,
-                {
-                    "last_sync_timestamp": chunk_start_ts,
-                    "current_sync_timestamp": chunk_end_ts,
-                    "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
-                },
-            )
+            try:
+                chunk_result = sync_execute(
+                    chunk_query,
+                    {
+                        "last_sync_timestamp": chunk_start_ts,
+                        "current_sync_timestamp": chunk_end_ts,
+                        "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
+                    },
+                    settings={"max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS},
+                )
+            except Exception as e:
+                # Transient errors are what autoretry_for is for. ClickHouseAtCapacity in
+                # particular means the cluster is already shedding load, so the useful
+                # response is to abandon the run and let Celery retry it with backoff rather
+                # than keep querying. Swallowing one here would report a successful sync and
+                # skip the retry that recovers these runs today.
+                if isinstance(e, CH_TRANSIENT_ERRORS):
+                    raise
+
+                chunk_failures += 1
+                if first_chunk_error is None:
+                    first_chunk_error = e
+                logger.warning(
+                    "Feature flag sync chunk failed",
+                    chunk_start=chunk_start_ts.isoformat(),
+                    chunk_end=chunk_end_ts.isoformat(),
+                    error=str(e),
+                )
+                # Nothing has been read yet, so the checkpoint cannot advance and the run
+                # re-raises below. Sweeping the rest of the window would query every
+                # remaining chunk against a cluster that just failed one and then discard
+                # every result. A failure after a successful chunk is different: the later
+                # chunks are still worth reading, they just cannot move the checkpoint
+                # past the gap.
+                if checkpoint_timestamp == last_sync_timestamp:
+                    break
+                continue
+
+            if not chunk_failures:
+                checkpoint_timestamp = chunk_end_ts
 
             if chunk_result:
                 total_clickhouse_results += len(chunk_result)
@@ -1349,15 +1507,33 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         if limit_hit:
             FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER.inc()
 
+        if chunk_failures:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER.inc(chunk_failures)
+            logger.warning(
+                "Feature flag sync had failed chunks",
+                chunk_failures=chunk_failures,
+                chunks_total=len(chunks),
+                checkpoint_timestamp=checkpoint_timestamp.isoformat(),
+            )
+            # The checkpoint did not move, so this run made no forward progress at all and
+            # the next one will rescan the same window. Re-raise the first error rather
+            # than reporting a successful sync, both so the failure is visible and so the
+            # transient ClickHouse errors in autoretry_for still trigger a Celery retry.
+            # Results from any later chunk that did succeed are dropped, which is safe:
+            # they are re-read on the next run, and last_called_at is only ever advanced.
+            if first_chunk_error is not None and checkpoint_timestamp == last_sync_timestamp:
+                raise first_chunk_error
+
         if not merged_results:
-            # Update checkpoint even when no results so next run starts from current time
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+            # Advance the checkpoint even when no results, so the next run starts from the
+            # end of the window that was read instead of rescanning it
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
 
             # Emit metrics for no-results case
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
             clickhouse_results_gauge.set(0)
-            checkpoint_lag_gauge.set(0.0)
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1366,14 +1542,16 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             return
 
-        # Build lookup map from merged results
+        # Build lookup map from merged results. Skip flag keys containing NUL bytes:
+        # Postgres can't store them, so they can never match a real FeatureFlag.key,
+        # and passing one into the key__in query below raises psycopg.DataError.
         flag_updates: dict[tuple[int, str], datetime] = {}
-        for key, (ts, _count) in merged_results.items():
-            if ts is not None:
-                flag_updates[key] = ts
+        for (team_id, flag_key), (ts, _count) in merged_results.items():
+            if ts is not None and "\x00" not in flag_key:
+                flag_updates[(team_id, flag_key)] = ts
 
         if not flag_updates:
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
             logger.info(
                 "Feature flag sync: no valid timestamps to update",
                 chunks_processed=len(chunks),
@@ -1381,7 +1559,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             clickhouse_results_gauge.set(total_clickhouse_results)
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
-            checkpoint_lag_gauge.set(0.0)
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
             return
 
         # Fetch flags matching any (team_id, key) combination from updates.
@@ -1423,14 +1601,14 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 )
                 raise
 
-        # Set final checkpoint to current time
-        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+        # Set final checkpoint to the end of the last window that was read successfully
+        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
 
         duration = (timezone.now() - start_time).total_seconds()
         processed_events = sum(count for _ts, count in merged_results.values())
 
         # Emit metrics for successful completion
-        checkpoint_lag_seconds = (timezone.now() - current_sync_timestamp).total_seconds()
+        checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
         updated_count_gauge.set(updated_count)
         events_processed_gauge.set(processed_events)
         clickhouse_results_gauge.set(total_clickhouse_results)
@@ -1584,7 +1762,7 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     Sync UserProductList for all users who have access to a new team.
     Called during project creation to avoid request timeouts for large organizations.
     """
-    from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+    from posthog.models.file_system.user_product_list import add_default_products_for_user
     from posthog.models.team import Team
 
     try:
@@ -1601,6 +1779,6 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     )
 
     for user in users:
-        backfill_user_product_list_for_new_user(user, team)
+        add_default_products_for_user(user, team)
 
     logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)

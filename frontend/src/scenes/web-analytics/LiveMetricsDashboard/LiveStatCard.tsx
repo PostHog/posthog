@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 const AnimatedNumber = ({ value, duration = 300 }: { value: number; duration?: number }): JSX.Element => {
     const [displayValue, setDisplayValue] = useState(value)
@@ -68,12 +69,20 @@ export interface LiveStatCardProps {
     label: string
     value: number | null
     isLoading?: boolean
+    tooltip?: string
 }
 
-export const LiveStatCard = ({ label, value, isLoading }: LiveStatCardProps): JSX.Element => {
+export const LiveStatCard = ({ label, value, isLoading, tooltip }: LiveStatCardProps): JSX.Element => {
     return (
         <div className="flex flex-col">
-            <span className="text-muted text-xs uppercase font-medium">{label}</span>
+            <div className="flex items-center gap-1 text-muted">
+                <span className="text-xs uppercase font-medium">{label}</span>
+                {tooltip && (
+                    <Tooltip title={tooltip}>
+                        <IconInfo className="text-sm" />
+                    </Tooltip>
+                )}
+            </div>
             {isLoading ? (
                 <LemonSkeleton className="w-16 h-8 mt-1" />
             ) : (

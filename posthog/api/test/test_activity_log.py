@@ -7,12 +7,18 @@ from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory, TickingDat
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -189,7 +195,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log")
 
         assert res.status_code == status.HTTP_200_OK
-        assert len(res.json()["results"]) == 46
+        assert len(res.json()["results"]) == 39
 
     def test_can_list_all_activity_filtered_by_scope(self) -> None:
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")
@@ -428,3 +434,79 @@ class TestOrganizationAdvancedActivityLogsAvailableFilters(APIBaseTest):
         assert {"FeatureFlag", "Insight"}.issubset(scopes)
         activities = {entry["value"] for entry in body["static_filters"]["activities"]}
         assert {"created", "updated"}.issubset(activities)
+
+
+class TestActivityLogBearerAuthAttribution(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def _create_experiment_and_get_activity(self, auth_header: str, flag_key: str) -> ActivityLog:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Bearer auth experiment", "feature_flag_key": flag_key},
+            headers={"authorization": auth_header},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return ActivityLog.objects.get(scope="Experiment", activity="created", item_id=str(response.json()["id"]))
+
+    def test_personal_api_key_write_is_attributed_to_key_owner(self) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(value), scopes=["*"])
+
+        log = self._create_experiment_and_get_activity(f"Bearer {value}", "pat-attribution-flag")
+
+        assert log.is_system is False
+        assert log.user == self.user
+
+    def _create_oauth_token(self, impersonated_by: User | None = None) -> OAuthAccessToken:
+        application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        return OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_activity_attribution_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="experiment:write feature_flag:write",
+            impersonated_by=impersonated_by,
+        )
+
+    def test_oauth_token_write_is_attributed_to_token_user(self) -> None:
+        token = self._create_oauth_token()
+
+        log = self._create_experiment_and_get_activity(f"Bearer {token.token}", "oauth-attribution-flag")
+
+        assert log.is_system is False
+        assert log.user == self.user
+        assert log.was_impersonated is False
+
+    def test_impersonation_minted_oauth_token_write_is_marked_impersonated(self) -> None:
+        staff_user = User.objects.create_and_join(self.organization, "staff@posthog.com", None)
+        token = self._create_oauth_token(impersonated_by=staff_user)
+
+        log = self._create_experiment_and_get_activity(f"Bearer {token.token}", "oauth-impersonation-flag")
+
+        assert log.user == self.user
+        assert log.was_impersonated is True
+
+    @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
+    def test_activity_log_export_preserves_oauth_authorization(self, _mock_exporter_task) -> None:
+        token = self._create_oauth_token()
+        token.scope = "activity_log:read"
+        token.save(update_fields=["scope"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            {"format": "csv"},
+            headers={"authorization": f"Bearer {token.token}"},
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
+        assert exported_asset.source_credential_id == str(token.id)

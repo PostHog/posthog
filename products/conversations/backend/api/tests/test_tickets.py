@@ -25,15 +25,21 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, Tag, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.redis import get_client
 from posthog.test.persons import create_person
 
+from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
-from products.conversations.backend.models import Ticket, TicketAssignment
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
+from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
+from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 
 
@@ -60,6 +66,30 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
+    @parameterized.expand(["session", "personal_api_key"])
+    def test_create_ticket_not_allowed(self, mock_on_commit, auth):
+        # The bare collection POST was never a real intake path — DRF's default create
+        # can't set team/ticket_number and used to 500 (issue #71101). It must 405 instead.
+        # The reporter used a ticket:write personal API key, so cover that path too: with
+        # "create" kept in scope_object_write_actions the token clears the scope gate and
+        # reaches the 405 rather than a misleading "not supported" 403.
+        if auth == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="ticket-write",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["ticket:write"],
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/",
+            data={"status": "new"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
     def _ticket_with_tags(self, *tag_names):
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -82,6 +112,8 @@ class TestTicketAPI(APIBaseTest):
         [
             ("tags_matches_any", {"tags": '["alpha", "beta"]'}, {"alpha_beta", "alpha", "beta_gamma"}),
             ("tags_all_matches_every", {"tags_all": '["alpha", "beta"]'}, {"alpha_beta"}),
+            # tags and tags_all must compose (AND), not clobber each other.
+            ("tags_composes_with_tags_all", {"tags": '["gamma"]', "tags_all": '["beta"]'}, {"beta_gamma"}),
             ("tags_exclude_drops_tagged", {"tags_exclude": '["gamma"]'}, {"alpha_beta", "alpha"}),
             (
                 "tags_all_composes_with_tags_exclude",
@@ -520,6 +552,40 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(results[0]["id"], str(urgent_ticket.id))
         self.assertEqual(results[1]["id"], str(self.ticket.id))
 
+    @parameterized.expand(
+        [
+            ("sla_due_at", ["soon", "later", "null_c", "null_b", "null_a"]),
+            ("-sla_due_at", ["later", "soon", "null_c", "null_b", "null_a"]),
+        ]
+    )
+    def test_order_by_sla_due_at_is_stable_across_pages(self, mock_on_commit, order_by, expected):
+        # Most tickets have no SLA (NULL sla_due_at), so the sort key ties across many rows.
+        # Without a unique tiebreaker the tied rows have no stable order across the separate
+        # LIMIT/OFFSET page queries, so paging duplicates or drops rows and the sort looks lost.
+        # ticket_numbers: null_a=1 (setUp), null_b=2, null_c=3, soon=4, later=5.
+        now = timezone.now()
+        tickets: dict[str, Ticket] = {"null_a": self.ticket}
+        for key in ("null_b", "null_c", "soon", "later"):
+            tickets[key] = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=key,
+                distinct_id=key,
+                sla_due_at={"soon": now + timedelta(hours=1), "later": now + timedelta(hours=5)}.get(key),
+            )
+
+        seen: list[str] = []
+        for offset in range(0, len(tickets), 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/conversations/tickets/?order_by={order_by}&limit=2&offset={offset}"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            seen.extend(r["id"] for r in response.json()["results"])
+
+        # Real deadlines sort first (ascending/descending), no-SLA tickets last, ties broken by
+        # -ticket_number — a single total order, so the pages concatenate back to exactly it.
+        self.assertEqual(seen, [str(tickets[key].id) for key in expected])
+
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW
@@ -554,6 +620,21 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_by_ticket_number_with_hash_prefix(self, mock_on_commit):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=%23{self.ticket.ticket_number}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_search_with_non_ascii_digit_does_not_error(self, mock_on_commit):
+        # "²" passes str.isdigit() but int() rejects it; it must fall through to text search
+        # rather than 500.
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=%C2%B2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
 
     @parameterized.expand(
         [
@@ -624,6 +705,36 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
 
+    def test_search_excludes_other_team_comments(self, mock_on_commit):
+        # The comment pre-query filters by the request's team; a matching comment in
+        # another team pointing at this ticket's id must not surface the ticket, while
+        # the same content on a same-team ticket must — so a search that filters
+        # everything out (or nothing) can't pass this test.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        Comment.objects.create(
+            team=other_team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="zebra migration question",
+        )
+        same_team_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="zebra-session",
+            distinct_id="zebra-user",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(same_team_ticket.id),
+            content="zebra migration question",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=zebra")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(same_team_ticket.id))
+
     def test_search_ignores_too_long_query(self, mock_on_commit):
         long_query = "a" * 201
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={long_query}")
@@ -678,8 +789,8 @@ class TestTicketAPI(APIBaseTest):
         denormalized on the Ticket model, so no subqueries needed.
         Person data is batch-fetched in a single query.
         """
-        # Create 10 tickets with messages, assignments, and persons
-        for i in range(10):
+        # Two tickets are enough to detect a query that scales with the result count.
+        for i in range(2):
             ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
@@ -710,23 +821,25 @@ class TestTicketAPI(APIBaseTest):
                 created_by=self.user,
             )
 
-        # Query count should be constant regardless of number of tickets
-        # Includes: session, user, org, team, permissions, feature flag permission org lookup,
-        # count query, tickets query, tagged_items prefetch, and the session-activity metadata
-        # write (deferred to on_commit, which this test class patches to run synchronously)
-        # Note: person reads go through personhog (no DB queries)
-        with self.assertNumQueries(12):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            # Should have original ticket + 10 new tickets = 11 total
-            self.assertEqual(response.json()["count"], 11)
-            # Verify all denormalized fields are present
-            for ticket_data in response.json()["results"]:
-                self.assertIn("message_count", ticket_data)
-                self.assertIn("last_message_at", ticket_data)
-                self.assertIn("last_message_text", ticket_data)
-                self.assertIn("assignee", ticket_data)
-                self.assertIn("person", ticket_data)
+        list_url = f"/api/projects/{self.team.id}/conversations/tickets/"
+        # Warm auth, settings, and session metadata so the measured requests differ only by page size.
+        warmup_response = self.client.get(f"{list_url}?limit=1")
+        self.assertEqual(warmup_response.status_code, status.HTTP_200_OK)
+
+        # Person reads go through personhog, so both page sizes should use the same database queries.
+        for limit in (2, 3):
+            with self.subTest(limit=limit), self.assertNumQueries(10):
+                response = self.client.get(f"{list_url}?limit={limit}")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["count"], 3)
+                self.assertEqual(len(response.json()["results"]), limit)
+                # Verify all denormalized fields are present
+                for ticket_data in response.json()["results"]:
+                    self.assertIn("message_count", ticket_data)
+                    self.assertIn("last_message_at", ticket_data)
+                    self.assertIn("last_message_text", ticket_data)
+                    self.assertIn("assignee", ticket_data)
+                    self.assertIn("person", ticket_data)
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -796,6 +909,31 @@ class TestBulkUpdateStatus(APIBaseTest):
         self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
         other_ticket.refresh_from_db()
         self.assertEqual(other_ticket.status, Status.NEW)
+
+    def test_skips_tickets_denied_at_object_level(self, mock_on_commit):
+        # Bulk status update must respect object-level access control the same way single-ticket
+        # updates do via get_object() -- a ticket explicitly denied to the caller must not be
+        # mutated just because its UUID was included in the request.
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(self.tickets[0].id),
+            organization_member=self.user.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 2)
+        self.assertNotIn(str(self.tickets[0].id), response.json()["ids"])
+        self.tickets[0].refresh_from_db()
+        self.assertEqual(self.tickets[0].status, Status.NEW)
 
     def test_creates_activity_log_entries(self, mock_on_commit):
         ids = [str(t.id) for t in self.tickets[:2]]
@@ -997,6 +1135,78 @@ class TestTicketAssignment(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    @parameterized.expand(
+        [
+            ("user_and_role", "user:{user_id},role:{role_id}", {"user", "role"}),
+            ("unassigned_and_user", "unassigned,user:{user_id}", {"user", "unassigned"}),
+            ("multiple_users", "user:{user_id},user:{other_user_id}", {"user", "other_user"}),
+            ("invalid_entries_ignored", "user:abc,role:not-a-uuid,user:{user_id}", {"user"}),
+            ("all_invalid_applies_no_filter", "user:abc,bogus", {"user", "role", "other_user", "unassigned"}),
+        ]
+    )
+    def test_filter_by_multiple_assignees(self, _name: str, assignee_template: str, expected_keys: set[str]) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other-assignee@posthog.com", None)
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        tickets = {"user": self.ticket}
+        for key, assignment in (
+            ("role", {"role": self.role}),
+            ("other_user", {"user": other_user}),
+            ("unassigned", None),
+        ):
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=f"session-{key}",
+                distinct_id=f"distinct-{key}",
+            )
+            if assignment:
+                TicketAssignment.objects.create(ticket=ticket, **assignment)
+            tickets[key] = ticket
+
+        assignee_param = assignee_template.format(
+            user_id=self.user.id, other_user_id=other_user.id, role_id=self.role.id
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee={assignee_param}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {result["id"] for result in response.json()["results"]}
+        self.assertEqual(returned_ids, {str(tickets[key].id) for key in expected_keys})
+
+    def test_filter_by_me_resolves_to_requesting_user(self):
+        """The dynamic `me` token filters to whoever is making the request."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+
+        other_user = User.objects.create_and_join(self.organization, "other-me@posthog.com", None)
+        other_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+        TicketAssignment.objects.create(ticket=other_ticket, user=other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=me")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def test_filter_by_me_combined_with_unassigned(self):
+        """`me` composes with other assignee entries in a match-any list."""
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+        unassigned_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="unassigned-session",
+            distinct_id="unassigned-user",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?assignee=me,unassigned")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {result["id"] for result in response.json()["results"]}
+        self.assertEqual(returned_ids, {str(self.ticket.id), str(unassigned_ticket.id)})
 
     def test_assignment_logs_activity(self):
         """Test that assignment changes are logged in activity log."""
@@ -1494,6 +1704,30 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["person"] is None
 
+    def test_lookup_prefers_identified_person_when_email_is_shared(self, mock_on_commit):
+        # The stub is inserted first so that, without deterministic ordering, an
+        # unordered read would return it first and win the first-match pick. Its only
+        # distinct_id is the email address itself, which resolves no membership or
+        # analytics groups downstream — the identified person must win.
+        _create_person(
+            team=self.team,
+            distinct_ids=["shared@example.com"],
+            properties={"email": "shared@example.com"},
+            immediate=True,
+        )
+        identified = _create_person(
+            team=self.team,
+            distinct_ids=["real-app-distinct-id"],
+            properties={"email": "shared@example.com"},
+            is_identified=True,
+            immediate=True,
+        )
+
+        person = _get_persons_by_email(self.team, ["shared@example.com"]).get("shared@example.com")
+
+        assert person is not None
+        assert str(person.uuid) == str(identified.uuid)
+
     @snapshot_clickhouse_queries
     def test_email_fallback_uses_bloom_filter_lower_skip_index(self, mock_on_commit):
         _create_person(
@@ -1525,14 +1759,58 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketEmailFilter(APIBaseTest):
+    """Tests the `emails` query param used by the previous-tickets panel to match related tickets."""
+
+    def _create_ticket(self, distinct_id, email_from=None):
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.EMAIL,
+            distinct_id=distinct_id,
+            email_from=email_from,
+            status=Status.NEW,
+        )
+
+    def _numbers(self, response):
+        return {r["ticket_number"] for r in response.json()["results"]}
+
+    def test_filter_by_email_matches_email_from_case_insensitively(self, mock_on_commit):
+        match = self._create_ticket(distinct_id="did-1", email_from="Alice@Example.com")
+        self._create_ticket(distinct_id="did-2", email_from="bob@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=alice@example.com")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == {match.ticket_number}
+
+    def test_filter_by_distinct_ids_or_emails_returns_union(self, mock_on_commit):
+        by_did = self._create_ticket(distinct_id="did-1", email_from="unrelated@example.com")
+        by_email = self._create_ticket(distinct_id="did-2", email_from="alice@example.com")
+        self._create_ticket(distinct_id="did-3", email_from="bob@example.com")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?distinct_ids=did-1&emails=alice@example.com"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._numbers(response) == {by_did.ticket_number, by_email.ticket_number}
+
+    def test_filter_by_email_no_match_returns_empty(self, mock_on_commit):
+        self._create_ticket(distinct_id="did-1", email_from="alice@example.com")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=nobody@example.com")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 0
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestComposeTicketAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
         self.team.conversations_settings = {"email_enabled": True}
         self.team.save()
-        from products.conversations.backend.models import EmailChannel
-
         self.email_config = EmailChannel.objects.create(
             team=self.team,
             from_email="support@example.com",
@@ -1640,6 +1918,29 @@ class TestComposeTicketAPI(APIBaseTest):
         if expected_detail:
             assert expected_detail in response.json()["detail"]
 
+    def test_compose_rejects_customer_communication_channel(self, mock_on_commit) -> None:
+        customer_channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            from_email="csm@example.com",
+            from_name="Customer success",
+            domain="example.com",
+            domain_verified=True,
+            inbound_token="customer-channel-compose",
+        )
+
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(customer_channel.id),
+                "message": "Hello!",
+            }
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Ticket.objects.filter(team=self.team).exists()
+
     def test_composed_ticket_is_not_born_verified(self, mock_on_commit):
         # The team typed the recipient address; the recipient never proved they control it,
         # so an outbound ticket must start with unknown identity (None) — never verified.
@@ -1653,6 +1954,24 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.identity_verified is None
+
+    def test_composed_ticket_stores_recipient_email_in_traits(self, mock_on_commit):
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.anonymous_traits == {"email": "someone@test.com"}
+
+        search = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/?search=someone@test.com",
+        )
+        assert search.status_code == status.HTTP_200_OK
+        assert [t["id"] for t in search.json()["results"]] == [str(ticket.id)]
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
@@ -1731,6 +2050,33 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             response = self.client.post(url, {"message": "test reply"}, format="json")
         else:
             response = getattr(self.client, method)(url)
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
+    @parameterized.expand(
+        [
+            ("note_with_write", "patch", ["ticket:write"], status.HTTP_200_OK),
+            ("note_with_read_only", "patch", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("note_wrong_scope", "patch", ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("delete_note_with_write", "delete", ["ticket:write"], status.HTTP_204_NO_CONTENT),
+            ("delete_note_with_read_only", "delete", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("delete_note_wrong_scope", "delete", ["insight:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_note_scopes(self, _name, method, scopes, expected_status):
+        note = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Original note",
+            item_context={"author_type": "support", "is_private": True},
+        )
+        self._auth_with_pak(scopes)
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
+        if method == "patch":
+            response = self.client.patch(url, {"message": "Updated note"}, format="json")
+        else:
+            response = self.client.delete(url)
         assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
 
 
@@ -1842,6 +2188,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_name",
             "is_private",
             "created_at",
+            "version",
         }
 
     def test_messages_lookup_by_ticket_number(self, mock_on_commit):
@@ -1860,14 +2207,45 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", "Bob"),
-            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", "bob@example.com"),
-            ("customer_default", {}, "customer", "Customer"),
-            ("ai_author", {}, "AI", "PostHog Assistant"),
-            ("support_without_user", {}, "support", "Support"),
+            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", {}, "Bob"),
+            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", {}, "bob@example.com"),
+            ("customer_default", {}, "customer", {}, "Customer"),
+            ("ai_author", {}, "AI", {}, "PostHog Assistant"),
+            ("support_without_user", {}, "support", {}, "Support"),
+            # Per-comment author overrides the ticket requester (thread replies from other participants)
+            (
+                "teams_thread_reply_author",
+                {"name": "Mark"},
+                "customer",
+                {"teams_author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "slack_thread_reply_author",
+                {"name": "Mark"},
+                "customer",
+                {"slack_author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "zendesk_import_author",
+                {"name": "Mark"},
+                "customer",
+                {"author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "context_author_on_support_comment",
+                {},
+                "support",
+                {"teams_author_name": "Chris"},
+                "Chris",
+            ),
         ]
     )
-    def test_messages_author_name_resolution(self, mock_on_commit, _name, traits, author_type, expected_name):
+    def test_messages_author_name_resolution(
+        self, mock_on_commit, _name, traits, author_type, extra_context, expected_name
+    ):
         self.ticket.anonymous_traits = traits
         self.ticket.save(update_fields=["anonymous_traits"])
         Comment.objects.create(
@@ -1875,7 +2253,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="msg",
-            item_context={"author_type": author_type},
+            item_context={"author_type": author_type, **extra_context},
         )
 
         response = self.client.get(self.url)
@@ -1972,6 +2350,8 @@ class TestTicketReplyAPI(APIBaseTest):
             status=Status.OPEN,
         )
         self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/"
+        # Reply dedupe reservations live in fakeredis, which is a single process-wide store.
+        get_client().flushall()
 
     @parameterized.expand(
         [
@@ -1992,7 +2372,12 @@ class TestTicketReplyAPI(APIBaseTest):
         assert comment.created_by == self.user
         assert comment.scope == "conversations_ticket"
         assert comment.item_id == str(self.ticket.id)
-        assert comment.item_context == {"author_type": "support", "is_private": is_private}
+        expected_context = {"author_type": "support", "is_private": is_private}
+        if not is_private:
+            # Public replies on an email ticket always get an outbox row; this team has no
+            # email channel, so delivery fails immediately and stamps the comment.
+            expected_context["email_delivery_status"] = "failed"
+        assert comment.item_context == expected_context
 
     def test_reply_defaults_is_private_to_false(self, mock_on_commit):
         response = self.client.post(self.url, {"message": "Hi"}, format="json")
@@ -2076,3 +2461,602 @@ class TestTicketReplyAPI(APIBaseTest):
         serializer = TicketReplyRequestSerializer(data={"message": "hi", "rich_content": {"amount": Decimal("1.2")}})
         assert not serializer.is_valid()
         assert "rich_content" in serializer.errors
+
+    @patch("products.conversations.backend.signals.send_email_reply")
+    def test_retried_reply_returns_the_original_and_delivers_once(self, mock_send_email_reply, mock_on_commit):
+        # API clients and gateways replay this POST within a second or two, and each delivery that
+        # gets through is a message the customer actually receives twice.
+        self.ticket.email_from = "customer@example.com"
+        self.ticket.save(update_fields=["email_from"])
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save(update_fields=["conversations_settings"])
+
+        first = self.client.post(self.url, {"message": "On it now"}, format="json")
+        second = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
+        mock_send_email_reply.delay.assert_called_once()
+
+    def test_reply_still_being_created_returns_a_conflict(self, mock_on_commit):
+        fingerprint = ReplyFingerprint.build(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="On it now",
+            rich_content=None,
+            item_context={"author_type": "support", "is_private": False},
+        )
+        assert fingerprint is not None
+        reserve(fingerprint)
+
+        response = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["error_type"] == REPLY_IN_PROGRESS_ERROR_TYPE
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+
+    @parameterized.expand(
+        [
+            ("different_privacy", {"is_private": True}),
+            ("different_body", {"message": "Something else"}),
+        ]
+    )
+    def test_a_genuinely_different_reply_is_still_posted(self, mock_on_commit, _name, overrides):
+        self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        response = self.client.post(self.url, {"message": "On it now", **overrides}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 2
+
+    def test_reply_replays_a_message_first_sent_through_the_comments_endpoint(self, mock_on_commit):
+        # The composer writes through /comments/ while API clients use /reply/. Both hash into one
+        # keyspace, so a retry that arrives on the other path must not post a second message.
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "On it now",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": False},
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED
+
+        replayed = self.client.post(self.url, {"message": "On it now"}, format="json")
+
+        assert replayed.status_code == status.HTTP_200_OK
+        assert replayed.json()["id"] == created.json()["id"]
+        assert replayed.json()["author_type"] == "support"
+        assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestAiFeedbackAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ai-feedback-session",
+            distinct_id="user-123",
+            status=Status.OPEN,
+            ai_triage={
+                "status": "done",
+                "result": "persisted",
+                "confidence": 0.92,
+                "ai_trace_id": "trace-abc",
+            },
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/ai_feedback/"
+
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_captures_metric_on_rating(self, mock_capture, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "good"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_capture.assert_called_once()
+        _, kwargs = mock_capture.call_args
+        assert kwargs["event"] == "$ai_metric"
+        assert kwargs["properties"]["$ai_metric_name"] == "reviewer_quality"
+        assert kwargs["properties"]["$ai_metric_value"] == 1
+        assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+        assert kwargs["properties"]["ticket_id"] == str(self.ticket.id)
+        assert kwargs["properties"]["message_id"] == "msg-1"
+        assert kwargs["properties"]["ai_triage_result"] == "persisted"
+        assert kwargs["properties"]["confidence"] == 0.92
+
+    @parameterized.expand(
+        [
+            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", 0),
+            (
+                "bad_with_text",
+                {"message_id": "msg-1", "rating": "bad", "feedback_text": "Wrong answer"},
+                "$ai_feedback",
+                None,
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_metric_vs_text_are_mutually_exclusive(
+        self, _name, payload, expected_event, expected_metric_value, mock_capture, mock_on_commit
+    ):
+        response = self.client.post(self.url, payload, format="json")
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_capture.assert_called_once()
+        _, kwargs = mock_capture.call_args
+        assert kwargs["event"] == expected_event
+        if expected_event == "$ai_metric":
+            assert kwargs["properties"]["$ai_metric_value"] == expected_metric_value
+            assert "$ai_feedback_text" not in kwargs["properties"]
+        else:
+            assert kwargs["properties"]["$ai_feedback_text"] == "Wrong answer"
+            assert "$ai_metric_name" not in kwargs["properties"]
+            assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+
+    def test_ai_feedback_rejects_invalid_rating(self, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "meh"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestTicketAccessControl(APIBaseTest):
+    """Resource- and object-level access control for support tickets (the `ticket` RBAC resource)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        self.team.conversations_enabled = True
+        self.team.save()
+        # A plain member (org admins bypass access control), logged in for every request below.
+        self.member = User.objects.create_and_join(self.organization, "ticket-member@posthog.com", "password")
+        self.client.force_login(self.member)
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ac-session",
+            distinct_id="user-ac",
+            status=Status.OPEN,
+        )
+
+    def _set_resource_level(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="ticket", team=self.team, access_level=access_level)
+
+    def _grant_object_level(self, ticket: Ticket, access_level: str) -> None:
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(ticket.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level=access_level,
+        )
+
+    @parameterized.expand([("none", status.HTTP_403_FORBIDDEN), ("viewer", status.HTTP_200_OK)])
+    def test_list_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_200_OK)])
+    def test_update_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"status": "resolved"},
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    def test_reply_action_gated_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        # `reply` is a write @action; a viewer must not be able to post a reply.
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/",
+            {"message": "A reply"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    def test_user_access_level_reflects_resource_level(self) -> None:
+        self._set_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "viewer")
+
+    def test_user_access_level_reflects_object_level(self) -> None:
+        # An object-level grant for this ticket wins over the lower resource-level floor.
+        self._set_resource_level("viewer")
+        self._grant_object_level(self.ticket, "editor")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "editor")
+
+    def test_list_hides_tickets_blocked_at_object_level(self) -> None:
+        # Resource-level viewer, but one ticket is explicitly denied to the member.
+        blocked = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ac-blocked",
+            distinct_id="user-ac-2",
+            status=Status.OPEN,
+        )
+        self._set_resource_level("viewer")
+        self._grant_object_level(blocked, "none")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {r["id"] for r in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), returned_ids)
+        self.assertNotIn(str(blocked.id), returned_ids)
+
+    def test_retrieve_blocked_at_object_level(self) -> None:
+        # Resource-level viewer would normally allow retrieve, but an explicit per-ticket
+        # deny must still block the detail route (not just list filtering).
+        self._set_resource_level("viewer")
+        self._grant_object_level(self.ticket, "none")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_reply_blocked_at_object_level(self) -> None:
+        # Resource-level editor would normally allow reply, but an explicit per-ticket deny
+        # must still block the write action.
+        self._set_resource_level("editor")
+        self._grant_object_level(self.ticket, "none")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/",
+            {"message": "A reply"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_does_not_clear_unread_state_on_retrieve(self) -> None:
+        # Retrieve is a read action, but it also marks the ticket read for the team - a viewer
+        # must not be able to clear that shared state just by opening the ticket.
+        self.ticket.unread_team_count = 3
+        self.ticket.save(update_fields=["unread_team_count"])
+        self._set_resource_level("viewer")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.unread_team_count, 3)
+
+    def test_editor_clears_unread_state_on_retrieve(self) -> None:
+        self.ticket.unread_team_count = 3
+        self.ticket.save(update_fields=["unread_team_count"])
+        self._set_resource_level("editor")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.unread_team_count, 0)
+
+    def test_unread_count_excludes_tickets_blocked_at_object_level(self) -> None:
+        # A member restricted to specific tickets must not see unread counts for tickets
+        # outside their object-level access, even via the team-wide aggregate endpoint.
+        blocked = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ac-unread-blocked",
+            distinct_id="user-ac-unread",
+            status=Status.OPEN,
+            unread_team_count=5,
+        )
+        self.ticket.unread_team_count = 2
+        self.ticket.save(update_fields=["unread_team_count"])
+        self._set_resource_level("viewer")
+        self._grant_object_level(blocked, "none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_object_access_controls_endpoint_exists(self) -> None:
+        # The per-ticket access_controls route (side-panel object permissions) is wired by the mixin.
+        self._set_resource_level("viewer")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/access_controls"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    def test_saved_view_create_inherits_ticket_access(self, access_level: str, expected_status: int) -> None:
+        # Saved views use the `conversation` scope, which inherits the `ticket` resource's access level.
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/views/",
+            {"name": "My view", "filters": {"status": ["open"]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+
+class TestTicketViewParamFilter(APIBaseTest):
+    def _create_ticket(self, **kwargs) -> Ticket:
+        defaults = {
+            "team": self.team,
+            "channel_source": Channel.WIDGET,
+            "widget_session_id": f"session-{Ticket.objects.count()}",
+            "distinct_id": "user-123",
+            "status": Status.NEW,
+        }
+        defaults.update(kwargs)
+        return Ticket.objects.create_with_number(**defaults)
+
+    def _create_view(self, filters: dict) -> TicketView:
+        return TicketView.objects.create(team=self.team, name="Saved view", filters=filters, created_by=self.user)
+
+    def _list_ids(self, **params) -> set[str]:
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data=params)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return {r["id"] for r in response.json()["results"]}
+
+    def test_view_param_matches_equivalent_flat_params(self):
+        open_high = self._create_ticket(status=Status.OPEN, priority=Priority.HIGH)
+        self._create_ticket(status=Status.OPEN, priority=Priority.LOW)
+        self._create_ticket(status=Status.RESOLVED, priority=Priority.HIGH)
+        view = self._create_view({"status": ["open"], "priority": ["high"]})
+
+        via_view = self._list_ids(view=view.short_id)
+        via_params = self._list_ids(status="open", priority="high")
+        assert via_view == via_params == {str(open_high.id)}
+
+    def test_explicit_param_overrides_view_filter(self):
+        self._create_ticket(status=Status.OPEN)
+        resolved = self._create_ticket(status=Status.RESOLVED)
+        view = self._create_view({"status": ["open"]})
+
+        assert self._list_ids(view=view.short_id, status="resolved") == {str(resolved.id)}
+
+    def test_unknown_view_short_id_returns_400(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"view": "nonexistent"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_other_teams_view_returns_400(self):
+        other_team = Team.objects.create(organization=self.organization, name="Team 2")
+        other_view = TicketView.objects.create(
+            team=other_team, name="Other", filters={"status": ["open"]}, created_by=self.user
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"view": other_view.short_id}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_view_assignee_me_resolves_to_requesting_user(self):
+        mine = self._create_ticket()
+        TicketAssignment.objects.create(ticket=mine, user=self.user)
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        theirs = self._create_ticket()
+        TicketAssignment.objects.create(ticket=theirs, user=other_user)
+        self._create_ticket()  # unassigned
+        view = self._create_view({"assignee": ["me"]})
+
+        assert self._list_ids(view=view.short_id) == {str(mine.id)}
+
+    def test_invalid_stored_key_dropped_and_rest_of_view_applies(self):
+        open_high = self._create_ticket(status=Status.OPEN, priority=Priority.HIGH)
+        self._create_ticket(status=Status.OPEN, priority=Priority.LOW)
+        view = self._create_view({"status": ["bogus_legacy_status"], "priority": ["high"]})
+
+        assert self._list_ids(view=view.short_id) == {str(open_high.id)}
+
+    def test_invalid_stored_list_entry_keeps_valid_entries(self):
+        # One bad legacy entry must narrow to the valid rest, not drop the whole
+        # key and widen the view to all statuses.
+        open_ticket = self._create_ticket(status=Status.OPEN)
+        self._create_ticket(status=Status.RESOLVED)
+        view = self._create_view({"status": ["open", "bogus_legacy_status"]})
+
+        assert self._list_ids(view=view.short_id) == {str(open_ticket.id)}
+
+    def test_stored_tags_all_key_is_not_applied(self):
+        # tagsAll is a param-only key: the app can't render it, so a stored view
+        # carrying one (written via the raw round-trip) must not apply it either.
+        tagged = self._create_ticket()
+        tag = Tag.objects.create(name="urgent", team_id=self.team.id)
+        tagged.tagged_items.create(tag=tag)
+        untagged = self._create_ticket()
+        view = self._create_view({"tagsAll": ["urgent"]})
+
+        assert self._list_ids(view=view.short_id) == {str(tagged.id), str(untagged.id)}
+
+    def test_invalid_param_value_does_not_clear_view_filter(self):
+        open_ticket = self._create_ticket(status=Status.OPEN)
+        self._create_ticket(status=Status.RESOLVED)
+        view = self._create_view({"status": ["open"]})
+
+        assert self._list_ids(view=view.short_id, status="bogus") == {str(open_ticket.id)}
+
+    @parameterized.expand(
+        [
+            ("status", "status", "bogus,nonsense", "status"),
+            ("priority", "priority", "bogus", "priority"),
+            ("assignee_token", "assignee", "bogus", "assignee"),
+            ("assignee_bad_user_id", "assignee", "user:abc", "assignee"),
+            ("assignee_bad_role_id", "assignee", "role:not-a-uuid", "assignee"),
+            ("order_by", "order_by", "bogus", "sorting"),
+        ]
+    )
+    def test_all_invalid_param_values_leave_key_unset(self, _label, param, value, key):
+        assert key not in query_params_to_view_filters({param: value})
+
+    def test_legacy_view_filters_blob_applies_without_error(self):
+        # Old saved views carry 'all' sentinels, a single-value assignee, and keys the
+        # backend never validated. Applying one must filter nothing and respect sorting.
+        first = self._create_ticket()
+        second = self._create_ticket()
+        view = self._create_view(
+            {
+                "channel": "all",
+                "sla": "all",
+                "assignee": "all",
+                "search": "",
+                "futureKey": True,
+                "sorting": {"columnKey": "created_at", "order": 1},
+            }
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"view": view.short_id})
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()["results"]] == [str(first.id), str(second.id)]
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketNoteAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="note-session",
+            distinct_id="user-1",
+            status=Status.OPEN,
+        )
+        self.note = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Original private note",
+            rich_content={
+                "type": "doc",
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Original private note"}]}],
+            },
+            item_context={"author_type": "support", "is_private": True},
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{self.note.id}/"
+
+    def test_patch_updates_content_and_bumps_version(self, mock_on_commit):
+        response = self.client.patch(
+            self.url,
+            {"message": "Updated note", "rich_content": {"type": "doc", "content": []}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["content"] == "Updated note"
+        assert body["is_private"] is True
+        assert body["version"] == 1
+
+        self.note.refresh_from_db()
+        assert self.note.content == "Updated note"
+        assert self.note.version == 1
+
+    def test_patch_message_only_clears_stale_rich_content(self, mock_on_commit):
+        response = self.client.patch(self.url, {"message": "Markdown-only update"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["content"] == "Markdown-only update"
+        assert response.json()["rich_content"] is None
+
+        self.note.refresh_from_db()
+        assert self.note.content == "Markdown-only update"
+        assert self.note.rich_content is None
+
+    def test_delete_soft_deletes_and_hides_from_messages(self, mock_on_commit):
+        response = self.client.delete(self.url)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        self.note.refresh_from_db()
+        assert self.note.deleted is True
+
+        messages = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/messages/")
+        assert messages.status_code == status.HTTP_200_OK
+        assert all(m["id"] != str(self.note.id) for m in messages.json()["results"])
+
+    @parameterized.expand(
+        [
+            ("other_user_author", "other_user", True, status.HTTP_403_FORBIDDEN, "not_note_author"),
+            ("ai_note_no_author", "ai", True, status.HTTP_403_FORBIDDEN, "not_note_author"),
+            ("public_reply", "self", False, status.HTTP_400_BAD_REQUEST, "not_private_note"),
+            ("other_ticket", "other_ticket", True, status.HTTP_404_NOT_FOUND, "note_not_found"),
+            ("already_deleted", "deleted", True, status.HTTP_404_NOT_FOUND, "note_not_found"),
+            ("invalid_uuid", "invalid_id", True, status.HTTP_404_NOT_FOUND, "note_not_found"),
+        ]
+    )
+    def test_guard_matrix(self, mock_on_commit, _name, setup_kind, is_private, expected_status, expected_error):
+        if setup_kind == "other_user":
+            other = User.objects.create_and_join(self.organization, "other@posthog.com", "pass")
+            note = Comment.objects.create(
+                team=self.team,
+                created_by=other,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content="Someone else's note",
+                item_context={"author_type": "support", "is_private": True},
+            )
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
+        elif setup_kind == "ai":
+            note = Comment.objects.create(
+                team=self.team,
+                created_by=None,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content="AI note",
+                item_context={"author_type": "AI", "is_private": True},
+            )
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
+        elif setup_kind == "self":
+            note = Comment.objects.create(
+                team=self.team,
+                created_by=self.user,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content="Public reply",
+                item_context={"author_type": "support", "is_private": is_private},
+            )
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
+        elif setup_kind == "other_ticket":
+            other_ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id="other-note-session",
+                distinct_id="user-2",
+                status=Status.OPEN,
+            )
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{other_ticket.id}/notes/{self.note.id}/"
+        elif setup_kind == "deleted":
+            self.note.deleted = True
+            self.note.save(update_fields=["deleted"])
+            url = self.url
+        else:
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/not-a-uuid/"
+
+        response = self.client.patch(url, {"message": "Hacked"}, format="json")
+        assert response.status_code == expected_status
+        body = response.json()
+        assert body["error_type"] == expected_error
+        if expected_error == "not_note_author":
+            assert "You can only edit your own private notes." == body["detail"]
+        elif expected_error == "not_private_note":
+            assert "Only private notes can be edited." == body["detail"]
+
+        # DELETE must produce the same error shape (with delete verbs).
+        response = self.client.delete(url)
+        assert response.status_code == expected_status
+        body = response.json()
+        assert body["error_type"] == expected_error
+        if expected_error == "not_note_author":
+            assert "You can only delete your own private notes." == body["detail"]
+        elif expected_error == "not_private_note":
+            assert "Only private notes can be deleted." == body["detail"]
+
+    def test_blank_message_rejected(self, mock_on_commit):
+        response = self.client.patch(self.url, {"message": "   "}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

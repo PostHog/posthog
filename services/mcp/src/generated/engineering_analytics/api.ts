@@ -3,25 +3,29 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * The thinned CI failure logs for a pull request, grouped by failed job. Resolves the PR to its workflow runs via the pull_requests association (all of the PR's pushes, not just the latest commit), then reads the Logs product joined on run_id. Returns failed jobs only (the worker fetches logs for failures); logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association. Each line carries its original 1-based line number in the full pre-thinning log; lines are the failure region (errors plus surrounding context, with omission markers), capped per job and overall.
+ * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, blocking the merge queue, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. A blocking_merge_queue row is a failure on a merge-queue gate branch that never hit trunk: the commit had already passed the PR's own CI, so it is the semantic conflict the queue exists to catch, and it is holding up landings. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
  */
-export const EngineeringAnalyticsCiFailureLogsParams = /* @__PURE__ */ zod.object({
+export const EngineeringAnalyticsBrokenTestsParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
-export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.object({
-    pr_number: zod.number().describe('Pull request number whose CI failure logs to fetch.'),
-    repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
+export const EngineeringAnalyticsBrokenTestsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     source_id: zod
         .string()
         .optional()
@@ -31,19 +35,82 @@ export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.
 })
 
 /**
- * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet.
+ * The thinned CI failure logs for a pull request, grouped by failed job. Resolves the PR to its workflow runs via the pull_requests association (all of the PR's pushes, not just the latest commit), then reads the Logs product joined on run_id. Returns failed jobs only (the worker fetches logs for failures); logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association. Each line carries its original 1-based line number in the full pre-thinning log; lines are the failure region (errors plus surrounding context, with omission markers), capped per job and overall.
+ */
+export const EngineeringAnalyticsCiFailureLogsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.object({
+    pr_number: zod.number().describe('Pull request number whose CI failure logs to fetch.'),
+    repo: zod.string().describe("'owner\/name' repository the pull request belongs to."),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
+
+/**
+ * The active test-health queue: pytest and Jest tests worth acting on now, from the per-test CI spans, over a window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when a tolerated failure is recorded while it is masked; otherwise 'suspected_regression'. It qualifies on any same-commit recovery, any master/main failure, a quarantined failure, or failures on at least min_failed_prs distinct PRs. Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ */
+export const EngineeringAnalyticsFlakyTestsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days."
+        ),
+    date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    limit: zod.number().optional().describe('Maximum number of tests to return (1-200). Defaults to 50.'),
+    min_failed_prs: zod
+        .number()
+        .optional()
+        .describe(
+            'A test with no recorded recovery qualifies once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3.'
+        ),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
+    runner: zod.enum(['jest', 'pytest']).optional().describe("Optional test runner to return: 'pytest' or 'jest'."),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
+
+/**
+ * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR by git branch, or null when no `$ai_generation` event matched.
  */
 export const EngineeringAnalyticsPrCostParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const EngineeringAnalyticsPrCostQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().describe('Pull request number to estimate cost for.'),
-    repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
+    repo: zod.string().describe("'owner\/name' repository the pull request belongs to."),
     source_id: zod
         .string()
         .optional()
@@ -59,13 +126,13 @@ export const EngineeringAnalyticsPrLifecycleParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const EngineeringAnalyticsPrLifecycleQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().describe('Pull request number to inspect.'),
-    repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
+    repo: zod.string().describe("'owner\/name' repository the pull request belongs to."),
     source_id: zod
         .string()
         .optional()
@@ -81,13 +148,19 @@ export const EngineeringAnalyticsPullRequestsParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.object({
     author: zod.string().optional().describe("Optional GitHub login to scope the list to one author's pull requests."),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     source_id: zod
         .string()
         .optional()
@@ -97,24 +170,85 @@ export const EngineeringAnalyticsPullRequestsQueryParams = /* @__PURE__ */ zod.o
 })
 
 /**
- * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ * The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of ci_failure_logs for surfaces that aren't PR-scoped (default-branch failures, the run page). logs_available is false when the run didn't fail or its logs aged out of the short Logs retention.
+ */
+export const EngineeringAnalyticsRunFailureLogsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EngineeringAnalyticsRunFailureLogsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
+    run_id: zod.number().describe('Workflow run id whose failure logs to fetch.'),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
+
+/**
+ * The team's selectable GitHub repositories, oldest source first — one entry per repository a source is configured to sync, so a source syncing several repositories appears once per repo. Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its `repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully synced yet.
  */
 export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ */
+export const EngineeringAnalyticsTeamCiHealthParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the \*_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating \*_prior counts and overstating deltas."
+        ),
+    date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    limit: zod.number().optional().describe('Maximum number of teams to return (1-200). Defaults to 100.'),
+    min_failed_prs: zod
+        .number()
+        .optional()
+        .describe(
+            'An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.'
+        ),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
+
+/**
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -127,6 +261,18 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
+    run_scope: zod
+        .enum(['all', 'pull_request'])
+        .optional()
+        .describe(
+            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master\/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400."
+        ),
     source_id: zod
         .string()
         .optional()
@@ -142,11 +288,17 @@ export const EngineeringAnalyticsWorkflowJobsParams = /* @__PURE__ */ zod.object
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const EngineeringAnalyticsWorkflowJobsQueryParams = /* @__PURE__ */ zod.object({
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     run_attempt: zod
         .number()
         .optional()
@@ -169,7 +321,7 @@ export const EngineeringAnalyticsWorkflowRunnerCostsParams = /* @__PURE__ */ zod
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -182,7 +334,7 @@ export const EngineeringAnalyticsWorkflowRunnerCostsQueryParams = /* @__PURE__ *
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
-    repo: zod.string().describe("'owner/name' repository the workflow belongs to."),
+    repo: zod.string().describe("'owner\/name' repository the workflow belongs to."),
     source_id: zod
         .string()
         .optional()

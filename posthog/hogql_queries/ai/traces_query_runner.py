@@ -3,7 +3,6 @@ from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
-import orjson
 import structlog
 
 from posthog.schema import (
@@ -24,6 +23,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.sentiment_evaluations import (
     EMPTY_SENTIMENT_EVALUATION_LOOKUP,
     SentimentEvaluationLookup,
@@ -31,11 +31,20 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_trace_sentiment_evaluations,
 )
+from posthog.hogql_queries.ai.utils import filled_property_filters, parse_ai_properties, parse_ai_property_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
+
+# Recency-ordered cap on the filtered candidate set: matches beyond it drop on deep
+# pages or when a group filter (not pushed into the subquery) discards most candidates.
+SEARCH_CANDIDATE_TRACE_LIMIT = 100_000
+
+
+def _escape_like_pattern(term: str) -> str:
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class TracesQueryDateRange(QueryDateRange):
@@ -75,6 +84,13 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
+@frozen
+class TraceIdsResult:
+    trace_ids: list[str]
+    min_timestamp: datetime | None
+    max_timestamp: datetime | None
+
+
 class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     query: TracesQuery
     cached_response: CachedTracesQueryResponse
@@ -92,59 +108,60 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             offset=self.query.offset,
         )
 
-    def _get_trace_ids(self) -> tuple[list[str], datetime | None, datetime | None]:
+    def _build_trace_ids_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Calculate max number of events needed with current offset and limit
+        limit_value = self.paginator.limit
+        offset_value = self.paginator.offset
+        pagination_limit = limit_value + offset_value + 1
+
+        # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
+        # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
+        # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
+        # order but the main query re-sorts them differently, so OFFSET-based slicing
+        # produces overlapping or missing traces across pages.
+        order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
+
+        # The HAVING clause enforces the same overlap semantics as the post-filter
+        # in `_map_results` (a trace counts if any of its events overlap the user
+        # window). Without it, the LIMIT runs over the buffered window — so for a
+        # high-volume team a `date_to`-anchored filter (e.g. "yesterday") can have
+        # its entire LIMIT consumed by traces in the trailing +10 min capture buffer,
+        # which the post-filter then drops, producing an empty page.
+        return parse_select(
+            f"""
+            SELECT
+                groupArray(trace_id) as trace_ids,
+                min(first_ts) as min_timestamp,
+                max(last_ts) as max_timestamp
+            FROM (
+                SELECT
+                    properties.$ai_trace_id as trace_id,
+                    min(timestamp) as first_ts,
+                    max(timestamp) as last_ts
+                FROM events
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                  AND {{conditions}}
+                GROUP BY trace_id
+                HAVING min(timestamp) <= {{unbuffered_date_to}}
+                   AND max(timestamp) >= {{unbuffered_date_from}}
+                ORDER BY {order_clause}
+                LIMIT {{limit}}
+            )
+            """,
+            placeholders={
+                "conditions": self._get_subquery_filter(),
+                "limit": ast.Constant(value=pagination_limit),
+                "unbuffered_date_from": self._date_range.date_from_for_filtering_as_hogql(),
+                "unbuffered_date_to": self._date_range.date_to_for_filtering_as_hogql(),
+            },
+        )
+
+    def _get_trace_ids(self) -> TraceIdsResult:
         """Execute a separate query to get relevant trace IDs and their time range."""
         with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.LLM_ANALYTICS):
-            # Calculate max number of events needed with current offset and limit
-            limit_value = self.paginator.limit
-            offset_value = self.paginator.offset
-            pagination_limit = limit_value + offset_value + 1
-
-            # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
-            # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
-            # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
-            # order but the main query re-sorts them differently, so OFFSET-based slicing
-            # produces overlapping or missing traces across pages.
-            order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
-
-            # The HAVING clause enforces the same overlap semantics as the post-filter
-            # in `_map_results` (a trace counts if any of its events overlap the user
-            # window). Without it, the LIMIT runs over the buffered window — so for a
-            # high-volume team a `date_to`-anchored filter (e.g. "yesterday") can have
-            # its entire LIMIT consumed by traces in the trailing +10 min capture buffer,
-            # which the post-filter then drops, producing an empty page.
-            trace_ids_query = parse_select(
-                f"""
-                SELECT
-                    groupArray(trace_id) as trace_ids,
-                    min(first_ts) as min_timestamp,
-                    max(last_ts) as max_timestamp
-                FROM (
-                    SELECT
-                        properties.$ai_trace_id as trace_id,
-                        min(timestamp) as first_ts,
-                        max(timestamp) as last_ts
-                    FROM events
-                    WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                      AND {{conditions}}
-                    GROUP BY trace_id
-                    HAVING min(timestamp) <= {{unbuffered_date_to}}
-                       AND max(timestamp) >= {{unbuffered_date_from}}
-                    ORDER BY {order_clause}
-                    LIMIT {{limit}}
-                )
-                """,
-            )
-
             trace_ids_result = execute_hogql_query(
                 query_type="TracesQuery_TraceIds",
-                query=trace_ids_query,
-                placeholders={
-                    "conditions": self._get_subquery_filter(),
-                    "limit": ast.Constant(value=pagination_limit),
-                    "unbuffered_date_from": self._date_range.date_from_for_filtering_as_hogql(),
-                    "unbuffered_date_to": self._date_range.date_to_for_filtering_as_hogql(),
-                },
+                query=self._build_trace_ids_query(),
                 team=self.team,
                 user=self.user,
                 timings=self.timings,
@@ -154,21 +171,21 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
             # Extract trace IDs and time range from results
             if not trace_ids_result.results or not trace_ids_result.results[0]:
-                return [], None, None
+                return TraceIdsResult(trace_ids=[], min_timestamp=None, max_timestamp=None)
 
             trace_ids_array, min_timestamp, max_timestamp = trace_ids_result.results[0]
 
             # Filter out any null/empty trace IDs and convert to strings
             trace_ids = [str(tid) for tid in (trace_ids_array or []) if tid]
 
-            return trace_ids, min_timestamp, max_timestamp
+            return TraceIdsResult(trace_ids=trace_ids, min_timestamp=min_timestamp, max_timestamp=max_timestamp)
 
     def _calculate(self):
         # First, get the trace IDs and time range
-        trace_ids, min_timestamp, max_timestamp = self._get_trace_ids()
+        trace_ids_result = self._get_trace_ids()
 
         # If no trace IDs found, return empty results
-        if not trace_ids:
+        if not trace_ids_result.trace_ids:
             return TracesQueryResponse(
                 columns=[],
                 results=[],
@@ -179,14 +196,14 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             )
 
         # Store trace_ids for use in to_query
-        self._trace_ids = trace_ids
+        self._trace_ids = trace_ids_result.trace_ids
 
         # Create a narrowed date range if we have timestamps
-        narrowed_date_range = self._create_narrowed_date_range(min_timestamp, max_timestamp)
+        narrowed_date_range = self._create_narrowed_date_range(trace_ids_result=trace_ids_result)
 
         with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.LLM_ANALYTICS):
             query_result = self.paginator.execute_hogql_query(
-                query=self._to_query_with_trace_ids(trace_ids),
+                query=self._to_query_with_trace_ids(trace_ids_result.trace_ids),
                 placeholders={
                     "filter_conditions": self._get_where_clause(date_range=narrowed_date_range),
                 },
@@ -230,8 +247,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         """Public method matching the base class signature."""
         if self._trace_ids is None:
             # If called before _calculate, run the trace_ids query
-            trace_ids, _, _ = self._get_trace_ids()
-            self._trace_ids = trace_ids if trace_ids else []
+            trace_ids_result = self._get_trace_ids()
+            self._trace_ids = trace_ids_result.trace_ids if trace_ids_result.trace_ids else []
 
         return self._to_query_with_trace_ids(self._trace_ids)
 
@@ -381,18 +398,20 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         # Minute-level precision for 10m capture range
         return TracesQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
-    def _create_narrowed_date_range(
-        self, min_timestamp: datetime | None, max_timestamp: datetime | None
-    ) -> TracesQueryDateRange | None:
+    def _create_narrowed_date_range(self, *, trace_ids_result: TraceIdsResult) -> TracesQueryDateRange | None:
         """Create a narrowed date range based on the actual data timestamps."""
-        if min_timestamp is None or max_timestamp is None:
+        if trace_ids_result.min_timestamp is None or trace_ids_result.max_timestamp is None:
             return None
 
         # Create a custom date range with the min/max timestamps
         # The TracesQueryDateRange class will automatically add the 10-minute capture range buffer
         # through its overridden date_from() and date_to() methods
         narrowed_range = TracesQueryDateRange(
-            DateRange(date_from=min_timestamp.isoformat(), date_to=max_timestamp.isoformat(), explicitDate=True),
+            DateRange(
+                date_from=trace_ids_result.min_timestamp.isoformat(),
+                date_to=trace_ids_result.max_timestamp.isoformat(),
+                explicitDate=True,
+            ),
             self.team,
             IntervalType.MINUTE,
             datetime.now(),
@@ -462,10 +481,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
             raw = trace_dict.get(raw_key)
             if raw is not None:
-                try:
-                    trace_dict[parsed_key] = orjson.loads(raw)
-                except (TypeError, orjson.JSONDecodeError):
-                    trace_dict[parsed_key] = raw
+                trace_dict[parsed_key] = parse_ai_property_value(raw)
         # Remap keys from snake case to camel case
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
@@ -481,7 +497,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         sentiment_lookup: SentimentEvaluationLookup,
     ) -> LLMTraceEvent:
         event_id = str(event_uuid)
-        properties = orjson.loads(event_properties)
+        properties = parse_ai_properties(event_properties)
         generation: dict[str, Any] = {
             "id": event_id,
             "event": event_name,
@@ -527,13 +543,94 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 )
             )
 
+        search_filter = self._get_search_filter()
+        if search_filter is not None:
+            exprs.append(search_filter)
+
         return ast.And(exprs=exprs)
+
+    def _get_search_filter(self) -> ast.Expr | None:
+        """Content columns live only in ai_events (a satellite cluster), so this
+        semijoins with GLOBAL IN. Person/property filters are pushed in too so the
+        recency cap is drawn from the already-filtered set, not from raw text matches
+        the outer scan later discards; group filters stay outer ($group_N isn't a
+        column here). Each condition is a trace-level countIf so a term and a filter
+        matching different events of the same trace still count.
+        """
+        search_term = (self.query.searchTerm or "").strip()
+        if not search_term:
+            return None
+
+        pattern = ast.Constant(value=f"%{_escape_like_pattern(search_term)}%")
+        search_subquery = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT trace_id
+                FROM posthog.ai_events
+                WHERE timestamp >= {date_from} AND timestamp <= {date_to}
+                GROUP BY trace_id
+                HAVING countIf(
+                    event IN ('$ai_generation', '$ai_embedding')
+                    AND (input ILIKE {pattern} OR output ILIKE {pattern} OR output_choices ILIKE {pattern})
+                ) > 0
+                ORDER BY max(timestamp) DESC
+                LIMIT {candidate_limit}
+                """,
+                placeholders={
+                    "date_from": self._date_range.date_from_as_hogql(),
+                    "date_to": self._date_range.date_to_as_hogql(),
+                    "pattern": pattern,
+                    "candidate_limit": ast.Constant(value=SEARCH_CANDIDATE_TRACE_LIMIT),
+                },
+            ),
+        )
+
+        candidate_filters = self._search_candidate_filters()
+        if candidate_filters:
+            base_having = search_subquery.having
+            assert base_having is not None, "parsed search subquery always has a HAVING clause"
+            search_subquery.having = ast.And(
+                exprs=[
+                    base_having,
+                    *(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(name="countIf", args=[expr]),
+                            right=ast.Constant(value=0),
+                        )
+                        for expr in candidate_filters
+                    ),
+                ]
+            )
+
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GlobalIn,
+            left=ast.Field(chain=["properties", "$ai_trace_id"]),
+            right=search_subquery,
+        )
+
+    def _search_candidate_filters(self) -> list[ast.Expr]:
+        filters: list[ast.Expr] = []
+        properties_filter = self._get_properties_filter()
+        if properties_filter is not None:
+            filters.append(properties_filter)
+        if self.query.personId:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                )
+            )
+        return filters
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []
-        if self.query.properties:
+        properties = filled_property_filters(self.query.properties)
+        if properties:
             with self.timings.measure("property_filters"):
-                for prop in self.query.properties:
+                for prop in properties:
                     property_filters.append(property_to_expr(prop, self.team))
 
         if not property_filters:

@@ -1,26 +1,20 @@
+import { buildDimensions } from '../core/canvas-size'
 import { DEFAULT_MARGINS } from '../core/hooks/useChartMargins'
 import type { ChartDimensions, ResolvedSeries, Series } from '../core/types'
-
-export const dimensions: ChartDimensions = {
-    width: 800,
-    height: 400,
-    plotLeft: DEFAULT_MARGINS.left,
-    plotTop: DEFAULT_MARGINS.top,
-    plotWidth: 800 - DEFAULT_MARGINS.left - DEFAULT_MARGINS.right,
-    plotHeight: 400 - DEFAULT_MARGINS.top - DEFAULT_MARGINS.bottom,
-}
 
 export const mockRect: DOMRect = {
     x: 0,
     y: 0,
-    width: dimensions.width,
-    height: dimensions.height,
+    width: 800,
+    height: 400,
     top: 0,
     left: 0,
-    bottom: dimensions.height,
-    right: dimensions.width,
+    bottom: 400,
+    right: 800,
     toJSON: () => ({}),
 }
+
+export const dimensions: ChartDimensions = buildDimensions(mockRect, DEFAULT_MARGINS)
 
 export function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): ResolvedSeries {
     return { label: overrides.key, color: '#000', ...overrides }

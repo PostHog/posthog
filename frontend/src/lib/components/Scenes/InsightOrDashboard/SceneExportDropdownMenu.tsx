@@ -21,9 +21,10 @@ import {
     OnlineExportContext,
 } from '~/types'
 
+import { SubscriptionBaseProps } from 'products/subscriptions/frontend/components/Subscriptions/utils'
+
 import { TriggerExportProps } from '../../ExportButton/exporter'
 import { exportsLogic } from '../../ExportButton/exportsLogic'
-import { SubscriptionBaseProps } from '../../Subscriptions/utils'
 
 interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
     disabledReasons?: DisabledReasonsObject
@@ -40,6 +41,7 @@ interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
 export function SceneExportDropdownMenu({
     dropdownMenuItems,
     disabledReasons,
+    insightShortId,
 }: SceneExportDropdownMenuProps): JSX.Element | null {
     const { startExport } = useActions(exportsLogic)
 
@@ -95,6 +97,7 @@ export function SceneExportDropdownMenu({
                                     void onExportClick({
                                         export_format: item.format,
                                         ...(item.insight && { insight: item.insight }),
+                                        ...(insightShortId && { insightShortId }),
                                         ...(item.dashboard && { dashboard: item.dashboard }),
                                         ...(item.context && { export_context: item.context }),
                                     })

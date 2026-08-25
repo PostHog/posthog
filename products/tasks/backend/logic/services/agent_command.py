@@ -39,6 +39,19 @@ BLOCKED_IP_RANGES = [
 ]
 
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
+CONTENT_BLOCK_STREAM_ERROR = "API Error: Content block not found"
+CONTENT_BLOCK_STREAM_USER_ERROR = "The model response could not be completed. Please retry the task."
+TURN_ENDED_WITHOUT_RESPONSE_ERROR = "[ede_diagnostic] result_type=user"
+
+
+def is_retryable_agent_rpc_error(error: str) -> bool:
+    return CONTENT_BLOCK_STREAM_ERROR in error or TURN_ENDED_WITHOUT_RESPONSE_ERROR in error
+
+
+def user_facing_agent_error(error: str | None) -> str:
+    if error and CONTENT_BLOCK_STREAM_ERROR in error:
+        return CONTENT_BLOCK_STREAM_USER_ERROR
+    return error or "Failed to send message to sandbox"
 
 
 @dataclass
@@ -247,13 +260,14 @@ def send_agent_command(
 
     if isinstance(data, dict) and "error" in data and "result" not in data:
         rpc_error = data["error"]
-        error_msg = rpc_error.get("message", "Unknown agent error") if isinstance(rpc_error, dict) else str(rpc_error)
+        raw_error_msg = rpc_error.get("message") if isinstance(rpc_error, dict) else rpc_error
+        error_msg = raw_error_msg if isinstance(raw_error_msg, str) and raw_error_msg else "Unknown agent error"
         return CommandResult(
             success=False,
             status_code=resp.status_code,
             data=data,
             error=error_msg,
-            retryable=False,
+            retryable=is_retryable_agent_rpc_error(error_msg),
         )
 
     return CommandResult(
@@ -271,6 +285,7 @@ def send_user_message(
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
     message_id: str | None = None,
+    steer: bool = False,
 ) -> CommandResult:
     """Send a user_message command to the sandbox agent.
 
@@ -285,10 +300,36 @@ def send_user_message(
         params["artifacts"] = artifacts
     if message_id:
         params["messageId"] = message_id
+    if steer:
+        params["steer"] = True
     return send_agent_command(
         task_run,
         method="user_message",
         params=params,
+        auth_token=auth_token,
+        timeout=timeout,
+    )
+
+
+def send_set_config_option(
+    task_run: Any,
+    config_id: str,
+    value: str,
+    auth_token: str | None = None,
+    timeout: int = COMMAND_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Change one option on the agent-server's live session (`model`, `effort`, `mode`).
+
+    The agent applies the change to the session it is already holding, so the run keeps
+    its conversation history and the new setting takes effect from the next turn. Only
+    options the session currently offers are accepted — a model belonging to a runtime
+    this sandbox isn't running comes back as an RPC error, since the harness is the
+    process the sandbox was started with.
+    """
+    return send_agent_command(
+        task_run,
+        method="set_config_option",
+        params={"configId": config_id, "value": value},
         auth_token=auth_token,
         timeout=timeout,
     )
@@ -309,8 +350,6 @@ def send_refresh_session(
     mcp_servers: list[dict[str, Any]],
     auth_token: str | None = None,
     timeout: int = REFRESH_TIMEOUT_SECONDS,
-    refreshed_credentials: list[str] | None = None,
-    authorship: str | None = None,
 ) -> CommandResult:
     """Push updated MCP server configs into a live sandbox agent-server.
 
@@ -319,18 +358,8 @@ def send_refresh_session(
     history). Must be dispatched between turns — the agent-server will reply
     with JSON-RPC error -32002 if a prompt is currently in flight.
 
-    ``refreshed_credentials`` piggybacks on this channel to notify the
-    agent-server which in-sandbox credentials (e.g. ``["github"]``) were just
-    re-injected, purely so it can surface a debug log. A credentials-only
-    notification (empty ``mcp_servers``) is logged and returns immediately on
-    the agent-server side without rebuilding the session, so it is safe to send
-    mid-turn.
     """
     params: dict[str, Any] = {"mcpServers": mcp_servers}
-    if refreshed_credentials:
-        params["refreshedCredentials"] = refreshed_credentials
-    if authorship:
-        params["authorship"] = authorship
     return send_agent_command(
         task_run,
         method=REFRESH_SESSION_METHOD,

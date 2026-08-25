@@ -4,7 +4,7 @@ from products.marketing_analytics.backend.api import MarketingAnalyticsViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.register_legacy_dual_route(
+    routers.projects.register(
         r"marketing_analytics",
         MarketingAnalyticsViewSet,
         "project_marketing_analytics",

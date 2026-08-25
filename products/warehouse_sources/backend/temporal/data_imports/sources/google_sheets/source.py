@@ -3,6 +3,7 @@ from typing import Optional, cast
 from django.conf import settings
 
 import gspread
+from google.auth import exceptions as google_auth_exceptions
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -13,15 +14,19 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    SimpleSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
+    GoogleSheetsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
+    GOOGLE_SHEETS_API_VERSION_V4,
     get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
     get_schemas as get_google_sheets_schemas,
     google_sheets_client,
@@ -32,13 +37,25 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
+    api_docs_url = "https://developers.google.com/sheets/api"
+
+    # "v1" is the framework's legacy UNVERSIONED default kept so pre-existing sources stay pinned
+    # and unchanged; "v4" names Google's current stable REST API version and is the default for new
+    # sources. Both drive identical calls today — see GOOGLE_SHEETS_API_VERSION_V4 in google_sheets.
+    supported_versions = (UNVERSIONED_API_VERSION, GOOGLE_SHEETS_API_VERSION_V4)
+    default_version = GOOGLE_SHEETS_API_VERSION_V4
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLESHEETS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
+            "the header row in the worksheet contains duplicates": "Import failed: two or more columns in the worksheet share the same header. Give each one a distinct name and resync.",
+            # Raised by `_assert_unique_normalized_column_names`: two headers that look distinct
+            # collapse to the same normalized column name. Deterministic — retrying can't recover, and
+            # the message already names the offending headers, so keep it as-is.
+            "collapse to the same column name": None,
             "can't be found": None,
             "must be real number, not str": "Import failed: a numeric column contains a non-numeric value. Ensure every cell in numeric columns is stored as a plain number.",
             "Spreadsheet access denied": "Import failed: PostHog does not have access to this spreadsheet. Please share it with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
@@ -47,6 +64,42 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             # `str(SpreadsheetNotFound)` is otherwise just `<Response [404]>`, with nothing to match.
             # Retrying cannot recover.
             "Spreadsheet not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
+            # The values-read calls (`get_all_values`/`get_all_records`) hit the Sheets API directly and
+            # gspread does NOT wrap their 404 into `SpreadsheetNotFound` — it raises the raw `APIError`,
+            # whose `str()` is "APIError: [404]: Requested entity was not found." (Google's stable 404
+            # text). So the sheet/worksheet vanishing mid-read bypasses the `SpreadsheetNotFound` branch
+            # above and would be retried forever. The 404 is deterministic — retrying cannot recover.
+            "Requested entity was not found": "Import failed: the Google Sheet or worksheet could not be found. It may have been deleted or moved, or is no longer shared with our service account. Please check the spreadsheet URL and its sharing settings.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_retry_on_transient_api_error` already retries these Sheets API responses in-process
+        # (see `_RETRYABLE_API_ERROR_CODES` in google_sheets.py) before re-raising once its attempt
+        # budget is exhausted. gspread's `APIError.__str__` embeds the HTTP status as a stable
+        # "[<code>]" substring — match on that rather than the message text, which Google can
+        # reword. Temporal then retries the whole activity, so the failure is transient and
+        # self-recovering.
+        return {
+            "APIError: [429]",
+            "APIError: [500]",
+            "APIError: [502]",
+            "APIError: [503]",
+            "APIError: [504]",
+            # `_retry_on_transient_api_error` also retries a dropped connection or read timeout
+            # (`requests.exceptions.ConnectionError`/`Timeout`/`ChunkedEncodingError`) before
+            # re-raising once that budget is exhausted. urllib3 wraps all of those as "... Max
+            # retries exceeded with url: ..." regardless of the underlying cause (refused
+            # connection, read timeout, dropped socket), so match that stable prefix rather than
+            # the per-request URL or nested error detail.
+            "Max retries exceeded with url",
+            # `_retry_on_transient_api_error` also retries a `RefreshError`/`TransportError` raised
+            # while refreshing our own service-account token, when its message carries Google's
+            # stable "Error 5xx (...)" frontend-outage page (see `_is_transient_refresh_error`),
+            # before re-raising once that budget is exhausted.
+            "Error 500 (",
+            "Error 502 (",
+            "Error 503 (",
+            "Error 504 (",
         }
 
     def get_schemas(
@@ -56,7 +109,12 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # Listing worksheets is version-agnostic (gspread's `worksheets()`), but the per-worksheet
+        # header read goes through `_get_worksheet`, whose memoization key includes the version —
+        # so discovery must resolve the pin rather than let it default.
+        resolved_version = self.resolve_api_version(api_version)
         sheets = get_google_sheets_schemas(config)
 
         if names is not None:
@@ -65,7 +123,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
 
         schemas: list[SourceSchema] = []
         for name, _ in sheets:
-            incremental_fields = get_google_sheets_schema_incremental_fields(config, name)
+            incremental_fields = get_google_sheets_schema_incremental_fields(config, name, resolved_version)
 
             schemas.append(
                 SourceSchema(
@@ -86,21 +144,37 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
 
     def validate_credentials(
-        self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: GoogleSheetsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         client = google_sheets_client()
         try:
             client.open_by_url(config.spreadsheet_url)
             return True, None
+        except gspread.exceptions.NoValidUrlKeyFound:
+            # gspread couldn't find a spreadsheet key in the value — it isn't a Sheets URL. Its
+            # str() is empty, so the generic fallback below would surface a bare "Invalid
+            # credentials" for what's really a URL-format problem. Guide the user instead.
+            return (
+                False,
+                "That doesn't look like a Google Sheets URL. Paste the full URL of your sheet, "
+                "for example https://docs.google.com/spreadsheets/d/<id>/edit.",
+            )
         except gspread.SpreadsheetNotFound:
             return False, "Spreadsheet not found at URL provided"
         except PermissionError:
             return (
                 False,
-                "Permissions missing from spreadsheet. View documentation at https://posthog.com/docs/cdp/sources/google-sheets",
+                "PostHog does not have access to this spreadsheet. Share it with our service account "
+                f"({settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}) as a Viewer, then try again. "
+                "See https://posthog.com/docs/cdp/sources/google-sheets for more.",
             )
         except gspread.exceptions.APIError as e:
             # gspread stringifies these as "APIError: [<code>]: <message>", which isn't actionable.
@@ -118,6 +192,23 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                 "Google Sheets could not open this spreadsheet. Please check the URL and that it is shared "
                 "with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
             )
+        except (google_auth_exceptions.RefreshError, google_auth_exceptions.TransportError) as e:
+            # These come from fetching PostHog's own service-account OAuth token (the user only shares
+            # their sheet with our service account), not from the user's credentials. google-auth flags
+            # a transient Google-side blip as retryable; its str() is otherwise a raw server message like
+            # "A server error occurred." A non-retryable failure (e.g. invalid_grant from a rotated key)
+            # is a persistent problem on our side, so don't dress it up as merely temporary.
+            if getattr(e, "retryable", False):
+                return (
+                    False,
+                    "PostHog couldn't verify access to your Google Sheet right now because Google returned a "
+                    "temporary error. Please try again in a moment.",
+                )
+            return (
+                False,
+                "PostHog couldn't authenticate with Google to verify access to your Google Sheet. This looks "
+                "like a problem on our side, so please contact support if it keeps happening.",
+            )
         except Exception as e:
             return False, str(e)
 
@@ -126,8 +217,9 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
+            keywords=["gsheet", "gsheets", "spreadsheet", "google sheet"],
             label="Google Sheets",
-            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
+            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets). The first row of each sheet must contain unique column headers, since PostHog reads it as the column names when syncing.",
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/Google_Sheets.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-sheets",

@@ -16,7 +16,7 @@ import {
     InsightsRetrieveQueryParams,
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
-import { castStringToInt } from '@/tools/cast-helpers'
+import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -105,11 +105,15 @@ const AssistantDataVisualizationChartSettings = z.object({
         .string()
         .nullable()
         .describe(
-            'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.'
+            'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
         )
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
     showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
+    showTotalRow: z.coerce
+        .boolean()
+        .describe('Show a total summing all Y series. Applies to line, bar, and area charts.')
+        .optional(),
     showValuesOnSeries: z.coerce
         .boolean()
         .describe("Render each data point's value as a label directly on the series.")
@@ -119,7 +123,7 @@ const AssistantDataVisualizationChartSettings = z.object({
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
         .optional(),
     xAxis: AssistantDataVisualizationAxis.describe(
-        'Column used as the X axis. Typically a time bucket or categorical column.'
+        'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
     ).optional(),
     xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
     yAxis: z
@@ -137,6 +141,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
+    'ScatterPlot',
 ])
 
 const AssistantDataVisualizationTableSettings = z.object({
@@ -145,7 +150,6 @@ const AssistantDataVisualizationTableSettings = z.object({
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
-    showTotalRow: z.coerce.boolean().describe('Show a total row at the bottom of the table.').optional(),
     transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
 })
 
@@ -154,7 +158,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.'
+        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Otherwise → `ActionsTable`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
@@ -201,6 +205,9 @@ const InsightCreateSchema = InsightsCreateBody.omit({
     dashboards: InsightsCreateBody.shape['dashboards'].describe(
         'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
     ),
+    description: InsightsCreateBody.shape['description'].describe(
+        'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+    ),
 })
 
 const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Schemas.Insight>> => ({
@@ -245,7 +252,10 @@ const insightCreate = (): ToolBase<typeof InsightCreateSchema, WithPostHogUrl<Sc
     },
 })
 
-const InsightDeleteSchema = InsightsDestroyParams.omit({ project_id: true })
+const InsightDeleteSchema = z.preprocess(
+    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+    InsightsDestroyParams.omit({ project_id: true })
+)
 
 const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> => ({
     name: 'insight-delete',
@@ -261,22 +271,25 @@ const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> 
     },
 })
 
-const InsightGetSchema = InsightsRetrieveParams.omit({ project_id: true })
-    .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
-    .extend({
-        filters_override: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
-            .optional()
-            .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
-            ),
-        variables_override: z
-            .union([z.string(), z.record(z.string(), z.unknown())])
-            .optional()
-            .describe(
-                'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
-            ),
-    })
+const InsightGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+    InsightsRetrieveParams.omit({ project_id: true })
+        .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
+        .extend({
+            filters_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+                ),
+            variables_override: z
+                .union([z.string(), z.record(z.string(), z.unknown())])
+                .optional()
+                .describe(
+                    'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+                ),
+        })
+)
 
 const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-get',
@@ -288,6 +301,7 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
             query: {
                 filters_override: params.filters_override,
+                include_dashboards: params.include_dashboards,
                 variables_override: params.variables_override,
             },
         })
@@ -304,17 +318,23 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
     },
 })
 
-const InsightUpdateSchema = InsightsPartialUpdateParams.omit({ project_id: true })
-    .extend(
-        InsightsPartialUpdateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true })
-            .shape
-    )
-    .extend({
-        query: InsightQuery.optional(),
-        dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
-            'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
-        ),
-    })
+const InsightUpdateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
+    InsightsPartialUpdateParams.omit({ project_id: true })
+        .extend(
+            InsightsPartialUpdateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true })
+                .shape
+        )
+        .extend({
+            query: InsightQuery.optional(),
+            dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
+                'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
+            ),
+            description: InsightsPartialUpdateBody.shape['description'].describe(
+                'Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).'
+            ),
+        })
+)
 
 const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-update',
@@ -447,6 +467,7 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
                 date_from: params.date_from,
                 date_to: params.date_to,
                 favorited: params.favorited,
+                include_dashboards: params.include_dashboards,
                 insight: params.insight,
                 last_viewed_date_from: params.last_viewed_date_from,
                 last_viewed_date_to: params.last_viewed_date_to,
@@ -508,6 +529,7 @@ const insightsTrendingRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/trending/`,
             query: {
                 days: params.days,
+                include_dashboards: params.include_dashboards,
                 limit: params.limit,
                 offset: params.offset,
             },

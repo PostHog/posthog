@@ -2,17 +2,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
-import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
@@ -25,6 +24,7 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
+    preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -41,6 +41,9 @@ const SortingKeyToLabel = {
     recording_ttl: 'Expiration',
     surfacing_score: 'Relevance',
 }
+
+const RELEVANCE_SORT_EXPLANATION =
+    'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, failed network requests, and in-session activity. The highest-scoring recordings appear first.'
 
 function getLabel(filters: RecordingUniversalFilters): string {
     const order_field = filters.order || 'start_time'
@@ -88,6 +91,7 @@ function SortedBy({
         if (sortChangedEvent) {
             posthog.capture('session recording list sort changed', sortChangedEvent)
         }
+        preferredRecordingsSortStorage.set(sort)
         setFilters(sort)
     }
 
@@ -100,8 +104,7 @@ function SortedBy({
                     ? [
                           {
                               label: SortingKeyToLabel['surfacing_score'],
-                              tooltip:
-                                  'Ranks recordings by a relevance score so the sessions most likely to be worth watching appear first.',
+                              tooltip: RELEVANCE_SORT_EXPLANATION,
                               onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
                               active: filters.order === 'surfacing_score',
                           },
@@ -180,18 +183,38 @@ function SortedBy({
                 },
             ]}
             icon={<IconSort className="text-lg" />}
-            label={getLabel(filters)}
+            label={
+                filters.order === 'surfacing_score' ? (
+                    <span className="inline-flex items-center gap-1">
+                        {SortingKeyToLabel['surfacing_score']}
+                        <Tooltip title={RELEVANCE_SORT_EXPLANATION}>
+                            <IconInfo className="text-sm" />
+                        </Tooltip>
+                    </span>
+                ) : (
+                    getLabel(filters)
+                )
+            }
         />
     )
 }
 
 function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
-    const { selectedRecordingsIds, isDeleteSelectedRecordingsDialogOpen, deleteConfirmationText } =
-        useValues(sessionRecordingsPlaylistLogic)
+    const {
+        selectedRecordingsIds,
+        isDeleteSelectedRecordingsDialogOpen,
+        deleteConfirmationText,
+        isDeletingSelectedRecordings,
+    } = useValues(sessionRecordingsPlaylistLogic)
     const { setIsDeleteSelectedRecordingsDialogOpen, setDeleteConfirmationText, handleDeleteSelectedRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
+    const isConfirmationValid = matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
+
     const handleClose = (): void => {
+        if (isDeletingSelectedRecordings) {
+            return
+        }
         setIsDeleteSelectedRecordingsDialogOpen(false)
         setDeleteConfirmationText('')
     }
@@ -217,24 +240,32 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
                         onChange={setDeleteConfirmationText}
                         placeholder={DELETE_CONFIRMATION_TEXT}
                         className="w-full"
+                        disabled={isDeletingSelectedRecordings}
                         autoFocus
                     />
+                    {deleteConfirmationText.length > 0 && !isConfirmationValid && (
+                        <p className="text-danger text-sm mb-0">
+                            That doesn't match. Please type "{DELETE_CONFIRMATION_TEXT}" to confirm.
+                        </p>
+                    )}
                 </div>
                 <div className="bg-warning-highlight border border-warning rounded p-2 text-sm">
                     This action cannot be undone. Deleting recordings doesn't affect your billing.
                 </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
-                <LemonButton type="secondary" onClick={handleClose}>
+                <LemonButton
+                    type="secondary"
+                    onClick={handleClose}
+                    disabledReason={isDeletingSelectedRecordings ? 'Deleting...' : undefined}
+                >
                     Cancel
                 </LemonButton>
                 <LemonButton
                     type="primary"
-                    disabledReason={
-                        deleteConfirmationText !== DELETE_CONFIRMATION_TEXT
-                            ? 'Please type the correct confirmation text'
-                            : undefined
-                    }
+                    status="danger"
+                    loading={isDeletingSelectedRecordings}
+                    disabledReason={!isConfirmationValid ? 'Please type the correct confirmation text' : undefined}
                     onClick={() => handleDeleteSelectedRecordings(shortId)}
                 >
                     Delete
@@ -468,7 +499,6 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
@@ -477,8 +507,6 @@ export function SessionRecordingsPlaylistTopSettings({
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
     )
-
-    const visionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems: LemonMenuItem[] = [
@@ -511,14 +539,12 @@ export function SessionRecordingsPlaylistTopSettings({
             'data-attr': 'mark-as-not-viewed',
         })
 
-        if (visionEnabled) {
-            // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
-            menuItems.push({
-                key: 'bulk-scan-recordings',
-                label: () => <BulkScanMenuItem />,
-                custom: true,
-            })
-        }
+        // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
+        menuItems.push({
+            key: 'bulk-scan-recordings',
+            label: () => <BulkScanMenuItem />,
+            custom: true,
+        })
 
         menuItems.push({
             label: 'Delete',

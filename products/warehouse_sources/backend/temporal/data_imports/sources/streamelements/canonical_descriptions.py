@@ -1,0 +1,130 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_DOCS_URL = "https://dev.streamelements.com/"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "tips": {
+        "description": "A tip (donation) received on the channel's tipping page, including the donor, amount, currency and payment provider.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the tip.",
+            "channel": "Identifier of the StreamElements channel that received the tip.",
+            "donation": "Donation details: the donor's username and email, the message, the amount and the currency.",
+            "provider": "Payment provider the tip was processed through (e.g. paypal, stripe).",
+            "status": "Processing status of the tip (e.g. success).",
+            "approved": "Moderation state of the tip (e.g. allowed).",
+            "deleted": "Whether the tip has been deleted.",
+            "transactionId": "Identifier of the payment transaction at the provider.",
+            "createdAt": "When the tip was received.",
+            "updatedAt": "When the tip was last updated.",
+        },
+    },
+    "activities": {
+        "description": "An event from the channel's activity feed: follows, tips, hosts, cheers, raids, subscriptions, sponsorships, super chats, loyalty redemptions and merch orders.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the activity.",
+            "channel": "Identifier of the StreamElements channel the activity belongs to.",
+            "type": "Activity type: follow, tip, host, cheer, raid, subscriber, sponsor, superchat, redemption or merch.",
+            "provider": "Streaming platform the activity originated from (e.g. twitch, youtube).",
+            "data": "Type-specific payload, such as the username, amount, message and subscription tier.",
+            "createdAt": "When the activity happened.",
+        },
+    },
+    "store_redemptions": {
+        "description": "A redemption of a loyalty store item, including the redeemer and any input they provided.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the redemption.",
+            "channel": "Identifier of the StreamElements channel the redemption belongs to.",
+            "item": "The store item that was redeemed.",
+            "redeemer": "The user who redeemed the item.",
+            "input": "Answers the redeemer provided for the item's input prompts.",
+            "createdAt": "When the item was redeemed.",
+            "updatedAt": "When the redemption was last updated.",
+        },
+    },
+    "store_items": {
+        "description": "An item in the channel's loyalty store that viewers can redeem with loyalty points.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the store item.",
+            "channel": "Identifier of the StreamElements channel the item belongs to.",
+            "name": "Display name of the item.",
+            "description": "Description of the item shown in the store.",
+            "cost": "Loyalty point cost to redeem the item.",
+            "quantity": "Stock configuration for the item.",
+            "enabled": "Whether the item is currently available in the store.",
+            "createdAt": "When the item was created.",
+            "updatedAt": "When the item was last updated.",
+        },
+    },
+    "points_leaderboard": {
+        "description": "The channel's current loyalty points leaderboard, one row per viewer with their spendable points balance.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "username": "Viewer's username on the streaming platform.",
+            "points": "Viewer's current spendable loyalty points balance.",
+        },
+    },
+    "points_alltime_leaderboard": {
+        "description": "The channel's all-time loyalty points leaderboard, one row per viewer with the total points they have ever earned.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "username": "Viewer's username on the streaming platform.",
+            "points": "Total loyalty points the viewer has earned all-time.",
+        },
+    },
+    "bot_commands": {
+        "description": "A custom chatbot command configured for the channel.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the command.",
+            "channel": "Identifier of the StreamElements channel the command belongs to.",
+            "command": "The chat keyword that triggers the command.",
+            "reply": "The bot's response text.",
+            "aliases": "Alternative keywords that trigger the command.",
+            "accessLevel": "Minimum user level allowed to use the command.",
+            "cooldown": "Per-user and global cooldowns in seconds.",
+            "cost": "Loyalty point cost to use the command.",
+            "enabled": "Whether the command is enabled.",
+            "createdAt": "When the command was created.",
+            "updatedAt": "When the command was last updated.",
+        },
+    },
+    "bot_timers": {
+        "description": "A chatbot timer that posts a message on an interval while the channel is live or offline.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the timer.",
+            "channel": "Identifier of the StreamElements channel the timer belongs to.",
+            "name": "Display name of the timer.",
+            "message": "Message the bot posts when the timer fires.",
+            "chatLines": "Minimum chat lines required between two firings.",
+            "online": "Enabled state and interval in minutes while the stream is live.",
+            "offline": "Enabled state and interval in minutes while the stream is offline.",
+            "enabled": "Whether the timer is enabled.",
+            "createdAt": "When the timer was created.",
+            "updatedAt": "When the timer was last updated.",
+        },
+    },
+    "channel": {
+        "description": "Details of the StreamElements channel the connected token belongs to.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the channel.",
+            "username": "Channel's username on the streaming platform.",
+            "displayName": "Channel's display name.",
+            "provider": "Streaming platform the channel is linked to (e.g. twitch, youtube).",
+            "providerId": "Channel's identifier on the streaming platform.",
+            "email": "Email address associated with the StreamElements account.",
+            "isPartner": "Whether the channel is a platform partner.",
+            "broadcasterType": "Broadcaster tier on the streaming platform.",
+            "country": "Country the channel is registered in.",
+            "createdAt": "When the StreamElements account was created.",
+            "updatedAt": "When the channel details were last updated.",
+        },
+    },
+}

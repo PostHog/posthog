@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useMemo } from 'react'
 
 import { Language } from 'lib/components/CodeSnippet'
@@ -15,12 +16,24 @@ export function FrameContextLine({
     highlight?: boolean
 }): JSX.Element {
     const sortedLines = useMemo(() => [...lines].sort((a, b) => a.number - b.number), [lines])
+    const backgroundClassName = highlight
+        ? 'bg-[var(--card)] shadow-[inset_0_0_0_9999px_color-mix(in_oklab,var(--destructive)_50%,transparent)]'
+        : 'bg-[var(--card)]'
+
     return (
-        <div className={highlight ? 'bg-fill-error-highlight' : 'bg-surface-primary'}>
+        <div className={backgroundClassName}>
             {sortedLines.map(({ number, line }) => (
                 <div key={number} className="flex">
-                    <div className="w-12 shrink-0 text-center">{number}</div>
-                    <CodeLine text={line} wrapLines={true} language={language} />
+                    <div
+                        className={clsx(
+                            'sticky left-0 z-10 w-16 shrink-0 border-l-2 pr-5 text-right text-muted-foreground tabular-nums select-none',
+                            highlight ? 'border-l-[var(--destructive-foreground)]' : 'border-l-[var(--card)]',
+                            backgroundClassName
+                        )}
+                    >
+                        {number}
+                    </div>
+                    <CodeLine text={line} wrapLines={false} language={language} />
                 </div>
             ))}
         </div>

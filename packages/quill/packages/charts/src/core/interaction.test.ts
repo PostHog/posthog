@@ -300,7 +300,12 @@ describe('hog-charts interaction', () => {
         const single = buildLabelPositions(['a'], xScale)
 
         it.each([
-            { desc: 'fewer than two labels are positioned', rect: { x0: 50, x1: 500 }, pos: single, expected: null },
+            {
+                desc: 'a wide drag on a single-label chart (zooms into the only bucket)',
+                rect: { x0: 50, x1: 500 },
+                pos: single,
+                expected: { startIndex: 0, endIndex: 0 },
+            },
             // 160 → nearest 200 (index 1); 340 → nearest 300 (index 2)
             {
                 desc: 'a left-to-right drag',
@@ -320,9 +325,19 @@ describe('hog-charts interaction', () => {
                 pos: positions,
                 expected: { startIndex: 0, endIndex: 4 },
             },
+            // Sparse charts snap both drag edges to one label — a deliberate horizontal
+            // drag selects that single bucket.
             {
                 desc: 'both edges landing on the same label',
-                rect: { x0: 195, x1: 205 },
+                rect: { x0: 180, x1: 220 },
+                pos: positions,
+                expected: { startIndex: 1, endIndex: 1 },
+            },
+            // A few px of x drift from a vertical-ish gesture must not zoom into the
+            // hovered bucket.
+            {
+                desc: 'a same-label drag narrower than the single-bucket threshold',
+                rect: { x0: 198, x1: 203 },
                 pos: positions,
                 expected: null,
             },

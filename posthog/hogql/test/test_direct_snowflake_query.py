@@ -24,7 +24,9 @@ from posthog.hogql.snowflake_connection_cache import (
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+        SnowflakeSourceConfig,
+    )
 
 # Snowflake connector type codes (indices into FIELD_ID_TO_NAME). cursor.description
 # reports the integer code, not a name — see snowflake_field_type_to_clickhouse_type.
@@ -183,8 +185,7 @@ class TestDirectSnowflakeQuery(APIBaseTest):
             "posthog.hogql.direct_sql.snowflake_adapter.SnowflakeAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
-            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                response = executor.execute()
+            response = executor.execute()
 
         executed_statements = [call.args[0] for call in cursor.execute.call_args_list]
         # Read-only is enforced our side: pin single-statement and the statement timeout
@@ -218,9 +219,8 @@ class TestDirectSnowflakeQuery(APIBaseTest):
                 "posthog.hogql.direct_sql.snowflake_adapter.SnowflakeAdapter.validate_source_config",
                 return_value=(implementation, MagicMock()),
             ):
-                with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                    with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
-                        executor.execute()
+                with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
+                    executor.execute()
 
     @parameterized.expand(
         [
@@ -302,8 +302,7 @@ class TestDirectSnowflakeQuery(APIBaseTest):
             "posthog.hogql.direct_sql.snowflake_adapter.SnowflakeAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
-            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                executor.execute()
+            executor.execute()
 
         # The statement passed the read-only gate and reached execution unchanged.
         self.assertEqual(executor.direct_sql, query)

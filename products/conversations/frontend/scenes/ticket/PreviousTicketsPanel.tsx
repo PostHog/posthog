@@ -1,4 +1,5 @@
-import { LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconWarning } from '@posthog/icons'
+import { LemonCollapse, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
@@ -9,11 +10,15 @@ import { Ticket } from '../../types'
 interface PreviousTicketsPanelProps {
     previousTickets: Ticket[]
     previousTicketsLoading?: boolean
+    // Merged distinct_ids of the current ticket's person. Tickets whose distinct_id
+    // is not in this set were matched by email alone, so they may be a different person.
+    personDistinctIds?: string[]
 }
 
 export function PreviousTicketsPanel({
     previousTickets,
     previousTicketsLoading,
+    personDistinctIds,
 }: PreviousTicketsPanelProps): JSX.Element {
     return (
         <LemonCollapse
@@ -37,38 +42,54 @@ export function PreviousTicketsPanel({
                                 <div className="text-muted-alt text-xs">No previous tickets found</div>
                             ) : (
                                 <div className="space-y-2 max-h-96 overflow-auto">
-                                    {previousTickets.map((ticket) => (
-                                        <Link
-                                            key={ticket.id}
-                                            to={urls.supportTicketDetail(ticket.ticket_number)}
-                                            className="block p-2 mb-2 rounded border border-primary hover:bg-accent-3000 transition-colors hover:border-secondary"
-                                        >
-                                            <div className="flex items-center justify-between mb-1">
-                                                <span className="font-mono text-xs text-muted-alt">
-                                                    #{ticket.ticket_number}
-                                                </span>
-                                                <LemonTag
-                                                    type={
-                                                        ticket.status === 'resolved'
-                                                            ? 'success'
-                                                            : ticket.status === 'new'
-                                                              ? 'primary'
-                                                              : 'default'
-                                                    }
-                                                >
-                                                    {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
-                                                </LemonTag>
-                                            </div>
-                                            {ticket.last_message_text && (
-                                                <div className="text-xs text-muted truncate mb-1">
-                                                    {stripMarkdown(ticket.last_message_text)}
+                                    {previousTickets.map((ticket) => {
+                                        const matchedByEmailOnly =
+                                            !!ticket.distinct_id &&
+                                            !!personDistinctIds?.length &&
+                                            !personDistinctIds.includes(ticket.distinct_id)
+                                        return (
+                                            <Link
+                                                key={ticket.id}
+                                                to={urls.supportTicketDetail(ticket.ticket_number)}
+                                                className="block p-2 mb-2 rounded border border-primary hover:bg-accent-3000 transition-colors hover:border-secondary"
+                                            >
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="font-mono text-xs text-muted-alt">
+                                                            #{ticket.ticket_number}
+                                                        </span>
+                                                        {matchedByEmailOnly && (
+                                                            <Tooltip title="Matched by email address, so this may not be the same person profile.">
+                                                                <LemonTag type="warning" size="small" className="gap-1">
+                                                                    <IconWarning />
+                                                                    Email match
+                                                                </LemonTag>
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
+                                                    <LemonTag
+                                                        type={
+                                                            ticket.status === 'resolved'
+                                                                ? 'success'
+                                                                : ticket.status === 'new'
+                                                                  ? 'primary'
+                                                                  : 'default'
+                                                        }
+                                                    >
+                                                        {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
+                                                    </LemonTag>
                                                 </div>
-                                            )}
-                                            <div className="text-xs text-muted-alt">
-                                                Created <TZLabel time={ticket.created_at} />
-                                            </div>
-                                        </Link>
-                                    ))}
+                                                {ticket.last_message_text && (
+                                                    <div className="text-xs text-muted truncate mb-1">
+                                                        {stripMarkdown(ticket.last_message_text)}
+                                                    </div>
+                                                )}
+                                                <div className="text-xs text-muted-alt">
+                                                    Created <TZLabel time={ticket.created_at} />
+                                                </div>
+                                            </Link>
+                                        )
+                                    })}
                                 </div>
                             )}
                         </div>

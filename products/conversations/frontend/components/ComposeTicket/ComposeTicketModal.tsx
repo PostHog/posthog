@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 
@@ -27,7 +27,12 @@ export function ComposeTicketModal(): JSX.Element | null {
 
     const emailConfigOptions = verifiedEmailConfigs.map((c) => ({
         value: c.id,
-        label: `${c.from_name} <${c.from_email}>`,
+        label: (
+            <span className="flex items-center gap-1">
+                {`${c.from_name} <${c.from_email}>`}
+                {c.is_default && <LemonTag type="primary">Primary</LemonTag>}
+            </span>
+        ),
     }))
 
     const handleSubmit = (): void => {
@@ -52,7 +57,7 @@ export function ComposeTicketModal(): JSX.Element | null {
                 </>
             }
         >
-            <div className="flex flex-col gap-3 min-w-[500px]">
+            <div className="flex flex-col gap-3 w-[500px] max-w-full">
                 <div className="flex flex-col gap-1">
                     <label className="font-semibold text-xs">From</label>
                     <LemonSelect

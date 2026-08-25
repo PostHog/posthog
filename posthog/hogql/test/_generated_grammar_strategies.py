@@ -1877,6 +1877,51 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
         parts: list[str] = []
+        parts.append(draw(columnExprValue_strategy(_dec(depth))))
+        seed = " ".join(p for p in parts if p)
+        if depth <= 0 or not _has_suffixes:
+            return seed
+        n_suffixes = draw(st.integers(min_value=0, max_value=_MAX_LR_CHAIN))
+        for _ in range(n_suffixes):
+            suffix_idx = draw(st.integers(min_value=0, max_value=3))
+            if suffix_idx == 0:
+                parts = []
+                parts.append("and")
+                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                seed = seed + " " + " ".join(p for p in parts if p)
+            if suffix_idx == 1:
+                parts = []
+                parts.append("or")
+                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                seed = seed + " " + " ".join(p for p in parts if p)
+            if suffix_idx == 2:
+                parts = []
+                parts.append("?")
+                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append(":")
+                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                seed = seed + " " + " ".join(p for p in parts if p)
+            if suffix_idx == 3:
+                parts = []
+                parts.append("as")
+                group_idx = draw(st.integers(min_value=0, max_value=1))
+                if group_idx == 0:
+                    parts.append(draw(identifier_strategy(_dec(depth))))
+                if group_idx == 1:
+                    parts.append(draw(string_literal_token))
+                seed = seed + " " + " ".join(p for p in parts if p)
+        return seed
+
+    return gen()
+
+
+@functools.cache
+def columnExprValue_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    _has_suffixes = True
+
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
         if depth <= 0:
             seed_idx = draw(st.sampled_from([3, 5, 7, 9, 14, 19, 39]))
         else:
@@ -2257,12 +2302,12 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
         if seed_idx == 28:
             parts = []
             parts.append("-")
-            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append(draw(columnExprValue_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 29:
             parts = []
             parts.append("not")
-            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append(draw(columnExprValue_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
         if seed_idx == 30:
             parts = []
@@ -2345,7 +2390,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             return seed
         n_suffixes = draw(st.integers(min_value=0, max_value=_MAX_LR_CHAIN))
         for _ in range(n_suffixes):
-            suffix_idx = draw(st.integers(min_value=0, max_value=21))
+            suffix_idx = draw(st.integers(min_value=0, max_value=18))
             if suffix_idx == 0:
                 parts = []
                 parts.append("(")
@@ -2416,7 +2461,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                     parts.append("/")
                 if group_idx == 2:
                     parts.append("%")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
             if suffix_idx == 11:
                 parts = []
@@ -2427,7 +2472,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                     parts.append("-")
                 if group_idx == 2:
                     parts.append("||")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
             if suffix_idx == 12:
                 parts = []
@@ -2472,7 +2517,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                     parts.append("=~*")
                 if group_idx == 14:
                     parts.append("!~*")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
             if suffix_idx == 13:
                 parts = []
@@ -2493,47 +2538,26 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                     parts.append("not")
                 parts.append("distinct")
                 parts.append("from")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
             if suffix_idx == 16:
                 parts = []
-                parts.append("??")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append("<=>")
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
             if suffix_idx == 17:
                 parts = []
-                parts.append("and")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append("??")
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
             if suffix_idx == 18:
-                parts = []
-                parts.append("or")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
-                seed = seed + " " + " ".join(p for p in parts if p)
-            if suffix_idx == 19:
                 parts = []
                 if _include_optional(draw):
                     parts.append("not")
                 parts.append("between")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
                 parts.append("and")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
-                seed = seed + " " + " ".join(p for p in parts if p)
-            if suffix_idx == 20:
-                parts = []
-                parts.append("?")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
-                parts.append(":")
-                parts.append(draw(columnExpr_strategy(_dec(depth))))
-                seed = seed + " " + " ".join(p for p in parts if p)
-            if suffix_idx == 21:
-                parts = []
-                parts.append("as")
-                group_idx = draw(st.integers(min_value=0, max_value=1))
-                if group_idx == 0:
-                    parts.append(draw(identifier_strategy(_dec(depth))))
-                if group_idx == 1:
-                    parts.append(draw(string_literal_token))
+                parts.append(draw(columnExprValue_strategy(_dec(depth))))
                 seed = seed + " " + " ".join(p for p in parts if p)
         return seed
 

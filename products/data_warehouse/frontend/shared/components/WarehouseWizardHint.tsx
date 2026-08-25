@@ -10,8 +10,6 @@ import { AgentBadgeRotator } from 'lib/components/MCPHint/AgentBadgeRotator'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { Region } from '~/types'
-
 // Persist dismissal so the hint doesn't nag a user who has seen it. Mirrors the MCP hint cards.
 const DISMISSED_KEY = 'warehouse-wizard-hint-dismissed'
 
@@ -30,7 +28,7 @@ export function WarehouseWizardHint({
      *  two are mutually exclusive and never stack. */
     fallback?: ReactNode
 }): JSX.Element | null {
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const [dismissed, setDismissed] = useState(() => localStorage.getItem(DISMISSED_KEY) === '1')
 
     // The wizard CLI only targets cloud (US/EU) and dev instances — self-hosted has no
@@ -39,8 +37,7 @@ export function WarehouseWizardHint({
         return fallback ? <>{fallback}</> : null
     }
 
-    const region = preflight?.region || Region.US
-    const command = `npx -y @posthog/wizard@latest warehouse${region === Region.EU ? ' --region eu' : ''}`
+    const command = `npx -y @posthog/wizard@latest warehouse`
 
     const handleDismiss = (): void => {
         localStorage.setItem(DISMISSED_KEY, '1')

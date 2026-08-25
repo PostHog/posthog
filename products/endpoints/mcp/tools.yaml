@@ -75,6 +75,24 @@ tools:
             cache=hit|miss, duration_ms=, rows=, version=, error=). Filter by level (e.g. "ERROR"), text search (e.g.
             "cache=miss"), time range (after/before), a specific execution (instance_id), and limit (max 500). Use to
             debug why an endpoint failed, timed out, missed cache, or returned unexpected row counts.
+    endpoint-materialization-conditions:
+        operation: endpoints_materialization_conditions_retrieve
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get materialization conditions
+        description: >
+            Get the source code of the live checks that decide whether an endpoint query can be materialized, plus the
+            rewrite contract a fix must obey. Use this to rewrite a rejected query yourself: fetch the conditions,
+            produce a semantically equivalent query that passes every check (same results for all variable values, keep
+            every variable placeholder unchanged), update the endpoint with it, then confirm with the materialization
+            status tool. Alternatively, call the materialization suggestion tool to have PostHog produce a validated
+            rewrite for you.
+        feature_flag: endpoints-ai-materialization-fix
     endpoint-materialization-status:
         operation: endpoints_materialization_status_retrieve
         enabled: true
@@ -89,6 +107,28 @@ tools:
         description: >
             Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether
             materialization is possible, current status, last run time, and any errors. Supports ?version=N.
+    endpoint-materialization-suggestion:
+        operation: endpoints_materialization_suggestion_create
+        enabled: true
+        scopes:
+            - endpoint:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: false
+        enrich_url: '{params.name}'
+        title: Suggest materialization fix
+        description: >
+            Ask PostHog AI to rewrite a SQL endpoint's query into a semantically equivalent form that passes the
+            materialization checks. The suggestion is validated against the live checks before being returned; nothing
+            is saved — apply it with the update endpoint tool if it looks right. Only for SQL (HogQL) endpoints whose
+            materialization status reports can_materialize false. Requires the organization's AI data processing
+            approval. Statuses: ok (validated rewrite), cannot_fix (no equivalent rewrite exists), invalid (attempts
+            exhausted; last attempt returned), model_error. To rewrite the query yourself instead, use the
+            materialization conditions tool.
+        include_params:
+            - version
+        feature_flag: endpoints-ai-materialization-fix
     endpoint-openapi-spec:
         operation: endpoints_openapi_spec_retrieve
         enabled: true

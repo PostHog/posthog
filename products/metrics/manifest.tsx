@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Metrics',
             intents: [ProductKey.METRICS],
-            category: ProductItemCategory.UNRELEASED,
+            category: ProductItemCategory.APP_MONITORING,
             iconType: 'metrics',
             iconColor: [
                 'var(--color-product-metrics-light)',

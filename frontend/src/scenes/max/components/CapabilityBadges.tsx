@@ -17,9 +17,8 @@ import { nextTypingDelayMs } from '../utils/typing'
 const COLORFUL_ICONS = 'group/colorful-product-icons colorful-product-icons-true'
 
 /**
- * Height of the suggestion-cards / recents-grid swap area. Set once on the outer container by each
- * surface; the cards and the homepage recents grid both fill it with `h-full`, so the two can never
- * differ and swapping between them (or between capabilities) never shifts layout.
+ * Baseline height of the suggestion-cards / recents-grid swap area. Each surface can grow beyond it
+ * when its content needs more space.
  */
 export const CAPABILITY_CARDS_HEIGHT_PX = 184
 
@@ -34,7 +33,7 @@ export interface CapabilityBadgesProps {
     className?: string
 }
 
-/** Row of PostHog AI capability badges (+ the Code beta badge). Selection is owned by the parent. */
+/** Row of PostHog AI capability badges (+ the Desktop beta badge). Selection is owned by the parent. */
 export function CapabilityBadges({
     capabilities,
     selectedKey,
@@ -101,8 +100,7 @@ export interface CapabilitySuggestionsProps {
 }
 
 /**
- * The 4 suggestion cards for a selected capability. Fills its parent's height (`h-full`) — the
- * parent sets the fixed height (see `CAPABILITY_CARDS_HEIGHT_PX`), and the 4 cards split it evenly.
+ * The suggestion cards for a selected capability. Fills its parent's baseline height (`h-full`).
  */
 export function CapabilitySuggestions({
     capability,

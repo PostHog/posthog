@@ -10,7 +10,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { TimeRange, clampFocus, defaultFocus, panFocus, pxToTime, resizeFocus, timeToFrac } from '../lib/brush'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { percentileSorted } from '../lib/runHealth'
-import { verdictTag } from '../lib/runStatus'
+import { VERDICT_COLOR, verdictTag } from '../lib/runStatus'
 
 // A run reduced to what the chart needs. Both WorkflowRunRow and PrRunRow satisfy this, so either page
 // can drop the chart in over its own run list; the optional branch/PR fields enrich the hover card.
@@ -21,6 +21,7 @@ export interface ActivityRun {
     durationSeconds: number | null
     headBranch?: string | null
     prNumber?: number | null
+    headSha?: string | null
 }
 
 interface RunActivityChartProps {
@@ -28,16 +29,14 @@ interface RunActivityChartProps {
     title?: string
     /** The runs list was capped server-side, so the chart shows the most recent runs, not the full window. */
     truncated?: boolean
+    /** Singular noun for each plotted point in the header count — 'run' by default, 'commit' on the repo-health
+     *  view where every dot is a whole commit's collapsed workflows. */
+    noun?: string
     className?: string
 }
 
-// Dot/series color from the verdict mapping the run tables' StatusDot uses, so colors agree across the page.
-const DOT_COLOR: Record<string, string> = {
-    success: 'var(--success)',
-    danger: 'var(--danger)',
-    warning: 'var(--warning)',
-    muted: 'var(--muted)',
-}
+// Dot/series color per verdict — the shared map so scatter, mini bars, and the run tables' StatusDot agree.
+const DOT_COLOR = VERDICT_COLOR
 
 const LEGEND_LABEL: Record<string, string> = {
     success: 'Passed',
@@ -54,9 +53,16 @@ const Y_TICK_COUNT = 4
 const X_TICK_COUNT = 5
 // A scatter of one point says nothing; only draw once there's a spread to read.
 const MIN_POINTS = 2
-// The focus lens defaults to the most recent day — the "live" view — over a window that's wider than that.
-// Below this much total span there's nothing to pan over, so the brush is hidden and the chart shows it all.
-const LENS_MS = 24 * 60 * 60 * 1000
+
+export const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
+    run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
+
+/** False when RunActivityChart would render null, so callers can show their empty state instead. */
+export function hasEnoughRunActivity(runs: ActivityRun[]): boolean {
+    return runs.filter(isPlottable).length >= MIN_POINTS
+}
+// Below this total span the chart is already readable without a zoom brush.
+const BRUSH_THRESHOLD_MS = 24 * 60 * 60 * 1000
 // The lens never narrows below 15 min, so it stays grabbable and the zoomed axis keeps a readable span.
 const MIN_LENS_MS = 15 * 60 * 1000
 // A run with no final duration counts as in flight up to now, capped here: one that started longer ago
@@ -76,7 +82,7 @@ function niceStep(rough: number): number {
 }
 
 /** Compact minutes label for the duration axis: "45m", "1h", "1h 30m". */
-function formatAxisMinutes(min: number): string {
+export function formatAxisMinutes(min: number): string {
     const rounded = Math.round(min)
     if (rounded < 60) {
         return `${rounded}m`
@@ -227,19 +233,22 @@ export function RunActivityChart({
     runs,
     title = 'Run activity',
     truncated = false,
+    noun = 'run',
     className,
 }: RunActivityChartProps): JSX.Element | null {
-    // The lens sub-range the scatter/band zoom into; null = the default (most recent day). Declared before
+    // The lens sub-range the scatter/band zoom into; null = the full loaded window. Declared before
     // the early return so the hook order is stable when there aren't enough points to draw.
     const [focus, setFocus] = useState<TimeRange | null>(null)
     // Drop a manual pan when the runs change (e.g. the shared window changed and reloaded) so the lens
-    // returns to the live default instead of clamping a stale range onto an unrelated slice of new data.
+    // returns to the full window instead of clamping a stale range onto an unrelated slice of new data.
     useEffect(() => {
         setFocus(null)
     }, [runs])
     const now = dayjs().valueOf()
     // Every run with a start contributes an interval to the band; a still-running run extends to now, but
     // only up to MAX_IN_FLIGHT_MS so an abandoned run that never settled doesn't stretch the band by days.
+    // No-op gate runs never reach this component: the workflow activity endpoint hides them server-side
+    // (pre-cap, with an all-fast fallback), and commit rollups deliberately aren't filtered at all.
     const intervals: Interval[] = runs
         .filter((run): run is ActivityRun & { startedAt: string } => run.startedAt != null)
         .map((run) => {
@@ -256,10 +265,7 @@ export function RunActivityChart({
         })
 
     // Only completed runs land on the scatter — a still-running run has no final duration to place on Y.
-    const plottable = runs.filter(
-        (run): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
-            run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
-    )
+    const plottable = runs.filter(isPlottable)
     if (plottable.length < MIN_POINTS) {
         return null
     }
@@ -269,8 +275,8 @@ export function RunActivityChart({
     // y (duration) scale and median stay over the full set, so panning never jumps the vertical axis.
     const fullMin = Math.min(...intervals.map((iv) => iv.start))
     const fullMax = Math.max(...intervals.map((iv) => iv.end))
-    const brushable = fullMax - fullMin > LENS_MS
-    const view = clampFocus(focus ?? defaultFocus(fullMin, fullMax, LENS_MS), fullMin, fullMax, MIN_LENS_MS)
+    const brushable = fullMax - fullMin > BRUSH_THRESHOLD_MS
+    const view = clampFocus(focus ?? defaultFocus(fullMin, fullMax), fullMin, fullMax, MIN_LENS_MS)
     const tMin = view.start
     const tMax = view.end
     const tSpan = Math.max(1, tMax - tMin)
@@ -395,12 +401,14 @@ export function RunActivityChart({
                 <h3 className="mb-0">{title}</h3>
                 <Tooltip
                     title={
-                        truncated ? `Covers the most recent ${plottable.length} runs, not the full window.` : undefined
+                        truncated
+                            ? `Covers the most recent ${plottable.length} ${noun}s, not the full window.`
+                            : undefined
                     }
                 >
                     <span className="text-xs whitespace-nowrap text-secondary tabular-nums">
                         {truncated ? 'recent ' : ''}
-                        {brushable ? `${visible.length} of ${plottable.length}` : plottable.length} runs · median{' '}
+                        {brushable ? `${visible.length} of ${plottable.length}` : plottable.length} {noun}s · median{' '}
                         {formatAxisMinutes(medianMin)} · peak {peak} in flight
                     </span>
                 </Tooltip>

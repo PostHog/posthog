@@ -2,10 +2,8 @@
 {% load i18n admin_urls %}
 
 {% block object-tools-items %}
-    {% if show_usage_report_button %}
-        <li>
-            <a href="{% url 'admin:send-usage-report' %}">Send Usage Report</a>
-        </li>
-    {% endif %}
+    <li>
+        <a href="{% url 'admin:index' %}#organization-tools">Organization tools</a>
+    </li>
     {{ block.super }}
 {% endblock %}

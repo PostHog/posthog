@@ -7,6 +7,7 @@ from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team, User
 
+from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
@@ -17,6 +18,21 @@ from products.tasks.backend.temporal.process_task.activities.track_workflow_even
 
 def _sample_value(name: str, labels: dict[str, str]) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+class TestCustomImageBuildMetrics:
+    @parameterized.expand(["started", "succeeded", "failed", "scan_rejected"])
+    def test_counter_tracks_lifecycle_outcomes(self, outcome: CustomImageBuildOutcome) -> None:
+        labels: dict[str, str] = {"outcome": outcome}
+        before = _sample_value("posthog_tasks_custom_image_build_total", labels)
+
+        observe_custom_image_build(outcome)
+
+        assert _sample_value("posthog_tasks_custom_image_build_total", labels) == before + 1
+
+    @patch("products.tasks.backend.metrics.CUSTOM_IMAGE_BUILD_TOTAL.labels", side_effect=RuntimeError("boom"))
+    def test_counter_failure_does_not_escape(self, _mock_labels: MagicMock) -> None:
+        observe_custom_image_build("succeeded")
 
 
 class TestTaskRunMetrics(TestCase):
@@ -38,15 +54,17 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "background",
             "run_source": "manual",
+            "task_runtime": "acp",
             "runtime_adapter": "codex",
             "prewarmed": "false",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            extra_state={"run_source": "manual", "runtime_adapter": "codex"},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                extra_state={"run_source": "manual", "runtime_adapter": "codex"},
+            )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -56,16 +74,50 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "other",
             "run_source": "other",
+            "task_runtime": "acp",
             "runtime_adapter": "other",
             "prewarmed": "false",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            mode="custom-mode",
-            extra_state={"run_source": "custom-source", "runtime_adapter": "custom-adapter"},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                mode="custom-mode",
+                extra_state={"run_source": "custom-source", "runtime_adapter": "custom-adapter"},
+            )
+
+        assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
+
+    @parameterized.expand(
+        [
+            ("default_acp", Task.Runtime.ACP, "background", "acp", "claude"),
+            ("pi", Task.Runtime.PI, "unknown", "pi", "pi"),
+        ]
+    )
+    def test_create_run_labels_effective_runtime(
+        self,
+        _name: str,
+        task_runtime: Task.Runtime,
+        expected_mode: str,
+        expected_task_runtime: str,
+        expected_runtime_adapter: str,
+    ) -> None:
+        self.task.runtime = task_runtime
+        self.task.save(update_fields=["runtime"])
+        labels = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "mode": expected_mode,
+            "run_source": "unknown",
+            "task_runtime": expected_task_runtime,
+            "runtime_adapter": expected_runtime_adapter,
+            "prewarmed": "false",
+        }
+        before = _sample_value("posthog_tasks_task_run_created_total", labels)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(environment=TaskRun.Environment.CLOUD)
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -75,16 +127,18 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "interactive",
             "run_source": "unknown",
-            "runtime_adapter": "unknown",
+            "task_runtime": "acp",
+            "runtime_adapter": "claude",
             "prewarmed": "true",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            mode="interactive",
-            extra_state={"await_user_message": True, "prewarmed": True},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                mode="interactive",
+                extra_state={"await_user_message": True, "prewarmed": True},
+            )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -155,7 +209,8 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "background",
             "run_source": "unknown",
-            "runtime_adapter": "unknown",
+            "task_runtime": "acp",
+            "runtime_adapter": "claude",
             "prewarmed": "false",
         }
         labels_by_outcome = [
@@ -190,7 +245,13 @@ class TestTaskRunMetrics(TestCase):
 
         assert mock_sync_connect.called is expect_sync_connect_called
 
-    def test_task_run_failed_event_increments_failure_counter(self) -> None:
+    @parameterized.expand(
+        [
+            ("captures_analytics", True),
+            ("metrics_only", False),
+        ]
+    )
+    def test_task_run_failed_event_increments_failure_counter(self, _name: str, capture_analytics: bool) -> None:
         distinct_id = self.user.distinct_id
         assert distinct_id is not None
 
@@ -208,7 +269,7 @@ class TestTaskRunMetrics(TestCase):
 
         with patch(
             "products.tasks.backend.temporal.process_task.activities.track_workflow_event.posthoganalytics.capture"
-        ):
+        ) as mock_capture:
             track_workflow_event(
                 TrackWorkflowEventInput(
                     event_name="task_run_failed",
@@ -224,10 +285,37 @@ class TestTaskRunMetrics(TestCase):
                         "temporal_activity_retry_state": "MAXIMUM_ATTEMPTS_REACHED",
                         "cause_error_type": "RuntimeError",
                     },
+                    capture_analytics=capture_analytics,
                 )
             )
 
         assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1
+        assert mock_capture.called is capture_analytics
+
+    def test_patch_terminal_failure_captures_single_typed_task_run_failed(self) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        long_error = "w" * 1400 + "Error: wizard exited with code 7"
+
+        with (
+            patch.object(facade, "signal_workflow_completion"),
+            patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture,
+        ):
+            for _ in range(2):  # the repeat PATCH must not double-capture
+                facade.update_task_run(
+                    run.id,
+                    self.task.id,
+                    self.team.id,
+                    validated_data={"status": "failed", "error_message": long_error},
+                )
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["error_type"] == "agent_reported"
+        assert len(props["error_message"]) == 500
+        assert props["error_message"].endswith("Error: wizard exited with code 7")
 
     @parameterized.expand(
         [
@@ -247,6 +335,7 @@ class TestTaskRunMetrics(TestCase):
             "origin_product": "user_created",
             "mode": "interactive",
             "run_source": "manual",
+            "task_runtime": "acp",
             "runtime_adapter": "codex",
         }
         before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
@@ -260,3 +349,75 @@ class TestTaskRunMetrics(TestCase):
             )
 
         assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta
+
+    @parameterized.expand(
+        [
+            ("acp_default", Task.Runtime.ACP, {"model": "claude-opus-5"}, "acp", "claude"),
+            ("pi", Task.Runtime.PI, {}, "pi", "pi"),
+        ]
+    )
+    def test_agent_turn_failure_counter_uses_effective_runtime(
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        extra_state: dict,
+        expected_task_runtime: str,
+        expected_runtime_adapter: str,
+    ) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        self.task.runtime = runtime
+        self.task.save(update_fields=["runtime"])
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD, extra_state=extra_state)
+        labels = {
+            "origin_product": "user_created",
+            "mode": "background" if runtime == Task.Runtime.ACP else "unknown",
+            "run_source": "unknown",
+            "task_runtime": expected_task_runtime,
+            "runtime_adapter": expected_runtime_adapter,
+        }
+        before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": "failed", "error_message": "boom"},
+            )
+
+        assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + 1
+
+    @parameterized.expand(
+        [
+            ("unbound_wizard_run", {"wizard_head_branch": "posthog/instrumentation-ab12cd"}, {}, 1.0),
+            (
+                "bound_wizard_run",
+                {"wizard_head_branch": "posthog/instrumentation-ab12cd"},
+                {"pr_url": "https://x/pull/1"},
+                0.0,
+            ),
+            ("non_wizard_run", {}, {}, 0.0),
+        ]
+    )
+    def test_terminal_transition_counts_unbound_wizard_runs(
+        self, _name: str, extra_state: dict, output: dict, expected_delta: float
+    ) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD, extra_state=extra_state)
+        if output:
+            run.output = output
+            run.save(update_fields=["output"])
+        labels = {"status": "completed"}
+        before = _sample_value("posthog_tasks_wizard_run_unbound_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": "completed"},
+            )
+
+        assert _sample_value("posthog_tasks_wizard_run_unbound_total", labels) == before + expected_delta

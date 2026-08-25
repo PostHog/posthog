@@ -3,10 +3,11 @@ import React, { useMemo } from 'react'
 
 import { AnomalyPointsLayer, ReferenceLines } from '@posthog/quill-charts'
 
-import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import type { InsightLogicProps } from '~/types'
+
+import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
 
 import { buildAnomalyMarkers } from './anomalyPointsAdapter'
 import { alertThresholdsToReferenceLines } from './goalLinesAdapter'

@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 from posthog.hogql.printer.postgres_functions import (
+    _handle_case_with_expression,
     _handle_e,
     _handle_empty,
     _handle_ends_with,
@@ -156,7 +157,8 @@ def _make_agg_if_handler(snowflake_fn: str) -> Callable[[list[str]], str]:
 
 def _handle_count(args: list[str]) -> str:
     # HogQL's argless count() means "count all rows", but Snowflake rejects a bare COUNT() —
-    # it must be COUNT(*). count(expr) passes through unchanged.
+    # it must be COUNT(*). count(expr) passes through unchanged, as does count(DISTINCT expr)
+    # (visit_call folds the DISTINCT flag into the rendered arg).
     return "count(*)" if not args else f"count({', '.join(args)})"
 
 
@@ -180,6 +182,7 @@ SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toString": _make_cast_handler("VARCHAR"),
     "toInt": _make_cast_handler("BIGINT"),
     "toIntOrZero": _make_cast_handler("BIGINT"),
+    "toIntOrDefault": _make_cast_handler("BIGINT"),
     "toFloat": _make_cast_handler("DOUBLE"),
     "toFloatOrZero": _make_cast_handler("DOUBLE"),
     "toFloatOrDefault": _make_cast_handler("DOUBLE"),
@@ -237,6 +240,7 @@ SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "subtractQuarters": _make_dateadd_handler("quarter", negate=True),
     "subtractYears": _make_dateadd_handler("year", negate=True),
     # Conditional
+    "_caseWithExpression": _handle_case_with_expression,
     "if": _handle_if,
     "multiIf": _handle_multi_if,
     # Null / empty

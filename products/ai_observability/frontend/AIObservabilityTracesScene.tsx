@@ -1,16 +1,15 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -46,10 +45,17 @@ export function AIObservabilityTraces(): JSX.Element {
     const { applyUrlState, setShouldFilterSupportTraces } = useActions(aiObservabilitySharedLogic)
     const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(aiObservabilitySharedLogic)
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
+    const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
     const baseContext = useTracesQueryContext()
     const context: QueryContext<DataTableNode> = {
         ...baseContext,
+        ...(appliedSearchTerm
+            ? {
+                  emptyStateHeading: 'No traces matched your search',
+                  emptyStateDetail: 'Try a different search term, date range, or filters.',
+              }
+            : {}),
         customActions: <TracesOptionsMenu key="traces-options-menu" />,
     }
 
@@ -69,15 +75,13 @@ export function AIObservabilityTraces(): JSX.Element {
                     // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    // Batch the remaining three URL-synced fields into a single
-                    // applyUrlState dispatch so the DataTable's setQuery emits
-                    // one URL change instead of three.
                     applyUrlState(
                         buildApplyUrlStatePayload({
                             dateFrom: query.source.dateRange?.date_from || null,
                             dateTo: query.source.dateRange?.date_to || null,
                             shouldFilterTestAccounts: query.source.filterTestAccounts || false,
                             propertyFilters: query.source.properties || [],
+                            searchQuery: query.source.searchTerm || '',
                             currentDateFilter: dateFilter,
                             currentPropertyFilters,
                         })
@@ -91,11 +95,8 @@ export function AIObservabilityTraces(): JSX.Element {
 }
 
 function TracesOptionsMenu(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showInputOutputColumns, showSentimentColumn } = useValues(aiObservabilityTracesTabLogic)
     const { setShowInputOutputColumns, setShowSentimentColumn } = useActions(aiObservabilityTracesTabLogic)
-
-    const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
 
     return (
         <LemonDropdown
@@ -103,16 +104,14 @@ function TracesOptionsMenu(): JSX.Element | null {
             placement="bottom-end"
             overlay={
                 <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
-                    {showInputOutputToggleEnabled && (
-                        <LemonSwitch
-                            checked={showInputOutputColumns}
-                            onChange={setShowInputOutputColumns}
-                            label="Show input/output"
-                            fullWidth
-                            tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
-                            data-attr="llm-traces-show-input-output-toggle"
-                        />
-                    )}
+                    <LemonSwitch
+                        checked={showInputOutputColumns}
+                        onChange={setShowInputOutputColumns}
+                        label="Show input/output"
+                        fullWidth
+                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
+                        data-attr="llm-traces-show-input-output-toggle"
+                    />
                     <LemonSwitch
                         checked={showSentimentColumn}
                         onChange={setShowSentimentColumn}
@@ -137,11 +136,69 @@ function TracesOptionsMenu(): JSX.Element | null {
     )
 }
 
+function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown>): string {
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+    return combineUrl(urls.aiObservabilityTrace(row.id), {
+        ...nonTraceSearchParams,
+        back_to: 'traces',
+        timestamp: getTraceTimestamp(row.createdAt),
+    }).url
+}
+
+function getTraceFromRow(record: unknown): LLMTrace | null {
+    if (typeof record !== 'object' || !record || !('result' in record)) {
+        return null
+    }
+    const result = record.result
+    if (typeof result !== 'object' || !result || Array.isArray(result) || !('id' in result) || !result.id) {
+        return null
+    }
+    return result as LLMTrace
+}
+
+// Cells with their own link or button (ID, trace name, person) handle their own clicks.
+function hasOwnClickHandler(target: EventTarget | null): boolean {
+    return target instanceof Element && !!target.closest('button, a, [role="button"]')
+}
+
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
+    const { searchParams } = useValues(router)
+    const { push } = useActions(router)
+    // Stable identity so DataTable's `onRow` useCallback holds and rows are not re-rendered each poll cycle.
+    const rowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const row = getTraceFromRow(record)
+            if (!row) {
+                return {}
+            }
+            const url = buildTraceDetailUrl(row, searchParams)
+            return {
+                onClick: (event) => {
+                    if (hasOwnClickHandler(event.target)) {
+                        return
+                    }
+                    if (event.metaKey || event.ctrlKey) {
+                        newInternalTab(url)
+                    } else {
+                        push(url)
+                    }
+                },
+                onAuxClick: (event) => {
+                    if (event.button !== 1 || hasOwnClickHandler(event.target)) {
+                        return
+                    }
+                    event.preventDefault()
+                    newInternalTab(url)
+                },
+            }
+        },
+        [push, searchParams]
+    )
     return {
         emptyStateHeading: 'There were no traces in this period',
         emptyStateDetail: 'Try changing the date range or filters.',
         dataTableMaxPaginationLimit: LLM_TRACES_PAGE_SIZE,
+        rowProps,
         columns: {
             id: {
                 title: 'ID',
@@ -202,20 +259,10 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <strong>
             <Tooltip title={row.id}>
-                <Link
-                    to={
-                        combineUrl(urls.aiObservabilityTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-id-link"
-                >
+                <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-id-link">
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
                 </Link>
             </Tooltip>
@@ -226,20 +273,10 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <div className="flex items-center gap-2">
             <strong>
-                <Link
-                    to={
-                        combineUrl(urls.aiObservabilityTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-name-link"
-                >
+                <Link to={buildTraceDetailUrl(row, searchParams)} data-attr="trace-name-link">
                     {row.traceName || '–'}
                 </Link>
             </strong>

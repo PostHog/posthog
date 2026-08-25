@@ -11,6 +11,7 @@ from products.customer_analytics.backend.logic.custom_property_sync import (
     _read_view,
     record_sync_outcome,
     run_custom_property_sync,
+    sync_custom_properties_for_account,
     sync_custom_property_values,
 )
 from products.customer_analytics.backend.models import (
@@ -115,6 +116,28 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         assert result.written == 0
         assert result.unmatched_keys == 0
 
+    def test_external_id_scope_only_syncs_that_account(self):
+        self._source(self.mrr_def, "mrr")
+        # selected columns are sorted: mrr, org_id
+        with patch(_EXECUTE, return_value=_Response([(100.0, "acme")])):
+            result = sync_custom_property_values(team_id=self.team.id, saved_query_id=self.view.id, external_id="acme")
+
+        assert result.accounts_total == 1
+        assert result.written == 1
+        assert self._active(self.acme, self.mrr_def).value_num == 100.0
+        assert not CustomPropertyValue.objects.filter(account=self.globex).exists()
+
+    def test_external_id_scope_with_no_matching_account_writes_nothing(self):
+        self._source(self.mrr_def, "mrr")
+        with patch(_EXECUTE, return_value=_Response([])) as execute:
+            result = sync_custom_property_values(
+                team_id=self.team.id, saved_query_id=self.view.id, external_id="nobody"
+            )
+
+        assert result.accounts_total == 0
+        assert result.written == 0
+        execute.assert_not_called()  # empty key set -> zero batches -> no ClickHouse query
+
     def test_run_sync_records_success_outcome(self):
         source = self._source(self.mrr_def, "mrr")
         with patch(_EXECUTE, return_value=_Response([(100.0, "acme")])):
@@ -144,6 +167,66 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
             rows = _read_view(self.team, "billing_view", ["mrr", "org_id"], "org_id", ["acme", "globex"])
 
         assert rows == [(100.0, "acme"), (200.0, "globex")]
+
+
+class SyncCustomPropertiesForAccountTest(TeamScopedTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        DataWarehouseTable = apps.get_model("warehouse_sources", "DataWarehouseTable")
+        self.table = DataWarehouseTable.objects.create(team=self.team, name="billing_view_mat", columns={})
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="billing_view", columns={"org_id": {}, "mrr": {}}, table=self.table
+        )
+        self.acme = Account.objects.create(team=self.team, name="Acme", external_id="acme")
+        self.mrr_def = CustomPropertyDefinition.objects.create(
+            team=self.team, name="MRR", display_type=DisplayType.NUMBER
+        )
+        self.source = CustomPropertySource.objects.create(
+            team=self.team,
+            definition=self.mrr_def,
+            saved_query=self.view,
+            source_column="mrr",
+            key_column="org_id",
+        )
+
+    def test_writes_values_for_the_account(self):
+        # selected columns are sorted: mrr, org_id
+        with patch(_EXECUTE, return_value=_Response([(100.0, "acme")])):
+            sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
+
+        value = CustomPropertyValue.objects.get(account=self.acme, definition=self.mrr_def, is_deleted=False)
+        assert value.value_num == 100.0
+
+    def test_skips_unmaterialized_views(self):
+        self.view.table = None
+        self.view.save()
+        with patch(_EXECUTE) as execute:
+            sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
+
+        execute.assert_not_called()
+
+    def test_skips_disabled_sources(self):
+        self.source.is_enabled = False
+        self.source.save()
+        with patch(_EXECUTE) as execute:
+            sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
+
+        execute.assert_not_called()
+
+    def test_swallows_source_discovery_errors(self):
+        discovery = "products.customer_analytics.backend.logic.custom_property_sync.CustomPropertySource"
+        with patch(discovery) as source_model:
+            source_model.objects.for_team.side_effect = Exception("db down")
+            sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
+
+    def test_swallows_errors_and_records_no_sync_outcome(self):
+        with patch(_EXECUTE, side_effect=Exception("clickhouse down")):
+            sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
+
+        self.source.refresh_from_db()
+        assert self.source.last_synced_at is None
+        assert self.source.consecutive_failures == 0
+        assert self.source.is_enabled is True
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))

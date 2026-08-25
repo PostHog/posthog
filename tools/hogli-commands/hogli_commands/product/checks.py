@@ -16,14 +16,17 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .ast_helpers import module_import_targets
 from .isolation import (
     IsolationStatus,
     compute_isolation_status,
     has_legacy_interface_leaks,
     has_routes_module,
     has_tach_interface,
+    ignored_import_edges,
     is_isolated_product,
     iter_interface_blocks as _iter_interface_blocks,
+    location_input_glob,
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
     routes_in_turbo_inputs,
@@ -312,6 +315,57 @@ class RequiredRootFilesCheck(ProductCheck):
         return CheckResult(lines=["✓ ok"])
 
 
+class BackendPackageMarkerCheck(ProductCheck):
+    """backend/ needs an __init__.py or every import contract silently skips the product.
+
+    import-linter builds its graph from `products`, which is a regular package (it carries an
+    __init__.py so file-based mypy resolves `products.<name>.backend` rather than `<name>.backend`).
+    grimp does not descend from a regular package into PEP 420 namespace sub-directories, so a
+    backend without the marker is absent from the graph entirely — and a contract that never sees a
+    module reports success for it. The failure is silent in both directions: nothing warns, and the
+    contract passes.
+    """
+
+    label = "backend package marker"
+
+    # Only the paths import contracts actually target. Test directories and generated trees
+    # (warehouse_sources' per-source connectors) are namespace dirs on purpose and stay that way.
+    CONTRACT_TREES = ("facade", "presentation")
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return ctx.backend_dir.is_dir()
+
+    def _missing_markers(self, ctx: CheckContext) -> list[str]:
+        missing = []
+        if not (ctx.backend_dir / "__init__.py").exists():
+            missing.append("backend/")
+        for tree in self.CONTRACT_TREES:
+            root = ctx.backend_dir / tree
+            if not root.is_dir():
+                continue
+            for directory in sorted(d for d in root.rglob("*") if d.is_dir()):
+                if directory.name == "__pycache__" or not any(directory.glob("*.py")):
+                    continue
+                if not (directory / "__init__.py").exists():
+                    missing.append(f"backend/{directory.relative_to(ctx.backend_dir)}/")
+            if not (root / "__init__.py").exists():
+                missing.append(f"backend/{tree}/")
+        return sorted(set(missing))
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        missing = self._missing_markers(ctx)
+        if not missing:
+            return CheckResult(lines=["✓ ok"])
+        return CheckResult(
+            lines=[f"✗ missing __init__.py: {', '.join(missing)}"],
+            issues=[
+                f"missing __init__.py in {', '.join(missing)} — grimp stops descending at the first "
+                "directory without one, so import-linter cannot see what is below it and every "
+                "contract passes there vacuously. Add the marker (empty, like every other product's)"
+            ],
+        )
+
+
 def _has_test_files(backend_dir: Path) -> bool:
     """Check if backend/ contains any pytest-discoverable test files."""
     return any(backend_dir.rglob("test_*.py")) or any(backend_dir.rglob("*_test.py"))
@@ -361,6 +415,9 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
     Surfaced on a passing single-product lint so a reader sees the decision, not just
     its silent absence. Returns None when there's nothing meaningful to explain.
     """
+    if status.facade_leaks:
+        classes = ", ".join(sorted({v.class_name for v in status.facade_leaks}))
+        return f"facade hands out non-contract class(es) ({classes}) — not soundly isolated (see § Wiring couplings)"
     if status.deferred_count > 0 and status.has_legacy_leaks:
         return f"legacy interface leaks + {status.deferred_count} presentation bypass(es) still open"
     if status.deferred_count > 0:
@@ -371,6 +428,62 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
     if not status.has_real_facade:
         return "facade/api.py is a re-export, not real functions"
     return None
+
+
+class ImportSurfaceCheck(ProductCheck):
+    """Hold the two import-linter contracts by AST, so a namespace package cannot dodge them.
+
+    The contracts say routes.py imports only presentation/, and presentation/ imports only
+    facade/ and itself. import-linter enforces both through grimp, and grimp does not descend
+    into a directory without an __init__.py — so `from ...backend.services.views import X`
+    with no `services/__init__.py` is invisible to it and the contract passes vacuously.
+    That is a live view outside presentation/ that the narrowed contract-check inputs do not
+    watch. This check reads the same imports straight from the AST, honors the same
+    ignore_imports deferrals, and fails on what grimp cannot see.
+    """
+
+    label = "import surface"
+    for_lenient = False
+
+    # (source subtree or module, allowed destination subtrees)
+    SURFACES = (
+        ("routes", ("presentation",)),
+        ("presentation", ("presentation", "facade")),
+    )
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and ctx.backend_dir.is_dir()
+
+    def _module_name(self, ctx: CheckContext, path: Path) -> str:
+        rel = path.relative_to(ctx.backend_dir).with_suffix("")
+        parts = [p for p in rel.parts if p != "__init__"]
+        return ".".join([f"products.{ctx.name}.backend", *parts]) if parts else f"products.{ctx.name}.backend"
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        prefix = f"products.{ctx.name}.backend"
+        ignored = ignored_import_edges()
+        issues = []
+        for source, allowed in self.SURFACES:
+            root = ctx.backend_dir / source
+            files = [root.with_suffix(".py")] if root.with_suffix(".py").exists() else []
+            if root.is_dir():
+                files += sorted(f for f in root.rglob("*.py") if "__pycache__" not in f.parts)
+            allowed_prefixes = tuple(f"{prefix}.{a}" for a in allowed)
+            for f in files:
+                importer = self._module_name(ctx, f)
+                for line, target in module_import_targets(f, ctx.backend_dir, prefix):
+                    if target.startswith(allowed_prefixes) or f"{importer} -> {target}" in ignored:
+                        continue
+                    issues.append(
+                        f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
+                        f"{'/'.join(allowed)}. If import-linter did not flag this, the target sits under a "
+                        "directory without __init__.py, which grimp cannot see"
+                    )
+        if issues:
+            return CheckResult(
+                lines=[f"✗ {len(issues)} import(s) outside the surface"] + [f"  → {i}" for i in issues], issues=issues
+            )
+        return CheckResult(lines=["✓ ok"])
 
 
 class PackageJsonScriptsCheck(ProductCheck):
@@ -399,7 +512,13 @@ class PackageJsonScriptsCheck(ProductCheck):
         # reward for finishing — it can't be enabled until the wave empties them.
         status = ctx.isolation_status()
         needs_contract_check = status.eligible_for_isolated_tests
-        required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
+        # The wiring gate also withholds the skip script: a facade that still hands out unsanctioned
+        # classes can't soundly narrow, so don't nag it to carry 'backend:contract-check' (the script
+        # would be inert, and IsolationChainCheck blocks the narrowing that would make it bite). The
+        # absence check below still keys on plain eligibility, so the five products that deliberately
+        # keep script+broad while un-narrowed aren't told to drop it.
+        require_contract_check_script = needs_contract_check and not status.facade_leaks
+        required = ["backend:test"] + (["backend:contract-check"] if require_contract_check_script else [])
         for script in required:
             if script not in scripts:
                 result.lines.append(f"✗ missing '{script}'")
@@ -429,7 +548,12 @@ class PackageJsonScriptsCheck(ProductCheck):
             )
 
         # --- surface the withholding decision (single-product view only; keep the CI sweep quiet) ---
-        if ctx.detailed and ctx.is_isolated and not needs_contract_check and "backend:contract-check" not in scripts:
+        if (
+            ctx.detailed
+            and ctx.is_isolated
+            and not require_contract_check_script
+            and "backend:contract-check" not in scripts
+        ):
             note = _contract_check_withheld_note(status)
             if note:
                 result.lines.append(f"ℹ contract-check skip withheld — {note}")
@@ -477,42 +601,13 @@ class MisplacedFilesCheck(ProductCheck):
     label = "misplaced backend files"
     for_lenient = False
 
-    # Directories allowed in backend/ for strict products.
-    # Anything else won't be covered by import-linter's wildcard contracts.
-    # `templates` is allowed because Django's app_directories loader requires
-    # the folder to live at <app>/templates/, and templates aren't Python
-    # imports so import-linter contracts don't apply.
-    # `admin` is allowed because Django's autodiscover_modules("admin") requires
-    # the admin module at <app>.admin — and that module can be a flat `admin.py`
-    # or an `admin/` package (both resolve to the same import). The file form is
-    # already accepted, so the package form has to be too.
-    # `hogql_queries` is the established home for HogQL query runners across
-    # products (web_analytics, revenue_analytics, product_analytics), so it is
-    # allowed in isolated products too rather than forcing query code into logic/.
-    # `temporal` is the established home for Temporal workflow + activity code
-    # across products (batch_exports, data_warehouse, tasks, experiments, and
-    # others), so it is allowed in isolated products on the same grounds.
-    # `sandbox` holds Docker build context (Dockerfiles + helper scripts) for
-    # sandboxed execution, not importable Python — its path is referenced by
-    # image-build workflows and COPY directives, so it can't follow the
-    # Python-package convention and is allowed at backend root.
-    _KNOWN_DIRS = {
-        "facade",
-        "presentation",
-        "tasks",
-        "tests",
-        "test",
-        "migrations",
-        "management",
-        "models",
-        "logic",
-        "hogql_queries",
-        "temporal",
-        "sandbox",
-        "templates",
-        "admin",
-        "__pycache__",
-    }
+    # Only the root-level files in `backend_known_files` are checked here. Directory
+    # names are deliberately not: which internal packages a product has (`logic/`,
+    # `services/`, `reviewer/`) is its own business, and the thing that must not
+    # drift — presentation code outside presentation/ — is enforced by shape in
+    # pyproject.toml: routes.py may only import presentation, and presentation may
+    # only import facade, so a view anywhere else cannot be routed. ImportSurfaceCheck
+    # holds the same two rules by AST where grimp cannot see.
 
     def run(self, ctx: CheckContext) -> CheckResult:
         if not ctx.backend_dir.exists():
@@ -527,16 +622,6 @@ class MisplacedFilesCheck(ProductCheck):
                     misplaced.append(f"'{filename}' at backend/ root conflicts with correct location '{correct_path}'")
                 else:
                     misplaced.append(f"backend/{filename} should be at backend/{correct_path}")
-
-        # Flag directories not in the canonical structure — these bypass
-        # import-linter's wildcard enforcement (presentation/facade/etc.)
-        for child in sorted(ctx.backend_dir.iterdir()):
-            if child.is_dir() and child.name not in self._KNOWN_DIRS:
-                misplaced.append(
-                    f"backend/{child.name}/ is not a recognized directory — "
-                    "import-linter only enforces canonical paths (presentation, facade, logic, models). "
-                    "Move code into an existing directory or update the product structure"
-                )
 
         if misplaced:
             return CheckResult(
@@ -643,6 +728,7 @@ class IsolationChainCheck(ProductCheck):
         has_tach = status.has_tach_interface
         has_script = status.has_contract_check_script
         has_narrowed = status.has_narrowed_turbo
+        facade_violations = status.facade_leaks
 
         result = CheckResult()
 
@@ -677,6 +763,64 @@ class IsolationChainCheck(ProductCheck):
                 "a real facade should convert models to contracts, not just re-export"
             )
 
+        # The wiring-doctrine gate. Facade class re-exports from a non-garage module gate NARROWING,
+        # not the script: while a product is un-narrowed the skip is inert (everything is watched), so
+        # a leak there is guidance, not breakage. Once narrowed, the same leak means core can reach an
+        # unsanctioned class the suite may not re-test — a hard error. See products/architecture.md
+        # § Wiring couplings.
+        def format_facade_imports(imports) -> str:
+            return "; ".join(f"{v.class_name} (from {v.source_path}, via facade/{v.facade_module})" for v in imports)
+
+        def format_crossings_by_class(imports) -> str:
+            # the allowance is keyed per class, so report one entry per class even when several
+            # facade modules re-export it — otherwise the count reads higher than the sanctioned list
+            by_class: dict[str, tuple[str, list[str]]] = {}
+            for v in imports:
+                _, modules = by_class.setdefault(v.class_name, (v.source_path, []))
+                modules.append(f"facade/{v.facade_module}")
+            return "; ".join(
+                f"{name} (from {source_path}, via {', '.join(sorted(modules))})"
+                for name, (source_path, modules) in sorted(by_class.items())
+            )
+
+        if facade_violations:
+            detail = format_facade_imports(facade_violations)
+            remedies = (
+                "move it to a garage (backend/hogql_queries/, backend/max_tools.py, backend/temporal/, "
+                "backend/tasks.py) if it implements a core-owned base; move it to facade/contracts.py "
+                "if it's a data/error type; or drop the turbo.json narrowing to watch everything"
+            )
+            if has_narrowed:
+                result.issues.append(
+                    f"facade re-exports class(es) from outside the wiring locations: {detail} — {remedies}"
+                )
+            elif has_script:
+                result.warnings.append(
+                    f"facade re-exports class(es) from outside the wiring locations: {detail}. The skip is "
+                    f"inert while un-narrowed, but narrowing is blocked until this is fixed — {remedies}"
+                )
+
+        # The watched-models allowance (MODEL_CROSSINGS). Crossing model classes are
+        # sanctioned interim debt, so they never block narrowing — but the debt stays visible as a
+        # standing warning, and a narrowed product must keep the whole model surface watched or the
+        # skip is unsound (a model or migration change core observes would run no Django suite).
+        if status.model_crossings:
+            crossing_detail = format_crossings_by_class(status.model_crossings)
+            result.warnings.append(
+                f"facade hands out Django model class(es) under the watched-models allowance: {crossing_detail}. "
+                "Sanctioned interim debt (products/architecture.md § Wiring couplings) — the model surface stays "
+                "in the contract-check inputs so the skip is sound; convert crossings to facade contracts to "
+                "retire the allowance entry"
+            )
+        if has_narrowed and status.uncovered_model_surface:
+            surface_globs = ", ".join(location_input_glob(p) for p in status.uncovered_model_surface)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the model surface "
+                f"{', '.join(status.uncovered_model_surface)} — a model is reachable without an import "
+                "(apps.get_model, migrations, admin), so a model or migration change must re-run the Django "
+                f"suite. Add the matching input(s) ({surface_globs})"
+            )
+
         # Earned but not turned on: a fully sealed, eligible product that already carries
         # 'backend:contract-check' (real facade, tach interface, no legacy leaks, presentation
         # wave emptied). Without a turbo.json narrowing its inputs to facade/presentation, that
@@ -684,8 +828,14 @@ class IsolationChainCheck(ProductCheck):
         # re-runs the full Django suite — the skip is inert. Force the narrowing so READY
         # products land on ON. Gating on has_script keeps this distinct from
         # PackageJsonScriptsCheck, which is what nags a still-eligible product to add the script.
+        # Suppressed when the facade still hands out unsanctioned classes: narrowing would be
+        # rejected by the gate above, so nagging toward it is counterproductive — say what blocks it.
         needs_turn_on = (
-            has_script and status.eligible_for_isolated_tests and status.externally_sealed and not has_narrowed
+            has_script
+            and status.eligible_for_isolated_tests
+            and status.externally_sealed
+            and not has_narrowed
+            and not facade_violations
         )
         if needs_turn_on:
             result.issues.append(
@@ -693,8 +843,13 @@ class IsolationChainCheck(ProductCheck):
                 "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
-                '"backend/presentation/**"] to turn the skip on'
+                '"backend/presentation/**"] plus the model surface (backend/models.py or '
+                "backend/models/**, and backend/migrations/**) and any wiring locations the "
+                "product has (backend/tasks/**, backend/temporal/**, …) to turn the skip on"
             )
+        # When needs_turn_on is suppressed purely because of a facade violation (the other four
+        # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,
+        # so there's nothing more to say here — the nag is silently withheld, not replaced.
 
         # Watching the route registration: routes.py is the product's route-registration entry
         # point (public API surface, imported by core to assemble the router), but it lives at
@@ -712,6 +867,55 @@ class IsolationChainCheck(ProductCheck):
                 f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
             )
 
+        # Watching the permanent-interface exposures: a marked [[interfaces]] block lets core
+        # depend on these modules outside the import graph (ClickHouse DDL in the schema registry
+        # and frozen migrations). That coupling can't be sealed, so the skip stays sound only if a
+        # change to those modules still re-runs the suite — they must be in the contract-check
+        # inputs. Mirrors routes_unwatched.
+        if has_narrowed and status.uncovered_permanent_exposures:
+            globs = ", ".join(f"{m.replace('.', '/')}.py" for m in status.uncovered_permanent_exposures)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the permanently-exposed module(s) "
+                f"{', '.join(status.uncovered_permanent_exposures)} — core depends on them outside the import "
+                "graph (ClickHouse DDL in the schema registry and frozen migrations), so a change to them "
+                f"would skip the Django suite. Add the matching input(s) ({globs}) to keep the skip sound"
+            )
+
+        # Watching the wiring garages: a garage the product has must stay in the contract-check
+        # inputs, or a change to a query runner / Max tool / Temporal defn / Celery task the facade
+        # wires would skip the Django suite. Mirrors routes_unwatched, presence-based.
+        if has_narrowed and status.unwatched_garages:
+            globs = ", ".join(location_input_glob(g) for g in status.unwatched_garages)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the wiring location(s) "
+                f"{', '.join(status.unwatched_garages)} — implementations core registers and drives live there, "
+                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs})"
+            )
+
+        # Watching the carve-out modules: a sanctioned model-registry carve-out crosses the facade by
+        # class identity, so its defining module must re-run the suite on change like any wiring.
+        if has_narrowed and status.uncovered_carveout_modules:
+            globs = ", ".join(location_input_glob(m) for m in status.uncovered_carveout_modules)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the carve-out module(s) "
+                f"{', '.join(status.uncovered_carveout_modules)} — the class crosses the facade for a core "
+                f"registry keyed by class identity, so a change must re-run the suite. Add the matching input(s) ({globs})"
+            )
+
+        # Guarding against marker abuse: the permanent-interface marker is only legitimate for
+        # modules core depends on outside the import graph (ClickHouse DDL in a frozen migration or
+        # the schema registry). Without this check the marker is mechanically unrestricted — a
+        # product could mark backend.models/backend.logic permanent, list it in turbo inputs, and
+        # pass the chain. Fires regardless of has_narrowed: the abuse lives in tach.toml itself, not
+        # in turbo config, so it must block even before the product narrows.
+        if status.unqualified_permanent_exposures:
+            modules = ", ".join(status.unqualified_permanent_exposures)
+            result.issues.append(
+                f"permanent-interface marker covers module(s) {modules}, but they are not imported by any "
+                "frozen ClickHouse migration or the ClickHouse schema registry — so they don't qualify as a "
+                "permanent interface. Route them through the facade instead (or remove the marker)"
+            )
+
         # Note: a product that has the contract-check script *and* deferred
         # presentation-wave ignore_imports entries is hard-blocked by
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
@@ -722,11 +926,17 @@ class IsolationChainCheck(ProductCheck):
             # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
             # has_narrowed + a routes module), but turbo.json is still where the routes omission is
             # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
-            result.file = (
-                f"products/{ctx.name}/turbo.json"
-                if needs_turn_on or routes_unwatched
-                else f"products/{ctx.name}/backend/facade/api.py"
+            # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
+            # there; it takes precedence because it's the most fundamental of these issues.
+            turbo_omission = has_narrowed and (
+                status.unwatched_garages or status.uncovered_carveout_modules or status.uncovered_model_surface
             )
+            if status.unqualified_permanent_exposures:
+                result.file = "tach.toml"
+            elif needs_turn_on or routes_unwatched or turbo_omission:
+                result.file = f"products/{ctx.name}/turbo.json"
+            else:
+                result.file = f"products/{ctx.name}/backend/facade/api.py"
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         elif result.warnings:
@@ -878,6 +1088,10 @@ class OrphanedTestFilesCheck(ProductCheck):
         "tasks": ("backend/temporal/",),
         "warehouse_sources": ("backend/temporal/",),
         "signals": ("backend/emission/",),
+        # Covered by the "Run pr-approval-agent (stamphog) tests" step in ci-python.yml. The review
+        # engine is a flat script bundle with bare sibling imports, so it runs as its own pytest
+        # invocation rather than inside the product's Django suite.
+        "stamphog": ("packages/pr-approval-agent/",),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:
@@ -947,6 +1161,8 @@ class OrphanedTestFilesCheck(ProductCheck):
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
+    BackendPackageMarkerCheck(),
+    ImportSurfaceCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),

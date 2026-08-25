@@ -5,6 +5,7 @@ import pytest
 from fakeredis import aioredis as fakeredis
 from fastapi.testclient import TestClient
 
+from llm_gateway.dependencies import _format_retry_delay
 from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
 from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
@@ -244,10 +245,124 @@ class TestRateLimitResponseHeaders:
 
             assert response.status_code == 429
             assert response.headers["retry-after"] == "3600"
+            # The reason and retry time are repeated in the message (SDK error
+            # strings often surface only error.message) and the throttle scope
+            # and retry_after ride along machine-readable.
             assert response.json() == {
                 "error": {
-                    "message": "Rate limit exceeded",
+                    "message": "Rate limit exceeded: Product rate limit exceeded. Try again in about 1 hour.",
                     "type": "rate_limit_error",
                     "reason": "Product rate limit exceeded",
+                    "retry_after": 3600,
+                    "code": "test_throttle",
                 }
             }
+
+
+class TestBackoffOnlyRetryAfter:
+    def test_429_message_omits_retry_promise_when_retry_wont_reset_limit(self, mock_db_pool: MagicMock) -> None:
+        class CreditsExhaustedThrottle(Throttle):
+            scope = "billable_credits"
+
+            async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+                return ThrottleResult.deny(
+                    detail="Your team has used its monthly PostHog AI credits.",
+                    scope=self.scope,
+                    retry_after=60,
+                    retry_after_resets_limit=False,
+                )
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "key_id",
+                "user_id": 1,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 1,
+                "distinct_id": "test-distinct-id",
+                "is_staff": False,
+            }
+        )
+        mock_db_pool.acquire = AsyncMock(return_value=conn)
+
+        app = create_test_app(mock_db_pool, throttles=[CreditsExhaustedThrottle()])
+
+        with TestClient(app) as client:
+            body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}
+            headers = {"Authorization": "Bearer phx_test_key"}
+            response = client.post("/v1/chat/completions", json=body, headers=headers)
+
+            assert response.status_code == 429
+            # The back-off hint still reaches machines via header and body,
+            # but the message must not promise that retrying will succeed.
+            assert response.headers["retry-after"] == "60"
+            error = response.json()["error"]
+            assert error["retry_after"] == 60
+            assert "Try again" not in error["message"]
+
+
+class TestFormatRetryDelay:
+    @pytest.mark.parametrize(
+        "seconds,expected",
+        [
+            pytest.param(1, "1 second", id="one_second"),
+            pytest.param(45, "45 seconds", id="seconds"),
+            pytest.param(60, "1 minute", id="one_minute"),
+            pytest.param(90, "2 minutes", id="minutes_round_up"),
+            pytest.param(3600, "1 hour", id="one_hour"),
+            pytest.param(3601, "2 hours", id="hours_round_up"),
+            pytest.param(86400, "24 hours", id="full_day"),
+        ],
+    )
+    def test_buckets_and_rounding(self, seconds: int, expected: str) -> None:
+        assert _format_retry_delay(seconds) == expected
+
+
+class TestFreeTierModelGateErrorBody:
+    def test_gate_403_wire_body_carries_code_and_legacy_shim(
+        self, mock_db_pool: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pins the gate 403's wire shape end-to-end (raise site + exception-handler
+        unwrap): a top-level error envelope, never FastAPI's {"detail": ...} nesting.
+        Pre-cutover PostHog Desktop clients route this 403 by the "(rate_limit)"
+        substring in the message and newer clients read the code — a regression in
+        either strands installed builds in fatal-session teardown."""
+        from llm_gateway.auth.models import AuthenticatedUser
+        from llm_gateway.config import get_settings
+        from llm_gateway.dependencies import get_authenticated_user
+        from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
+
+        get_settings.cache_clear()
+        try:
+            app = create_test_app(mock_db_pool)
+            # OAuth caller on the Desktop app whose org isn't billed for Desktop usage
+            # (the conftest quota resolver reports code_usage_billing_active=False).
+            app.dependency_overrides[get_authenticated_user] = lambda: AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="oauth_access_token",
+                distinct_id="unbilled-user",
+                scopes=["*"],
+                application_id=POSTHOG_CODE_US_APP_ID,
+            )
+
+            with TestClient(app) as client:
+                response = client.post(
+                    "/posthog_code/v1/messages",
+                    json={
+                        "model": "claude-fable-5",
+                        "max_tokens": 16,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                    },
+                )
+
+            assert response.status_code == 403
+            body = response.json()
+            assert "detail" not in body
+            error = body["error"]
+            assert error["type"] == "permission_error"
+            assert error["code"] == "model_gate"
+            assert "claude-fable-5" in error["message"]
+            assert error["message"].endswith("(rate_limit)")
+        finally:
+            get_settings.cache_clear()

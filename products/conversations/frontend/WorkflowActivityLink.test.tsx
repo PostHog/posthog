@@ -1,37 +1,39 @@
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
+
+import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
-
-import { workflowsLogic } from 'products/workflows/frontend/Workflows/workflowsLogic'
 
 import { WorkflowActivityLink } from './WorkflowActivityLink'
 
 describe('WorkflowActivityLink', () => {
-    let logic: ReturnType<typeof workflowsLogic.build>
+    let getHogFlow: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
-        logic = workflowsLogic()
-        logic.mount()
-        // Populate via the loader success so the on-mount effect doesn't fire a real request.
-        logic.actions.loadWorkflowsSuccess([
-            { id: 'flow-1', name: 'Escalation workflow' },
-            { id: 'flow-2', name: 'Billing workflow' },
-        ] as any)
+        getHogFlow = jest.spyOn(api.hogFlows, 'getHogFlow')
     })
 
     afterEach(() => {
-        logic?.unmount()
+        getHogFlow.mockRestore()
     })
 
-    it('renders the current workflow name resolved by id, not from the log', () => {
+    it('renders the current workflow name resolved by id, not from the log', async () => {
+        getHogFlow.mockResolvedValue({ id: 'flow-1', name: 'Escalation workflow' } as any)
+
         const { container } = render(<WorkflowActivityLink id="flow-1" />)
-        expect(container.textContent).toContain('Escalation workflow')
+
+        await waitFor(() => expect(container.textContent).toContain('Escalation workflow'))
+        expect(getHogFlow).toHaveBeenCalledWith('flow-1')
         expect(container.querySelector('a')?.getAttribute('href')).toContain('flow-1')
     })
 
-    it('falls back to a generic label when the workflow is not found', () => {
+    it('falls back to a generic label when the workflow is not found', async () => {
+        getHogFlow.mockRejectedValue(new Error('Not found'))
+
         const { container } = render(<WorkflowActivityLink id="missing" />)
-        expect(container.textContent).toContain('A workflow')
+
+        await waitFor(() => expect(container.textContent).toContain('A workflow'))
+        expect(container.querySelector('a')?.getAttribute('href')).toContain('missing')
     })
 })

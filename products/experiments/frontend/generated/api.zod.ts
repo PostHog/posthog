@@ -58,6 +58,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -66,10 +70,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
@@ -316,6 +320,10 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -324,10 +332,10 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
@@ -575,6 +583,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -583,10 +595,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
@@ -866,18 +878,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.
  */
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -913,22 +925,22 @@ export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsCreateExposureCohortForExperimentCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -960,6 +972,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
  */
 export const experimentsEndCreateBodyConclusionCommentMax = 4000
 
+export const experimentsEndCreateBodyOpenCleanupPrDefault = false
+export const experimentsEndCreateBodyRepositoryMax = 255
+
+export const experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault = false
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -979,6 +996,25 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsEndCreateBodyConclusionCommentMax)
         .nullish()
         .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsEndCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
+    repository: zod
+        .string()
+        .max(experimentsEndCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
+        ),
 })
 
 /**
@@ -997,6 +1033,7 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
         trigger: zod
             .enum([
                 'manual',
+                'agent_mcp',
                 'cold_run',
                 'stale_refresh',
                 'auto_refresh',
@@ -1006,25 +1043,72 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
                 'experiment_update',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Session recordings of this experiment matching a bucket.
+ *
+ * Answers the questions a recordings query can't express on its own — "fired any of these
+ * metrics", "fired none of them", "was exposed but never completed the funnel in this
+ * session" — by returning a bounded, most-recent-first list of session IDs to pass back as
+ * a recordings query's session_ids. POST because the metric list doesn't fit a query
+ * string; the endpoint only reads.
+ *
+ * Session-scoped and goal-free: the set describes what happened in each session, while the
+ * experiment analysis counts per person over the whole run window. A session can be in the
+ * drop-off bucket while the same person converts in a later one.
+ */
+export const experimentsSessionBucketsCreateBodyLimitDefault = 100
+export const experimentsSessionBucketsCreateBodyLimitMax = 100
+
+export const ExperimentsSessionBucketsCreateBody = /* @__PURE__ */ zod
+    .object({
+        bucket: zod
+            .enum(['fired_any', 'no_metric_activity', 'funnel_dropoff'])
+            .describe(
+                '\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff'
+            )
+            .describe(
+                "Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the experiment analysis. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.\n\n\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff"
+            ),
+        metric_uuids: zod
+            .array(zod.string().describe("UUID of one of the experiment's metrics."))
+            .optional()
+            .describe(
+                "Metrics the bucket is computed over. Exactly one funnel metric for 'funnel_dropoff'. Omit for the other buckets to use every metric of the experiment that can be matched to recordings."
+            ),
+        variant: zod
+            .string()
+            .nullish()
+            .describe(
+                'Restrict to sessions that saw this variant. Omit for every variant. A session that saw more than one variant matches each variant it saw.'
+            ),
+        limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSessionBucketsCreateBodyLimitMax)
+            .default(experimentsSessionBucketsCreateBodyLimitDefault)
+            .describe('Maximum session IDs to return, at most 100. The most recently active matching sessions win.'),
+    })
+    .describe('Request body for the session-bucket endpoint.')
 
 /**
  * Ship a variant and (optionally) end the experiment.
@@ -1050,6 +1134,10 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
  */
 export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
 
+export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
+export const experimentsShipVariantCreateBodyRepositoryMax = 255
+
+export const experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault = false
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -1071,6 +1159,25 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsShipVariantCreateBodyConclusionCommentMax)
         .nullish()
         .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
+    repository: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
+        ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()
@@ -1227,3 +1334,30 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
     description: zod.string().optional().describe('Optional experiment description.'),
 })
+
+/**
+ * Resolve experiment context for a batch of session recordings.
+ *
+ * Batch variant of `session_context`, used to prefetch the replay player's experiments
+ * box for a whole recordings list in one request. POST because the id list doesn't fit a
+ * query string; the endpoint only reads. Already-computed sessions are served from (and
+ * cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+ * uses, so opening any prefetched recording renders its context instantly. Sessions whose
+ * recording metadata doesn't exist yet are omitted from the response, as are recordings
+ * the caller can't access and sessions beyond the batch's recording-day budget (each
+ * distinct recording day costs its own set of ClickHouse scans, so only the most recent
+ * days are computed per request).
+ */
+export const experimentsSessionContextsCreateBodySessionIdsMax = 20
+
+export const ExperimentsSessionContextsCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().describe('ID of one session recording.'))
+            .min(1)
+            .max(experimentsSessionContextsCreateBodySessionIdsMax)
+            .describe(
+                'IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.'
+            ),
+    })
+    .describe('Request body for the batch session-context endpoint.')

@@ -3,23 +3,29 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import AsyncMock, Mock
 
+from temporalio.exceptions import ApplicationError
+
 from products.tasks.backend.temporal.constants import (
     ACK_TIMEOUT,
     DEFAULT_CI_MESSAGE,
     HEARTBEAT_DEBOUNCE,
     MAX_ACK_RETRIES,
     MAX_CI_REPETITIONS,
+    SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_VERSION,
 )
 from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ChildCompletionPayload
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput, get_pr_context
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.task_management import workflow as task_management_workflow_module
 from products.tasks.backend.temporal.task_management.workflow import (
+    MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES,
     ChildAck,
     ChildCompletion,
     CIFollowUpDecision,
     PendingAckSlot,
     PendingExternalFollowup,
+    TaskEvent,
     TaskManagementWorkflow,
     TaskRunManagementInput,
 )
@@ -110,6 +116,31 @@ class TestExternalSignalHandlers:
         await workflow.send_followup_message("hello")
         assert workflow._pending_external_followups == [
             PendingExternalFollowup(message="hello", artifact_ids=[], source="user")
+        ]
+
+    async def test_send_steer_message_preserves_steer_intent(self):
+        workflow = TaskManagementWorkflow()
+
+        await workflow.send_steer_message(
+            "hello",
+            ["a1"],
+            message_id="message-1",
+            actor_user_id=42,
+            message_context={"actor_slack_user_id": "U123"},
+        )
+        await workflow.send_followup_message("legacy", ["a2"], True)
+
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(
+                message="hello",
+                artifact_ids=["a1"],
+                source="user",
+                actor_user_id=42,
+                message_id="message-1",
+                context={"actor_slack_user_id": "U123"},
+                steer=True,
+            ),
+            PendingExternalFollowup(message="legacy", artifact_ids=["a2"], source="user", steer=True, sequence=1),
         ]
 
     async def test_external_heartbeat_records_activity(self, fixed_now):
@@ -282,24 +313,95 @@ class TestShouldRunCIFollowUp:
         decision = await workflow._should_run_ci_follow_up()
         assert decision is CIFollowUpDecision.SKIP
 
-    async def test_returns_fire_when_fingerprint_changes_and_persists_it(self, monkeypatch, silent_workflow_logger):
+    @pytest.mark.parametrize(
+        "ci_status,changes_requested,expected_decision,expected_fingerprint",
+        [
+            # Actionable changes fire.
+            ("failing", False, CIFollowUpDecision.FIRE, "fp-1"),
+            ("passing", True, CIFollowUpDecision.FIRE, "fp-1"),
+            # Non-actionable changes persist the fingerprint but stay quiet —
+            # waking the agent here produced "nothing to report" Slack spam.
+            # Pending needs no deferral: the settled state hashes differently
+            # (CI status and head SHA are both in the fingerprint), so it still
+            # registers as a change on a later tick.
+            ("passing", False, CIFollowUpDecision.SKIP, "fp-1"),
+            ("none", False, CIFollowUpDecision.SKIP, "fp-1"),
+            ("pending", False, CIFollowUpDecision.SKIP, "fp-1"),
+        ],
+    )
+    async def test_fingerprint_change_fires_only_when_actionable(
+        self,
+        monkeypatch,
+        silent_workflow_logger,
+        ci_status,
+        changes_requested,
+        expected_decision,
+        expected_fingerprint,
+    ):
         workflow = TaskManagementWorkflow()
         workflow._context = _build_context()
+        workflow._pr_fingerprint = "fp-0"
 
         async def fake_execute_activity(activity_fn, *args, **kwargs):
             return GetPrContextOutput(
                 pr_url="https://github.com/org/repo/pull/1",
                 pr_state="open",
                 fingerprint="fp-1",
+                ci_status=ci_status,
+                changes_requested=changes_requested,
             )
 
         monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", fake_execute_activity)
 
         decision = await workflow._should_run_ci_follow_up()
 
-        assert decision is CIFollowUpDecision.FIRE
-        # Fingerprint must persist so the next tick with the same fp returns SKIP.
-        assert workflow._pr_fingerprint == "fp-1"
+        assert decision is expected_decision
+        assert workflow._pr_fingerprint == expected_fingerprint
+
+    @pytest.mark.parametrize(
+        "prev_threads,new_threads,fingerprint,expected_decision",
+        [
+            # New review threads are feedback — fire even when the fingerprint
+            # hasn't moved.
+            (0, 2, "fp-0", CIFollowUpDecision.FIRE),
+            # Resolving threads is not feedback.
+            (2, 1, "fp-0", CIFollowUpDecision.SKIP),
+            # A green change with a stable thread count stays quiet.
+            (2, 2, "fp-1", CIFollowUpDecision.SKIP),
+            # A green change accompanied by new feedback fires.
+            (0, 3, "fp-1", CIFollowUpDecision.FIRE),
+        ],
+    )
+    async def test_new_review_threads_fire_follow_up(
+        self,
+        monkeypatch,
+        silent_workflow_logger,
+        prev_threads,
+        new_threads,
+        fingerprint,
+        expected_decision,
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context()
+        workflow._pr_fingerprint = "fp-0"
+        workflow._pr_unresolved_threads = prev_threads
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            return GetPrContextOutput(
+                pr_url="https://github.com/org/repo/pull/1",
+                pr_state="open",
+                fingerprint=fingerprint,
+                ci_status="passing",
+                unresolved_threads=new_threads,
+            )
+
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        decision = await workflow._should_run_ci_follow_up()
+
+        assert decision is expected_decision
+        # The count must track last-seen (not max) so post-resolve feedback re-fires.
+        assert workflow._pr_unresolved_threads == new_threads
 
     async def test_returns_skip_when_fingerprint_unchanged(self, monkeypatch, silent_workflow_logger):
         workflow = TaskManagementWorkflow()
@@ -461,11 +563,357 @@ class TestDrainExternalSignals:
         complete_mock.assert_not_awaited()
         assert workflow._pending_external_complete is None
 
+    async def test_replacement_uses_deterministic_backoff(self, monkeypatch, silent_workflow_logger):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = False
+        workflow._consecutive_sandbox_replacement_failures = 3
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="retry me", artifact_ids=[], source="user")
+        )
+
+        sleep_mock = AsyncMock()
+        bootstrap_mock = AsyncMock()
+        signal_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "sleep", sleep_mock)
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+        monkeypatch.setattr(workflow, "_signal_child_followup", signal_mock)
+        monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
+
+        await workflow._drain_external_signals()
+
+        sleep_mock.assert_awaited_once_with(4)
+        bootstrap_mock.assert_awaited_once()
+        signal_mock.assert_awaited_once()
+
+    @pytest.mark.parametrize(("persist_patch_enabled", "persist_count"), [(False, 0), (True, 1)])
+    async def test_replacement_budget_fails_before_starting_another_sandbox(
+        self,
+        monkeypatch,
+        silent_workflow_logger,
+        persist_patch_enabled: bool,
+        persist_count: int,
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = False
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="park me", artifact_ids=[], source="user")
+        )
+
+        bootstrap_mock = AsyncMock()
+        persist_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_patch_enabled",
+            lambda patch_id: (
+                persist_patch_enabled
+                if patch_id == task_management_workflow_module._PATCH_ID_PERSIST_REPLACEMENT_BUDGET
+                else False
+                if patch_id
+                in {
+                    task_management_workflow_module._PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE,
+                    task_management_workflow_module._PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER,
+                }
+                else True
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="before acknowledging a follow-up"):
+            await workflow._drain_external_signals()
+
+        assert persist_mock.await_count == persist_count
+        bootstrap_mock.assert_not_awaited()
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(message="park me", artifact_ids=[], source="user")
+        ]
+
+    async def test_replacement_budget_retries_only_persistence_when_storage_is_unavailable(
+        self, monkeypatch, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = False
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="keep trying", artifact_ids=[], source="user")
+        )
+
+        persistence_options = []
+
+        async def fail_persistence(_activity, _input, **kwargs):
+            persistence_options.append(kwargs)
+            raise RuntimeError("storage unavailable")
+
+        sleep_mock = AsyncMock()
+        bootstrap_mock = AsyncMock()
+        signal_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", fail_persistence)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "sleep", sleep_mock)
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+        monkeypatch.setattr(workflow, "_signal_child_followup", signal_mock)
+
+        with pytest.raises(RuntimeError, match="storage unavailable"):
+            await workflow._persist_pending_followups_until_stable()
+
+        assert len(persistence_options) == 1
+        assert persistence_options[0]["schedule_to_close_timeout"] == timedelta(minutes=5)
+        assert persistence_options[0]["retry_policy"].maximum_attempts == 0
+        assert persistence_options[0]["retry_policy"].non_retryable_error_types == [
+            task_management_workflow_module.TASK_RUN_NOT_FOUND_ERROR_TYPE
+        ]
+        sleep_mock.assert_not_awaited()
+        bootstrap_mock.assert_not_awaited()
+        signal_mock.assert_not_awaited()
+
+    async def test_existing_history_persists_before_replacement_budget_failure(
+        self, monkeypatch, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        persist_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_pending_followups_until_stable", persist_mock)
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_patch_enabled",
+            lambda patch_id: patch_id != task_management_workflow_module._PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER,
+        )
+
+        with pytest.raises(RuntimeError, match="before acknowledging a follow-up"):
+            await workflow._wait_before_replacement_sandbox()
+
+        persist_mock.assert_awaited_once()
+        assert workflow._persist_pending_followups_on_exit is False
+
+    async def test_replacement_budget_persists_followups_arriving_during_terminal_snapshot(
+        self, monkeypatch, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = False
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="first", artifact_ids=[], source="user", sequence=1)
+        )
+
+        persisted_payloads: list[list[dict]] = []
+
+        async def capture_persistence(_activity, input_arg, **_kwargs):
+            persisted_payloads.append(input_arg.followups)
+            if len(persisted_payloads) == 1:
+                workflow._pending_external_followups.append(
+                    PendingExternalFollowup(
+                        message="arrived during persist", artifact_ids=[], source="user", sequence=2
+                    )
+                )
+
+        bootstrap_mock = AsyncMock()
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", capture_persistence)
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+
+        await workflow._persist_pending_followups_until_stable()
+
+        assert persisted_payloads == [
+            [
+                {
+                    "message": "first",
+                    "artifact_ids": [],
+                    "source": "user",
+                    "actor_user_id": None,
+                    "message_id": None,
+                    "context": {},
+                    "steer": False,
+                    "sequence": 1,
+                }
+            ],
+            [
+                {
+                    "message": "first",
+                    "artifact_ids": [],
+                    "source": "user",
+                    "actor_user_id": None,
+                    "message_id": None,
+                    "context": {},
+                    "steer": False,
+                    "sequence": 1,
+                },
+                {
+                    "message": "arrived during persist",
+                    "artifact_ids": [],
+                    "source": "user",
+                    "actor_user_id": None,
+                    "message_id": None,
+                    "context": {},
+                    "steer": False,
+                    "sequence": 2,
+                },
+            ],
+        ]
+        bootstrap_mock.assert_not_awaited()
+
+    async def test_replacement_budget_persists_after_terminal_cleanup(self, monkeypatch, silent_workflow_logger):
+        workflow = TaskManagementWorkflow()
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        context = _build_context()
+        order: list[str] = []
+        slack_calls = 0
+
+        async def get_context():
+            return context
+
+        async def track_event(*_args, **_kwargs):
+            order.append("telemetry")
+
+        async def post_slack_update(*_args, **_kwargs):
+            nonlocal slack_calls
+            slack_calls += 1
+            order.append("initial-slack" if slack_calls == 1 else "final-slack")
+            if slack_calls == 2:
+                await workflow.send_followup_message("arrived during cleanup")
+
+        async def fail_at_budget():
+            await workflow._wait_before_replacement_sandbox()
+            raise AssertionError("replacement budget should raise")
+
+        async def wait_condition(predicate, **_kwargs):
+            assert predicate is task_management_workflow_module.workflow.all_handlers_finished
+            order.append("handlers-drained")
+
+        async def persist_until_stable():
+            order.append("persist")
+            assert workflow._pending_external_followups == [
+                PendingExternalFollowup(
+                    message="arrived during cleanup",
+                    artifact_ids=[],
+                    source="user",
+                )
+            ]
+
+        monkeypatch.setattr(task_management_workflow_module.workflow, "info", lambda: Mock(workflow_id="wf-id"))
+        monkeypatch.setattr(task_management_workflow_module.workflow, "wait_condition", wait_condition)
+        monkeypatch.setattr(workflow, "_get_task_processing_context", get_context)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_event)
+        monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update)
+        monkeypatch.setattr(workflow, "_restore_pending_followups", AsyncMock())
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", AsyncMock())
+        monkeypatch.setattr(workflow, "_wait_for_event", fail_at_budget)
+        monkeypatch.setattr(
+            workflow, "_update_task_run_status", AsyncMock(side_effect=lambda *_args, **_kwargs: order.append("status"))
+        )
+        monkeypatch.setattr(workflow, "_persist_pending_followups_until_stable", persist_until_stable)
+
+        result = await workflow.run(TaskRunManagementInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
+
+        assert result.success is False
+        assert order[-4:] == ["status", "final-slack", "handlers-drained", "persist"]
+
+    async def test_closed_child_clears_all_steers_and_rebootstraps_in_order(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+        workflow._pending_external_followups.extend(
+            [
+                PendingExternalFollowup(
+                    message="retry me",
+                    artifact_ids=["artifact"],
+                    source="user",
+                    steer=True,
+                    sequence=4,
+                ),
+                PendingExternalFollowup(
+                    message="still queued",
+                    artifact_ids=[],
+                    source="user",
+                    steer=True,
+                    sequence=5,
+                ),
+            ]
+        )
+
+        handle = Mock()
+        handle.signal = AsyncMock(
+            side_effect=[
+                ApplicationError(
+                    "child workflow closed",
+                    type="ExternalWorkflowExecutionNotFound",
+                ),
+                None,
+                None,
+            ]
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "uuid4",
+            Mock(side_effect=["closed-ack", "replacement-ack-1", "replacement-ack-2"]),
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "patched", lambda _patch_id: True)
+        persist_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+
+        await workflow._drain_external_signals()
+
+        assert workflow._sandbox_alive is False
+        assert workflow._pending_ack_slots == {}
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(
+                message="retry me",
+                artifact_ids=["artifact"],
+                source="user",
+                sequence=4,
+            ),
+            PendingExternalFollowup(
+                message="still queued",
+                artifact_ids=[],
+                source="user",
+                sequence=5,
+            ),
+        ]
+
+        async def mark_replacement_alive() -> None:
+            workflow._sandbox_alive = True
+
+        bootstrap_mock = AsyncMock(side_effect=mark_replacement_alive)
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(task_management_workflow_module.workflow, "sleep", sleep_mock)
+
+        await workflow._drain_external_signals()
+
+        bootstrap_mock.assert_awaited_once()
+        sleep_mock.assert_awaited_once_with(1)
+        assert [call.args for call in handle.signal.await_args_list[-2:]] == [
+            ("send_followup_message",),
+            ("send_followup_message",),
+        ]
+        assert [call.kwargs for call in handle.signal.await_args_list[-2:]] == [
+            {"args": ["replacement-ack-1", "retry me", ["artifact"], "user", None, None, {}]},
+            {"args": ["replacement-ack-2", "still queued", [], "user", None, None, {}]},
+        ]
+        assert workflow._pending_external_followups == []
+        assert persist_mock.await_count >= 2
+
 
 class TestDrainChildSignals:
     async def test_matched_ack_clears_slot_and_logs(self, fixed_now, silent_workflow_logger):
         workflow = TaskManagementWorkflow()
         workflow._run_id = "run-id"
+        workflow._consecutive_sandbox_replacement_failures = 2
         workflow._pending_ack_slots["ack-1"] = PendingAckSlot(
             signal_name="send_followup_message", sent_at=fixed_now.now
         )
@@ -483,6 +931,7 @@ class TestDrainChildSignals:
 
         assert workflow._pending_ack_slots == {}
         assert workflow._child_acks == []
+        assert workflow._consecutive_sandbox_replacement_failures == 0
         # Heartbeat flag is reset every drain so the wait condition can fire again.
         assert workflow._heartbeat_received is False
         silent_workflow_logger.info.assert_called()
@@ -527,13 +976,132 @@ class TestSignalChildFollowup:
 
         handle.signal.assert_awaited_once_with(
             "send_followup_message",
-            args=["ack-generated", "m", ["a"], "ci"],
+            args=["ack-generated", "m", ["a"], "ci", None, None, {}],
         )
         slot = workflow._pending_ack_slots["ack-generated"]
         assert slot.signal_name == "send_followup_message"
         # signal_args must mirror the exact bytes we sent so the retry loop
         # can replay them — the child dedupes on ack_id so a replay is safe.
-        assert slot.signal_args == ["ack-generated", "m", ["a"], "ci"]
+        assert slot.signal_args == ["ack-generated", "m", ["a"], "ci", None, None, {}]
+
+    @pytest.mark.parametrize(("reset_patch_enabled", "expected_failures"), [(False, 5), (True, 1)])
+    async def test_accepted_ack_resets_replacement_budget_before_closed_child_recovery(
+        self,
+        monkeypatch,
+        fixed_now,
+        silent_workflow_logger,
+        reset_patch_enabled: bool,
+        expected_failures: int,
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+        workflow._consecutive_sandbox_replacement_failures = 4
+        workflow._pending_ack_slots["ack-accepted"] = PendingAckSlot(
+            signal_name="send_followup_message",
+            sent_at=fixed_now.now,
+            signal_args=["ack-accepted", "accepted", [], "user"],
+            sequence=1,
+        )
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name="send_followup_message",
+                ack_id="ack-accepted",
+                accepted=True,
+                detail=None,
+                received_at=fixed_now.now,
+            )
+        )
+
+        handle = Mock()
+        handle.signal = AsyncMock(
+            side_effect=ApplicationError(
+                "child workflow closed",
+                type="ExternalWorkflowExecutionNotFound",
+            )
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "uuid4", Mock(return_value="ack-closed"))
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_patch_enabled",
+            lambda patch_id: (
+                reset_patch_enabled
+                if patch_id == task_management_workflow_module._PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET
+                else True
+            ),
+        )
+        monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
+
+        delivered = await workflow._signal_child_followup("retry", [], sequence=2)
+
+        assert delivered is False
+        assert workflow._consecutive_sandbox_replacement_failures == expected_failures
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(message="retry", artifact_ids=[], source="user", sequence=2)
+        ]
+
+    @pytest.mark.parametrize(
+        ("patch_enabled", "protocol_version", "expected_signal"),
+        [
+            (True, STEERING_PROTOCOL_VERSION, SEND_STEER_SIGNAL),
+            (True, 0, "send_followup_message"),
+            (False, 0, SEND_STEER_SIGNAL),
+        ],
+    )
+    async def test_steer_signal_is_capability_gated_without_breaking_replay(
+        self,
+        monkeypatch,
+        fixed_now,
+        patch_enabled: bool,
+        protocol_version: int,
+        expected_signal: str,
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._child_steering_protocol_version = protocol_version
+
+        handle = Mock()
+        handle.signal = AsyncMock()
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "uuid4", lambda: "ack-steer")
+        monkeypatch.setattr(task_management_workflow_module.workflow, "patched", lambda _patch_id: patch_enabled)
+
+        await workflow._signal_child_followup(
+            message="m",
+            artifact_ids=["a"],
+            source="user",
+            actor_user_id=42,
+            message_id="message-1",
+            message_context={"actor_slack_user_id": "U123"},
+            steer=True,
+        )
+
+        handle.signal.assert_awaited_once_with(
+            expected_signal,
+            args=["ack-steer", "m", ["a"], "user", "message-1", 42, {"actor_slack_user_id": "U123"}],
+        )
+        slot = workflow._pending_ack_slots["ack-steer"]
+        assert slot.signal_name == expected_signal
+        assert slot.signal_args == [
+            "ack-steer",
+            "m",
+            ["a"],
+            "user",
+            "message-1",
+            42,
+            {"actor_slack_user_id": "U123"},
+        ]
 
     async def test_skips_when_no_sandbox_id(self, monkeypatch, silent_workflow_logger):
         # If the sandbox workflow id was never set we have nowhere to deliver
@@ -572,8 +1140,58 @@ class TestSignalChildFollowup:
         assert "ack-x" in workflow._pending_ack_slots
         slot = workflow._pending_ack_slots["ack-x"]
         assert slot.signal_name == "send_followup_message"
-        assert slot.signal_args == ["ack-x", "m", [], "user"]
+        assert slot.signal_args == ["ack-x", "m", [], "user", None, None, {}]
         assert slot.retry_count == 0
+
+    @pytest.mark.parametrize("signal_path", ["followup", "completion", "ack_retry"])
+    async def test_closed_child_failure_preserves_legacy_replay_commands(
+        self,
+        monkeypatch,
+        fixed_now,
+        silent_workflow_logger,
+        signal_path: str,
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+
+        handle = Mock()
+        handle.signal = AsyncMock(
+            side_effect=ApplicationError(
+                "child workflow closed",
+                type="ExternalWorkflowExecutionNotFound",
+            )
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "uuid4", lambda: "historical-ack")
+        monkeypatch.setattr(task_management_workflow_module.workflow, "in_workflow", lambda: True)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "patched", lambda _patch_id: False)
+        persist_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+
+        if signal_path == "followup":
+            delivered = await workflow._signal_child_followup("historical", [], "user")
+            assert delivered is True
+        elif signal_path == "completion":
+            await workflow._signal_child_complete("completed", None)
+        else:
+            workflow._pending_ack_slots["historical-ack"] = PendingAckSlot(
+                signal_name="send_followup_message",
+                sent_at=fixed_now.now,
+                signal_args=["historical-ack", "historical", [], "user"],
+            )
+            fixed_now.advance(ACK_TIMEOUT + timedelta(seconds=1))
+            await workflow._retry_stale_acks()
+
+        assert workflow._sandbox_alive is True
+        assert "historical-ack" in workflow._pending_ack_slots
+        assert workflow._pending_external_followups == []
+        persist_mock.assert_not_awaited()
 
 
 class TestSignalChildComplete:
@@ -613,6 +1231,34 @@ class TestSignalChildComplete:
         slot = workflow._pending_ack_slots["ack-c"]
         assert slot.signal_name == "complete_task"
         assert slot.signal_args == ["ack-c", "failed", "boom"]
+
+    async def test_closed_child_recovers_completion_slot(self, monkeypatch, fixed_now, silent_workflow_logger):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+
+        handle = Mock()
+        handle.signal = AsyncMock(
+            side_effect=ApplicationError(
+                "child workflow closed",
+                type="ExternalWorkflowExecutionNotFound",
+            )
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "uuid4", lambda: "ack-c")
+        persist_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+
+        await workflow._signal_child_complete("completed", None)
+
+        assert workflow._sandbox_alive is False
+        assert workflow._pending_ack_slots == {}
+        persist_mock.assert_awaited_once()
 
 
 class TestNewAckId:
@@ -775,6 +1421,64 @@ class TestRetryStaleAcks:
         assert slot.sent_at == original_sent
         assert slot.retry_count == 0
 
+    async def test_closed_child_requeues_stale_followups_in_arrival_order(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = True
+        workflow._child_steering_protocol_version = STEERING_PROTOCOL_VERSION
+        workflow._pending_ack_slots["later"] = PendingAckSlot(
+            signal_name=SEND_STEER_SIGNAL,
+            sent_at=fixed_now.now,
+            signal_args=["later", "second", [], "user"],
+            sequence=2,
+        )
+        workflow._pending_ack_slots["earlier"] = PendingAckSlot(
+            signal_name="send_followup_message",
+            sent_at=fixed_now.now,
+            signal_args=["earlier", "first", ["artifact"], "user"],
+            sequence=1,
+        )
+        fixed_now.advance(ACK_TIMEOUT + timedelta(seconds=1))
+
+        handle = Mock()
+        handle.signal = AsyncMock(
+            side_effect=ApplicationError(
+                "child workflow closed",
+                type="ExternalWorkflowExecutionNotFound",
+            )
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle),
+        )
+        persist_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+
+        await workflow._retry_stale_acks()
+
+        assert workflow._sandbox_alive is False
+        assert workflow._child_steering_protocol_version == 0
+        assert workflow._pending_ack_slots == {}
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(
+                message="first",
+                artifact_ids=["artifact"],
+                source="user",
+                sequence=1,
+            ),
+            PendingExternalFollowup(
+                message="second",
+                artifact_ids=[],
+                source="user",
+                sequence=2,
+            ),
+        ]
+        persist_mock.assert_awaited_once()
+
 
 class TestWaitForAckRetry:
     """The wait task sleeps until the *oldest* slot's ACK deadline."""
@@ -856,6 +1560,52 @@ class TestShutdownRejectionHandling:
         ]
         silent_workflow_logger.warning.assert_called()
 
+    async def test_steer_rejections_preserve_arrival_order_as_normal_followups(self, fixed_now, silent_workflow_logger):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._pending_ack_slots["ack-steer-1"] = PendingAckSlot(
+            signal_name=SEND_STEER_SIGNAL,
+            sent_at=fixed_now.now,
+            signal_args=["ack-steer-1", "first instruction", [], "user"],
+            sequence=0,
+        )
+        workflow._pending_ack_slots["ack-steer-2"] = PendingAckSlot(
+            signal_name=SEND_STEER_SIGNAL,
+            sent_at=fixed_now.now,
+            signal_args=["ack-steer-2", "second instruction", [], "user"],
+            sequence=1,
+        )
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name=SEND_STEER_SIGNAL,
+                ack_id="ack-steer-1",
+                accepted=False,
+                detail="child_shutting_down",
+                received_at=fixed_now.now,
+            )
+        )
+
+        await workflow._drain_child_signals()
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name=SEND_STEER_SIGNAL,
+                ack_id="ack-steer-2",
+                accepted=False,
+                detail="child_shutting_down",
+                received_at=fixed_now.now,
+            )
+        )
+        await workflow._drain_child_signals()
+
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(
+                message="first instruction", artifact_ids=[], source="user", steer=False, sequence=0
+            ),
+            PendingExternalFollowup(
+                message="second instruction", artifact_ids=[], source="user", steer=False, sequence=1
+            ),
+        ]
+
     async def test_complete_task_rejection_is_dropped_silently(self, fixed_now, silent_workflow_logger):
         # If the child rejects a `complete_task` because it's shutting down,
         # that means it's already completing — no need to re-queue anything.
@@ -885,6 +1635,99 @@ class TestShutdownRejectionHandling:
 class TestSandboxSessionCompletionReset:
     """The orchestrator is persistent across sandbox sessions: when one ends
     we reset per-session state but stay alive for the next external signal."""
+
+    async def test_ack_is_processed_before_queued_session_completion(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_alive = True
+        workflow._child_completion = ChildCompletion(success=True, error=None, sandbox_id="sb-1", timed_out=False)
+        workflow._pending_ack_slots["ack-delivered"] = PendingAckSlot(
+            signal_name="send_followup_message",
+            sent_at=fixed_now.now,
+            signal_args=["ack-delivered", "already delivered", [], "user"],
+        )
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name="send_followup_message",
+                ack_id="ack-delivered",
+                accepted=True,
+                detail=None,
+                received_at=fixed_now.now,
+            )
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "wait_condition", AsyncMock())
+        monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
+
+        assert await workflow._wait_for_signal() is TaskEvent.CHILD_FORWARDED
+        await workflow._drain_child_signals()
+        assert workflow._pending_ack_slots == {}
+
+        assert await workflow._wait_for_signal() is TaskEvent.CHILD_COMPLETED
+        await workflow._on_sandbox_session_completed()
+
+        assert workflow._pending_external_followups == []
+
+    async def test_existing_history_adopts_ack_first_ordering_for_a_new_sandbox_generation(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._ack_before_completion = False
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "info",
+            Mock(return_value=Mock(workflow_id="parent-wf")),
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "execute_activity",
+            AsyncMock(return_value=0),
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "uuid4",
+            Mock(side_effect=["historical-bootstrap-ack", "new-bootstrap-ack"]),
+        )
+        generation_patch = Mock(side_effect=[False, True])
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_ack_before_completion_for_sandbox_generation",
+            generation_patch,
+        )
+
+        await workflow._ensure_sandbox_workflow_started()
+
+        assert workflow._sandbox_generation == 1
+        assert workflow._ack_before_completion is False
+
+        await workflow._ensure_sandbox_workflow_started()
+
+        assert workflow._sandbox_generation == 2
+        assert [entry.args for entry in generation_patch.call_args_list] == [(1,), (2,)]
+
+        workflow._child_completion = ChildCompletion(
+            success=True,
+            error=None,
+            sandbox_id="sb-1",
+            timed_out=False,
+        )
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name="send_followup_message",
+                ack_id="ack-delivered",
+                accepted=True,
+                detail=None,
+                received_at=fixed_now.now,
+            )
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "wait_condition", AsyncMock())
+
+        assert await workflow._wait_for_signal() is TaskEvent.CHILD_FORWARDED
+        assert workflow._ack_before_completion is True
 
     async def test_session_completion_does_not_close_orchestrator(self, monkeypatch, fixed_now, silent_workflow_logger):
         # Hardest assertion to lose: after `_on_sandbox_session_completed`,
@@ -942,6 +1785,64 @@ class TestSandboxSessionCompletionReset:
         assert workflow._pending_ack_slots == {}
         persist_mock.assert_awaited()
 
+    async def test_unacked_steer_is_requeued_without_stale_intent(self, monkeypatch, silent_workflow_logger, fixed_now):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_alive = True
+        workflow._child_completion = ChildCompletion(success=True, error=None, sandbox_id="sb-1", timed_out=False)
+        workflow._pending_ack_slots["ack-steer"] = PendingAckSlot(
+            signal_name=SEND_STEER_SIGNAL,
+            sent_at=fixed_now.now,
+            signal_args=[
+                "ack-steer",
+                "survive replacement",
+                [],
+                "user",
+                "message-1",
+                42,
+                {"actor_slack_user_id": "U123"},
+            ],
+            sequence=1,
+        )
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(
+                message="still waiting",
+                artifact_ids=[],
+                source="user",
+                actor_user_id=43,
+                message_id="message-2",
+                context={"actor_slack_user_id": "U456"},
+                steer=True,
+                sequence=2,
+            )
+        )
+        monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
+
+        await workflow._on_sandbox_session_completed()
+
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(
+                message="survive replacement",
+                artifact_ids=[],
+                source="user",
+                actor_user_id=42,
+                message_id="message-1",
+                context={"actor_slack_user_id": "U123"},
+                steer=False,
+                sequence=1,
+            ),
+            PendingExternalFollowup(
+                message="still waiting",
+                artifact_ids=[],
+                source="user",
+                actor_user_id=43,
+                message_id="message-2",
+                context={"actor_slack_user_id": "U456"},
+                steer=False,
+                sequence=2,
+            ),
+        ]
+
 
 class TestPendingFollowupPersistence:
     async def test_restore_pending_seeds_in_memory_queue(self, monkeypatch, silent_workflow_logger):
@@ -971,7 +1872,7 @@ class TestPendingFollowupPersistence:
 
         assert workflow._pending_external_followups == [
             PendingExternalFollowup(message="queued-1", artifact_ids=[], source="user"),
-            PendingExternalFollowup(message="queued-2", artifact_ids=["a1"], source="user"),
+            PendingExternalFollowup(message="queued-2", artifact_ids=["a1"], source="user", sequence=1),
         ]
 
     async def test_restore_swallows_read_error(self, monkeypatch, silent_workflow_logger):
@@ -990,7 +1891,7 @@ class TestPendingFollowupPersistence:
 
     async def test_persist_writes_current_queue(self, monkeypatch):
         from products.tasks.backend.temporal.task_management.activities.pending_followups import (
-            persist_pending_followups,
+            persist_pending_followups_v2,
         )
 
         workflow = TaskManagementWorkflow()
@@ -1002,7 +1903,7 @@ class TestPendingFollowupPersistence:
         captured: dict = {}
 
         async def fake_execute_activity(activity_fn, input_arg, *args, **kwargs):
-            assert activity_fn is persist_pending_followups
+            assert activity_fn is persist_pending_followups_v2
             captured["input"] = input_arg
             return None
 
@@ -1011,4 +1912,16 @@ class TestPendingFollowupPersistence:
         await workflow._persist_pending_followups()
 
         assert captured["input"].run_id == "run-id"
-        assert captured["input"].followups == [{"message": "persist-me", "artifact_ids": ["a1"], "source": "user"}]
+        assert captured["input"].followups == [
+            {
+                "message": "persist-me",
+                "artifact_ids": ["a1"],
+                "source": "user",
+                "actor_user_id": None,
+                "message_id": None,
+                "context": {},
+                "steer": False,
+                "sequence": 0,
+            }
+        ]
+        assert captured["input"].generation > 0

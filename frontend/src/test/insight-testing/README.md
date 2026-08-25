@@ -25,9 +25,12 @@ Handles all setup automatically — Kea context, common logics, and API mocks.
 | Prop            | Type                | Description                                              |
 | --------------- | ------------------- | -------------------------------------------------------- |
 | `query`         | `TrendsQuery`       | Query to render (defaults to a `$pageview` trends query) |
-| `showFilters`   | `boolean`           | Show filter controls (defaults to `true`)                |
+| `showFilters`   | `boolean`           | Show filter controls (defaults to `false`)               |
 | `mocks`         | `SetupMocksOptions` | Override event/property definitions and property values  |
 | `mockResponses` | `MockResponse[]`    | Custom query response matchers                           |
+
+By default only the chart renders — no filter editor UI.
+Mounting the filter controls roughly doubles a test's runtime, so use `renderInsightPage` (same props, `showFilters` defaults to `true`) only when the test interacts with them.
 
 ## `renderWithInsights(props)`
 
@@ -95,7 +98,7 @@ without waiting.
 
 ## Interactions
 
-Filter controls render by default (`showFilters` defaults to `true`):
+Filter interactions need the filter controls mounted — render with `renderInsightPage` (or pass `showFilters: true`):
 
 ```tsx
 import { series, breakdown, interval, display, compare } from './index'

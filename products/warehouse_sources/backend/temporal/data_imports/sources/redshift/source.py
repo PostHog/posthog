@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -15,30 +15,48 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
+from products.data_warehouse.backend.facade.api import reconcile_redshift_schemas
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import RedshiftImplementation
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    RedshiftImplementation,
+    get_connection_metadata as get_connection_metadata_redshift,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
 _REDSHIFT_IMPLEMENTATION = RedshiftImplementation()
+
+# sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
+# can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
+# down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
+# replace it with concrete guidance (the sibling SQL sources already do the same).
+_SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+    "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are "
+    "correct, the bastion host is running and reachable, and that PostHog's IP addresses are "
+    "allowed through its firewall."
+)
 
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
-    "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+    "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "SSL connection has been closed unexpectedly": "SSL connection error. Please check your SSL settings.",
     "server does not support SSL": "The server does not support SSL, which we require for Redshift. Please check the host and port point to your Redshift cluster.",
     "Connection refused": "Connection refused. Please check the host and port.",
@@ -64,7 +82,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         return SourceConfig(
             name=SchemaExternalDataSourceType.REDSHIFT,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["aws redshift", "amazon redshift"],
+            keywords=["aws redshift", "amazon redshift", "sql"],
             caption="Enter your Redshift credentials to automatically pull your Redshift data into the PostHog Data warehouse",
             iconPath="/static/services/redshift.png",
             docsUrl="https://posthog.com/docs/cdp/sources/redshift",
@@ -141,16 +159,41 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
-            "No primary key defined for table": None,
+            "No primary key defined for table": (
+                "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
+                "key for the table in its sync settings, or switch it to full table replication, then "
+                "re-enable the sync."
+            ),
             "failed: timeout expired": None,
             "SSL connection has been closed unexpectedly": None,
             "server does not support SSL": None,
             "does not exist": None,
             "QueryTimeoutException": None,
+            # `QueryTimeoutException` above only matches once Temporal's `ApplicationError` wraps
+            # the failure with the class name (workflow layer) — the activity-level check matches
+            # `str(e)` on the raw exception, which is just the message with no class name. Match
+            # the stable prefix too (not the incremental field name, which varies per table) so a
+            # table missing the SORTKEY stops retrying at the activity layer instead of burning a
+            # full retry budget on a 10-minute query that will time out identically every time.
+            "10 min timeout statement reached": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             "Network is unreachable": None,
+            # `InsufficientPrivilege` is the psycopg exception class name. It only appears once
+            # Temporal wraps the activity failure (`ApplicationError` stringifies as
+            # "InsufficientPrivilege: ..."), so it matches at the workflow layer but NOT in the
+            # activity-level check, where `error_msg = str(e)` is the raw psycopg message —
+            # Redshift's SQLSTATE 42501 text "permission denied for ...". Match that message
+            # substring too so the role-lacks-SELECT case (including a materialized view whose
+            # base relation isn't separately granted) is caught at both layers instead of burning
+            # the activity's full retry budget on a denial that can't resolve itself.
             "InsufficientPrivilege": None,
+            "permission denied for": (
+                "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
+                '(Redshift reported "permission denied"). If this is a materialized view, Redshift also '
+                "requires the connecting role to have SELECT on its underlying base table(s), not just the "
+                "view. Grant the connecting role SELECT on those tables, then re-enable the sync."
+            ),
             "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
@@ -158,7 +201,11 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         }
 
     def validate_credentials(
-        self, config: RedshiftSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RedshiftSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -171,7 +218,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in RedshiftErrors.items():
@@ -181,9 +228,12 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             capture_exception(e)
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
+            raw = e.value or ""
+            if _SSH_GATEWAY_SESSION_ERROR in raw:
+                return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
             return (
                 False,
-                e.value
+                raw
                 or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
@@ -201,3 +251,19 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         return self.get_implementation.build_pipeline(
             config, inputs, chunk_size_override=schema_row.chunk_size_override
         )
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_redshift_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_redshift_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def get_connection_metadata(
+        self, config: RedshiftSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, str | None]:
+        # `require_ssl` keeps signature parity with Postgres/MySQL; the metadata is static
+        # (the engine follows from the source type), so no live connection is needed.
+        return get_connection_metadata_redshift(config)

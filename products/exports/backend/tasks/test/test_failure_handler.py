@@ -38,7 +38,6 @@ class TestIsUserQueryErrorType(TestCase):
             ("TimeoutError", False),
             ("ValueError", False),
             ("CHQueryErrorS3Error", False),
-            ("CHQueryErrorTooManySimultaneousQueries", False),
             ("ClickHouseAtCapacity", False),
             ("ConcurrencyLimitExceeded", False),
             ("ReadTimeoutError", False),
@@ -69,10 +68,11 @@ class TestClassifyFailureType(TestCase):
             ("ValidationError", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
-            ("CHQueryErrorTooManySimultaneousQueries", FAILURE_TYPE_SYSTEM),
             ("OperationalError", FAILURE_TYPE_SYSTEM),
             ("ClickHouseAtCapacity", FAILURE_TYPE_SYSTEM),
             ("ReadTimeoutError", FAILURE_TYPE_SYSTEM),
+            ("ObjectStorageError", FAILURE_TYPE_SYSTEM),
+            ("RetryableExportError", FAILURE_TYPE_SYSTEM),
             # Unknown errors
             ("ValueError", FAILURE_TYPE_UNKNOWN),
             ("RuntimeError", FAILURE_TYPE_UNKNOWN),

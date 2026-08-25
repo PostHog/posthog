@@ -1,15 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { delay, HttpResponse } from 'msw'
 
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { InsightShortId } from '~/types'
 
 import insight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
-import { insightVizDataLogic } from '../insightVizDataLogic'
 import funnelOneStep from './funnelOneStep.json'
 
 type Story = StoryObj<{}>
@@ -51,6 +48,20 @@ export const ServerError: Story = {
                     return HttpResponse.json({ count: 1, results: [{ ...insight, result: null }] })
                 },
                 '/api/environments/:team_id/insights/:id': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            detail: 'There is nothing you can do to stop the impending catastrophe.',
+                        },
+                        { status: 500 }
+                    )
+                },
+            },
+            post: {
+                // The query path must fail like the legacy endpoints above — otherwise the
+                // default query mock succeeds and renders a freshness bar over the error state.
+                '/api/environments/:team_id/query/:kind/': async () => {
                     await delay(100)
                     return HttpResponse.json(
                         {
@@ -122,10 +133,56 @@ export const ValidationError: Story = {
                         { status: 400 }
                     )
                 },
+                // Fail the query path too, so the default query mock doesn't succeed and
+                // render a freshness bar over the error state.
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'validation_error',
+                            detail: 'You forgot to hug the person next to you. Please do that now.',
+                        },
+                        { status: 400 }
+                    )
+                },
             },
         })
 
         return <App />
+    },
+}
+
+export const MemoryLimitExceeded: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [
+                    200,
+                    { count: 1, results: [{ ...insight, result: null }] },
+                ],
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            code: 'clickhouse_memory_limit_exceeded',
+                            detail: "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries",
+                        },
+                        { status: 513 }
+                    )
+                },
+            },
+        })
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr=insight-memory-limit-debug-with-ai]',
+        },
     },
 }
 
@@ -177,11 +234,6 @@ export const LongLoading: Story = {
                     return HttpResponse.json({})
                 },
             },
-        })
-
-        useDelayedOnMountEffect(() => {
-            const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
-            logic?.actions.setTimedOutQueryId('a-uuid-query-id') // Show the suggestions immediately
         })
 
         return <App />

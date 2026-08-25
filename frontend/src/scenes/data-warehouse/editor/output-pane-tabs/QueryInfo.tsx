@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconTarget } from '@posthog/icons'
-import { LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -13,9 +14,13 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { MaterializationStatusPanel } from 'scenes/data-warehouse/saved_queries/MaterializationStatusPanel'
 
-import { DataWarehouseSavedQuery, LineageNode } from '~/types'
+import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
-import { UpstreamGraph } from '../sidebar/graph/UpstreamGraph'
+import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
+import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { DataQualityChecksPanel } from 'products/data_quality/frontend/DataQualityChecksPanel'
+import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
+
 import { sqlEditorLogic } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
 
@@ -29,10 +34,25 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
     const targetView = view ?? editingView
     const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
     const { sourceTableItems } = useValues(infoLogic)
-    const { saveAsView, setUpstreamViewMode } = useActions(sqlEditorLogic)
+    const { saveAsView, setUpstreamViewMode, editView } = useActions(sqlEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
+
+    const currentNodeId = upstream?.nodes.find((n) => n.saved_query_id && n.saved_query_id === targetView?.id)?.id
+    const openInEditor = async (node: DataModelingNode): Promise<void> => {
+        if (!node.saved_query_id) {
+            return
+        }
+        try {
+            const savedQuery = await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+            if (savedQuery?.query?.query) {
+                editView(savedQuery.query.query, savedQuery)
+            }
+        } catch {
+            lemonToast.error('Failed to load view details')
+        }
+    }
 
     const { updatingDataWarehouseSavedQuery, initialDataWarehouseSavedQueryLoading } =
         useValues(dataWarehouseViewsLogic)
@@ -49,7 +69,16 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
         <div className="overflow-auto" data-attr="sql-editor-sidebar-query-info-pane">
             <div className="flex flex-col flex-1 gap-4">
                 {targetView ? (
-                    <MaterializationStatusPanel viewId={targetView.id} />
+                    <>
+                        <MaterializationStatusPanel viewId={targetView.id} />
+                        {featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && (
+                            <DataQualityChecksPanel
+                                subjectType="view"
+                                subjectId={targetView.id}
+                                columns={targetView.columns ?? []}
+                            />
+                        )}
+                    </>
                 ) : (
                     <div>
                         <div className="flex flex-row items-center gap-2">
@@ -109,7 +138,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                                 </Tooltip>
                                             )
                                         }
-                                        if (last_run_at === 'never' && !status) {
+                                        if (!last_run_at && !status) {
                                             return (
                                                 <Tooltip title="This is a view, so it's always available with the latest data">
                                                     <span className="text-secondary">Available</span>
@@ -130,8 +159,12 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                                 </Tooltip>
                                             )
                                         }
-                                        if (last_run_at === 'never' && !status) {
-                                            return (
+                                        if (!last_run_at) {
+                                            return status ? (
+                                                <Tooltip title="This materialized view hasn't completed a run yet">
+                                                    <span className="text-secondary">Not yet run</span>
+                                                </Tooltip>
+                                            ) : (
                                                 <Tooltip title="This is a view, so it is never run">
                                                     <span className="text-secondary">N/A</span>
                                                 </Tooltip>
@@ -151,8 +184,11 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                         <div>
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <h3 className="mb-1">Tables we use</h3>
-                                    <p className="text-xs mb-0">Tables and views that this query relies on.</p>
+                                    <h3 className="mb-1">Lineage</h3>
+                                    <p className="text-xs mb-0">
+                                        Tables and views connected to this query — what it reads from and what builds on
+                                        it.
+                                    </p>
                                 </div>
                                 <LemonSegmentedButton
                                     value={upstreamViewMode}
@@ -195,21 +231,16 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                     {
                                         key: 'type',
                                         title: 'Type',
-                                        render: (_, { type, last_run_at }) => {
-                                            if (type === 'view') {
-                                                return last_run_at ? 'Mat. View' : 'View'
-                                            }
-                                            return 'Table'
-                                        },
+                                        render: (_, { type }) => NODE_TYPE_TAG_SETTINGS[type].label,
                                     },
                                     {
                                         key: 'upstream',
                                         title: 'Direct Upstream',
                                         render: (_, node) => {
                                             const upstreamNodes = upstream.edges
-                                                .filter((edge) => edge.target === node.id)
-                                                .map((edge) => upstream.nodes.find((n) => n.id === edge.source))
-                                                .filter((n): n is LineageNode => n !== undefined)
+                                                .filter((edge) => edge.target_id === node.id)
+                                                .map((edge) => upstream.nodes.find((n) => n.id === edge.source_id))
+                                                .filter((n): n is DataModelingNode => n !== undefined)
 
                                             if (upstreamNodes.length === 0) {
                                                 return <span className="text-secondary">None</span>
@@ -229,25 +260,12 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                     {
                                         key: 'last_run_at',
                                         title: 'Last Run At',
-                                        render: (_, { last_run_at, sync_frequency }) => {
+                                        render: (_, { last_run_at, sync_interval }) => {
                                             if (!last_run_at) {
                                                 return 'On demand'
                                             }
-                                            const numericSyncFrequency = Number(sync_frequency)
-                                            const frequencyMap: Record<string, string> = {
-                                                300: '5 mins',
-                                                1800: '30 mins',
-                                                3600: '1 hour',
-                                                21600: '6 hours',
-                                                43200: '12 hours',
-                                                86400: '24 hours',
-                                                604800: '1 week',
-                                            }
-
-                                            return `${humanFriendlyDetailedTime(last_run_at)} ${
-                                                frequencyMap[numericSyncFrequency]
-                                                    ? `every ${frequencyMap[numericSyncFrequency]}`
-                                                    : ''
+                                            return `${humanFriendlyDetailedTime(last_run_at)}${
+                                                sync_interval ? ` every ${syncIntervalToShorthand(sync_interval)}` : ''
                                             }`
                                         },
                                     },
@@ -255,7 +273,23 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                 dataSource={upstream.nodes}
                             />
                         ) : (
-                            <UpstreamGraph tabId={tabId} />
+                            <div className="h-[500px] border border-border rounded-md overflow-hidden">
+                                <LineageGraph
+                                    nodes={upstream.nodes}
+                                    edges={upstream.edges}
+                                    currentNodeId={currentNodeId}
+                                    variant="full"
+                                    interactive
+                                    showControls
+                                    showMinimap
+                                    nodeCallbacks={(node) => ({
+                                        onEdit:
+                                            node.type !== 'table' && node.id !== currentNodeId
+                                                ? () => void openInEditor(node)
+                                                : undefined,
+                                    })}
+                                />
+                            </div>
                         )}
                     </>
                 )}

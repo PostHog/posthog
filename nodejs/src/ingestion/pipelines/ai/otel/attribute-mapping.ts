@@ -3,12 +3,14 @@ import {
     aiOtelGroupsCounter,
     aiOtelOlderSpecEventsCounter,
     aiOtelSystemInstructionsCounter,
+    aiOtelUnknownPartTypeCounter,
 } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
 const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.input.messages': '$ai_input',
     'gen_ai.output.messages': '$ai_output_choices',
+    'gen_ai.tool.definitions': '$ai_tools',
     'gen_ai.usage.input_tokens': '$ai_input_tokens',
     'gen_ai.usage.output_tokens': '$ai_output_tokens',
     'gen_ai.usage.cache_read.input_tokens': '$ai_cache_read_input_tokens',
@@ -37,7 +39,7 @@ const STRIP_ATTRIBUTES = new Set([
     'llm.request.type',
 ])
 
-const JSON_PARSE_PROPERTIES = new Set(['$ai_input', '$ai_output_choices'])
+const JSON_PARSE_PROPERTIES = new Set(['$ai_input', '$ai_output_choices', '$ai_tools'])
 
 // Older OTel GenAI spec emits messages as span events rather than
 // `gen_ai.input.messages` / `gen_ai.output.messages` attributes. Logfire
@@ -55,6 +57,11 @@ const OLDER_SPEC_CHOICE_EVENT_NAME = 'gen_ai.choice'
 // (`MAX_OUTPUT_CHOICES_LENGTH`). Pathological payloads would otherwise force
 // `parseJSON` into multi-megabyte input and pressure the ingestion worker.
 const MAX_OLDER_SPEC_EVENTS_LENGTH = 500_000
+
+// Upper bound on the serialized size of a string-valued `$groups` attribute we
+// will parse. A groups map is only a handful of short group-type → key pairs,
+// so this is generous; it keeps a pathological payload out of parseJSON.
+const MAX_GROUPS_LENGTH = 10_000
 
 const REQUEST_TYPE_TO_EVENT: Record<string, string> = {
     chat: '$ai_generation',
@@ -105,6 +112,7 @@ export function mapOtelAttributes(event: PluginEvent): void {
     convertOlderSpecEvents(event)
     convertSystemInstructions(event)
     normalizeGroups(event)
+    countUnknownMessageParts(event)
 
     computeLatency(event)
     promoteRootSpanToTrace(event)
@@ -114,11 +122,74 @@ export function mapOtelAttributes(event: PluginEvent): void {
     }
 }
 
-type GroupsOutcome = 'parsed' | 'non_object' | 'malformed'
+// Part types the trace view (llm-normalizer otel recipe) and the judge input
+// flattener (posthog/temporal/ai_observability/message_utils.py) both render.
+// Anything else is invisible to users, so it is counted rather than silently
+// dropped: a spike in the counter means the semconv grew a part type (or a
+// producer invented one) before we handle it.
+const KNOWN_MESSAGE_PART_TYPES = new Set([
+    'text',
+    'reasoning',
+    'tool_call',
+    'tool_call_response',
+    'server_tool_call',
+    'server_tool_call_response',
+    'blob',
+    'file',
+    'uri',
+    'compaction',
+])
+
+// Part types real producers emit today that no renderer handles yet (the Vercel
+// AI SDK emits both). They get their own label so a volume spike is attributable.
+const EXPECTED_UNKNOWN_PART_TYPES = new Set(['tool_approval_response', 'custom'])
+
+// The part type is producer-controlled and becomes a Prometheus label value, so
+// it must map into a fixed set of buckets: a label per distinct string would let
+// one sender mint unbounded series and grow ingestion memory without limit.
+function partTypeLabel(type: unknown): string {
+    if (typeof type !== 'string' || type.length === 0) {
+        return 'invalid'
+    }
+    return EXPECTED_UNKNOWN_PART_TYPES.has(type) ? type : 'other'
+}
+
+function countUnknownMessageParts(event: PluginEvent): void {
+    for (const key of ['$ai_input', '$ai_output_choices']) {
+        const messages = event.properties![key]
+        if (!Array.isArray(messages)) {
+            continue
+        }
+        for (const message of messages) {
+            if (typeof message !== 'object' || message === null) {
+                continue
+            }
+            const parts = (message as { parts?: unknown }).parts
+            if (!Array.isArray(parts)) {
+                continue
+            }
+            for (const part of parts) {
+                const type = typeof part === 'object' && part !== null ? (part as { type?: unknown }).type : undefined
+                if (typeof type === 'string' && KNOWN_MESSAGE_PART_TYPES.has(type)) {
+                    continue
+                }
+                aiOtelUnknownPartTypeCounter.labels({ part_type: partTypeLabel(type) }).inc()
+            }
+        }
+    }
+}
+
+type GroupsOutcome = 'parsed' | 'non_object' | 'malformed' | 'too_large'
 
 function normalizeGroups(event: PluginEvent): void {
     const props = event.properties!
     if (typeof props.$groups !== 'string') {
+        return
+    }
+
+    if (props.$groups.length > MAX_GROUPS_LENGTH) {
+        delete props.$groups
+        aiOtelGroupsCounter.labels({ outcome: 'too_large' }).inc()
         return
     }
 

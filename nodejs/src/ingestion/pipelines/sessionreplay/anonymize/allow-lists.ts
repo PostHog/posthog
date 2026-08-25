@@ -42,4 +42,8 @@ export class AllowLists {
     public urlContains(segment: string): boolean {
         return this.url.has(hasUpperAscii(segment) ? asciiLowercase(segment) : segment)
     }
+
+    public entries(): { text: string[]; url: string[] } {
+        return { text: [...this.text], url: [...this.url] }
+    }
 }

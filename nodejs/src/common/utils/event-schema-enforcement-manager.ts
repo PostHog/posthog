@@ -1,7 +1,7 @@
 import { EventSchemaEnforcement } from '~/types'
 
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader } from './lazy-loader'
+import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
 
 /**
  * Raw row from the database query - one row per property per event.
@@ -23,14 +23,23 @@ interface RawSchemaPropertyRow {
 /** Map from event_name to schema for O(1) lookups */
 export type EventSchemaMap = Map<string, EventSchemaEnforcement>
 
+export interface EventSchemaEnforcementManagerOptions {
+    /** Retry transient schema-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
+    loaderRetry?: LoaderRetryOptions
+}
+
 export class EventSchemaEnforcementManager {
     private lazyLoader: LazyLoader<EventSchemaMap>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        options?: EventSchemaEnforcementManagerOptions
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'EventSchemaEnforcementManager',
             refreshAgeMs: 2 * 60 * 1000, // 2 minutes
             refreshJitterMs: 30 * 1000, // 30 seconds
+            loaderRetry: options?.loaderRetry,
             loader: async (teamIds: string[]) => {
                 return await this.fetchSchemas(teamIds)
             },

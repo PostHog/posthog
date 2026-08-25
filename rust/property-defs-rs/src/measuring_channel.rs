@@ -37,18 +37,24 @@ pub fn measuring_channel<T>(capacity: usize) -> (MeasuringSender<T>, MeasuringRe
 }
 
 impl<T> MeasuringSender<T> {
+    // Both senders count the message *before* handing it to the channel. Counting afterwards
+    // leaves a window where the receiver has already dequeued the item and decremented, so the
+    // subtraction runs first and wraps the unsigned counter to usize::MAX, where the gauge then
+    // sits forever. On failure the item never entered the channel, so take the count back.
     pub fn try_send(&self, item: T) -> Result<(), TrySendError<T>> {
+        self.in_flight.fetch_add(1, Ordering::Relaxed);
         let res = self.sender.try_send(item);
-        if res.is_ok() {
-            self.in_flight.fetch_add(1, Ordering::Relaxed);
+        if res.is_err() {
+            self.in_flight.fetch_sub(1, Ordering::Relaxed);
         }
         res
     }
 
     pub async fn send(&self, item: T) -> Result<(), SendError<T>> {
+        self.in_flight.fetch_add(1, Ordering::Relaxed);
         let res = self.sender.send(item).await;
-        if res.is_ok() {
-            self.in_flight.fetch_add(1, Ordering::Relaxed);
+        if res.is_err() {
+            self.in_flight.fetch_sub(1, Ordering::Relaxed);
         }
         res
     }
@@ -57,12 +63,15 @@ impl<T> MeasuringSender<T> {
         self.in_flight.load(Ordering::Relaxed)
     }
 
+    /// Slots still free. Note this is *remaining* capacity, not the channel's size; pair it with
+    /// `max_capacity` to express occupancy.
     pub fn capacity(&self) -> usize {
         self.sender.capacity()
     }
 
-    pub fn inner(&self) -> &Sender<T> {
-        &self.sender
+    /// The channel's total size, which is fixed at construction.
+    pub fn max_capacity(&self) -> usize {
+        self.sender.max_capacity()
     }
 }
 
@@ -81,10 +90,6 @@ impl<T> MeasuringReceiver<T> {
             self.in_flight.fetch_sub(res, Ordering::Relaxed);
         }
         res
-    }
-
-    pub fn inner(&self) -> &Receiver<T> {
-        &self.receiver
     }
 
     pub fn get_inflight_messages_count(&self) -> usize {

@@ -171,6 +171,26 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('calculation polling', () => {
+        it('refreshes import counts when calculation finishes', async () => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.checkIfFinishedCalculating({
+                    ...mockCohort,
+                    is_calculating: false,
+                    last_import_total_count: 5,
+                    last_import_unmatched_count: 3,
+                })
+            }).toMatchValues({
+                cohort: partial({
+                    last_import_total_count: 5,
+                    last_import_unmatched_count: 3,
+                }),
+            })
+        })
+    })
+
     it('delete cohort', async () => {
         await initCohortLogic({ id: 1 })
         await expectLogic(logic, async () => {
@@ -717,7 +737,13 @@ describe('cohortEditLogic', () => {
                 is_static: true,
             }
             const createSpy = jest.spyOn(api.cohorts, 'create').mockResolvedValue(createdCohort)
-            const setTimeoutSpy = jest.spyOn(window, 'setTimeout').mockImplementation(() => 0 as never)
+            // Suppress only the 1s calculation poll — kea breakpoints schedule shorter
+            // timers through setTimeout too, and those must still fire
+            const realSetTimeout = window.setTimeout.bind(window)
+            const setTimeoutSpy = jest
+                .spyOn(window, 'setTimeout')
+                .mockImplementation(((handler: TimerHandler, timeout?: number, ...args: any[]) =>
+                    timeout === 1000 ? (0 as any) : realSetTimeout(handler, timeout, ...args)) as any)
 
             await expectLogic(logic, async () => {
                 logic.actions.setCohort({
@@ -757,6 +783,8 @@ describe('cohortEditLogic', () => {
             expect(createPayload.get('filters')).toContain('"values"')
             expect(createPayload.get('filters')).not.toContain('"properties":{}')
 
+            // Let the post-submit refreshPersonsData debounce finish before the test ends
+            await expectLogic(logic).toFinishAllListeners()
             setTimeoutSpy.mockRestore()
         })
 
@@ -1294,6 +1322,34 @@ describe('cohortEditLogic', () => {
             // Without resetting activeTab, the user would land on a blank screen for new cohorts:
             // overview is hidden via `display:none` while history requires a saved cohort to render.
             expect(logic.values.activeTab).toBe('overview')
+        })
+    })
+
+    describe('filter out test accounts', () => {
+        it('setFilterTestAccounts toggles the flag in filters', async () => {
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+            }).toMatchValues({
+                cohort: partial({ filters: partial({ filterTestAccounts: true }) }),
+            })
+        })
+
+        it('setOuterGroupsType preserves the filterTestAccounts flag', async () => {
+            // Regression guard: setOuterGroupsType used to rebuild `filters` from scratch, dropping
+            // sibling keys like filterTestAccounts.
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({
+                cohort: partial({
+                    filters: partial({
+                        filterTestAccounts: true,
+                        properties: partial({ type: FilterLogicalOperator.And }),
+                    }),
+                }),
+            })
         })
     })
 })

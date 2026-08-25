@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { IconCheck, IconExternal, IconMinus, IconSparkles, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -8,32 +9,186 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
+import type { TestHogResultItemApi } from '../../generated/api.schemas'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { HogTestResult } from '../types'
+import type { EvaluationTarget } from '../types'
 
-const HOG_EVAL_GLOBALS = {
-    input: {
-        type: 'string',
-        description: 'The input to the LLM (prompt / messages)',
+const GLOBAL_NAME_CODE_CLASS = 'font-medium text-sm text-primary bg-fill-highlight-100 px-1.5 py-0.5 rounded'
+const PROPERTY_NAME_CODE_CLASS = 'font-medium text-xs text-primary bg-fill-highlight-100 px-1 py-0.5 rounded'
+
+type HogGlobalFieldType = 'string' | 'number' | 'object'
+type HogGlobalDescription = string | Record<EvaluationTarget, string>
+
+interface HogGlobalFieldDefinition {
+    name: string
+    type: HogGlobalFieldType
+    description: HogGlobalDescription
+}
+
+interface HogGlobalDefinition {
+    name: string
+    collection: 'array' | 'object'
+    description: HogGlobalDescription
+    fields: readonly HogGlobalFieldDefinition[]
+}
+
+interface MonacoHogGlobalField {
+    type: HogGlobalFieldType
+    description: string
+}
+
+type MonacoHogGlobal = Record<string, MonacoHogGlobalField> | Record<string, MonacoHogGlobalField>[]
+
+const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
+    {
+        name: 'evaluation_events',
+        collection: 'array',
+        description: {
+            generation: 'The event for the generation being evaluated.',
+            trace: 'Every event in the trace being evaluated.',
+            session: 'Every event in every trace in the session being evaluated, in order.',
+        },
+        fields: [
+            { name: 'uuid', type: 'string', description: 'The event UUID.' },
+            { name: 'event', type: 'string', description: 'The PostHog event name.' },
+            { name: 'timestamp', type: 'string', description: 'When the event was captured.' },
+            { name: 'input', type: 'string', description: 'The raw input serialized as a string.' },
+            { name: 'output', type: 'string', description: 'The raw output serialized as a string.' },
+            {
+                name: 'input_text',
+                type: 'string',
+                description: 'Best-effort readable text extracted from the input.',
+            },
+            {
+                name: 'output_text',
+                type: 'string',
+                description: 'Best-effort readable text extracted from the output.',
+            },
+            {
+                name: 'properties',
+                type: 'object',
+                description: 'Event properties without large input, output, and tool payloads.',
+            },
+        ],
     },
-    output: {
-        type: 'string',
-        description: 'The output from the LLM (response / choices)',
+    {
+        name: 'target',
+        collection: 'object',
+        description: {
+            generation: 'Details about the generation being evaluated.',
+            trace: 'Details about the trace being evaluated.',
+            session: 'Details about the session being evaluated.',
+        },
+        fields: [
+            {
+                name: 'type',
+                type: 'string',
+                description: {
+                    generation: 'The target type: generation.',
+                    trace: 'The target type: trace.',
+                    session: 'The target type: session.',
+                },
+            },
+            {
+                name: 'id',
+                type: 'string',
+                description: {
+                    generation: 'The generation event UUID.',
+                    trace: 'The trace ID.',
+                    session: 'The session ID.',
+                },
+            },
+            {
+                name: 'total_cost_usd',
+                type: 'number',
+                description: {
+                    generation: 'The total cost for the generation in USD, when available.',
+                    trace: 'The total cost for the trace in USD, when available.',
+                    session: 'The total cost across every trace in the session in USD, when available.',
+                },
+            },
+            {
+                name: 'total_latency_seconds',
+                type: 'number',
+                description: {
+                    generation: 'The total latency for the generation in seconds, when available.',
+                    trace: 'The total latency for the trace in seconds, when available.',
+                    session:
+                        'The latency of every trace in the session added up, in seconds. This is time spent on AI work, not how long the session lasted.',
+                },
+            },
+        ],
     },
-    properties: {
-        type: 'object',
-        description: 'All event properties',
+]
+
+function resolveHogGlobalDescription(description: HogGlobalDescription, target: EvaluationTarget): string {
+    return typeof description === 'string' ? description : description[target]
+}
+
+function buildMonacoHogGlobals(target: EvaluationTarget): Record<string, MonacoHogGlobal> {
+    return Object.fromEntries(
+        HOG_EVAL_COMMON_GLOBAL_DEFINITIONS.map((globalDefinition) => {
+            const fields = Object.fromEntries(
+                globalDefinition.fields.map((field) => [
+                    field.name,
+                    {
+                        type: field.type,
+                        description: resolveHogGlobalDescription(field.description, target),
+                    },
+                ])
+            ) as Record<string, MonacoHogGlobalField>
+
+            return [globalDefinition.name, globalDefinition.collection === 'array' ? [fields] : fields]
+        })
+    ) as Record<string, MonacoHogGlobal>
+}
+
+const HOG_EVAL_COMMON_GLOBALS_BY_TARGET = {
+    generation: buildMonacoHogGlobals('generation'),
+    trace: buildMonacoHogGlobals('trace'),
+    session: buildMonacoHogGlobals('session'),
+}
+
+const HOG_EVAL_GLOBALS_BY_TARGET = {
+    generation: {
+        ...HOG_EVAL_COMMON_GLOBALS_BY_TARGET.generation,
+        // Compatibility globals kept for saved generation Hog source.
+        input: { type: 'string', description: 'The input to the LLM' },
+        output: { type: 'string', description: 'The output from the LLM' },
+        properties: { type: 'object', description: 'All event properties' },
+        event: {
+            uuid: { type: 'string' },
+            event: { type: 'string' },
+            distinct_id: { type: 'string' },
+        },
     },
-    event: {
-        uuid: { type: 'string' },
-        event: { type: 'string' },
-        distinct_id: { type: 'string' },
+    trace: {
+        ...HOG_EVAL_COMMON_GLOBALS_BY_TARGET.trace,
+        // Compatibility globals kept for saved trace Hog source.
+        events: [
+            {
+                uuid: { type: 'string' },
+                event: { type: 'string' },
+                timestamp: { type: 'string' },
+                input: { type: 'string' },
+                output: { type: 'string' },
+                properties: { type: 'object' },
+            },
+        ],
+        trace: {
+            id: { type: 'string' },
+            event_count: { type: 'number' },
+        },
     },
+    // No compatibility globals: those exist for Hog source saved before `target` and
+    // `evaluation_events` landed, and no session-target source predates them. This mirrors
+    // build_session_hog_globals, which builds the shared globals and nothing else.
+    session: HOG_EVAL_COMMON_GLOBALS_BY_TARGET.session,
 }
 
 function HogTestResultsPanel(): JSX.Element | null {
-    const { hogTestResults, hogTestResultsLoading } = useValues(llmEvaluationLogic)
+    const { hogTestResults, hogTestResultsLoading, hogTestMessage } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
 
     if (!hogTestResults && !hogTestResultsLoading) {
@@ -75,7 +230,8 @@ function HogTestResultsPanel(): JSX.Element | null {
                     Clear
                 </LemonButton>
             </div>
-            <LemonTable<HogTestResult>
+            {hogTestMessage && <div className="text-sm text-muted">{hogTestMessage}</div>}
+            <LemonTable<TestHogResultItemApi>
                 columns={[
                     {
                         title: 'Result',
@@ -124,19 +280,25 @@ function HogTestResultsPanel(): JSX.Element | null {
                         title: '',
                         key: 'link',
                         width: 32,
-                        render: (_, row) =>
-                            row.trace_id ? (
-                                <Tooltip title="View generation">
+                        render: (_, row) => {
+                            if (!row.trace_id) {
+                                return null
+                            }
+                            const isTrace = row.sample_type === 'trace'
+                            return (
+                                <Tooltip title={isTrace ? 'View trace' : 'View generation'}>
                                     <Link
-                                        to={urls.aiObservabilityTrace(row.trace_id, {
-                                            event: row.event_uuid,
-                                        })}
+                                        to={urls.aiObservabilityTrace(
+                                            row.trace_id,
+                                            isTrace || !row.event_uuid ? undefined : { event: row.event_uuid }
+                                        )}
                                         target="_blank"
                                     >
                                         <IconExternal className="text-muted text-base" />
                                     </Link>
                                 </Tooltip>
-                            ) : null,
+                            )
+                        },
                     },
                 ]}
                 expandable={{
@@ -149,7 +311,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                 }}
                 dataSource={hogTestResults ?? []}
                 loading={hogTestResultsLoading}
-                rowKey="event_uuid"
+                rowKey="sample_id"
                 size="small"
             />
         </div>
@@ -166,6 +328,7 @@ export function EvaluationCodeEditor(): JSX.Element {
     }
 
     const source = evaluation.evaluation_config.source
+    const isSessionTarget = evaluation.target === 'session'
 
     return (
         <div className="space-y-4">
@@ -174,7 +337,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                     language="hog"
                     value={source}
                     onChange={(v) => setHogSource(v ?? '')}
-                    globals={HOG_EVAL_GLOBALS}
+                    globals={HOG_EVAL_GLOBALS_BY_TARGET[evaluation.target]}
                     minHeight="12rem"
                     maxHeight="60vh"
                     options={{
@@ -189,13 +352,21 @@ export function EvaluationCodeEditor(): JSX.Element {
                 />
                 <div className="flex justify-between items-center text-sm text-muted">
                     <div className="flex items-center gap-2">
-                        <Tooltip title="Compile and run your code against up to 5 recent generations matching your trigger filters">
+                        <Tooltip
+                            title={
+                                isSessionTarget
+                                    ? 'Compile and run your code against up to 3 sessions that have gone quiet, the same way it runs online'
+                                    : evaluation.target === 'trace'
+                                      ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
+                                      : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
+                            }
+                        >
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
                                 loading={hogTestResultsLoading}
                                 disabled={!source.trim()}
-                                onClick={testHogOnSample}
+                                onClick={() => testHogOnSample()}
                                 data-attr="llma-evaluation-test-hog"
                             >
                                 Test on sample
@@ -257,21 +428,32 @@ export function EvaluationCodeEditor(): JSX.Element {
                     ))}
                 </div>
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
-                <div className="text-sm text-muted space-y-1">
-                    <div>
-                        <code>input</code> — the input to the LLM (prompt / messages)
-                    </div>
-                    <div>
-                        <code>output</code> — the output from the LLM (response / choices)
-                    </div>
-                    <div>
-                        <code>properties</code> — all event properties (e.g. <code>properties.$ai_model</code>,{' '}
-                        <code>properties.$ai_total_cost_usd</code> etc)
-                    </div>
-                    <div>
-                        <code>event.uuid</code>, <code>event.event</code>, <code>event.distinct_id</code>
-                    </div>
-                </div>
+                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-2 text-sm text-muted">
+                    {HOG_EVAL_COMMON_GLOBAL_DEFINITIONS.map((globalDefinition) => (
+                        <Fragment key={globalDefinition.name}>
+                            <dt>
+                                <code className={GLOBAL_NAME_CODE_CLASS}>{globalDefinition.name}</code>
+                            </dt>
+                            <dd className="m-0">
+                                <p className="m-0">
+                                    {resolveHogGlobalDescription(globalDefinition.description, evaluation.target)}
+                                </p>
+                                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 mt-1.5">
+                                    {globalDefinition.fields.map((field) => (
+                                        <Fragment key={field.name}>
+                                            <dt>
+                                                <code className={PROPERTY_NAME_CODE_CLASS}>{field.name}</code>
+                                            </dt>
+                                            <dd className="m-0">
+                                                {resolveHogGlobalDescription(field.description, evaluation.target)}
+                                            </dd>
+                                        </Fragment>
+                                    ))}
+                                </dl>
+                            </dd>
+                        </Fragment>
+                    ))}
+                </dl>
                 <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
                 <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                     <li>

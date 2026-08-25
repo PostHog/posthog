@@ -548,10 +548,9 @@ class TestSkillMarketplaceRBAC(APIBaseTest):
         AccessControl.objects.create(
             team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
         )
-        # Skills inherit their access-control resource from llm_analytics (RESOURCE_INHERITANCE_MAP).
         # Make access grant-based: the resource default is "none", so a member only gets in with an
         # explicit grant — restricting the default is how skill access is actually gated.
-        AccessControl.objects.create(team=self.team, resource="llm_analytics", resource_id=None, access_level="none")
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
         LLMSkill.objects.create(
             team=self.team,
             name="make-fractals",
@@ -582,7 +581,7 @@ class TestSkillMarketplaceRBAC(APIBaseTest):
     def test_member_with_skill_access_can_clone(self):
         AccessControl.objects.create(
             team=self.team,
-            resource="llm_analytics",
+            resource="llm_skill",
             resource_id=None,
             access_level="viewer",
             organization_member=self._membership(),

@@ -5,6 +5,7 @@ from unittest.mock import patch
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
@@ -28,11 +29,14 @@ from products.data_warehouse.backend.direct_snowflake import (
     DIRECT_SNOWFLAKE_SCHEMA_OPTION,
     DIRECT_SNOWFLAKE_TABLE_OPTION,
 )
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING, DataWarehouseTable
-from products.warehouse_sources.backend.models.util import postgres_column_to_dwh_column
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import (
+    SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+    postgres_column_to_dwh_column,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestTable(BaseTest):
@@ -155,6 +159,60 @@ class TestTable(BaseTest):
 
         with pytest.raises(QueryError, match="Direct Postgres tables cannot be printed into ClickHouse SQL"):
             definition.to_printed_clickhouse(context=None)
+
+    @parameterized.expand(
+        [
+            (
+                "direct",
+                ExternalDataSourceType.CLICKHOUSE,
+                ExternalDataSource.AccessMethod.DIRECT,
+                DirectClickHouseTable,
+            ),
+            (
+                "synced",
+                ExternalDataSourceType.CLICKHOUSE,
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                HogQLDataWarehouseTable,
+            ),
+            # Both ClickHouse source types share the "clickhouse" engine, so both must resolve alike.
+            (
+                "direct_cloud",
+                ExternalDataSourceType.CLICKHOUSECLOUD,
+                ExternalDataSource.AccessMethod.DIRECT,
+                DirectClickHouseTable,
+            ),
+            (
+                "synced_cloud",
+                ExternalDataSourceType.CLICKHOUSECLOUD,
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                HogQLDataWarehouseTable,
+            ),
+        ]
+    )
+    def test_clickhouse_table_is_direct_only_for_a_direct_source(
+        self, _name: str, source_type: str, access_method: str, expected_type: type
+    ):
+        source = ExternalDataSource.objects.create(
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            team=self.team,
+            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix="Readable Name",
+            access_method=access_method,
+            job_inputs={"database": "mydb"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="events",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+        )
+
+        assert isinstance(table.hogql_definition(), expected_type)
 
     def test_direct_mysql_table_uses_physical_schema_and_table_options(self):
         source = ExternalDataSource.objects.create(
@@ -481,15 +539,14 @@ class TestTable(BaseTest):
             team=self.team,
         )
 
-        chdb_result = type("R", (), {"__str__": lambda self: chdb_csv})()
         with (
             patch("products.warehouse_sources.backend.models.table.TEST", False),
-            patch("chdb.query", return_value=chdb_result) as chdb_query,
+            patch("products.warehouse_sources.backend.models.table.run_chdb_query", return_value=chdb_csv) as mock_run,
         ):
             getattr(table, method_name)()
 
-        assert chdb_query.called, "chdb.query should have been invoked on the chdb path"
-        rendered_query: str = chdb_query.call_args.args[0]
+        assert mock_run.called, "run_chdb_query should have been invoked on the chdb path"
+        rendered_query: str = mock_run.call_args.args[0]
         assert malicious_secret not in rendered_query, (
             f"Unescaped secret leaked into chdb query, enabling SQL injection: {rendered_query}"
         )
@@ -886,7 +943,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is None
 
     def test_remove_named_tuples_backtick_quoted(self):
-        from products.warehouse_sources.backend.models.util import remove_named_tuples
+        from products.warehouse_sources.backend.facade.models import remove_named_tuples
 
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"
@@ -946,7 +1003,7 @@ class TestTable(BaseTest):
                 "access_denied",
                 "DB::Exception: Access Denied: while reading key: some/path/file.parquet",
                 499,
-                "Access was denied when reading the provided file",
+                "s3:GetObject",
             ),
             (
                 "no_such_bucket",
@@ -959,6 +1016,12 @@ class TestTable(BaseTest):
                 "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty",
                 499,
                 "The provided file doesn't exist in the bucket",
+            ),
+            (
+                "corrupted_parquet_thrift",
+                "DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: TProtocolException: Exceeded size limit",
+                1001,
+                "corrupted or oversized metadata",
             ),
         ]
     )

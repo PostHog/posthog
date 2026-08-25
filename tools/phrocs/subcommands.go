@@ -195,6 +195,27 @@ func printJSON(v any) {
 	_ = json.NewEncoder(os.Stdout).Encode(v)
 }
 
+// printDockerTeardownHint reminds the user that docker containers outlive
+// phrocs: docker compose runs detached (`up -d`) and the stack is shared
+// across worktrees, so stopping phrocs never stops them. In a sandbox the
+// infra is managed externally, so the hint would be wrong there.
+func printDockerTeardownHint() {
+	if os.Getenv("POSTHOG_SANDBOX") == "1" {
+		return
+	}
+	fmt.Println("Docker services keep running after phrocs stops (the compose stack is shared across worktrees).")
+	fmt.Println("Full teardown: hogli docker:services:down (also wipe volumes: hogli docker:services:remove)")
+}
+
+// phrocsStopped prints msg, reminds the user docker containers keep running,
+// and returns the standard success code. Not used by the SIGKILL path, which
+// writes to stderr with different wording.
+func phrocsStopped(msg string) int {
+	fmt.Println(msg)
+	printDockerTeardownHint()
+	return 0
+}
+
 // runStop sends a quit command to the detached phrocs, waits for the socket
 // to disappear, and falls back to SIGTERM → SIGKILL via the pidfile if needed.
 func runStop(timeoutSec int) int {
@@ -226,8 +247,7 @@ func runStop(timeoutSec int) int {
 				// Lock-check errors are treated as "still held" to avoid
 				// false-positive cleanup on transient failures.
 				if cleaned, lerr := cleanIfStale(""); lerr == nil && cleaned {
-					fmt.Println("phrocs stopped")
-					return 0
+					return phrocsStopped("phrocs stopped")
 				}
 			}
 			time.Sleep(100 * time.Millisecond)
@@ -236,8 +256,7 @@ func runStop(timeoutSec int) int {
 		// check whether the detached phrocs finished its graceful shutdown
 		// between our last dial and this check.
 		if cleaned, lerr := cleanIfStale(sock); lerr == nil && cleaned {
-			fmt.Println("phrocs stopped")
-			return 0
+			return phrocsStopped("phrocs stopped")
 		}
 		fmt.Fprintln(os.Stderr, "phrocs: detached phrocs did not exit in time; escalating")
 	}
@@ -266,8 +285,7 @@ func stopViaPidfile(sock string, deadline time.Time) int {
 		// phrocs has already exited cleanly. Clean up any leftover socket
 		// and report success rather than a confusing "file not found".
 		_ = os.Remove(sock)
-		fmt.Println("phrocs stopped")
-		return 0
+		return phrocsStopped("phrocs stopped")
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
@@ -284,8 +302,7 @@ func stopViaPidfile(sock string, deadline time.Time) int {
 		if !pidAlive(pid) {
 			_ = os.Remove(pidFilePath())
 			_ = os.Remove(sock)
-			fmt.Println("phrocs stopped (SIGTERM)")
-			return 0
+			return phrocsStopped("phrocs stopped (SIGTERM)")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -296,6 +313,7 @@ func stopViaPidfile(sock string, deadline time.Time) int {
 	_ = os.Remove(pidFilePath())
 	_ = os.Remove(sock)
 	fmt.Fprintln(os.Stderr, "phrocs killed (SIGKILL)")
+	printDockerTeardownHint()
 	return 0
 }
 

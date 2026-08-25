@@ -11,15 +11,22 @@ to wording in the wrapper text show up as a diff in
 ``__snapshots__/test_task_creation.ambr`` rather than as a silent regression.
 """
 
+import pytest
+from unittest.mock import patch
+
+from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
+    _artifact_delivery_state_updates,
     _build_posthog_code_task_description,
     _format_author_token,
     _indent_body,
     build_thread_context_update_block,
+    derive_mention_workflow_id,
 )
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
 
 def test_format_author_token_builds_labeled_mention():
@@ -49,22 +56,63 @@ def test_indent_body_preserves_blank_lines_without_trailing_whitespace():
     assert _indent_body("a\n\nb") == "  a\n\n  b"
 
 
-def test_build_description_returns_just_prompt_when_thread_has_only_initiator():
-    # Single-message threads don't need a context block — the initiator's text
-    # *is* the entire context, and we already keep it as the prompt below the
-    # divider. Wrapping it would just add noise.
+@pytest.mark.parametrize(
+    "thread_messages,initiator_text,expected",
+    [
+        # A single-message thread needs no context block — the initiator's text *is* the
+        # entire context, and it is already the prompt below the divider.
+        (
+            [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
+            "do something",
+            "do something",
+        ),
+        ([], "   ", "Task from Slack"),
+    ],
+)
+def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_messages, initiator_text, expected):
     out = _build_posthog_code_task_description(
-        "do something",
-        [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
+        initiator_text,
+        thread_messages,
         "1234.5678",
         mentioner_slack_user_id="U_GEORGIY",
     )
-    assert out == "do something"
+    assert out == expected
 
 
-def test_build_description_falls_back_to_default_prompt_when_initiator_text_is_blank():
-    out = _build_posthog_code_task_description("   ", [], None)
-    assert out == "Task from Slack"
+@pytest.mark.parametrize(
+    "living_enabled,canvas_flag_enabled,granted_scopes,expected_mode,expected_charts",
+    [
+        (True, True, "chat:write,canvases:write,files:write", "canvas_file", True),
+        (True, True, "chat:write,canvases:write", "message", True),
+        (True, True, "chat:write", "message", True),
+        (True, False, "chat:write,canvases:write,files:write", "message", False),
+        (False, True, "chat:write,canvases:write,files:write", "none", False),
+    ],
+)
+def test_artifact_delivery_mode_offers_only_what_delivery_accepts(
+    living_enabled, canvas_flag_enabled, granted_scopes, expected_mode, expected_charts
+):
+    # The agent offers whatever this state says, so it must never claim more than the
+    # workspace has: canvas/file needs its flag AND both scopes AND the umbrella gate,
+    # or the agent promises an artifact the adapters then reject. Charts clear on the flag
+    # and the umbrella gate alone, which is why the two rows with the flag on but a scope
+    # missing still get charts while dropping to message mode.
+    integration = Integration(kind="slack", config={"scope": granted_scopes})
+
+    with (
+        patch(
+            "products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled",
+            return_value=living_enabled,
+        ),
+        patch(
+            "products.slack_app.backend.feature_flags.is_slack_app_canvas_file_artifacts_enabled",
+            return_value=canvas_flag_enabled,
+        ),
+    ):
+        assert _artifact_delivery_state_updates(integration) == {
+            "slack_artifact_delivery": expected_mode,
+            "slack_chart_delivery": expected_charts,
+        }
 
 
 def test_build_description_renders_labeled_mention_for_each_author():
@@ -105,6 +153,68 @@ def test_build_description_indents_multi_line_bodies_under_author():
         "  the deploy pipeline keeps timing out on the staging step,\n"
         "  but only on Tuesdays for some reason."
     ) in out
+
+
+def test_build_description_for_a_fork_keeps_every_message_and_claims_none_as_the_request():
+    # A fork's context is a thread the requester never spoke in: no message in it is
+    # the ask, so none may be replaced by the placeholder, and the "tagged the PostHog
+    # app" annotation must not appear and misattribute the request to a participant.
+    out = _build_posthog_code_task_description(
+        "catch me up",
+        [
+            {"user": "mira", "user_id": "U_MIRA", "text": "the retry logic looks wrong", "ts": "1.000"},
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "agreed, it double-counts", "ts": "2.000"},
+        ],
+        None,
+        fork_source_permalink="https://slack.test/archives/C1/p2",
+    )
+    assert _INITIATOR_PLACEHOLDER not in out
+    assert "the retry logic looks wrong" in out
+    assert "agreed, it double-counts" in out
+    assert "tagged the PostHog app" not in out
+    assert "https://slack.test/archives/C1/p2" in out
+    assert out.endswith("catch me up")
+
+
+def test_build_description_points_a_fork_at_the_forked_threads_own_task():
+    # The Slack messages are only what was *said*; the task behind them holds what was
+    # done. Naming it lets the agent go and read runs, logs and artifacts.
+    out = _build_posthog_code_task_description(
+        "catch me up",
+        [{"user": "mira", "user_id": "U_MIRA", "text": "the retry logic looks wrong", "ts": "1.000"}],
+        None,
+        fork_source_permalink="https://slack.test/archives/C1/p2",
+        fork_source_task_id="abc-123",
+    )
+    assert "`abc-123`" in out
+
+
+def test_build_description_for_a_fork_of_an_unworked_thread_names_no_task():
+    # Forking a thread the agent has never touched has no task to point at; inventing a
+    # pointer would send it looking for something that does not exist.
+    out = _build_posthog_code_task_description(
+        "catch me up",
+        [{"user": "mira", "user_id": "U_MIRA", "text": "the retry logic looks wrong", "ts": "1.000"}],
+        None,
+        fork_source_permalink="https://slack.test/archives/C1/p2",
+    )
+    assert "PostHog task" not in out
+
+
+def test_build_description_for_a_fork_forbids_pinging_the_forked_participants():
+    # The reply lands in a DM with the requester. Echoing a mention token would ping
+    # someone who never asked for this and cannot see the conversation.
+    out = _build_posthog_code_task_description(
+        "catch me up",
+        [
+            {"user": "mira", "user_id": "U_MIRA", "text": "something", "ts": "1.000"},
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "else", "ts": "2.000"},
+        ],
+        None,
+        fork_source_permalink="https://slack.test/archives/C1/p2",
+    )
+    assert "never ping anyone quoted here" in out
+    assert "reuse those mention tokens verbatim" not in out
 
 
 def test_build_description_collapses_role_annotations_when_same_person():
@@ -414,3 +524,30 @@ class TestBuildThreadContextUpdateBlock:
         ]
         block, _ = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts="2.000")
         assert block == snapshot
+
+
+class TestDeriveMentionWorkflowId:
+    """The id doubles as the queue workflow's dedupe key, so a confirmed
+    re-dispatch has to look different from the pass that raised the prompt —
+    otherwise clicking "Yes, take a look" is swallowed as a redelivery."""
+
+    def _inputs(self, **overrides) -> PostHogCodeSlackMentionWorkflowInputs:
+        fields = {
+            "event": {"channel": "C001", "ts": "1001.0000"},
+            "integration_id": 1,
+            "slack_team_id": "T_SLACK",
+            "slack_event_id": "Ev123",
+            "user_id": 1,
+            **overrides,
+        }
+        return PostHogCodeSlackMentionWorkflowInputs(**fields)
+
+    def test_confirmed_redispatch_gets_its_own_id(self):
+        original = derive_mention_workflow_id(self._inputs(untagged_followup=True))
+        confirmed = derive_mention_workflow_id(self._inputs(untagged_followup=True, untagged_followup_confirmed=True))
+        assert original != confirmed
+        assert confirmed.startswith(original)
+
+    def test_id_is_stable_without_a_slack_event_id(self):
+        inputs = self._inputs(slack_event_id=None)
+        assert derive_mention_workflow_id(inputs) == "posthog-code-mention-T_SLACK:C001:1001.0000"

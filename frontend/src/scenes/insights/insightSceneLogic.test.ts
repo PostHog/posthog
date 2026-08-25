@@ -12,8 +12,9 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, InsightShortId, InsightType, ItemMode } from '~/types'
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
@@ -51,6 +52,34 @@ describe('insightSceneLogic', () => {
             .toMatchValues({
                 location: partial({ pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID) }),
             })
+    })
+
+    it('disables discussions for an unsaved insight so comments do not leak across the team', async () => {
+        // A new insight has no numeric id yet. The side panel context must still declare the Insight
+        // scope (so sidePanelContextLogic does not fall back to the URL guesser and drop item_id, which
+        // would list every Insight-scoped comment in the team) but mark discussions disabled.
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.insight?.id).toBeUndefined()
+        expect(logic.values.sidePanelContext).toEqual({
+            activity_scope: ActivityScope.INSIGHT,
+            discussions_disabled: true,
+        })
+
+        // Once saved, the context carries the concrete item_id and discussions become enabled.
+        logic.values.insightLogicRef?.logic.actions.setInsight(
+            { id: 42, short_id: Insight42, result: ['some result'] },
+            { fromPersistentApi: true, overrideQuery: true }
+        )
+
+        expect(logic.values.sidePanelContext).toMatchObject({
+            activity_scope: ActivityScope.INSIGHT,
+            activity_item_id: '42',
+        })
+        expect(logic.values.sidePanelContext?.discussions_disabled).toBeUndefined()
     })
 
     it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {
@@ -186,6 +215,49 @@ describe('insightSceneLogic', () => {
         const query = logic.values.insightLogicRef?.logic.values.insight.query as any
         expect(query.kind).toEqual(NodeKind.DataTableNode)
         expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it("applies a shared link's #q= query to a saved insight on in-app navigation", async () => {
+        // Opening a shared link inside the app is a router PUSH, not a cold load, so it misses the
+        // upgradeQuery path.
+        const savedQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                dateRange: { date_from: '-7d' },
+                interval: 'day',
+            },
+        }) as InsightVizNode
+        const sharedQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                dateRange: { date_from: '-30d' },
+                interval: 'week',
+            },
+        }) as InsightVizNode
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': {
+                    results: [{ id: 42, short_id: Insight42, result: ['result from api'], query: savedQuery }],
+                },
+            },
+        })
+
+        router.actions.push(urls.insightView(Insight42))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(combineUrl(urls.insightView(Insight42), {}, { q: JSON.stringify(sharedQuery) }).url)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const dataLogic = logic.values.insightDataLogicRef
+        expect(dataLogic).not.toBeNull()
+        expect(dataLogic!.logic.values.query).toEqual(sharedQuery)
     })
 
     it('does not overwrite an existing productKey on a DataTableNode drill-down query', async () => {

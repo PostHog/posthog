@@ -460,6 +460,7 @@ export interface AssistantTrendsFilter {
      * - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
      * Examples of using math formulas:
      * - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
+     * For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.
      */
     formulaNodes?: TrendsFormulaNode[]
 
@@ -496,8 +497,8 @@ export interface AssistantTrendsFilter {
      * `numeric` - no formatting. Prefer this option by default.
      * `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds.
      * `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds.
-     * `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`.
-     * `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`.
+     * `percentage` - appends a percentage sign to a value that is ALREADY on the 0-100 scale, e.g., `50` becomes `50%`. Only use this when the underlying value is already a percentage.
+     * `percentage_scaled` - multiplies a 0-1 value by 100 and appends a percentage sign, e.g., `0.5` becomes `50%`. Use this for ratios in the 0-1 range, such as a bounce rate (`avg($is_bounce)`) or a formula like `A/B`. Because this format already multiplies by 100, do NOT also multiply by 100 in the formula (e.g. `A/B*100`), as that would double-scale the value and render, say, `0.5` as `5000%`.
      * `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.
      * @default numeric
      */
@@ -1341,6 +1342,20 @@ export interface AssistantTrendsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
@@ -1372,6 +1387,20 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1398,6 +1427,20 @@ export interface AssistantPathsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1427,6 +1470,20 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call
+     * again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1459,6 +1516,20 @@ export interface AssistantStickinessActorsQuery {
 
     /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1522,6 +1593,20 @@ export interface AssistantFunnelsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1710,6 +1795,7 @@ export interface AssistantInsightVizNode {
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+ * - `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.
  */
 export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsTable
@@ -1720,6 +1806,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
+    | ChartDisplayType.ScatterPlot
 
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
@@ -1790,7 +1877,10 @@ export interface AssistantDataVisualizationYAxisSettings {
 }
 
 export interface AssistantDataVisualizationChartSettings {
-    /** Column used as the X axis. Typically a time bucket or categorical column. */
+    /**
+     * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
+     * plots two measures against each other, so it needs a numeric column here too.
+     */
     xAxis?: AssistantDataVisualizationAxis
     /** Label rendered under the X axis. */
     xAxisLabel?: string
@@ -1802,7 +1892,8 @@ export interface AssistantDataVisualizationChartSettings {
     rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
-     * a line chart by `country`. Set to `null` or omit to disable.
+     * a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by
+     * x value, so it is ignored when `display` is `ScatterPlot`.
      */
     seriesBreakdownColumn?: string | null
     /** Horizontal goal lines drawn across the chart. */
@@ -1815,6 +1906,8 @@ export interface AssistantDataVisualizationChartSettings {
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
     showNullsAsZero?: boolean
+    /** Show a total summing all Y series. Applies to line, bar, and area charts. */
+    showTotalRow?: boolean
 }
 
 export interface AssistantDataVisualizationTableSettings {
@@ -1822,8 +1915,6 @@ export interface AssistantDataVisualizationTableSettings {
     columns?: AssistantDataVisualizationAxis[]
     /** Column names to pin to the left of the table. */
     pinnedColumns?: string[]
-    /** Show a total row at the bottom of the table. */
-    showTotalRow?: boolean
     /** Transpose rows and columns. */
     transpose?: boolean
 }
@@ -1849,6 +1940,7 @@ export interface AssistantDataVisualizationNode {
      * - Categorical proportions → `ActionsPie`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
+     * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
      * - Otherwise → `ActionsTable`.
      */
     display?: AssistantDataVisualizationDisplayType

@@ -37,7 +37,7 @@ class CaptureSignalDroppedInput:
     extra: dict = field(default_factory=dict)
 
 
-def _summarize_drop_error(error: BaseException) -> tuple[str, str]:
+def summarize_drop_error(error: BaseException) -> tuple[str, str]:
     """Extract the most specific (type, message) from a (possibly wrapped) activity error.
 
     Temporal wraps the real failure: an ActivityError's `cause` is an ApplicationError
@@ -68,7 +68,10 @@ async def capture_signal_dropped_activity(input: CaptureSignalDroppedInput) -> N
                 # nests customer-derived content that must not leak into product analytics.
                 # Core keys win on conflict, same as signal_emitted / signal_emission_started.
                 **_telemetry_props_from_extra(input.extra),
-                "reason": "grouping_processing_error",
+                # Composite of stage + error_type so drops are distinguishable by `reason`
+                # alone — a transient ConnectError burst reads differently from the chronic
+                # ClickHouseAtCapacity baseline instead of collapsing to one constant.
+                "reason": f"{input.stage}:{input.error_type}",
                 "stage": input.stage,
                 "error_type": input.error_type,
                 "error": input.error,
@@ -93,7 +96,7 @@ async def capture_signal_dropped(signal: EmitSignalInputs, error: BaseException,
     """Best-effort signal_dropped telemetry from workflow code; never raises into the grouping flow."""
     if not workflow.patched(_PATCH_SIGNAL_DROPPED):
         return
-    error_type, error_message = _summarize_drop_error(error)
+    error_type, error_message = summarize_drop_error(error)
     try:
         await workflow.execute_activity(
             capture_signal_dropped_activity,

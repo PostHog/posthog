@@ -295,6 +295,9 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             if (params.status !== undefined) {
                 body['status'] = params.status
             }
+            if (params.severity !== undefined) {
+                body['severity'] = params.severity
+            }
             if (params.name !== undefined) {
                 body['name'] = params.name
             }
@@ -643,8 +646,8 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
             if (params.offset !== undefined) {
                 body['offset'] = params.offset
             }
-            if (params.verbosity !== undefined) {
-                body['verbosity'] = params.verbosity
+            if (params.include !== undefined) {
+                body['include'] = params.include
             }
             if (params.onlyAppFrames !== undefined) {
                 body['onlyAppFrames'] = params.onlyAppFrames
@@ -737,6 +740,7 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                         'name',
                         'description',
                         'status',
+                        'severity',
                         'first_seen',
                         'last_seen',
                         'library',

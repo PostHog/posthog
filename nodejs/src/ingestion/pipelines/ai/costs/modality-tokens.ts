@@ -35,14 +35,20 @@ const modalityOf = (detail: Record<string, unknown>): string | null => {
     return typeof modality === 'string' ? modality.toLowerCase() : null
 }
 
-type ExtractionSource = 'gemini_input' | 'gemini_output' | 'gemini_cache' | 'openai_input' | 'openai_cache'
+type ExtractionSource =
+    | 'anthropic_cache'
+    | 'bedrock_cache'
+    | 'gemini_input'
+    | 'gemini_output'
+    | 'gemini_cache'
+    | 'openai_input'
+    | 'openai_cache'
 
 /**
- * Extract modality-specific token counts from raw provider usage metadata.
- * Supports Gemini's promptTokensDetails (input modality), candidatesTokensDetails
- * (output modality), and cacheTokensDetails (cache modality), plus the OpenAI
- * equivalents under prompt_tokens_details. Removes $ai_usage from properties
- * after extraction so it does not get persisted to ClickHouse.
+ * Extract token details used by cost calculation from raw provider usage metadata.
+ * Supports Anthropic's cache-creation TTL breakdown, Gemini's input/output/cache
+ * modality details, and OpenAI's prompt_tokens_details. Removes $ai_usage from
+ * properties after extraction so it does not get persisted to ClickHouse.
  */
 export const extractModalityTokens = (event: EventWithProperties): EventWithProperties => {
     const usage = event.properties['$ai_usage']
@@ -202,6 +208,67 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             }
         }
 
+        const extractAnthropicCacheCreation = (metadata: Record<string, unknown>): void => {
+            const cacheCreation = metadata['cache_creation']
+            if (!isObject(cacheCreation)) {
+                return
+            }
+
+            const fiveMinuteTokens = cacheCreation['ephemeral_5m_input_tokens']
+            const oneHourTokens = cacheCreation['ephemeral_1h_input_tokens']
+            if (typeof fiveMinuteTokens === 'number' && fiveMinuteTokens >= 0) {
+                event.properties['$ai_cache_creation_5m_input_tokens'] = fiveMinuteTokens
+                extractedSources.add('anthropic_cache')
+            }
+            if (typeof oneHourTokens === 'number' && oneHourTokens >= 0) {
+                event.properties['$ai_cache_creation_1h_input_tokens'] = oneHourTokens
+                extractedSources.add('anthropic_cache')
+            }
+        }
+
+        const extractBedrockCacheCreation = (metadata: Record<string, unknown>): void => {
+            const amazonBedrockMetadata = metadata['amazonBedrock']
+            const bedrockMetadata = isObject(amazonBedrockMetadata) ? amazonBedrockMetadata : metadata['bedrock']
+            if (!isObject(bedrockMetadata) || !isObject(bedrockMetadata['usage'])) {
+                return
+            }
+
+            const cacheDetails = bedrockMetadata['usage']['cacheDetails']
+            if (!Array.isArray(cacheDetails)) {
+                return
+            }
+
+            let fiveMinuteTokens = 0
+            let oneHourTokens = 0
+            let foundCacheDetails = false
+
+            for (const detail of cacheDetails) {
+                if (!isObject(detail)) {
+                    continue
+                }
+
+                const inputTokens = detail['inputTokens']
+                const ttl = typeof detail['ttl'] === 'string' ? detail['ttl'].toLowerCase() : null
+                if (typeof inputTokens !== 'number' || !Number.isFinite(inputTokens) || inputTokens < 0) {
+                    continue
+                }
+
+                if (ttl === 't5m' || ttl === '5m') {
+                    fiveMinuteTokens += inputTokens
+                    foundCacheDetails = true
+                } else if (ttl === 't1h' || ttl === '1h') {
+                    oneHourTokens += inputTokens
+                    foundCacheDetails = true
+                }
+            }
+
+            if (foundCacheDetails) {
+                event.properties['$ai_cache_creation_5m_input_tokens'] = fiveMinuteTokens
+                event.properties['$ai_cache_creation_1h_input_tokens'] = oneHourTokens
+                extractedSources.add('bedrock_cache')
+            }
+        }
+
         // Walk each `usage`-shaped metadata object encountered across the SDK
         // wrapper variants and pull every modality breakdown it exposes.
         // Gemini metadata arrives camelCased through the Vercel AI SDK and
@@ -210,6 +277,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             if (!isObject(metadata)) {
                 return
             }
+            extractAnthropicCacheCreation(metadata)
             extractInputModality(pick(metadata, 'promptTokensDetails', 'prompt_tokens_details'))
             extractOutputModality(
                 pick(metadata, 'candidatesTokensDetails', 'candidates_tokens_details', 'outputTokenDetails')
@@ -221,6 +289,12 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
 
         extractFromMetadata(usage)
 
+        // @posthog/ai preserves raw Vercel usage under usage.raw.
+        const usageDetails = (usage as Record<string, unknown>)['usage']
+        if (isObject(usageDetails)) {
+            extractFromMetadata(usageDetails['raw'])
+        }
+
         // Vercel AI SDK with rawResponse at top level: { rawResponse: { usageMetadata: {...} } }
         const topLevelRawResponse = (usage as Record<string, unknown>)['rawResponse']
         if (isObject(topLevelRawResponse)) {
@@ -231,6 +305,13 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
         const providerMetadata = (usage as Record<string, unknown>)['providerMetadata']
         if (isObject(providerMetadata)) {
             extractFromMetadata(providerMetadata['google'])
+            extractBedrockCacheCreation(providerMetadata)
+
+            // Anthropic's original usage is also available in provider metadata.
+            const anthropicProviderMetadata = providerMetadata['anthropic']
+            if (isObject(anthropicProviderMetadata)) {
+                extractFromMetadata(anthropicProviderMetadata['usage'])
+            }
         }
 
         // Vercel AI SDK V3 / nested rawUsage variants:
@@ -242,6 +323,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             const rawProviderMetadata = rawUsage['providerMetadata']
             if (isObject(rawProviderMetadata)) {
                 extractFromMetadata(rawProviderMetadata['google'])
+                extractBedrockCacheCreation(rawProviderMetadata)
             }
 
             const rawUsageUsage = rawUsage['usage']

@@ -1,6 +1,10 @@
 from typing import Literal
+from uuid import UUID
 
 MAX_ATTEMPTS = 5
+
+# Stable namespace for deterministic per-ticket trace ids (uuid5).
+AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")
 SCORE_THRESHOLD = 0.5
 RERANK_TOP_K = 5
 # Ticket types whose replies may ever be published to the (untrusted) ticket author.
@@ -40,12 +44,27 @@ VALIDATOR_MODEL = "claude-sonnet-4-6"
 LLM_REQUEST_TIMEOUT_SECONDS = 90.0
 
 # One-shot triage of each ticket up front. `how_to`/`account_billing` are retrieval-solvable;
-# `diagnostic` needs the customer's own data (drives PR 3's wider read scopes); `unactionable`
-# (spam, bare feedback, no question) short-circuits before the expensive draft loop.
-TICKET_TYPES = ("how_to", "diagnostic", "account_billing", "unactionable")
+# `diagnostic` needs the customer's own data (drives PR 3's wider read scopes); `bug` is answered by
+# researching our own code, which the signals pipeline does separately and writes back onto the
+# ticket; `unactionable` (spam, bare feedback, no question) short-circuits before the expensive
+# draft loop.
+TICKET_TYPES = ("how_to", "diagnostic", "account_billing", "bug", "unactionable")
 
-# Base read scopes every draft gets (when the team has NOT opted into ai_diagnostics_enabled):
-# BK, docs, project metadata, taxonomy, and config reads that return no raw customer rows.
+# Scopes for a reply that may be auto-sent to the (untrusted) ticket author. Deliberately the
+# narrowest set: only what docs-search (project:read) and business-knowledge search
+# (business_knowledge:read) need. No project config or customer data, so nothing beyond public
+# docs + the team's own knowledge base can reach an untrusted author even if the agent (or an
+# injected ticket instruction) tries to call a tool the prompt didn't advertise.
+PUBLISHABLE_DRAFT_SCOPES: list[str] = [
+    "business_knowledge:read",
+    "project:read",
+]
+
+# Base read scopes for a human-reviewed draft that is NOT opted into ai_diagnostics_enabled:
+# docs + BK, project metadata, taxonomy, and flag/experiment/survey/dashboard config. Some of
+# these (survey:read, feature_flag:read) can also return row-level data (individual survey
+# responses, per-user flag evaluations / blast radius), so this set is only safe because the
+# reply is human-reviewed before it can reach the author -- never use it for an auto-sent reply.
 BASE_DRAFT_SCOPES: list[str] = [
     "business_knowledge:read",
     "project:read",
@@ -67,11 +86,9 @@ BASE_DRAFT_SCOPES: list[str] = [
 # Django/ORM -- it's loaded inside the Temporal workflow sandbox via pipeline.py.
 DIAGNOSTIC_SCOPES_PRESET: Literal["read_only"] = "read_only"
 
-# Sandbox agent model for the draft step. Must be in the LLM gateway's `background_agents`
-# product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) -- that's the
-# product the sandbox agent server routes through, NOT `conversations`. `claude-sonnet-4-6`
-# is allowed for `conversations` (the plain utility/validator calls) but NOT for
-# `background_agents`, so the sandbox draft uses the strongest allowed sonnet instead.
+# Sandbox agent model for the draft step. Must be in the LLM gateway `conversations`
+# product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) — support-reply
+# sandbox tasks route through that product via @posthog/agent's resolveGatewayProduct().
 DRAFT_MODEL = "claude-sonnet-5"
 DRAFT_RUNTIME_ADAPTER = "claude"
 
@@ -82,4 +99,10 @@ TICKET_TYPE_HINTS: dict[str, str] = {
     "diagnostic": "This is a diagnostic ticket — the customer reports something broken or unexpected for their account; focus on what's failing and why.",
     "account_billing": "This is an account/billing question — focus on the customer's plan, usage, limits, and billing specifics.",
     "unactionable": "This ticket has no answerable support question.",
+    "bug": (
+        "This reads as a defect in the product itself, not a usage or account question. Do not offer a fix or a "
+        "workaround assembled from documentation, because the behavior described is not what the docs describe. "
+        "Acknowledge the report and gather only what an engineer would need to reproduce it: affected version or SDK, "
+        "exact steps, when it started, error text, and screenshots."
+    ),
 }

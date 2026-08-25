@@ -24,7 +24,13 @@ from posthog.permissions import (
 from products.approvals.backend.exceptions import AlreadyVotedError, InvalidStateError, ReasonRequiredError
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.permissions import CanApprove, CanCancel
-from products.approvals.backend.serializers import ApprovalPolicySerializer, ChangeRequestSerializer
+from products.approvals.backend.serializers import (
+    ApprovalPolicySerializer,
+    ChangeRequestApproveSerializer,
+    ChangeRequestDecisionResponseSerializer,
+    ChangeRequestRejectSerializer,
+    ChangeRequestSerializer,
+)
 from products.approvals.backend.services import ChangeRequestService
 
 logger = logging.getLogger(__name__)
@@ -60,6 +66,10 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.select_related("created_by", "applied_by").prefetch_related("approvals")
 
+    @extend_schema(
+        request=ChangeRequestApproveSerializer,
+        responses={200: ChangeRequestDecisionResponseSerializer},
+    )
     @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanApprove])
     def approve(self, request: Request, pk=None, **kwargs) -> Response:
         """
@@ -95,6 +105,10 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
         return Response(response_data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=ChangeRequestRejectSerializer,
+        responses={200: ChangeRequestDecisionResponseSerializer},
+    )
     @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanApprove])
     def reject(self, request: Request, pk=None, **kwargs) -> Response:
         """Reject a change request."""

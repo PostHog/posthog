@@ -1,26 +1,77 @@
+import json
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px import gainsight_px
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.gainsight_px import (
     GainsightPxResumeConfig,
-    GainsightPxRetryableError,
     _base_url,
     _build_url,
     _normalize_row,
     gainsight_px_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import (
     GAINSIGHT_PX_ENDPOINTS,
 )
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the gainsight_px module.
+GAINSIGHT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.gainsight_px.make_tracked_session"
+)
+
+
+def _response(data_key: str, records: list[dict[str, Any]], *, status_code: int = 200, **extra: Any) -> Response:
+    body: dict[str, Any] = {data_key: records, **extra}
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _make_manager(resume_state: GainsightPxResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy per prepare.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock) -> Any:
+    return gainsight_px_source(
+        api_key="secret-key",
+        region="us",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
 
 
 class TestBaseUrl:
@@ -61,253 +112,186 @@ class TestNormalizeRow:
         assert row["releaseDate"] == "2021-01-01"
 
 
-class TestFetchPage:
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_status_codes_are_retried(self, _name: str, status_code: int) -> None:
-        retryable = MagicMock(status_code=status_code)
-        good = MagicMock(status_code=200, ok=True)
-        good.json.return_value = {"users": []}
-
-        session = MagicMock()
-        session.get.side_effect = [retryable, good]
-
-        with patch.object(gainsight_px._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = gainsight_px._fetch_page(session, "https://api.aptrinsic.com/v1/users", {}, MagicMock())
-
-        assert result == {"users": []}
-        assert session.get.call_count == 2
-
-    @parameterized.expand(
-        [
-            ("read_timeout", requests.ReadTimeout("timed out")),
-            ("connection_error", requests.ConnectionError("reset")),
-        ]
-    )
-    def test_transient_network_errors_are_retried(self, _name: str, error: Exception) -> None:
-        good = MagicMock(status_code=200, ok=True)
-        good.json.return_value = {"users": []}
-        session = MagicMock()
-        session.get.side_effect = [error, good]
-
-        with patch.object(gainsight_px._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = gainsight_px._fetch_page(session, "https://api.aptrinsic.com/v1/users", {}, MagicMock())
-
-        assert result == {"users": []}
-        assert session.get.call_count == 2
-
-    def test_auth_error_is_not_retried(self) -> None:
-        response = MagicMock(status_code=401, ok=False, text="unauthorized")
-        response.raise_for_status.side_effect = requests.HTTPError(
-            "401 Client Error: Unauthorized", response=cast(requests.Response, response)
-        )
-        session = MagicMock()
-        session.get.return_value = response
-
-        with patch.object(gainsight_px._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            with pytest.raises(requests.HTTPError):
-                gainsight_px._fetch_page(session, "https://api.aptrinsic.com/v1/users", {}, MagicMock())
-
-        assert session.get.call_count == 1
-
-    def test_retry_exhausts_and_reraises(self) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=500)
-
-        with patch.object(gainsight_px._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            with pytest.raises(GainsightPxRetryableError):
-                gainsight_px._fetch_page(session, "https://api.aptrinsic.com/v1/users", {}, MagicMock())
-
-        assert session.get.call_count == 5
-
-
-class _FakeResumableManager:
-    def __init__(self, state: GainsightPxResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[GainsightPxResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> GainsightPxResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: GainsightPxResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _collect(endpoint: str, manager: _FakeResumableManager, monkeypatch: Any, responses: list[dict]) -> list[dict]:
-    """Run get_rows with a canned sequence of API responses and flatten the yielded pages."""
-    it = iter(responses)
-
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-        return next(it)
-
-    monkeypatch.setattr(gainsight_px, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(gainsight_px, "make_tracked_session", lambda *a, **k: MagicMock())
-
-    rows: list[dict] = []
-    for page in get_rows(
-        api_key="key",
-        region="us",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(page)
-    return rows
-
-
 class TestScrollPagination:
-    def test_follows_scroll_id_and_stops_on_short_page(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_scroll_id_and_stops_on_short_page(self, MockSession, monkeypatch) -> None:
         # users caps at a large pageSize; shrink it so a 2-then-1 record run terminates.
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["users"], "page_size", 2)
-        manager = _FakeResumableManager()
-
-        rows = _collect(
-            "users",
-            manager,
-            monkeypatch,
+        session = MockSession.return_value
+        params = _wire(
+            session,
             [
-                {"users": [{"id": "1"}, {"id": "2"}], "scrollId": "s1"},
-                {"users": [{"id": "3"}], "scrollId": "s2"},  # short page → stop
+                _response("users", [{"id": "1"}, {"id": "2"}], scrollId="s1"),
+                _response("users", [{"id": "3"}], scrollId="s2"),  # short page → stop
             ],
         )
 
+        manager = _make_manager()
+        rows = _rows(_source("users", manager))
+
         assert [r["id"] for r in rows] == ["1", "2", "3"]
+        # First request carries only pageSize; the second carries the scroll cursor.
+        assert params[0] == {"pageSize": 2}
+        assert params[1]["scrollId"] == "s1"
         # State saved after the first (full) page only, carrying the next scroll cursor.
-        assert [s.scroll_id for s in manager.saved] == ["s1"]
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == GainsightPxResumeConfig(scroll_id="s1")
 
-    def test_stops_when_scroll_id_absent(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_scroll_id_absent(self, MockSession, monkeypatch) -> None:
+        # A full page whose scrollId is null still terminates — the null cursor ends it.
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["accounts"], "page_size", 2)
-        manager = _FakeResumableManager()
+        session = MockSession.return_value
+        _wire(session, [_response("accounts", [{"id": "1"}, {"id": "2"}], scrollId=None)])
 
-        rows = _collect(
-            "accounts",
-            manager,
-            monkeypatch,
-            [{"accounts": [{"id": "1"}, {"id": "2"}], "scrollId": None}],
-        )
+        manager = _make_manager()
+        rows = _rows(_source("accounts", manager))
 
         assert [r["id"] for r in rows] == ["1", "2"]
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_resumes_from_saved_scroll_id(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_scroll_id(self, MockSession, monkeypatch) -> None:
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["users"], "page_size", 2)
-        seen_urls: list[str] = []
+        session = MockSession.return_value
+        params = _wire(session, [_response("users", [{"id": "9"}], scrollId=None)])
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            seen_urls.append(url)
-            return {"users": [{"id": "9"}], "scrollId": None}
+        manager = _make_manager(GainsightPxResumeConfig(scroll_id="saved-cursor"))
+        _rows(_source("users", manager))
 
-        monkeypatch.setattr(gainsight_px, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(gainsight_px, "make_tracked_session", lambda *a, **k: MagicMock())
+        assert params[0]["scrollId"] == "saved-cursor"
 
-        manager = _FakeResumableManager(GainsightPxResumeConfig(scroll_id="saved-cursor"))
-        list(
-            get_rows(
-                api_key="key",
-                region="us",
-                endpoint="users",
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-            )
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_data_key_yields_no_rows_and_stops(self, MockSession, monkeypatch) -> None:
+        # These endpoints don't fail loud on a missing key (parity with the hand-rolled `or []`).
+        monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["users"], "page_size", 2)
+        session = MockSession.return_value
+        _wire(session, [_response("wrongKey", [{"id": "x"}], scrollId="s1")])
 
-        assert "scrollId=saved-cursor" in seen_urls[0]
+        manager = _make_manager()
+        rows = _rows(_source("users", manager))
+
+        assert rows == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
 
 class TestPageNumberPagination:
-    def test_stops_on_is_last_page(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_is_last_page(self, MockSession, monkeypatch) -> None:
         # page_size 1 keeps each page "full", so isLastPage (not the short-page guard) is what stops us.
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["features"], "page_size", 1)
-        manager = _FakeResumableManager()
-
-        rows = _collect(
-            "features",
-            manager,
-            monkeypatch,
+        session = MockSession.return_value
+        params = _wire(
+            session,
             [
-                {"features": [{"id": "f1"}], "isLastPage": False},
-                {"features": [{"id": "f2"}], "isLastPage": True},
+                _response("features", [{"id": "f1"}], isLastPage=False),
+                _response("features", [{"id": "f2"}], isLastPage=True),
             ],
         )
 
+        manager = _make_manager()
+        rows = _rows(_source("features", manager))
+
         assert [r["id"] for r in rows] == ["f1", "f2"]
-        assert [s.page_number for s in manager.saved] == [1]
+        assert params[0]["pageNumber"] == 0
+        assert params[1]["pageNumber"] == 1
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == GainsightPxResumeConfig(page_number=1)
 
-    def test_stops_on_short_page(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_short_page(self, MockSession, monkeypatch) -> None:
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["segments"], "page_size", 2)
-        manager = _FakeResumableManager()
+        session = MockSession.return_value
+        # short page → stop even though isLastPage is False.
+        _wire(session, [_response("segments", [{"id": "s1"}], isLastPage=False)])
 
-        rows = _collect(
-            "segments",
-            manager,
-            monkeypatch,
-            [{"segments": [{"id": "s1"}], "isLastPage": False}],  # short page → stop even without isLastPage
-        )
+        manager = _make_manager()
+        rows = _rows(_source("segments", manager))
 
         assert [r["id"] for r in rows] == ["s1"]
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_resumes_from_saved_page_number(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page_number(self, MockSession, monkeypatch) -> None:
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["features"], "page_size", 100)
-        seen_urls: list[str] = []
+        session = MockSession.return_value
+        params = _wire(session, [_response("features", [{"id": "f"}], isLastPage=True)])
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            seen_urls.append(url)
-            return {"features": [{"id": "f"}], "isLastPage": True}
+        manager = _make_manager(GainsightPxResumeConfig(page_number=4))
+        _rows(_source("features", manager))
 
-        monkeypatch.setattr(gainsight_px, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(gainsight_px, "make_tracked_session", lambda *a, **k: MagicMock())
+        assert params[0]["pageNumber"] == 4
 
-        manager = _FakeResumableManager(GainsightPxResumeConfig(page_number=4))
-        list(
-            get_rows(
-                api_key="key",
-                region="us",
-                endpoint="features",
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-            )
+
+class TestRowNormalization:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_epoch_millis_fields_are_converted_during_iteration(self, MockSession, monkeypatch) -> None:
+        monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["accounts"], "page_size", 2)
+        session = MockSession.return_value
+        _wire(session, [_response("accounts", [{"id": "a1", "createDate": 1609459200000}], scrollId=None)])
+
+        rows = _rows(_source("accounts", _make_manager()))
+
+        assert rows[0]["createDate"] == datetime(2021, 1, 1, tzinfo=UTC)
+
+
+class TestRetries:
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_is_retried(self, MockSession, _mock_sleep, monkeypatch) -> None:
+        monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["accounts"], "page_size", 2)
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response("accounts", [], status_code=429),
+                _response("accounts", [{"id": "1"}, {"id": "2"}], status_code=200, scrollId=None),
+            ],
         )
 
-        assert "pageNumber=4" in seen_urls[0]
+        rows = _rows(_source("accounts", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["1", "2"]
+        assert session.send.call_count == 2
+
+
+class TestSessionHardening:
+    """The API key travels in a custom header the sample-capture denylist can't recognise, so the
+    framework auth registers its value for redaction across errors, logs, and captured samples."""
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_registers_api_key_for_redaction(self, MockSession) -> None:
+        _source("users", _make_manager())
+        assert MockSession.call_args.kwargs["redact_values"] == ("secret-key",)
+
+    @mock.patch(GAINSIGHT_SESSION_PATCH)
+    def test_validate_credentials_masks_key(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("secret-key", "us")
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_maps_status_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status_code)
-        with patch.object(gainsight_px, "make_tracked_session", return_value=session):
-            assert validate_credentials("key", "us") is expected
+    @mock.patch(GAINSIGHT_SESSION_PATCH)
+    def test_maps_status_to_bool(self, _name: str, status_code: int, expected: bool, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+        assert validate_credentials("key", "us") is expected
 
-    def test_network_error_is_false(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(gainsight_px, "make_tracked_session", return_value=session):
-            assert validate_credentials("key", "us") is False
+    @mock.patch(GAINSIGHT_SESSION_PATCH)
+    def test_network_error_is_false(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("key", "us") is False
 
-
-class TestSessionHardening:
-    """The API key travels in a custom `X-APTRINSIC-API-KEY` header, which the sample-capture
-    denylist can't recognise. Every session must value-mask the key and leave retries to tenacity."""
-
-    @staticmethod
-    def _assert_hardened(call: Any) -> None:
-        assert call.kwargs["redact_values"] == ("secret-key",)
-        assert call.kwargs["retry"].total == 0
-
-    def test_validate_credentials_masks_key_and_disables_adapter_retry(self) -> None:
-        with patch.object(gainsight_px, "make_tracked_session", return_value=MagicMock()) as make_session:
-            validate_credentials("secret-key", "us")
-        self._assert_hardened(make_session.call_args)
-
-    def test_get_rows_masks_key_and_disables_adapter_retry(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(gainsight_px, "_fetch_page", lambda *a, **k: {"users": [], "scrollId": None})
-        with patch.object(gainsight_px, "make_tracked_session", return_value=MagicMock()) as make_session:
-            list(get_rows("secret-key", "us", "users", MagicMock(), MagicMock()))
-        self._assert_hardened(make_session.call_args)
+    @mock.patch(GAINSIGHT_SESSION_PATCH)
+    def test_probes_accounts_endpoint(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("key", "eu")
+        called_url = mock_session.return_value.get.call_args.args[0]
+        assert called_url == "https://api-eu.aptrinsic.com/v1/accounts?pageSize=1"
 
 
 class TestSourceResponse:
@@ -322,14 +306,11 @@ class TestSourceResponse:
             ("kc_bots", ["id"], "createdDate"),
         ]
     )
-    def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
-        response = gainsight_px_source(
-            api_key="key",
-            region="us",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None, MockSession
+    ) -> None:
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == primary_keys

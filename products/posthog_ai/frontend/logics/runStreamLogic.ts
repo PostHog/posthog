@@ -1,11 +1,24 @@
 import { type EventSourceMessage, createParser } from 'eventsource-parser'
-import { type BreakPointFunction, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    type BreakPointFunction,
+    actions,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay } from 'lib/utils/async'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -13,22 +26,29 @@ import { userLogic } from 'scenes/userLogic'
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { getClaudeCodeMeta, resolveToolCall } from '../components/tool/toolResolver'
+import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { UserType } from '../../../../frontend/src/types'
+import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
-import { defaultPermissionDecision, findAllowOptionId } from '../policy/toolPolicy'
+import { defaultPermissionDecision, findAllowOptionId, isFullAutoMode, isPersistPromptTool } from '../policy/toolPolicy'
 import type {
     ContextUsage,
     PermissionRequestRecord,
     ResourceProduct,
     RunArtifacts,
+    RunLifecycleEvent,
     ProgressStatus,
     ProgressStep,
     RunConnectionState,
+    RunTerminalStatus,
     SdkSession,
     ThreadItem,
     ThreadItemType,
     ToolInvocation,
     ToolInvocationStatus,
+    ToolStreamEvent,
+    ToolStreamPhase,
+    TurnCompleteEvent,
 } from '../types/streamTypes'
 import {
     type PermissionOption,
@@ -48,7 +68,43 @@ import {
     isSessionUpdateUserMessage,
     isTaskRunStateFrame,
 } from '../types/wireTypes'
-import type { runStreamLogicType } from './runStreamLogicType'
+import { extractContextBlockLines } from '../utils/posthogContextBlock'
+import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
+import { attachedContextLogic } from './attachedContextLogic'
+import { debugLogsLogic } from './debugLogsLogic'
+import { registerHmrStreamAbort } from './devHmrStreamAbort'
+import { foregroundStreamLogic } from './foregroundStreamLogic'
+import { hasReplayListener, toolStreamEventsLogic } from './toolStreamEventsLogic'
+import type { ToolStreamSubscription } from './toolStreamEventsLogic'
+
+export interface LiveStreamEntry {
+    controller: AbortController
+    /** Reopens this stream after an HMR swap its logic survived. See `devHmrStreamAbort`. */
+    reopen: () => void
+}
+
+interface LiveStreamRegistryHost {
+    __posthogAiLiveStreamControllers?: Set<LiveStreamEntry>
+}
+
+// Dev-only guard against orphaned SSE readers: an HMR swap re-evaluates this module in the same page,
+// and the old build's logic gets discarded with a fresh kea `cache`, so its 'event-source' disposable
+// never runs teardown and its reader keeps the connection open (pinning a granian dev worker) until
+// the tab closes. A fresh evaluation finding entries in the page-global registry therefore means
+// an HMR swap just replaced their build, so abort them (an aborted signal is the silent teardown path,
+// which is why the old logic won't schedule a reconnect). On first load the registry is empty, and a
+// full page load needs none of this because the browser aborts in-flight fetches itself.
+//
+// This only covers swaps that re-evaluate this module. `devHmrStreamAbort` covers the rest, where the
+// logic survives and its stream has to be reopened rather than left closed.
+const liveStreamControllers = new Set<LiveStreamEntry>()
+if (process.env.NODE_ENV === 'development') {
+    const registryHost = globalThis as LiveStreamRegistryHost
+    registryHost.__posthogAiLiveStreamControllers?.forEach((entry) => entry.controller.abort())
+    registryHost.__posthogAiLiveStreamControllers = liveStreamControllers
+    // Jest maps this module to an empty stub, so the call has to stay inside this check.
+    registerHmrStreamAbort()
+}
 
 export type RunSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
 export type RunStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
@@ -210,20 +266,47 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
 }
 
 /**
- * Recovers the raw text the user typed from a persisted `_posthog/user_message`. The backend
- * prepends a `<posthog_context>…</posthog_context>` block when attachments are present
- * (`context_wrapper.wrap_user_message`); stripping it keeps a replayed prompt identical to the one
- * the live send path echoed via `pushHumanMessage`.
+ * Recovers the raw text the user typed from a persisted `_posthog/user_message`. The send paths
+ * prepend context blocks when attachments are present — `<posthog_trusted_context>` and/or
+ * `<posthog_untrusted_context>` from the frontend builder (`utils/posthogContextBlock.ts`), or the
+ * legacy `<posthog_context>` wrapper from the deprecated backend `context_wrapper.py` path and old
+ * persisted history. Stripping every leading block keeps a replayed prompt identical to the one the
+ * live send path echoed via `pushHumanMessage`.
  */
-function unwrapUserMessageContent(content: string): string {
-    const closeTag = '</posthog_context>'
-    if (content.startsWith('<posthog_context>')) {
-        const closeIdx = content.indexOf(closeTag)
-        if (closeIdx !== -1) {
-            return content.slice(closeIdx + closeTag.length).replace(/^\n+/, '')
+const CONTEXT_BLOCK_TAGS = ['posthog_trusted_context', 'posthog_untrusted_context', 'posthog_context']
+
+export interface SplitUserMessageContent {
+    /** The user's own text, with every leading context block removed. */
+    text: string
+    /** Each stripped context block, raw (tags included), in message order. */
+    contextBlocks: string[]
+}
+
+export function splitUserMessageContent(content: string): SplitUserMessageContent {
+    const contextBlocks: string[] = []
+    let rest = content
+    for (;;) {
+        const tag = CONTEXT_BLOCK_TAGS.find((t) => rest.startsWith(`<${t}>`))
+        if (!tag) {
+            return { text: rest, contextBlocks }
         }
+        const closeTag = `</${tag}>`
+        const closeIdx = rest.indexOf(closeTag)
+        if (closeIdx === -1) {
+            return { text: rest, contextBlocks }
+        }
+        contextBlocks.push(rest.slice(0, closeIdx + closeTag.length))
+        rest = rest.slice(closeIdx + closeTag.length).replace(/^\n+/, '')
     }
-    return content
+}
+
+export function unwrapUserMessageContent(content: string): string {
+    return splitUserMessageContent(content).text
+}
+
+/** Rendered item lines of the context blocks a wrapped user message carries (`[]` when unwrapped). */
+function contextBlockLinesFromUserMessage(text: string): string[] {
+    return splitUserMessageContent(text).contextBlocks.flatMap(extractContextBlockLines)
 }
 
 /**
@@ -473,9 +556,9 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
     return -1
 }
 
-/** The in-progress compaction spinner item — cleared when compaction completes or a boundary lands. */
-function isPendingCompactingStatus(item: ThreadItem): boolean {
-    return item.type === 'status' && item.status === 'compacting' && item.isComplete !== true
+/** The in-progress spinner for a long-running status — retired when it completes, fails, or its boundary lands. */
+function isPendingStatus(item: ThreadItem, status: string): boolean {
+    return item.type === 'status' && item.status === status && item.isComplete !== true
 }
 
 function insertHumanMessageAtTurnStart(state: ThreadItem[], item: ThreadItem): ThreadItem[] {
@@ -502,6 +585,24 @@ function currentTurnHasHumanText(state: ThreadItem[], text: string): boolean {
             return false
         }
         if (item.type === 'human_message' && item.text === text) {
+            return true
+        }
+    }
+    return false
+}
+
+/**
+ * Is this context block already shown as a debug row in the current turn? A send can echo in two
+ * wire forms (`user_message` + `user_message_chunk`), both carrying the wrapped prefix — without
+ * this guard each form would add its own context rows.
+ */
+function currentTurnHasContextBlock(state: ThreadItem[], block: string): boolean {
+    for (let i = state.length - 1; i >= 0; i--) {
+        const item = state[i]
+        if (item.type === 'turn_separator') {
+            return false
+        }
+        if (item.type === 'debug' && item.debugLevel === 'context' && item.text === block) {
             return true
         }
     }
@@ -642,16 +743,126 @@ export interface StoredEntry {
 }
 
 /**
- * Ordered, append-only raw-frame log, in render order — the single source of truth. `threadItems`
- * and `toolInvocations` are pure projections of it (see `foldLogToThread`). Frames are appended,
+ * Ordered raw-frame log, in render order — the single source of truth. `threadItems` and
+ * `toolInvocations` are pure projections of it (see `foldLogToThread`). Frames are appended,
  * never keyed or per-entry deduped: the only place two independently-identified sources overlap is
  * the bootstrap seam (the S3 history vs. the live SSE, which is connected *before* the history loads
  * so no frame is gapped), and that one overlap is reconciled once by `dedupeBufferedAgainstHistory`
  * before the live tail is appended. Steady-state live frames resume exactly after the last-seen
  * Redis id (exclusive), so they never re-deliver — a plain append therefore cannot double the thread.
+ *
+ * One principled exception to append-only: `tool_call_update` frames. The agent re-sends the full
+ * accumulated `rawOutput`/`content` snapshot on every update (a long-running tool call can emit
+ * thousands, each hundreds of KB), and neither the S3 log nor the live stream trims them — retaining
+ * every superseded snapshot balloons renderer memory by orders of magnitude while the fold only ever
+ * renders the merged latest. `appendToRunLog` therefore keeps a single field-wise-merged update entry
+ * per `toolCallId` (see `mergeToolCallUpdateEntries`); `toolUpdateIndex` locates it in O(1).
  */
 export interface RunLog {
     entries: StoredEntry[]
+    /** Index into `entries` of the retained (merged) `tool_call_update` entry per toolCallId. */
+    toolUpdateIndex: Record<string, number>
+}
+
+export function emptyRunLog(): RunLog {
+    return { entries: [], toolUpdateIndex: {} }
+}
+
+/** The non-empty toolCallId of a `tool_call_update` frame, or null for every other frame. */
+function toolCallUpdateKey(stored: StoredEntry): string | null {
+    const notification = stored.entry.notification
+    if (notification.method !== 'session/update') {
+        return null
+    }
+    const update = notification.params?.update
+    if (!isRecord(update) || update.sessionUpdate !== 'tool_call_update') {
+        return null
+    }
+    return typeof update.toolCallId === 'string' && update.toolCallId ? update.toolCallId : null
+}
+
+/**
+ * Field-wise merge of a superseded `tool_call_update` entry into its successor for the same tool
+ * call — the log-level twin of `handleToolCallUpdate`'s fold precedence, so folding the one merged
+ * entry yields the same invocation as folding both in sequence. Newer fields win when present;
+ * absent fields fall back to the older update. Verbatim keep-latest would lose data: the wire sends
+ * *partial* updates (e.g. `rawInput` streams in on an early update and the terminal update omits it).
+ */
+function mergeToolCallUpdateEntries(older: StoredEntry, newer: StoredEntry): StoredEntry {
+    const olderNotification = older.entry.notification
+    const newerNotification = newer.entry.notification
+    const olderUpdateRaw = olderNotification.params?.update
+    const newerUpdateRaw = newerNotification.params?.update
+    const olderUpdate = isRecord(olderUpdateRaw) ? olderUpdateRaw : {}
+    const newerUpdate = isRecord(newerUpdateRaw) ? newerUpdateRaw : {}
+
+    const base = { ...olderUpdate }
+    // `rawInput`/`input` are one logical field in the fold (`rawInput ?? input`) — a newer value for
+    // either supersedes both, so a stale older `rawInput` can't shadow a newer `input`.
+    if ((newerUpdate.rawInput && typeof newerUpdate.rawInput === 'object') || isRecord(newerUpdate.input)) {
+        delete base.rawInput
+        delete base.input
+    }
+    const mergedUpdate: Record<string, unknown> = { ...base, ...newerUpdate }
+    // Content replaces only when the newer update actually carries blocks — the fold ignores an
+    // empty list, so an explicitly-empty newer `content` must not erase the older blocks.
+    const olderContent = Array.isArray(olderUpdate.content) ? olderUpdate.content : []
+    const newerContent = Array.isArray(newerUpdate.content) ? newerUpdate.content : []
+    if (olderContent.length > 0 && newerContent.length === 0) {
+        mergedUpdate.content = olderContent
+    }
+
+    return {
+        source: newer.source,
+        entry: {
+            ...newer.entry,
+            notification: {
+                ...newerNotification,
+                // The fold reads the envelope-level error for failed updates — carry the older one
+                // forward when the newer frame doesn't restate it.
+                ...(newerNotification.error == null && olderNotification.error != null
+                    ? { error: olderNotification.error }
+                    : {}),
+                params: { ...newerNotification.params, update: mergedUpdate },
+            },
+        },
+    }
+}
+
+/**
+ * Append frames to the log, collapsing superseded `tool_call_update` snapshots per toolCallId (see
+ * the `RunLog` doc). The merged entry moves to the tail — where the latest update would sit — which
+ * never reorders thread items: a tool card's position comes from its creating `tool_call` frame,
+ * not from updates. Every ingest source (`live`, `replay`, `client`) funnels through here, so the
+ * collapse covers both the live stream and the bootstrap history replay.
+ */
+export function appendToRunLog(state: RunLog, incoming: StoredEntry[]): RunLog {
+    if (incoming.length === 0) {
+        return state
+    }
+    const entries = [...state.entries]
+    const toolUpdateIndex = { ...state.toolUpdateIndex }
+    for (const stored of incoming) {
+        const toolCallId = toolCallUpdateKey(stored)
+        const priorIdx = toolCallId !== null ? toolUpdateIndex[toolCallId] : undefined
+        if (toolCallId === null || priorIdx === undefined) {
+            if (toolCallId !== null) {
+                toolUpdateIndex[toolCallId] = entries.length
+            }
+            entries.push(stored)
+            continue
+        }
+        const merged = mergeToolCallUpdateEntries(entries[priorIdx], stored)
+        entries.splice(priorIdx, 1)
+        for (const [id, idx] of Object.entries(toolUpdateIndex)) {
+            if (idx > priorIdx) {
+                toolUpdateIndex[id] = idx - 1
+            }
+        }
+        toolUpdateIndex[toolCallId] = entries.length
+        entries.push(merged)
+    }
+    return { entries, toolUpdateIndex }
 }
 
 /**
@@ -697,6 +908,90 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
     return survivors
 }
 
+/**
+ * The invocation a `tool_call` frame creates, replacing any prior invocation for the id. Shared by
+ * the `foldLogToThread` projection and the per-frame tracker in `ingestAcpFrame`, so tool-stream
+ * events carry exactly the invocation the projection derives without re-folding the whole log.
+ */
+function invocationFromToolCall(update: Record<string, unknown>): ToolInvocation | null {
+    const toolCallId = String(update.toolCallId ?? '')
+    if (!toolCallId) {
+        return null
+    }
+    return {
+        toolCallId,
+        rawServerName: String(update.serverName ?? 'posthog'),
+        rawToolName: String(update.toolName ?? ''),
+        input: (update.rawInput ?? update.input ?? {}) as Record<string, unknown>,
+        status: mapAcpStatus(update.status),
+        title: update.title as string | undefined,
+        kind: update.kind as string | undefined,
+        locations: update.locations as { path: string; line?: number }[] | undefined,
+        contentBlocks: Array.isArray(update.content) ? update.content : [],
+        meta: update._meta,
+    }
+}
+
+/**
+ * Folds one `tool_call_update` frame into the existing invocation (field-wise, newer-wins; the
+ * invocation-level twin of `mergeToolCallUpdateEntries`). A reconnect can deliver a terminal update
+ * whose creating `tool_call` was lost, so with no existing invocation this builds a minimal one and
+ * the card still renders instead of vanishing. Shared by the projection and the per-frame tracker.
+ */
+function invocationFromToolCallUpdate(
+    existing: ToolInvocation | undefined,
+    update: Record<string, unknown>,
+    notification: StoredLogEntry['notification']
+): ToolInvocation | null {
+    const toolCallId = String(update.toolCallId ?? '')
+    if (!toolCallId) {
+        return null
+    }
+    const status = mapAcpStatus(update.status ?? existing?.status)
+    const rawInput =
+        update.rawInput && typeof update.rawInput === 'object'
+            ? (update.rawInput as Record<string, unknown>)
+            : update.input && typeof update.input === 'object'
+              ? (update.input as Record<string, unknown>)
+              : undefined
+    const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
+    const errorMessage =
+        (update.error as { message?: string } | null)?.message ??
+        denialReason ??
+        (status === 'failed' ? notification.error?.message : undefined)
+    const updateContent = Array.isArray(update.content) ? update.content : []
+
+    if (!existing) {
+        return {
+            toolCallId,
+            rawServerName: 'posthog',
+            rawToolName: '',
+            input: rawInput ?? {},
+            status,
+            title: update.title as string | undefined,
+            locations: update.locations as { path: string; line?: number }[] | undefined,
+            contentBlocks: updateContent,
+            meta: update._meta,
+            ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
+        }
+    }
+
+    return {
+        ...existing,
+        status,
+        title: (update.title as string | undefined) ?? existing.title,
+        progress: update.progress ?? existing.progress,
+        output: update.rawOutput ?? existing.output,
+        locations: (update.locations as { path: string; line?: number }[] | undefined) ?? existing.locations,
+        // ACP update semantics: a present `content` replaces the collection (the agent re-sends
+        // the full accumulated blocks) — appending would duplicate every prior snapshot.
+        contentBlocks: updateContent.length > 0 ? updateContent : existing.contentBlocks,
+        error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
+        ...(rawInput ? { input: rawInput } : {}),
+        ...(update._meta ? { meta: update._meta } : {}),
+    }
+}
+
 export interface FoldedThread {
     threadItems: ThreadItem[]
     toolInvocations: Map<string, ToolInvocation>
@@ -721,8 +1016,10 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let errorSeq = 0
     let statusSeq = 0
     let compactSeq = 0
+    let clearedSeq = 0
     let taskSeq = 0
     let consoleSeq = 0
+    let contextSeq = 0
 
     const pushHuman = (text: string): void => {
         items = insertHumanMessageAtTurnStart(items, {
@@ -731,6 +1028,18 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             text,
             complete: true,
         })
+    }
+
+    // Surface the context blocks a send was wrapped with as copyable debug rows (gated downstream by
+    // `showDebugLogs`, like `_posthog/console` rows). Deduped per turn — a send can echo in two wire
+    // forms, both carrying the same wrapped prefix.
+    const pushContextBlocks = (contextBlocks: string[]): void => {
+        for (const block of contextBlocks) {
+            if (currentTurnHasContextBlock(items, block)) {
+                continue
+            }
+            items.push({ id: `context-${contextSeq++}`, type: 'debug', text: block, debugLevel: 'context' })
+        }
     }
 
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
@@ -784,7 +1093,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     }
 
     const renderReplayHuman = (rawText: string, remember: boolean): void => {
-        const text = unwrapUserMessageContent(rawText)
+        const { text, contextBlocks } = splitUserMessageContent(rawText)
         if (!text) {
             return
         }
@@ -799,16 +1108,20 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
         }
         pushHuman(text)
+        pushContextBlocks(contextBlocks)
         if (remember) {
             rememberedHumanTexts.set(text, (rememberedHumanTexts.get(text) ?? 0) + 1)
         }
     }
 
     const renderLiveHuman = (rawText: string): void => {
-        const text = unwrapUserMessageContent(rawText)
+        const { text, contextBlocks } = splitUserMessageContent(rawText)
         if (!text) {
             return
         }
+        // The blocks ride only the server echo (the optimistic `_client/human_message` carries the raw
+        // text), so push them even when the human text below dedupes against the optimistic render.
+        pushContextBlocks(contextBlocks)
         // The server echoes every user send live. An idle send already rendered it optimistically via
         // `_client/human_message`; a queue-drained send (dispatched with `addToThread: false`) did not,
         // so its echo is what surfaces it. Render unless the current turn already shows this message —
@@ -823,58 +1136,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         update: Record<string, unknown>,
         notification: StoredLogEntry['notification']
     ): void => {
-        const toolCallId = String(update.toolCallId ?? '')
-        if (!toolCallId) {
+        const existing = invocations.get(String(update.toolCallId ?? ''))
+        const next = invocationFromToolCallUpdate(existing, update, notification)
+        if (!next) {
             return
         }
-        const existing = invocations.get(toolCallId)
-        const status = mapAcpStatus(update.status ?? existing?.status)
-        const rawInput =
-            update.rawInput && typeof update.rawInput === 'object'
-                ? (update.rawInput as Record<string, unknown>)
-                : update.input && typeof update.input === 'object'
-                  ? (update.input as Record<string, unknown>)
-                  : undefined
-        const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
-        const errorMessage =
-            (update.error as { message?: string } | null)?.message ??
-            denialReason ??
-            (status === 'failed' ? notification.error?.message : undefined)
-        const updateContent = Array.isArray(update.content) ? update.content : []
-
-        if (!existing) {
-            // A reconnect can deliver a terminal update whose creating `tool_call` was lost — upsert a
-            // minimal invocation so the card still renders instead of vanishing.
-            invocations.set(toolCallId, {
-                toolCallId,
-                rawServerName: 'posthog',
-                rawToolName: '',
-                input: rawInput ?? {},
-                status,
-                title: update.title as string | undefined,
-                locations: update.locations as { path: string; line?: number }[] | undefined,
-                contentBlocks: updateContent,
-                meta: update._meta,
-                ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
-            })
-            if (!subagentParentToolCallId(update._meta)) {
-                upsertInvocationItem(toolCallId)
-            }
-            return
+        invocations.set(next.toolCallId, next)
+        if (!existing && !subagentParentToolCallId(update._meta)) {
+            upsertInvocationItem(next.toolCallId)
         }
-
-        invocations.set(toolCallId, {
-            ...existing,
-            status,
-            title: (update.title as string | undefined) ?? existing.title,
-            progress: update.progress ?? existing.progress,
-            output: update.rawOutput ?? existing.output,
-            locations: (update.locations as { path: string; line?: number }[] | undefined) ?? existing.locations,
-            contentBlocks: [...existing.contentBlocks, ...updateContent],
-            error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
-            ...(rawInput ? { input: rawInput } : {}),
-            ...(update._meta ? { meta: update._meta } : {}),
-        })
     }
 
     for (const { entry, source } of entries) {
@@ -945,15 +1215,26 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         if (method === '_posthog/status') {
             const status = String(params.status ?? '')
             const isComplete = params.isComplete === true
-            if (status === 'compacting' && isComplete) {
-                items = items.filter((item) => !isPendingCompactingStatus(item))
+            if (isComplete && (status === 'compacting' || status === 'clearing')) {
+                items = items.filter((item) => !isPendingStatus(item, status))
+            } else if (status === 'clearing_failed') {
+                // A failed clear emits no `conversation_cleared` marker, so retire the spinner
+                // here and report the outcome in its place.
+                items = items.filter((item) => !isPendingStatus(item, 'clearing'))
+                items.push({
+                    id: `status-${statusSeq++}`,
+                    type: 'status',
+                    status,
+                    isComplete: true,
+                    errorMessage: stringifyOptional(params.error),
+                })
             } else {
                 items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
             }
             continue
         }
         if (method === '_posthog/compact_boundary') {
-            items = items.filter((item) => !isPendingCompactingStatus(item))
+            items = items.filter((item) => !isPendingStatus(item, 'compacting'))
             items.push({
                 id: `compact-${compactSeq++}`,
                 type: 'compact_boundary',
@@ -961,6 +1242,13 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 preTokens: typeof params.preTokens === 'number' ? params.preTokens : undefined,
                 contextSize: typeof params.contextSize === 'number' ? params.contextSize : undefined,
             })
+            continue
+        }
+        if (method === '_posthog/conversation_cleared') {
+            // The divider supersedes the spinner visually, but the completing `_posthog/status`
+            // frame is a separate notification that may not have landed yet.
+            items = items.filter((item) => !isPendingStatus(item, 'clearing'))
+            items.push({ id: `cleared-${clearedSeq++}`, type: 'conversation_cleared' })
             continue
         }
         if (method === '_posthog/task_notification') {
@@ -1037,26 +1325,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 )
                 break
             case 'tool_call': {
-                const toolCallId = String(update.toolCallId ?? '')
-                if (!toolCallId) {
+                const invocation = invocationFromToolCall(update)
+                if (!invocation) {
                     break
                 }
-                invocations.set(toolCallId, {
-                    toolCallId,
-                    rawServerName: String(update.serverName ?? 'posthog'),
-                    rawToolName: String(update.toolName ?? ''),
-                    input: (update.rawInput ?? update.input ?? {}) as Record<string, unknown>,
-                    status: mapAcpStatus(update.status),
-                    title: update.title as string | undefined,
-                    kind: update.kind as string | undefined,
-                    locations: update.locations as { path: string; line?: number }[] | undefined,
-                    contentBlocks: Array.isArray(update.content) ? update.content : [],
-                    meta: update._meta,
-                })
+                invocations.set(invocation.toolCallId, invocation)
                 // A subagent's inner tool calls carry the parent Task's id; they belong inside that
                 // card, not as top-level siblings, so keep them out of the thread.
                 if (!subagentParentToolCallId(update._meta)) {
-                    upsertInvocationItem(toolCallId)
+                    upsertInvocationItem(invocation.toolCallId)
                 }
                 break
             }
@@ -1073,7 +1350,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
  * Whether a folded item renders any content. Empty priming thoughts and step-less progress rows fold
  * into the thread but render nothing; drop them here so a virtualized consumer never reserves an empty,
  * gap-padded row. Tool items are always paired with an invocation (see `upsertInvocationItem`), and
- * `debug` rows are gated separately by `showDebugItems`, so neither needs a content check here.
+ * `debug` rows are gated separately by `showDebugLogs`, so neither needs a content check here.
  */
 function rendersThreadItemContent(item: ThreadItem): boolean {
     switch (item.type) {
@@ -1085,6 +1362,291 @@ function rendersThreadItemContent(item: ThreadItem): boolean {
             return true
     }
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface runStreamLogicValues {
+    showDebugLogs: boolean // debugLogsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    foregroundStreamKeys: Set<string> // foregroundStreamLogic
+    isDev: boolean | undefined // preflightLogic
+    currentProjectId: number | null // projectLogic
+    toolListeners: Record<string, ToolStreamSubscription> // toolStreamEventsLogic
+    user: UserType | null // userLogic
+    awaitingOptimisticAttach: boolean
+    bootstrapError: StreamErrorEnvelope | null
+    bootstrapLoading: boolean
+    bootstrappedRunId: string | null
+    bootstrappedTaskId: string | null
+    contextUsage: ContextUsage | null
+    conversationClearSupported: boolean
+    cumulativeReconnectAttempt: number
+    currentMode: string | null
+    currentProgress: string | null
+    currentRunStatus: RunStatus | null
+    currentStage: string | null
+    foldedThread: FoldedThread
+    hasGitArtifacts: boolean
+    isBootstrapResumeRun: boolean
+    isThinking: boolean
+    log: RunLog
+    logBootstrapLoading: boolean
+    pendingPermissionRequest: PermissionRequestRecord | null
+    reconnectAttempt: number
+    resolvedPermissionRequestIds: Set<string>
+    resourcesUsed: ResourceProduct[]
+    respondingToPermission: boolean
+    runArtifacts: RunArtifacts
+    runConnectionState: RunConnectionState | null
+    runOpening: boolean
+    runStarted: boolean
+    sdkSession: SdkSession | null
+    seenPermissionRequestIds: Set<string>
+    showThinkingIndicator: boolean
+    sseStatus: RunSseStatus
+    streamPhase: 'idle' | 'provisioning' | 'thinking'
+    streamViaProxyEnabled: boolean
+    threadItems: ThreadItem[]
+    toolInvocations: Map<string, ToolInvocation>
+    traceId: string | null
+    turnComplete: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface runStreamLogicActions {
+    markContextLinesSeen: (
+        taskId: string,
+        lines: string[]
+    ) => {
+        lines: string[]
+        taskId: string
+    } // attachedContextLogic
+    emitRunLifecycleEvent: (event: RunLifecycleEvent) => {
+        event: RunLifecycleEvent
+    } // toolStreamEventsLogic
+    emitToolEvent: (event: ToolStreamEvent) => {
+        event: ToolStreamEvent
+    } // toolStreamEventsLogic
+    emitTurnCompleteEvent: (event: TurnCompleteEvent) => {
+        event: TurnCompleteEvent
+    } // toolStreamEventsLogic
+    appendEntries: (entries: StoredEntry[]) => {
+        entries: StoredEntry[]
+    }
+    autoApprovePermissionRequest: (
+        record: PermissionRequestRecord,
+        optionId: string
+    ) => {
+        optionId: string
+        record: PermissionRequestRecord
+    }
+    bootstrapLogReady: () => {
+        value: true
+    }
+    bootstrapReplayComplete: () => {
+        value: true
+    }
+    bootstrapRun: (payload: { justCreatedRun?: boolean; runId: string; taskId: string; traceId?: string }) => {
+        justCreatedRun?: boolean | undefined
+        runId: string
+        taskId: string
+        traceId?: string | undefined
+    }
+    cancelRun: (run?: { runId: string; taskId: string }) => {
+        run:
+            | {
+                  runId: string
+                  taskId: string
+              }
+            | undefined
+    }
+    clearPermissionRequest: () => {
+        value: true
+    }
+    closeSse: () => {
+        value: true
+    }
+    handleStreamError: (envelope: StreamErrorEnvelope) => StreamErrorEnvelope
+    handleTerminalStatus: (status: {
+        errorMessage?: string | null
+        replayedFromHistory?: boolean
+        status: RunStatus
+    }) => {
+        errorMessage?: string | null | undefined
+        replayedFromHistory?: boolean | undefined
+        status: RunStatus
+    }
+    ingestAcpFrame: (
+        entry: StoredLogEntry,
+        source?: FrameSource
+    ) => {
+        entry: StoredLogEntry
+        source: FrameSource
+    }
+    ingestPermissionRequest: (
+        record: PermissionRequestRecord,
+        replayedFromHistory?: boolean
+    ) => {
+        record: PermissionRequestRecord
+        replayedFromHistory: boolean
+    }
+    markBootstrapResumeRun: (value: boolean) => {
+        value: boolean
+    }
+    markPermissionRequestResolved: (requestId: string) => {
+        requestId: string
+    }
+    markPermissionRequestSeen: (requestId: string) => {
+        requestId: string
+    }
+    markRunStarted: () => {
+        value: true
+    }
+    markTurnComplete: () => {
+        value: true
+    }
+    mergeResourcesUsed: (
+        products: {
+            id?: string
+            label?: string
+        }[]
+    ) => {
+        products: {
+            id?: string | undefined
+            label?: string | undefined
+        }[]
+    }
+    mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
+        partial: Partial<RunArtifacts>
+    }
+    openSseForRun: (payload: { runId: string; startLatest?: boolean; taskId: string; traceId?: string }) => {
+        runId: string
+        startLatest?: boolean | undefined
+        taskId: string
+        traceId?: string | undefined
+    }
+    permissionResponseFailed: () => {
+        value: true
+    }
+    pushConversationCleared: () => {
+        value: true
+    }
+    pushErrorItem: (
+        errorMessage: string,
+        variant?: 'crash' | 'error'
+    ) => {
+        errorMessage: string
+        variant: 'crash' | 'error'
+    }
+    pushHumanMessage: (content: string) => {
+        content: string
+    }
+    reset: () => {
+        value: true
+    }
+    respondToPermission: (payload: {
+        answers?: Record<string, string>
+        customInput?: string
+        optionId: string
+        requestId: string
+    }) => {
+        answers?: Record<string, string> | undefined
+        customInput?: string | undefined
+        optionId: string
+        requestId: string
+    }
+    routePermissionRequest: (
+        record: PermissionRequestRecord,
+        replayedFromHistory?: boolean
+    ) => {
+        record: PermissionRequestRecord
+        replayedFromHistory: boolean
+    }
+    setContextUsage: (usage: ContextUsage) => {
+        usage: ContextUsage
+    }
+    setConversationClearSupported: (supported: boolean) => {
+        supported: boolean
+    }
+    setCurrentMode: (mode: string) => {
+        mode: string
+    }
+    setCurrentProgress: (progress: string) => {
+        progress: string
+    }
+    setCurrentStage: (stage: string | null) => {
+        stage: string | null
+    }
+    setRunOpening: (opening: boolean) => {
+        opening: boolean
+    }
+    setSdkSession: (session: SdkSession) => {
+        session: SdkSession
+    }
+    sseConnecting: () => {
+        value: true
+    }
+    sseDropped: () => {
+        value: true
+    }
+    sseOpened: () => {
+        value: true
+    }
+    sseReconnecting: (attempt: number) => {
+        attempt: number
+    }
+    startOptimisticRun: (message?: string) => {
+        message: string | undefined
+    }
+    streamEnded: () => {
+        value: true
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface runStreamLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
+        threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
+        toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
+        isThinking: (
+            runStarted: boolean,
+            turnComplete: boolean,
+            currentRunStatus: RunStatus | null,
+            sseStatus: RunSseStatus,
+            arg: boolean | undefined
+        ) => boolean
+        streamPhase: (
+            runStarted: boolean,
+            isThinking: boolean,
+            currentRunStatus: RunStatus | null,
+            sseStatus: RunSseStatus,
+            runOpening: boolean,
+            arg: boolean | undefined
+        ) => 'idle' | 'provisioning' | 'thinking'
+        showThinkingIndicator: (
+            streamPhase: 'idle' | 'provisioning' | 'thinking',
+            threadItems: ThreadItem[],
+            toolInvocations: Map<string, ToolInvocation>
+        ) => boolean
+        hasGitArtifacts: (runArtifacts: RunArtifacts) => boolean
+        streamViaProxyEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        runConnectionState: (
+            sseStatus: RunSseStatus,
+            reconnectAttempt: number,
+            bootstrapError: StreamErrorEnvelope | null,
+            currentRunStatus: RunStatus | null,
+            arg: boolean | undefined
+        ) => RunConnectionState | null
+    }
+}
+
+export type runStreamLogicType = MakeLogicType<
+    runStreamLogicValues,
+    runStreamLogicActions,
+    RunStreamLogicProps,
+    runStreamLogicMeta
+>
 
 /**
  * Owns the SSE connection to the products/tasks stream endpoint (a `fetch` reader driven by
@@ -1117,6 +1679,18 @@ export const runStreamLogic = kea<runStreamLogicType>([
             ['isDev'],
             userLogic,
             ['user'],
+            debugLogsLogic,
+            ['showDebugLogs'],
+            toolStreamEventsLogic,
+            ['toolListeners'],
+            foregroundStreamLogic,
+            ['foregroundStreamKeys'],
+        ],
+        actions: [
+            toolStreamEventsLogic,
+            ['emitToolEvent', 'emitTurnCompleteEvent', 'emitRunLifecycleEvent'],
+            attachedContextLogic,
+            ['markContextLinesSeen'],
         ],
     })),
     actions({
@@ -1230,6 +1804,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
         markRunStarted: true,
+        /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
+        setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
@@ -1244,6 +1820,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         startOptimisticRun: (message?: string) => ({ message }),
         /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
+        /** Echoes a `/clear` boundary the backend just recorded against a finished run, which has no stream to send it back. */
+        pushConversationCleared: true,
         /** Union the products an answer was grounded in — accumulates across the whole session. */
         mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
         /** Latest-wins merge of git artifacts (PR url / branch / base / repo) a run exposes. */
@@ -1324,18 +1902,18 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
-        // The single source of truth: an ordered, append-only log of every ingested frame (plus
-        // client-injected synthetic entries). `threadItems` and `toolInvocations` are pure
-        // projections of it (see the selectors). The bootstrap seam is reconciled once before its
-        // live tail is appended (see `bootstrapRun` / `dedupeBufferedAgainstHistory`), and
-        // steady-state live frames resume exclusively after the last-seen Redis id, so a plain
-        // append never doubles the thread.
+        // The single source of truth: an ordered log of every ingested frame (plus client-injected
+        // synthetic entries). `threadItems` and `toolInvocations` are pure projections of it (see
+        // the selectors). The bootstrap seam is reconciled once before its live tail is appended
+        // (see `bootstrapRun` / `dedupeBufferedAgainstHistory`), and steady-state live frames
+        // resume exclusively after the last-seen Redis id, so a plain append never doubles the
+        // thread. Superseded `tool_call_update` snapshots are the one exception to append-only —
+        // `appendToRunLog` merges them per toolCallId (see the `RunLog` doc for why).
         log: [
-            { entries: [] } as RunLog,
+            emptyRunLog(),
             {
-                appendEntries: (state, { entries }) =>
-                    entries.length === 0 ? state : { entries: [...state.entries, ...entries] },
-                reset: () => ({ entries: [] }),
+                appendEntries: (state, { entries }) => appendToRunLog(state, entries),
+                reset: () => emptyRunLog(),
             },
         ],
         // True while a bootstrap is in flight before the thread has anything to show. Cleared once the
@@ -1358,6 +1936,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as string | null,
             {
                 bootstrapRun: (_, { runId }) => runId,
+                reset: () => null,
+            },
+        ],
+        // The task id this instance last bootstrapped, so the `ingestAcpFrame` history-derived context
+        // bookkeeping can attribute seen context blocks to the task. Null for an unattached optimistic
+        // stream — those record nothing (their send path marks sent keys directly).
+        bootstrappedTaskId: [
+            null as string | null,
+            {
+                bootstrapRun: (_, { taskId }) => taskId,
+                openSseForRun: (_, { taskId }) => taskId,
                 reset: () => null,
             },
         ],
@@ -1492,6 +2081,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => false,
             },
         ],
+        // The latest run_started in the resume chain wins, matching the desktop client: the gate
+        // predicts the next run's agent, and after an agent rollback an earlier capable run must
+        // not authorize recording a boundary the current agent would ignore on resume (the UI
+        // would claim a clear that never happens). `reset` is deliberately not handled: a
+        // re-bootstrap replays the chain's run_started frames and re-derives it.
+        conversationClearSupported: [
+            false,
+            {
+                setConversationClearSupported: (_, { supported }) => supported,
+            },
+        ],
         turnComplete: [
             false,
             {
@@ -1549,30 +2149,23 @@ export const runStreamLogic = kea<runStreamLogicType>([
          */
         foldedThread: [
             (s) => [s.log, s.isBootstrapResumeRun],
-            (log, isResumeRun): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
-        ],
-        /**
-         * Whether `_posthog/console` debug rows should surface in the thread. Derived from the current
-         * user's staff/impersonation flag and dev environment, so debug items are filtered out of
-         * `threadItems` for non-privileged users — never reaching the virtualizer.
-         */
-        showDebugItems: [
-            (s) => [s.user, s.isDev],
-            (user, isDev): boolean => !!user?.is_staff || !!user?.is_impersonated || !!isDev,
+            (log: RunLog, isResumeRun: boolean): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
         ],
         threadItems: [
-            (s) => [s.foldedThread, s.showDebugItems],
-            (foldedThread, showDebugItems): ThreadItem[] =>
+            (s) => [s.foldedThread, s.showDebugLogs],
+            (foldedThread: FoldedThread, showDebugLogs: boolean): ThreadItem[] =>
                 // Filtering lives here, not in the renderer: a row the renderer would return `null` for
                 // (a content-less item, or a debug row a non-privileged user can't see) still reserves an
                 // empty, gap-padded slot in the virtualized thread. Drop them before they become rows.
+                // Debug rows are gated by `debugLogsLogic.showDebugLogs` (staff/dev toggle, force-on when
+                // impersonating).
                 foldedThread.threadItems.filter(
-                    (item: ThreadItem) => (item.type !== 'debug' || showDebugItems) && rendersThreadItemContent(item)
+                    (item: ThreadItem) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
                 ),
         ],
         toolInvocations: [
             (s) => [s.foldedThread],
-            (foldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
+            (foldedThread: FoldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
         ],
         /**
          * Whether the agent is actively working a turn — drives the thread's thinking indicator.
@@ -1586,7 +2179,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
         isThinking: [
             // `replayOnly` always resolves (default in `props`); `!` drops the optional-prop `undefined`.
             (s, p) => [s.runStarted, s.turnComplete, s.currentRunStatus, s.sseStatus, p.replayOnly!],
-            (runStarted, turnComplete, currentRunStatus, sseStatus, replayOnly): boolean => {
+            (
+                runStarted: boolean,
+                turnComplete: boolean,
+                currentRunStatus: RunStatus | null,
+                sseStatus: RunSseStatus,
+                replayOnly: boolean | undefined
+            ): boolean => {
                 // A read-only snapshot is never "thinking" — it's a static replay, so the indicator
                 // must never spin (an in-progress run replayed read-only has no live turn to await).
                 if (replayOnly) {
@@ -1613,12 +2212,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
         streamPhase: [
             (s, p) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus, s.runOpening, p.replayOnly!],
             (
-                runStarted,
-                isThinking,
-                currentRunStatus,
-                sseStatus,
-                runOpening,
-                replayOnly
+                runStarted: boolean,
+                isThinking: boolean,
+                currentRunStatus: RunStatus | null,
+                sseStatus: RunSseStatus,
+                runOpening: boolean,
+                replayOnly: boolean | undefined
             ): 'provisioning' | 'thinking' | 'idle' => {
                 // A read-only snapshot never provisions or thinks — there is no live stream behind it.
                 if (replayOnly) {
@@ -1646,7 +2245,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
          */
         showThinkingIndicator: [
             (s) => [s.streamPhase, s.threadItems, s.toolInvocations],
-            (streamPhase, threadItems, toolInvocations): boolean => {
+            (
+                streamPhase: 'idle' | 'provisioning' | 'thinking',
+                threadItems: ThreadItem[],
+                toolInvocations: Map<string, ToolInvocation>
+            ): boolean => {
                 if (streamPhase !== 'thinking') {
                     return false
                 }
@@ -1678,7 +2281,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Whether the run exposes any git artifact worth surfacing — gates the pre/post-turn coding UI. */
         hasGitArtifacts: [
             (s) => [s.runArtifacts],
-            (runArtifacts): boolean => !!runArtifacts.prUrl || !!runArtifacts.branch,
+            (runArtifacts: RunArtifacts): boolean => !!runArtifacts.prUrl || !!runArtifacts.branch,
         ],
         /**
          * Gates routing the live stream through the standalone agent-proxy (the durable-streaming
@@ -1690,7 +2293,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
          */
         streamViaProxyEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY],
         ],
         /**
          * The live connection banner view-model (footer `RunAlertActivity`), or null when the connection is
@@ -1701,7 +2305,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
          */
         runConnectionState: [
             (s, p) => [s.sseStatus, s.reconnectAttempt, s.bootstrapError, s.currentRunStatus, p.replayOnly!],
-            (sseStatus, reconnectAttempt, bootstrapError, currentRunStatus, replayOnly): RunConnectionState | null => {
+            (
+                sseStatus: RunSseStatus,
+                reconnectAttempt: number,
+                bootstrapError: StreamErrorEnvelope | null,
+                currentRunStatus: RunStatus | null,
+                replayOnly: boolean | undefined
+            ): RunConnectionState | null => {
                 if (isTerminalRunStatus(currentRunStatus)) {
                     return null
                 }
@@ -2059,17 +2669,28 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
 
             // Replace any prior connection. A hot reload can orphan the previous build's reader (its
-            // `cache`, and thus this disposable, is discarded before teardown runs), but the keyed
-            // log store makes duplicate ingestion idempotent — a lingering orphan can no longer
-            // double the thread, so the old `EventSource` registry is gone.
+            // `cache`, and thus this disposable, is discarded before teardown runs) — the keyed
+            // log store makes duplicate ingestion idempotent, and the module-level
+            // `liveStreamControllers` HMR hook aborts the orphan's connection itself.
             cache.disposables.dispose('event-source')
             // pauseOnPageHidden: false — a live stream must survive tab hides; re-running setup on
             // show would reopen the stream and re-fold thread state.
             cache.disposables.add(
                 (): (() => void) => {
                     const controller = new AbortController()
+                    // `startLatest: true` mirrors the reconnect path below: the resume actually happens
+                    // off `cache.lastEventId` via Last-Event-ID, so this only matters if no frame has
+                    // arrived yet.
+                    const entry: LiveStreamEntry = {
+                        controller,
+                        reopen: () => actions.openSseForRun({ taskId, runId, startLatest: true }),
+                    }
+                    liveStreamControllers.add(entry)
                     void streamRun(controller.signal)
-                    return () => controller.abort()
+                    return () => {
+                        liveStreamControllers.delete(entry)
+                        controller.abort()
+                    }
                 },
                 'event-source',
                 { pauseOnPageHidden: false }
@@ -2188,7 +2809,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         routePermissionRequest: ({ record, replayedFromHistory }) => {
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
-            if (!replayedFromHistory && defaultPermissionDecision(record) === 'auto_allow') {
+            // In full-auto (`bypassPermissions`) the user opted out of tool approvals entirely, so any
+            // relayed tool request is answered with its allow option — but questions and plan approvals
+            // still surface, since auto-answering those would pick an option on the user's behalf.
+            // Otherwise: persist/publish tools (dashboards, feature flags, surveys, hog functions,
+            // workflows) must still prompt when this run is a foreground stream (rendered in a surface
+            // the user is watching and can respond in), even though `defaultPermissionDecision` would
+            // auto-approve them as non-destructive. Background and headless runs keep auto-approving.
+            const fullAuto =
+                isFullAutoMode(values.currentMode) && !record.questions?.length && !isPlanPermissionRequest(record)
+            const isForegroundStream = values.foregroundStreamKeys.has(props.streamKey)
+            const forcePromptForForeground = !fullAuto && isForegroundStream && isPersistPromptTool(record)
+            const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
+            if (!replayedFromHistory && !forcePromptForForeground && decision === 'auto_allow') {
                 const optionId = findAllowOptionId(record)
                 if (optionId) {
                     actions.autoApprovePermissionRequest(record, optionId)
@@ -2200,6 +2833,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
         autoApprovePermissionRequest: async ({ record, optionId }) => {
             // Pin it seen up front so a reconnect replay can't re-process the same request mid-POST.
             actions.markPermissionRequestSeen(record.requestId)
+            // A persist tool routed here because no foreground surface was registered yet may have
+            // raced a mounting surface's registration (the SSE frame can land before the layout
+            // effect flushes). Yield one macrotask and re-check; if the stream became foreground,
+            // surface the card instead of silently persisting. Plain `delay`, not a kea breakpoint —
+            // a breakpoint would let a second rapid frame cancel this listener pre-POST and stall
+            // the agent. Full-auto runs skip the re-check — they never prompt for persist tools.
+            if (!isFullAutoMode(values.currentMode) && isPersistPromptTool(record)) {
+                await delay(0)
+                if (values.foregroundStreamKeys.has(props.streamKey)) {
+                    actions.ingestPermissionRequest(record)
+                    return
+                }
+            }
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             const resolvedToolCall = resolveToolCall(record.rawToolCall)
             posthog.capture('permission_auto_approved', {
@@ -2280,7 +2926,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
         },
         cancelRun: async ({ run }) => {
-            // Cancel a run through the generic tasks relay — the same command PostHog Code issues. The
+            // Cancel a run through the generic tasks relay — the same command PostHog Desktop issues. The
             // SSE then receives a terminal task_run_state; cancellation telemetry is emitted server-side
             // by the relay. `run` defaults to the streamed run; a warm Run (not streamed) is passed in.
             // Fire-and-forget: a failure leaves the run alive for a retry.
@@ -2318,6 +2964,18 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // page load would inflate termination counts.
             if (replayedFromHistory) {
                 return
+            }
+
+            // Run-lifecycle signal for apply-back consumers: publish once per run when a live run
+            // reaches a terminal status. `handleTerminalStatus` can fire more than once for the same
+            // run (a task_run_state frame, then a post-drop refetch), so guard on the run id — a
+            // reconnect double-transition must not re-fire the reaction. Replay is already excluded
+            // by the early return above.
+            const lifecycleRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            const emittedRunIds = (cache.emittedTerminalRunIds ??= new Set<string>()) as Set<string>
+            if (lifecycleRun && !emittedRunIds.has(lifecycleRun.runId)) {
+                emittedRunIds.add(lifecycleRun.runId)
+                actions.emitRunLifecycleEvent({ streamKey: props.streamKey, status: status as RunTerminalStatus })
             }
 
             // Crash/failure affordance: a failed run carrying an error_message otherwise just blanks
@@ -2374,7 +3032,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.disposables.dispose('event-source')
         },
         reset: () => {
-            // `log` clears via its own reducer on `reset`, so the projection empties with it.
+            // `log` clears via its own reducer on `reset`, so the projection empties with it. The
+            // per-frame invocation tracker mirrors the log, so it must clear alongside it.
+            cache.trackedToolInvocations = undefined
             cache.activeRun = undefined
             cache.turnStartedAtMs = undefined
             cache.isBootstrapping = false
@@ -2383,6 +3043,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.sseConnectedAtMs = undefined
             cache.streamEnded = false
             cache.streamTokenRefreshes = 0
+            cache.emittedTerminalRunIds = undefined
             // Drop the resume cursor so the next bootstrap opens fresh (start=latest) instead of
             // resuming a prior run's stream.
             cache.lastEventId = undefined
@@ -2410,6 +3071,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 },
             ])
         },
+        pushConversationCleared: () => {
+            actions.appendEntries([
+                {
+                    entry: {
+                        type: 'notification',
+                        notification: { method: '_posthog/conversation_cleared', params: {} },
+                    },
+                    source: 'client',
+                },
+            ])
+        },
         pushErrorItem: ({ errorMessage, variant }) => {
             // Client-side errors (terminal failure, stream disconnect) aren't wire frames — append
             // them as `client`-sourced log entries so the projection renders them in thread order.
@@ -2431,14 +3103,33 @@ export const runStreamLogic = kea<runStreamLogicType>([
             const method = notification.method
             const isReplay = source === 'replay'
 
-            // Pre-update tool status for the once-per-transition `tool_call_completed` telemetry,
-            // read from the projection BEFORE the append folds this update in. Live only — replay
-            // suppresses the telemetry, so the lookup (and its O(N) re-fold) is skipped for history.
+            // Tool-stream events go out for every live frame; on replay only when a subscriber opted in
+            // (so history replay doesn't pay per-frame resolution for nobody).
+            const emitToolStream = !isReplay || hasReplayListener(values.toolListeners)
+
+            // Per-frame tool-invocation tracker: the same fold the projection applies, maintained
+            // O(1) per tool frame so the telemetry and tool-stream emits below never read the
+            // `toolInvocations` projection (each such read re-folds the entire log, which turns a
+            // long tool-heavy history replay quadratic). Maintained for every source so a live update
+            // whose `tool_call` arrived during replay still sees the right prior status.
+            // `preToolStatus` is the status BEFORE this frame folds in; it gates the
+            // once-per-transition `tool_call_completed` telemetry and the tool-stream phase.
+            const trackedInvocations: Map<string, ToolInvocation> = (cache.trackedToolInvocations ??= new Map())
             let preToolStatus: ToolInvocationStatus | undefined
-            if (!isReplay && method === 'session/update') {
+            if (method === 'session/update') {
                 const u = notification.params?.update
-                if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
-                    preToolStatus = values.toolInvocations.get(String(u.toolCallId ?? ''))?.status
+                if (isRecord(u) && u.sessionUpdate === 'tool_call') {
+                    const invocation = invocationFromToolCall(u)
+                    if (invocation) {
+                        trackedInvocations.set(invocation.toolCallId, invocation)
+                    }
+                } else if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
+                    const existing = trackedInvocations.get(String(u.toolCallId ?? ''))
+                    preToolStatus = existing?.status
+                    const invocation = invocationFromToolCallUpdate(existing, u, notification)
+                    if (invocation) {
+                        trackedInvocations.set(invocation.toolCallId, invocation)
+                    }
                 }
             }
 
@@ -2470,11 +3161,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         cold_start: true,
                     })
                 }
+                actions.setConversationClearSupported(
+                    (notification.params as { conversationClear?: unknown } | undefined)?.conversationClear === true
+                )
                 cache.isBootstrapping = false
                 actions.markRunStarted()
                 return
             }
             if (method === '_posthog/turn_complete') {
+                if (!isReplay) {
+                    actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
+                }
                 actions.markTurnComplete()
                 return
             }
@@ -2523,10 +3220,37 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.setSdkSession({ sessionId: params?.sessionId, adapter: params?.adapter })
                 return
             }
+            // History-derived context dedupe: a persisted or echoed user message still carries the
+            // context blocks its send was wrapped with; record their rendered lines under the
+            // bootstrapped task (the `logs/` replay spans the task's full resume chain), so
+            // `pendingContextItems` prunes items the chain already carries even after the in-memory
+            // sent-keys bookkeeping is lost (a reload, another tab, a teammate's session). An
+            // unattached optimistic stream has no task id and records nothing — its send path marks
+            // sent keys directly.
+            if (isPosthogNotification(notification, '_posthog/user_message')) {
+                if (values.bootstrappedTaskId) {
+                    const lines = contextBlockLinesFromUserMessage(extractUserMessageText(notification.params?.content))
+                    if (lines.length > 0) {
+                        actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
+                    }
+                }
+                return
+            }
             if (method?.startsWith('_posthog/')) {
-                // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification,
-                // _posthog/user_message → rendered by the projection. _posthog/console, _posthog/
-                // sandbox_output, _posthog/git_checkpoint, … → no UI. No side effect either way.
+                // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification
+                // → rendered by the projection. _posthog/console, _posthog/sandbox_output,
+                // _posthog/git_checkpoint, … → no UI. No side effect either way.
+                return
+            }
+            // The session/new request carries the run's starting permission mode in its meta. Seed the
+            // mode fold from it so mode-aware permission routing (full-auto answering in
+            // `bypassPermissions`) works before any `current_mode_update` arrives — the adapter only
+            // emits those on changes.
+            if (method === 'session/new') {
+                const meta = (notification.params as { _meta?: { permissionMode?: unknown } } | undefined)?._meta
+                if (typeof meta?.permissionMode === 'string' && meta.permissionMode) {
+                    actions.setCurrentMode(meta.permissionMode)
+                }
                 return
             }
             // session/prompt never renders and the resume-context filter is handled in the projection.
@@ -2542,8 +3266,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.setContextUsage(foldUsageAggregate(values.contextUsage, update))
                 return
             }
-            // Wire user turns render only on replay (the projection branches on source) — no side effect.
+            // Wire user turns render only on replay (the projection branches on source). Their one side
+            // effect is the same context-line recording as `_posthog/user_message` above — resume
+            // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
+            // Chunked frames are skipped: a partial text could truncate a block mid-line.
             if (isSessionUpdateUserMessage(update)) {
+                if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
+                    const lines = contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
+                    if (lines.length > 0) {
+                        actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
+                    }
+                }
                 return
             }
             if (!isKnownSessionUpdate(update)) {
@@ -2553,11 +3286,31 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
                 return
             }
+            if (update.sessionUpdate === 'tool_call') {
+                // A fresh tool call — the tracker folded it in above, so resolve its name off the
+                // merged invocation and publish a `started` event on the bus.
+                if (emitToolStream) {
+                    const toolCallId = String(update.toolCallId ?? '')
+                    const invocation = toolCallId ? trackedInvocations.get(toolCallId) : undefined
+                    if (invocation) {
+                        actions.emitToolEvent({
+                            streamKey: props.streamKey,
+                            toolCallId,
+                            toolName: resolveToolCall(invocation).resolvedKey,
+                            rawToolName: invocation.rawToolName,
+                            phase: 'started',
+                            invocation,
+                            source,
+                        })
+                    }
+                }
+                return
+            }
             if (update.sessionUpdate === 'tool_call_update') {
                 // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
                 // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
-                // the resolved key comes from the merged invocation in the projection. Suppressed on
-                // replay, and skipped when the creating `tool_call` was lost (no pre-status).
+                // the resolved key comes from the tracked merged invocation. Suppressed on replay,
+                // and skipped when the creating `tool_call` was lost (no pre-status).
                 const toolCallId = String(update.toolCallId ?? '')
                 if (!toolCallId) {
                     return
@@ -2570,7 +3323,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     preToolStatus !== 'failed' &&
                     (status === 'completed' || status === 'failed')
                 ) {
-                    const invocation = values.toolInvocations.get(toolCallId)
+                    const invocation = trackedInvocations.get(toolCallId)
                     const startedAt = cache.turnStartedAtMs as number | undefined
                     posthog.capture('tool_call_completed', {
                         conversation_id: props.conversationId,
@@ -2582,9 +3335,32 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         execution_type: 'sandbox',
                     })
                 }
+                // Tool-stream event: phase from the pre-fold status → new status transition. A crossing
+                // into a terminal status is `completed`/`failed`; any other update is `updated`.
+                if (emitToolStream) {
+                    const invocation = trackedInvocations.get(toolCallId)
+                    if (invocation) {
+                        const wasTerminal = preToolStatus === 'completed' || preToolStatus === 'failed'
+                        const phase: ToolStreamPhase =
+                            !wasTerminal && status === 'completed'
+                                ? 'completed'
+                                : !wasTerminal && status === 'failed'
+                                  ? 'failed'
+                                  : 'updated'
+                        actions.emitToolEvent({
+                            streamKey: props.streamKey,
+                            toolCallId,
+                            toolName: resolveToolCall(invocation).resolvedKey,
+                            rawToolName: invocation.rawToolName,
+                            phase,
+                            invocation,
+                            source,
+                        })
+                    }
+                }
                 return
             }
-            // agent_message_chunk / agent_message / agent_thought_chunk / tool_call → projection only.
+            // agent_message_chunk / agent_message / agent_thought_chunk → projection only.
         },
     })),
 ])

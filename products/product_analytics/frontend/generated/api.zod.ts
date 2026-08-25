@@ -240,6 +240,43 @@ export const InsightsSuggestionsCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Soft-delete insights in bulk by ID. Mirrors the single-insight delete: sets deleted=True, soft-deletes the insights' dashboard tiles, and removes their linked alerts. Insights the requester cannot edit are skipped and reported in `skipped`. Reversible via the bulk_restore endpoint.
+ */
+
+export const insightsBulkDeleteCreateBodyIdsMax = 1000
+
+export const InsightsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number().min(1))
+        .max(insightsBulkDeleteCreateBodyIdsMax)
+        .describe(
+            'Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.'
+        ),
+})
+
+/**
+ * Restore soft-deleted insights in bulk by ID — the inverse of bulk_delete. Sets deleted=False and re-activates the insights' dashboard tiles on dashboards that still exist. Linked alerts are not restored (they are removed on delete). Insights the requester cannot edit are reported in `skipped`.
+ */
+
+export const insightsBulkRestoreCreateBodyIdsMax = 1000
+
+export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number().min(1))
+        .max(insightsBulkRestoreCreateBodyIdsMax)
+        .describe(
+            'Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.'
+        ),
+})
+
+/**
+ * Turn 'filter out internal and test users' on or off for every existing insight in the project. Requires project admin, matching the settings UI that fronts it. The setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Only insights that store a query are changed; insights still holding legacy `filters` are counted in `legacy` and left as they are. Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
+ */
+export const InsightsBulkSetTestAccountFilterCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Whether every existing insight should filter out internal and test users.'),
+})
+
+/**
  * Bulk update tags on multiple objects.
  *
  * PAT access: this action has no ``required_scopes=`` on the decorator —
@@ -303,4 +340,31 @@ export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.number())
         .max(insightsViewedCreateBodyInsightIdsMax)
         .describe('Insight IDs that were just viewed by the current user. At most 2500 ids per request.'),
+})
+
+/**
+ * Converts a displayed journeys segment into the funnel query that reproduces its unique-actor count exactly. In open mode only a single edge converts (a two-step funnel with the inactivity gap as conversion window); in anchored mode any anchor-rooted chain converts (window W). The funnel is returned as JSON and is not executed or persisted here.
+ * @summary Convert a journey segment to a funnel
+ */
+export const PathsV2SegmentToFunnelCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .unknown()
+        .describe(
+            'The PathsV2Query the segment is displayed under (JSON object with kind `PathsV2Query`). Step sources, path cleaning, excluded items, date range, and the gap or conversion window are read from it, so the emitted funnel counts exactly what the chart shows.'
+        ),
+    items: zod
+        .array(
+            zod.object({
+                event: zod.string().describe('Event of the step source this path item belongs to.'),
+                label: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        "Label value from the source's naming property, after path cleaning. Null or omitted for sources without a naming property; an empty string means the property was missing on the event."
+                    ),
+            })
+        )
+        .describe(
+            "The segment's path items in displayed order. In open mode exactly two items - a single edge, source then target. In anchored mode the concrete chain as shown, starting at the anchor."
+        ),
 })

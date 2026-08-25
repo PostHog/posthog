@@ -15,6 +15,10 @@ class SavedHeatmap(UUIDTModel):
         IFRAME = "iframe", "Iframe"
         RECORDING = "recording", "Recording"
 
+    class Source(models.TextChoices):
+        SERVER = "server", "Server"
+        TOOLBAR = "toolbar", "Toolbar"
+
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -23,8 +27,10 @@ class SavedHeatmap(UUIDTModel):
     # Planned widths to generate for screenshot-type heatmaps
     target_widths = models.JSONField(default=list)
     type = models.CharField(max_length=20, choices=Type, default=Type.SCREENSHOT)
+    source = models.CharField(max_length=20, choices=Source, default=Source.SERVER, db_default=Source.SERVER)
     status = models.CharField(max_length=20, choices=Status, default=Status.PROCESSING)
     block_consent_modals = models.BooleanField(default=False)
+    is_prewarm = models.BooleanField(default=False, db_default=False)
 
     # Content moved to HeatmapSnapshot per width
 
@@ -62,6 +68,7 @@ class SavedHeatmap(UUIDTModel):
             "data_url": self.data_url,
             "target_widths": self.target_widths,
             "type": self.type,
+            "source": self.source,
             "status": self.status,
             "block_consent_modals": self.block_consent_modals,
         }

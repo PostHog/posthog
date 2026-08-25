@@ -205,6 +205,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         where_exprs = [
             self._date_range_expr(),
+            self._day_of_week_filter_expr(ast.Field(chain=[self.EVENT_TABLE_ALIAS, "timestamp"])),
             self._entity_expr(skip_entity_filter),
             *self._properties_expr(),
             self._aggregation_target_filter(),
@@ -261,7 +262,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         select_from = ast.JoinExpr(table=ast.Field(chain=[table_entity.table_name]), alias=self.EVENT_TABLE_ALIAS)
 
         date_range = self._date_range()
-        where_exprs: list[ast.Expr] = [
+        where_exprs: list[ast.Expr | None] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["timestamp"]),
@@ -272,6 +273,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=date_range.date_to()),
             ),
+            self._day_of_week_filter_expr(ast.Field(chain=["timestamp"])),
         ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
@@ -366,6 +368,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 child_exprs.append(self._build_step_query(child, table_entity))
             if step_entity.operator == FilterLogicalOperator.OR_:
                 event_expr = ast.Or(exprs=child_exprs)
+            else:
+                raise ValidationError(
+                    f"Funnel step event groups only support the OR operator, got {step_entity.operator}"
+                )
         elif step_entity.event is None:
             # all events
             if isinstance(table_entity, FunnelsDataWarehouseNode):
@@ -478,7 +484,12 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif breakdownType == "data_warehouse":
             return get_breakdown_expr(breakdown, None)
         else:
-            raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
+            raise ValidationError(
+                detail=(
+                    f'"{breakdownType}" is not a supported breakdown type for funnels. '
+                    "Remove the breakdown or pick a different property to continue."
+                )
+            )
 
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
@@ -540,10 +551,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             if isinstance(table_entity, FunnelsDataWarehouseNode):
                 if field == "uuid":
                     resolved_field = self.get_warehouse_field(table_entity.table_name, table_entity.id_field)
-                    if isinstance(resolved_field, UUIDDatabaseField):
+                    # Only non-nullable UUID columns may skip the null guard below
+                    if isinstance(resolved_field, UUIDDatabaseField) and not resolved_field.is_nullable():
                         return ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.id_field])
                     else:
-                        # Handle non-UUID fields:
+                        # Handle nullable or non-UUID fields:
                         # 1. Throw if we're encountering a null value.
                         # 2. Try to cast strings to UUID directly.
                         # 3. As a last resort, create a UUID by hashing the value with a table prefix.
@@ -635,6 +647,14 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 ),
             ]
         )
+
+    def _day_of_week_filter_expr(self, timestamp_field: ast.Expr) -> ast.Expr | None:
+        # Applies to every funnel viz type: events on excluded days don't exist for the funnel,
+        # so a step performed on an excluded day doesn't count towards the sequence, while the
+        # conversion window itself still spans excluded days. This holds regardless of
+        # skip_entity_filter, so strict order and exclusion steps can't see excluded-day events
+        # either — see test_days_of_week_hides_intervening_events_from_strict_order.
+        return self._date_range().day_of_week_filter_expr(timestamp_field)
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter

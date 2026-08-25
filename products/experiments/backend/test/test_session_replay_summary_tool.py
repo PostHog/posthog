@@ -5,12 +5,20 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.session_recording_api import RecordingsListingResult
 
 from products.experiments.backend.max_tools import SessionReplaySummaryTool
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types import AssistantState
+
+
+def _listing_result(recordings: list, has_more: bool = False) -> RecordingsListingResult:
+    return RecordingsListingResult(
+        recordings=recordings, more_recordings_available=has_more, timings_header="", next_cursor=None
+    )
 
 
 @freeze_time("2025-01-15T12:00:00Z")
@@ -97,8 +105,8 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         mock_recordings_test = [self.create_mock_session_recording(f"session_test_{i}") for i in range(75)]
 
         mock_list_recordings.side_effect = [
-            (mock_recordings_control, False, "", None),
-            (mock_recordings_test, False, "", None),
+            _listing_result(mock_recordings_control),
+            _listing_result(mock_recordings_test),
         ]
 
         tool = await self.create_tool()
@@ -135,8 +143,8 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         mock_recordings = [self.create_mock_session_recording(f"session_{i}") for i in range(100)]
 
         mock_list_recordings.side_effect = [
-            (mock_recordings, True, "", None),
-            (mock_recordings, True, "", None),
+            _listing_result(mock_recordings, has_more=True),
+            _listing_result(mock_recordings, has_more=True),
         ]
 
         tool = await self.create_tool()
@@ -152,8 +160,8 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         experiment = await self.acreate_experiment()
 
         mock_list_recordings.side_effect = [
-            ([], False, "", None),
-            ([], False, "", None),
+            _listing_result([]),
+            _listing_result([]),
         ]
 
         tool = await self.create_tool()
@@ -166,6 +174,15 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         self.assertEqual(artifact["error"], "no_recordings")
         self.assertEqual(artifact["experiment_id"], experiment.id)
         self.assertEqual(artifact["recording_counts"], {"control": 0, "test": 0})
+
+    async def test_denies_object_level_restricted_experiment(self):
+        experiment = await self.acreate_experiment(name="restricted-replay-test")
+        tool = await self.create_tool()
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await tool._arun_impl(experiment_id=experiment.id)
 
     async def test_experiment_not_found(self):
         """Test error when experiment ID doesn't exist."""
@@ -215,7 +232,7 @@ class TestSessionReplaySummaryTool(APIBaseTest):
 
         mock_recordings = [self.create_mock_session_recording(f"session_{i}") for i in range(25)]
         mock_list_recordings.side_effect = [
-            (mock_recordings, False, "", None),
+            _listing_result(mock_recordings),
             Exception("ClickHouse connection failed"),
         ]
 
@@ -238,9 +255,9 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         experiment = await self.acreate_experiment(name="multi-variant-exp", feature_flag=feature_flag)
 
         mock_list_recordings.side_effect = [
-            ([self.create_mock_session_recording(f"c_{i}") for i in range(20)], False, "", None),
-            ([self.create_mock_session_recording(f"a_{i}") for i in range(30)], False, "", None),
-            ([self.create_mock_session_recording(f"b_{i}") for i in range(50)], False, "", None),
+            _listing_result([self.create_mock_session_recording(f"c_{i}") for i in range(20)]),
+            _listing_result([self.create_mock_session_recording(f"a_{i}") for i in range(30)]),
+            _listing_result([self.create_mock_session_recording(f"b_{i}") for i in range(50)]),
         ]
 
         tool = await self.create_tool()
@@ -293,8 +310,8 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         experiment = await self.acreate_experiment(start_days_ago=10, end_days_ahead=5)
 
         mock_list_recordings.side_effect = [
-            ([self.create_mock_session_recording("s1")], False, "", None),
-            ([self.create_mock_session_recording("s2")], False, "", None),
+            _listing_result([self.create_mock_session_recording("s1")]),
+            _listing_result([self.create_mock_session_recording("s2")]),
         ]
 
         tool = await self.create_tool()

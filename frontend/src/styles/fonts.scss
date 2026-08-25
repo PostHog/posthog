@@ -44,7 +44,7 @@
     font-family: RoundHog;
     font-style: normal;
     font-weight: 800;
-    src: url('../../public/RoundHog-Bold.woff2') format('woff2');
+    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Bold.woff2') format('woff2');
     font-display: swap;
 }
 
@@ -53,7 +53,7 @@
     font-family: RoundHog;
     font-style: normal;
     font-weight: 700;
-    src: url('../../public/RoundHog-SemiBold.woff2') format('woff2');
+    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-SemiBold.woff2') format('woff2');
     font-display: swap;
 }
 
@@ -62,7 +62,7 @@
     font-family: RoundHog;
     font-style: normal;
     font-weight: 500;
-    src: url('../../public/RoundHog-Medium.woff2') format('woff2');
+    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Medium.woff2') format('woff2');
     font-display: swap;
 }
 
@@ -71,7 +71,7 @@
     font-family: RoundHog;
     font-style: normal;
     font-weight: 400;
-    src: url('../../public/RoundHog.woff2') format('woff2');
+    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog.woff2') format('woff2');
     font-display: swap;
 }
 
@@ -80,7 +80,7 @@
     font-family: RoundHog;
     font-style: italic;
     font-weight: 400;
-    src: url('../../public/RoundHog-Italic.woff2') format('woff2');
+    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Italic.woff2') format('woff2');
     font-display: swap;
 }
 
@@ -89,7 +89,7 @@
     font-family: RoundHog;
     font-style: italic;
     font-weight: 500;
-    src: url('../../public/RoundHog-Medium-Italic.woff2') format('woff2');
+    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Medium-Italic.woff2') format('woff2');
     font-display: swap;
 }
 
@@ -98,7 +98,7 @@
     font-family: RoundHog;
     font-style: italic;
     font-weight: 700;
-    src: url('../../public/RoundHog-SemiBold-Italic.woff2') format('woff2');
+    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-SemiBold-Italic.woff2') format('woff2');
     font-display: swap;
 }
 
@@ -107,6 +107,6 @@
     font-family: RoundHog;
     font-style: italic;
     font-weight: 800;
-    src: url('../../public/RoundHog-Bold-Italic.woff2') format('woff2');
+    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Bold-Italic.woff2') format('woff2');
     font-display: swap;
 }

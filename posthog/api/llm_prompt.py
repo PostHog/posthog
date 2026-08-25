@@ -1,5 +1,6 @@
 import json
 from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -15,9 +16,11 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
+    ALLOWED_LIST_ORDERINGS,
     LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
     LLMPromptGetByNameQuerySerializer,
+    LLMPromptLabelSerializer,
     LLMPromptListQuerySerializer,
     LLMPromptListSerializer,
     LLMPromptPublicSerializer,
@@ -25,13 +28,18 @@ from posthog.api.llm_prompt_serializers import (
     LLMPromptResolveQuerySerializer,
     LLMPromptResolveResponseSerializer,
     LLMPromptSerializer,
+    LLMPromptSetLabelSerializer,
     LLMPromptVersionSummarySerializer,
+    validate_prompt_label_name_value,
 )
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
     LLMPromptDuplicateNameConflictError,
     LLMPromptEditError,
+    LLMPromptLabelConflictError,
+    LLMPromptLabelLimitError,
+    LLMPromptLabelNotFoundError,
     LLMPromptNotFoundError,
     LLMPromptVersionConflictError,
     LLMPromptVersionLimitError,
@@ -40,8 +48,11 @@ from posthog.api.services.llm_prompt import (
     get_active_prompt_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
+    get_prompt_labels,
     publish_prompt_version,
+    remove_prompt_label,
     resolve_versions_page,
+    set_prompt_label,
 )
 from posthog.auth import (
     JwtAuthentication,
@@ -57,29 +68,12 @@ from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrot
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, get_prompt_outline
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
-ALLOWED_LIST_ORDERINGS = {
-    "name": "name",
-    "-name": "-name",
-    "created_at": "created_at",
-    "-created_at": "-created_at",
-    "updated_at": "updated_at",
-    "-updated_at": "-updated_at",
-    "version": "version",
-    "-version": "-version",
-    "latest_version": "latest_version",
-    "-latest_version": "-latest_version",
-    "version_count": "version_count",
-    "-version_count": "-version_count",
-    "first_version_created_at": "first_version_created_at",
-    "-first_version_created_at": "-first_version_created_at",
-    "prompt_size_bytes": "prompt_size_bytes",
-    "-prompt_size_bytes": "-prompt_size_bytes",
-}
 
 
 @extend_schema(extensions={"x-product": "llm_analytics"})
@@ -130,8 +124,33 @@ class LLMPromptViewSet(
 
     def _prompt_not_found_response(self, prompt_name: str) -> Response:
         return Response(
-            {"detail": f"Prompt with name '{prompt_name}' not found."},
+            {
+                "detail": (
+                    f"No prompt matching '{prompt_name}' in this project. "
+                    "List the project's prompts to see which names exist."
+                )
+            },
             status=status.HTTP_404_NOT_FOUND,
+        )
+
+    def _resolve_prompt_name(self, prompt_name: str) -> str | None:
+        """Map the path segment onto a prompt name, accepting the `id` UUID of any of the prompt's
+        versions as well as the name itself. Both identify one prompt, and every list and get
+        response carries the id, so a caller holding one should not have to look the name up.
+        An id resolves to the prompt, never to the version it came from, so callers pin a version
+        with `version` or `label` rather than by holding that version's id.
+        Returns None when the segment is a UUID matching no prompt in this project."""
+        try:
+            version_id = UUID(prompt_name)
+        except ValueError:
+            return prompt_name
+        # Nothing stops a prompt from being named like a UUID, so the literal name wins the tie.
+        if LLMPrompt.objects.filter(team=self.team, deleted=False, name=prompt_name).exists():
+            return prompt_name
+        return (
+            LLMPrompt.objects.filter(team=self.team, deleted=False, id=version_id)
+            .values_list("name", flat=True)
+            .first()
         )
 
     def _serialize_prompt(self, prompt: LLMPrompt) -> dict[str, Any]:
@@ -160,13 +179,29 @@ class LLMPromptViewSet(
         prompt["outline"] = get_prompt_outline(prompt.get("prompt"))
         if content_mode == "none":
             prompt.pop("prompt", None)
+            prompt.pop("config", None)
         elif content_mode == "preview":
             original = prompt.pop("prompt", "")
             display_value = original if isinstance(original, str) else json.dumps(original, ensure_ascii=False)
             prompt["prompt_preview"] = display_value[:160] + ("..." if len(display_value) > 160 else "")
+            prompt.pop("config", None)
+        else:
+            # .get, not [] — cache entries written before the config field existed lack the key.
+            prompt["config"] = prompt.get("config")
         return prompt
 
     def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
+        # prompt_label + prompt_version together answer "what was the production label
+        # actually serving at time X" from the event stream alone.
+        properties = {
+            "prompt_id": prompt["id"],
+            "prompt_name": prompt["name"],
+            "prompt_version": prompt["version"],
+            "prompt_label": prompt.get("label"),
+            "prompt_is_latest": prompt["is_latest"],
+            "prompt_first_version_created_at": prompt["first_version_created_at"],
+            "prompt_has_config": prompt.get("config") is not None,
+        }
         if not settings.TEST:
             try:
                 capture_internal(
@@ -175,28 +210,12 @@ class LLMPromptViewSet(
                     event_source=PROMPT_FETCHED_EVENT_SOURCE,
                     distinct_id=str(self.team.uuid),
                     timestamp=None,
-                    properties={
-                        "prompt_id": prompt["id"],
-                        "prompt_name": prompt["name"],
-                        "prompt_version": prompt["version"],
-                        "prompt_is_latest": prompt["is_latest"],
-                        "prompt_first_version_created_at": prompt["first_version_created_at"],
-                    },
+                    properties=properties,
                 )
             except Exception as err:
                 capture_exception(err)
 
-        report_team_action(
-            self.team,
-            "llma prompt fetched",
-            {
-                "prompt_id": prompt["id"],
-                "prompt_name": prompt["name"],
-                "prompt_version": prompt["version"],
-                "prompt_is_latest": prompt["is_latest"],
-                "prompt_first_version_created_at": prompt["first_version_created_at"],
-            },
-        )
+        report_team_action(self.team, "llma prompt fetched", properties)
 
     def _get_list_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMPromptListQuerySerializer(data=request.query_params)
@@ -222,7 +241,7 @@ class LLMPromptViewSet(
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
 
-        order_by = request.query_params.get("order_by", "-created_at")
+        order_by = params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
         return queryset
 
@@ -240,6 +259,12 @@ class LLMPromptViewSet(
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMPrompt, serializer.save())
 
+        log_llm_prompt_activity(
+            team=self.team,
+            user=cast(User, self.request.user),
+            prompt_name=instance.name,
+            activity="created",
+        )
         report_user_action(
             cast(User, self.request.user),
             "llma prompt created",
@@ -247,6 +272,7 @@ class LLMPromptViewSet(
                 "prompt_id": str(instance.id),
                 "prompt_name": instance.name,
                 "prompt_version": instance.version,
+                "has_config": instance.config is not None,
             },
             team=self.team,
             request=self.request,
@@ -262,9 +288,33 @@ class LLMPromptViewSet(
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
         query_params = self._get_get_by_name_params(request)
         version = cast(int | None, query_params.get("version"))
+        label = cast(str | None, query_params.get("label"))
         content_mode = cast(str, query_params.get("content", "full"))
-        prompt = get_prompt_by_name_from_cache(self.team, prompt_name, version)
+        resolved_name = self._resolve_prompt_name(prompt_name)
+        if resolved_name is None:
+            return self._prompt_not_found_response(prompt_name)
+        prompt = get_prompt_by_name_from_cache(self.team, resolved_name, version, label=label)
         if prompt is None:
+            if label is not None:
+                return Response(
+                    {
+                        "detail": (
+                            f"No prompt matching '{prompt_name}' with label '{label}'. "
+                            "Fetch it without a label to see which labels it has."
+                        )
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if version is not None:
+                return Response(
+                    {
+                        "detail": (
+                            f"No prompt matching '{prompt_name}' at version {version}. "
+                            "Fetch it without a version to see which versions it has."
+                        )
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
             return self._prompt_not_found_response(prompt_name)
 
         self._track_prompt_fetch(prompt)
@@ -279,6 +329,11 @@ class LLMPromptViewSet(
         if auth_error is not None:
             return auth_error
 
+        # PATCH shares the GET's route, so the segment has to mean the same thing on both verbs.
+        resolved_name = self._resolve_prompt_name(prompt_name)
+        if resolved_name is None:
+            return self._prompt_not_found_response(prompt_name)
+
         payload = LLMPromptPublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -286,10 +341,13 @@ class LLMPromptViewSet(
             published_prompt = publish_prompt_version(
                 self.team,
                 user=cast(User, request.user),
-                prompt_name=prompt_name,
+                prompt_name=resolved_name,
                 prompt_payload=payload.validated_data.get("prompt"),
                 edits=payload.validated_data.get("edits"),
+                config=payload.validated_data.get("config"),
+                config_provided="config" in payload.validated_data,
                 base_version=payload.validated_data["base_version"],
+                version_description=payload.validated_data.get("version_description"),
             )
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)
@@ -328,6 +386,8 @@ class LLMPromptViewSet(
                 "prompt_name": published_prompt.name,
                 "prompt_version": published_prompt.version,
                 "base_version": payload.validated_data["base_version"],
+                "config_provided": "config" in payload.validated_data,
+                "has_config": published_prompt.config is not None,
             },
             team=self.team,
             request=request,
@@ -375,9 +435,11 @@ class LLMPromptViewSet(
                 "prompt": self._serialize_prompt(prompt),
                 "versions": self._serialize_version_summaries(versions),
                 "has_more": has_more,
+                "labels": LLMPromptLabelSerializer(get_prompt_labels(self.team, prompt_name), many=True).data,
             }
         )
 
+    @extend_schema(request=None, responses={204: None})
     @action(
         methods=["POST"],
         detail=False,
@@ -392,7 +454,7 @@ class LLMPromptViewSet(
             return auth_error
 
         try:
-            prompt_versions = archive_prompt(self.team, prompt_name)
+            prompt_versions = archive_prompt(self.team, prompt_name, user=cast(User, request.user))
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)
 
@@ -454,19 +516,124 @@ class LLMPromptViewSet(
         )
         return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=LLMPromptSetLabelSerializer, responses={200: LLMPromptLabelSerializer})
+    @action(
+        methods=["PUT"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)/labels/(?P<label_name>[^/]+)",
+        required_scopes=["llm_prompt:write"],
+    )
+    @llma_track_latency("llma_prompts_set_label")
+    @monitor(feature=None, endpoint="llma_prompts_set_label", method="PUT")
+    def set_label(self, request: Request, prompt_name: str = "", label_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        label_name = validate_prompt_label_name_value(label_name)
+        payload = LLMPromptSetLabelSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        version = payload.validated_data["version"]
+
+        try:
+            result = set_prompt_label(
+                self.team,
+                user=cast(User, request.user),
+                prompt_name=prompt_name,
+                label_name=label_name,
+                version=version,
+            )
+        except LLMPromptNotFoundError:
+            return Response(
+                {"detail": f"Prompt '{prompt_name}' has no version {version}."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except LLMPromptLabelConflictError:
+            return Response(
+                {"detail": "This label was changed by someone else at the same time. Try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except LLMPromptLabelLimitError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"This prompt has reached the maximum of {err.max_labels} labels. "
+                        "Remove a label to add a new one."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt label set",
+            {
+                "prompt_name": prompt_name,
+                "label": label_name,
+                "version": version,
+                "previous_version": result.previous_version,
+                "created": result.created,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(
+            LLMPromptLabelSerializer(result.label).data,
+            status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
+        )
+
+    @extend_schema(responses={204: None})
+    @set_label.mapping.delete
+    @llma_track_latency("llma_prompts_delete_label")
+    @monitor(feature=None, endpoint="llma_prompts_delete_label", method="DELETE")
+    def delete_label(self, request: Request, prompt_name: str = "", label_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        try:
+            remove_prompt_label(self.team, prompt_name=prompt_name, label_name=label_name)
+        except LLMPromptLabelNotFoundError:
+            return Response(
+                {"detail": f"Label '{label_name}' not found on prompt '{prompt_name}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt label deleted",
+            {"prompt_name": prompt_name, "label": label_name},
+            team=self.team,
+            request=request,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _get_prompt_labels_map(self, prompt_names: list[str]) -> dict[str, list[dict[str, Any]]]:
+        labels_map: dict[str, list[dict[str, Any]]] = {}
+        labels = (
+            LLMPromptLabel.objects.filter(team=self.team, prompt_name__in=prompt_names)
+            .select_related("prompt")
+            .order_by("prompt_name", "name")
+        )
+        for label in labels:
+            labels_map.setdefault(label.prompt_name, []).append({"name": label.name, "version": label.prompt.version})
+        return labels_map
+
     @extend_schema(parameters=[LLMPromptListQuerySerializer])
     @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> Response:
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+        prompts = page if page is not None else list(queryset)
 
-        serializer = self.get_serializer(queryset, many=True)
-        data = serializer.data
-        return Response({"count": len(data), "results": data})
+        context = self.get_serializer_context()
+        context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
+        serializer = LLMPromptListSerializer(prompts, many=True, context=context)
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response({"count": len(serializer.data), "results": serializer.data})
 
     @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")

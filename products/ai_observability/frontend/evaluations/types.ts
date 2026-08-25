@@ -1,14 +1,21 @@
-import { AnyPropertyFilter } from '~/types'
+import { AccessControlLevel, AnyPropertyFilter, UserBasicType } from '~/types'
 
+import type {
+    EvaluationReportCitationApi,
+    EvaluationReportMetricsApi,
+    EvaluationReportRunApi,
+    EvaluationReportRunContentApi,
+    EvaluationReportSectionApi,
+} from '../generated/api.schemas'
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
-export type EvaluationTarget = 'generation' | 'trace'
+export type EvaluationTarget = 'generation' | 'trace' | 'session'
+export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
-    | 'trial_limit_reached'
-    | 'model_not_allowed'
+    | 'provider_key_required'
     | 'provider_key_deleted'
     | 'no_default_model'
     | 'provider_key_invalid'
@@ -29,9 +36,18 @@ export interface EvaluationOutputConfig {
     allows_na?: boolean
 }
 
+/** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
+ * 'fixed_window' for a trace, because rows saved before strategies existed mean exactly that, and
+ * 'inactivity' for a session, which has no such rows. Accepted ranges also differ per target, both
+ * enforced by the backend's `validate_target_config`. */
 export interface EvaluationTargetConfig {
-    /** For 'trace' target: seconds to wait after the first matching generation before evaluating the trace. */
+    strategy?: EvaluationSettleStrategy
+    /** fixed_window: seconds to wait after the first matching generation before evaluating. */
     window_seconds?: number
+    /** inactivity: seconds without new activity before the target counts as settled. */
+    quiet_period_seconds?: number
+    /** inactivity: hard cap in seconds on the total wait from the first matching generation. */
+    max_age_seconds?: number
 }
 
 export interface LLMJudgeEvaluationConfig {
@@ -51,6 +67,7 @@ export interface BaseEvaluationConfig {
     id: string
     name: string
     description?: string
+    directory_id?: string | null
     enabled: boolean
     status: EvaluationStatus
     status_reason: EvaluationStatusReason | null
@@ -60,14 +77,16 @@ export interface BaseEvaluationConfig {
     conditions: EvaluationConditionSet[]
     /** What the evaluation runs on: each matching generation event, or the whole trace once. */
     target: EvaluationTarget
-    /** Target-specific settings. For 'trace': {window_seconds}. Empty for 'generation'. */
+    /** Target-specific settings — see EvaluationTargetConfig. Empty for 'generation'. */
     target_config: EvaluationTargetConfig
     model_configuration: ModelConfiguration | null
-    total_runs: number
+    total_runs?: number
     last_run_at?: string
     created_at: string
     updated_at: string
+    created_by?: UserBasicType | null
     deleted?: boolean
+    user_access_level?: AccessControlLevel | null
 }
 
 export interface LLMJudgeEvaluation extends BaseEvaluationConfig {
@@ -107,6 +126,9 @@ export interface EvaluationRun {
     evaluation_name: string
     generation_id: string | null
     trace_id: string
+    // Session-target verdicts carry no $ai_trace_id, so the session id is the only thing that
+    // identifies what was graded. Absent on every other target.
+    session_id?: string | null
     timestamp: string
     evaluation_type?: EvaluationType
     result_type?: EvaluationOutputType
@@ -114,18 +136,11 @@ export interface EvaluationRun {
     sentiment_label?: string | null
     sentiment_score?: number | null
     applicable?: boolean
+    // A skipped run completed without grading anything. Its `result` is still false when the
+    // evaluation disallows N/A, so it has to be read alongside this rather than on its own.
+    skipped?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'
-}
-
-export interface HogTestResult {
-    event_uuid: string
-    trace_id?: string | null
-    input_preview: string
-    output_preview: string
-    result: boolean | null
-    reasoning: string
-    error: string | null
 }
 
 export type EvaluationReportFrequency = 'scheduled' | 'every_n'
@@ -165,75 +180,12 @@ export interface EvaluationReport {
     created_at: string
 }
 
-/** A titled markdown section of the report (v2: agent-chosen title). */
-export interface EvaluationReportSection {
-    title: string
-    content: string
-}
-
-/** A trace reference cited by the agent to ground a specific finding. */
-export interface EvaluationReportCitation {
-    generation_id: string
-    trace_id: string
-    reason: string
-}
-
-/** Structured metrics computed mechanically from ClickHouse (agent cannot fabricate). */
-export interface EvaluationReportMetrics {
-    total_runs: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-    pass_rate: number
-    period_start: string
-    period_end: string
-    previous_total_runs: number | null
-    previous_pass_rate: number | null
-}
-
-/** Top-level report content stored in EvaluationReportRun.content. */
-export interface EvaluationReportRunContent {
-    title: string
-    sections: EvaluationReportSection[]
-    citations: EvaluationReportCitation[]
-    metrics: EvaluationReportMetrics
-}
-
-export interface EvaluationReportRun {
-    id: string
-    report: string
-    content: EvaluationReportRunContent
-    /** Legacy mirror of content.metrics — populated by the store activity for backwards compat. */
-    metadata: EvaluationReportMetrics
-    period_start: string
-    period_end: string
-    delivery_status: 'pending' | 'delivered' | 'partial_failure' | 'failed'
-    delivery_errors: string[]
-    created_at: string
-}
+export type EvaluationReportSection = EvaluationReportSectionApi
+export type EvaluationReportCitation = EvaluationReportCitationApi
+export type EvaluationReportMetrics = EvaluationReportMetricsApi
+export type EvaluationReportStoredMetrics = EvaluationReportMetricsApi
+export type EvaluationReportRunContent = EvaluationReportRunContentApi
+export type EvaluationReportRun = EvaluationReportRunApi
 
 export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
-export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
-
-export interface EvaluationPattern {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatistics {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummary {
-    overall_assessment: string
-    pass_patterns: EvaluationPattern[]
-    fail_patterns: EvaluationPattern[]
-    na_patterns: EvaluationPattern[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatistics
-}
+export type EvaluationRunsFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter

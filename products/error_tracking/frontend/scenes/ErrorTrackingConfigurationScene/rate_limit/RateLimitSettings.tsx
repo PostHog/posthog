@@ -10,6 +10,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { BypassRules } from '../bypass_rules/BypassRules'
 import { IssueRateLimitSettings } from './IssueRateLimitSettings'
 import { BUCKET_OPTIONS, rateLimitConfigLogic } from './rateLimitConfigLogic'
@@ -113,7 +114,10 @@ function ProjectRateLimitSection(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
-                                disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                                disabledReason={
+                                    errorTrackingEditAccessDisabledReason() ??
+                                    (!configFormChanged ? 'No changes to save' : undefined)
+                                }
                                 loading={isConfigFormSubmitting}
                             >
                                 Save

@@ -13,7 +13,7 @@
 //! envelope expected by [`posthog/hogql/json_ast.py`] so the Python side
 //! can raise `ExposedHogQLError` / `SyntaxError` from it.
 
-// `#[pyfunction]`'s expansion does an `.into()` on the `PyResult<PyObject>` return value, which is an identity conversion when the function already returns the target type — clippy's `useless_conversion` doesn't see through the macro and would flag every `parse_*_py` entry point. The lint isn't actionable from our side without leaving pyo3's `#[pyfunction]` abstraction.
+// `#[pyfunction]`'s expansion does an `.into()` on the `PyResult<Py<PyAny>>` return value, which is an identity conversion when the function already returns the target type — clippy's `useless_conversion` doesn't see through the macro and would flag every `parse_*_py` entry point. The lint isn't actionable from our side without leaving pyo3's `#[pyfunction]` abstraction.
 #![allow(clippy::useless_conversion)]
 // Style lints that conflict with the parser's deliberate shape: a few internal helpers return wide tuples (the table-alias chain, function-arg bundles) rather than one-off structs; some builder-style helpers are named `from_*` but take `&self`; and the heavily-prose doc comments use markdown lists clippy's `doc_lazy_continuation` flags. None are actionable without churning the parser, so allow them crate-wide.
 #![allow(
@@ -69,7 +69,7 @@ where
 /// Counterpart to [`run`] for `parse_*_py` entry points: drive a `PyEmitter` so the parser constructs `posthog.hogql.ast` instances directly, returning the unbound `Py<PyAny>`. Skips both the JSON-string serialise step AND the post-walk `Value`→`PyObject` converter used by the `*_json` entry points — no `serde_json::Value` intermediate on the success path.
 ///
 /// Error path still routes through the JSON-envelope `Converter` so Python exception construction stays in one place.
-fn run_py<'py, F>(py: Python<'py>, f: F) -> PyResult<PyObject>
+fn run_py<'py, F>(py: Python<'py>, f: F) -> PyResult<Py<PyAny>>
 where
     F: FnOnce(emit_py::PyEmitter<'py>) -> Result<emit_py::PyAst, error::ParseError>,
 {
@@ -134,31 +134,31 @@ fn parse_full_template_string_json(string: &str) -> String {
 
 #[pyfunction]
 #[pyo3(signature = (statement, is_internal=false))]
-fn parse_expr_py(py: Python<'_>, statement: &str, is_internal: bool) -> PyResult<PyObject> {
+fn parse_expr_py(py: Python<'_>, statement: &str, is_internal: bool) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| {
         parse::parse_expr_with_emit(emit, statement, is_internal)
     })
 }
 
 #[pyfunction]
-fn parse_order_expr_py(py: Python<'_>, statement: &str) -> PyResult<PyObject> {
+fn parse_order_expr_py(py: Python<'_>, statement: &str) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| {
         parse::parse_order_expr_with_emit(emit, statement)
     })
 }
 
 #[pyfunction]
-fn parse_select_py(py: Python<'_>, statement: &str) -> PyResult<PyObject> {
+fn parse_select_py(py: Python<'_>, statement: &str) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| parse::parse_select_with_emit(emit, statement))
 }
 
 #[pyfunction]
-fn parse_program_py(py: Python<'_>, source: &str) -> PyResult<PyObject> {
+fn parse_program_py(py: Python<'_>, source: &str) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| parse::parse_program_with_emit(emit, source))
 }
 
 #[pyfunction]
-fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<PyObject> {
+fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| {
         parse::parse_full_template_string_with_emit(emit, string)
     })

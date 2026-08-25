@@ -39,7 +39,7 @@ export function TestAccountFilter({
                     <span>Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconGear />}
-                        to={urls.settings('project-product-analytics', 'internal-user-filtering')}
+                        to={urls.settings('environment-customization', 'internal-user-filtering')}
                         size="small"
                         noPadding
                         className="ml-1"

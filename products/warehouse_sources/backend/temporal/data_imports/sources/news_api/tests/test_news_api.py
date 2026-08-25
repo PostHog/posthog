@@ -1,24 +1,77 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.news_api import news_api
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.news_api import (
     PAGE_SIZE,
     NewsApiResumeConfig,
-    _build_params,
-    _error_code,
     _format_from_value,
-    get_rows,
     news_api_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.settings import NEWS_API_ENDPOINTS
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the news_api module.
+NEWS_API_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.news_api.news_api.make_tracked_session"
+)
+
+
+def _response(body: dict[str, Any], *, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _make_manager(resume_state: NewsApiResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock, *, language: str | None = None, **kwargs: Any) -> Any:
+    return news_api_source(
+        api_key="k",
+        endpoint=endpoint,
+        query="bitcoin",
+        language=language,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        **kwargs,
+    )
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestFormatFromValue:
@@ -36,270 +89,235 @@ class TestFormatFromValue:
         assert _format_from_value(value) == expected
 
 
-class TestBuildParams:
-    def test_everything_incremental_includes_from_and_sort(self) -> None:
-        params = _build_params(
-            NEWS_API_ENDPOINTS["everything"],
-            query="bitcoin",
-            language="en",
-            page=1,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert params["q"] == "bitcoin"
-        assert params["sortBy"] == "publishedAt"
-        assert params["pageSize"] == PAGE_SIZE
-        assert params["page"] == 1
-        assert params["language"] == "en"
-        assert params["from"] == "2026-03-04T02:58:14"
+class TestRequestParams:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_everything_incremental_includes_from_sort_and_language(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"totalResults": 1, "articles": [{"url": "a"}]})])
 
-    def test_everything_without_incremental_omits_from(self) -> None:
-        # A full refresh (or first sync) must not send a `from` filter, or it would clip history.
-        params = _build_params(
-            NEWS_API_ENDPOINTS["everything"],
-            query="bitcoin",
-            language=None,
-            page=2,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        _rows(
+            _source(
+                "everything",
+                _make_manager(),
+                language="en",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            )
         )
-        assert "from" not in params
-        assert "language" not in params
-        assert params["page"] == 2
 
-    def test_top_headlines_has_no_date_filter_or_language(self) -> None:
-        # top-headlines exposes no `from`/`to` and no `language` param, so neither should leak in even
-        # when a cursor value / language is supplied.
-        params = _build_params(
-            NEWS_API_ENDPOINTS["top_headlines"],
-            query="bitcoin",
-            language="en",
-            page=1,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        assert params[0]["q"] == "bitcoin"
+        assert params[0]["sortBy"] == "publishedAt"
+        assert params[0]["pageSize"] == PAGE_SIZE
+        assert params[0]["page"] == 1
+        assert params[0]["language"] == "en"
+        assert params[0]["from"] == "2026-03-04T02:58:14"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_everything_without_incremental_omits_from_and_language(self, MockSession: Any) -> None:
+        # A full refresh (or first sync) must not send a `from` filter, or it would clip history; a
+        # missing language must not leak an empty filter.
+        session = MockSession.return_value
+        params = _wire(session, [_response({"totalResults": 1, "articles": [{"url": "a"}]})])
+
+        _rows(
+            _source(
+                "everything",
+                _make_manager(),
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+            )
         )
-        assert params["q"] == "bitcoin"
-        assert params["pageSize"] == PAGE_SIZE
-        assert "from" not in params
-        assert "sortBy" not in params
-        assert "language" not in params
 
-    def test_sources_ignores_query_and_pagination(self) -> None:
+        assert "from" not in params[0]
+        assert "language" not in params[0]
+        assert params[0]["page"] == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_top_headlines_has_no_date_filter_sort_or_language(self, MockSession: Any) -> None:
+        # top-headlines exposes no `from`/`to`, no `sortBy`, and no `language`, so none should leak in
+        # even when a cursor value / language is supplied.
+        session = MockSession.return_value
+        params = _wire(session, [_response({"totalResults": 1, "articles": [{"url": "a"}]})])
+
+        _rows(
+            _source(
+                "top_headlines",
+                _make_manager(),
+                language="en",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+            )
+        )
+
+        assert params[0]["q"] == "bitcoin"
+        assert params[0]["pageSize"] == PAGE_SIZE
+        assert "from" not in params[0]
+        assert "sortBy" not in params[0]
+        assert "language" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sources_ignores_query_and_pagination(self, MockSession: Any) -> None:
         # /v2/top-headlines/sources takes neither q nor pagination; only optional facet filters.
-        params = _build_params(
-            NEWS_API_ENDPOINTS["sources"],
-            query="bitcoin",
-            language="en",
-            page=1,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert params == {"language": "en"}
+        session = MockSession.return_value
+        params = _wire(session, [_response({"sources": [{"id": "bbc-news"}]})])
+
+        _rows(_source("sources", _make_manager(), language="en"))
+
+        assert params[0] == {"language": "en"}
 
 
-class TestErrorCode:
-    def test_extracts_code_from_body(self) -> None:
-        resp = MagicMock()
-        resp.json.return_value = {"status": "error", "code": "maximumResultsReached"}
-        assert _error_code(requests.HTTPError(response=resp)) == "maximumResultsReached"
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sources_endpoint_yields_once_without_resume(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"sources": [{"id": "bbc-news"}, {"id": "wired"}]})])
 
-    def test_returns_none_when_body_not_json(self) -> None:
-        resp = MagicMock()
-        resp.json.side_effect = ValueError("no json")
-        assert _error_code(requests.HTTPError(response=resp)) is None
+        manager = _make_manager()
+        rows = _rows(_source("sources", manager))
 
-    def test_returns_none_without_response(self) -> None:
-        assert _error_code(requests.HTTPError(response=None)) is None  # type: ignore[arg-type]
-
-
-class TestFetchPageRetry:
-    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    def test_retryable_status_codes_retry(self, _name: str, status_code: int) -> None:
-        retryable = MagicMock(status_code=status_code)
-        good = MagicMock(status_code=200, ok=True)
-        good.json.return_value = {"articles": []}
-
-        session = MagicMock()
-        session.get.side_effect = [retryable, good]
-
-        with patch.object(news_api._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = news_api._fetch_page(session, "https://newsapi.org/v2/everything", {}, MagicMock())
-
-        assert result == {"articles": []}
-        assert session.get.call_count == 2
-
-    def test_client_error_raises_immediately(self) -> None:
-        # A 401 is a permanent credential failure — it must surface at once, not burn retries.
-        resp = MagicMock(status_code=401, ok=False, text="unauthorized")
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=resp)
-        session = MagicMock()
-        session.get.return_value = resp
-
-        with pytest.raises(requests.HTTPError):
-            news_api._fetch_page(session, "https://newsapi.org/v2/everything", {}, MagicMock())
-
-        assert session.get.call_count == 1
-
-
-class _FakeResumableManager:
-    def __init__(self, state: NewsApiResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[NewsApiResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> NewsApiResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: NewsApiResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _collect(
-    endpoint: str, pages_by_url: dict[str, Any], manager: _FakeResumableManager, monkeypatch: Any
-) -> list[dict]:
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-        result = pages_by_url[url]
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    monkeypatch.setattr(news_api, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(news_api, "make_tracked_session", lambda **_: MagicMock())
-
-    rows: list[dict] = []
-    for batch in get_rows(
-        api_key="k",
-        endpoint=endpoint,
-        query="bitcoin",
-        language=None,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(batch)
-    return rows
-
-
-class TestGetRows:
-    def test_sources_endpoint_yields_once_without_resume(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            "https://newsapi.org/v2/top-headlines/sources": {
-                "status": "ok",
-                "sources": [{"id": "bbc-news"}, {"id": "wired"}],
-            }
-        }
-        rows = _collect("sources", pages, manager, monkeypatch)
         assert [r["id"] for r in rows] == ["bbc-news", "wired"]
+        assert session.send.call_count == 1
         # Non-paginated endpoints never checkpoint — there's nothing to resume.
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_short_page_terminates_pagination(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=1&sortBy=publishedAt": {
-                "status": "ok",
-                "totalResults": 2,
-                "articles": [{"url": "a"}, {"url": "b"}],
-            }
-        }
-        rows = _collect("everything", pages, manager, monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_page_terminates_with_one_request(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"totalResults": 2, "articles": [{"url": "a"}, {"url": "b"}]})])
+
+        manager = _make_manager()
+        rows = _rows(_source("everything", manager))
+
         assert [r["url"] for r in rows] == ["a", "b"]
-        assert manager.saved == []
+        # A short page drains the reachable set, so no extra request and no checkpoint.
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_walks_multiple_pages_and_checkpoints_after_each(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_multiple_pages_and_checkpoints_after_full_page(self, MockSession: Any) -> None:
+        session = MockSession.return_value
         full_page = [{"url": f"u{i}"} for i in range(PAGE_SIZE)]
-        pages = {
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=1&sortBy=publishedAt": {
-                "totalResults": 150,
-                "articles": full_page,
-            },
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=2&sortBy=publishedAt": {
-                "totalResults": 150,
-                "articles": [{"url": "last"}],
-            },
-        }
-        manager = _FakeResumableManager()
-        rows = _collect("everything", pages, manager, monkeypatch)
+        params = _wire(
+            session,
+            [
+                _response({"totalResults": 150, "articles": full_page}),
+                _response({"totalResults": 150, "articles": [{"url": "last"}]}),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("everything", manager))
 
         assert len(rows) == PAGE_SIZE + 1
-        # State is saved AFTER the first page is yielded so a crash re-yields it (merge dedupes),
-        # and it points at the next page to fetch. The short final page ends the walk with no save.
-        assert manager.saved == [NewsApiResumeConfig(next_page=2)]
+        assert params[0]["page"] == 1
+        assert params[1]["page"] == 2
+        # State is saved AFTER the first full page is yielded (points at the next page) so a crash
+        # re-yields it (merge dedupes); the short final page ends the walk with no further save.
+        manager.save_state.assert_called_once_with(NewsApiResumeConfig(next_page=2))
 
-    def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(state=NewsApiResumeConfig(next_page=2))
-        pages = {
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=2&sortBy=publishedAt": {
-                "totalResults": 150,
-                "articles": [{"url": "resumed"}],
-            }
-        }
-        rows = _collect("everything", pages, manager, monkeypatch)
-        # It must start at page 2 (not page 1); page-1 URL isn't in `pages`, so a KeyError would
-        # signal a regression that ignored the saved cursor.
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession: Any) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"totalResults": 150, "articles": [{"url": "resumed"}]})])
+
+        manager = _make_manager(NewsApiResumeConfig(next_page=2))
+        rows = _rows(_source("everything", manager))
+
+        # It must start at page 2 (not page 1) so the saved cursor is honored.
+        assert params[0]["page"] == 2
         assert [r["url"] for r in rows] == ["resumed"]
 
-    def test_full_page_with_missing_total_keeps_paging(self, monkeypatch: Any) -> None:
-        # A full page with `totalResults` absent must not stop the walk — otherwise `page*PAGE_SIZE >= 0`
-        # would truncate after page 1 and silently drop later pages. The short page 2 ends it.
-        pages = {
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=1&sortBy=publishedAt": {
-                "articles": [{"url": f"u{i}"} for i in range(PAGE_SIZE)],
-            },
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=2&sortBy=publishedAt": {
-                "articles": [{"url": "tail"}],
-            },
-        }
-        manager = _FakeResumableManager()
-        rows = _collect("everything", pages, manager, monkeypatch)
-        assert len(rows) == PAGE_SIZE + 1
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_page_with_missing_total_keeps_paging(self, MockSession: Any) -> None:
+        # A full page with `totalResults` absent must not stop the walk. The short page 2 ends it.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"articles": [{"url": f"u{i}"} for i in range(PAGE_SIZE)]}),
+                _response({"articles": [{"url": "tail"}]}),
+            ],
+        )
 
-    def test_maximum_results_reached_stops_cleanly(self, monkeypatch: Any) -> None:
+        manager = _make_manager()
+        rows = _rows(_source("everything", manager))
+
+        assert len(rows) == PAGE_SIZE + 1
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_maximum_results_reached_stops_cleanly(self, MockSession: Any) -> None:
         # NewsAPI returns 426 `maximumResultsReached` past the reachable cap. That's a normal end of
         # the window, so the sync keeps the rows it already has instead of failing.
-        cap_response = MagicMock()
-        cap_response.json.return_value = {"status": "error", "code": "maximumResultsReached"}
-        pages = {
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=1&sortBy=publishedAt": {
-                "totalResults": 500,
-                "articles": [{"url": f"u{i}"} for i in range(PAGE_SIZE)],
-            },
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=2&sortBy=publishedAt": requests.HTTPError(
-                response=cap_response
-            ),
-        }
-        manager = _FakeResumableManager()
-        rows = _collect("everything", pages, manager, monkeypatch)
-        assert len(rows) == PAGE_SIZE
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"totalResults": 500, "articles": [{"url": f"u{i}"} for i in range(PAGE_SIZE)]}),
+                _response({"status": "error", "code": "maximumResultsReached"}, status=426),
+            ],
+        )
 
-    def test_other_http_error_propagates(self, monkeypatch: Any) -> None:
-        resp = MagicMock()
-        resp.json.return_value = {"status": "error", "code": "parameterInvalid"}
-        pages = {
-            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=1&sortBy=publishedAt": requests.HTTPError(
-                response=resp
-            ),
-        }
-        manager = _FakeResumableManager()
+        manager = _make_manager()
+        rows = _rows(_source("everything", manager))
+
+        assert len(rows) == PAGE_SIZE
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_other_client_error_propagates(self, MockSession: Any) -> None:
+        # A 426 without `maximumResultsReached` (or any other 4xx) is a real failure — surface it.
+        session = MockSession.return_value
+        _wire(session, [_response({"status": "error", "code": "parameterInvalid"}, status=426)])
+
+        manager = _make_manager()
         with pytest.raises(requests.HTTPError):
-            _collect("everything", pages, manager, monkeypatch)
+            _rows(_source("everything", manager))
+
+
+class TestRetry:
+    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_codes_retry(self, _name: str, status: int, MockSession: Any, _sleep: Any) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"status": "error"}, status=status),
+                _response({"totalResults": 1, "articles": [{"url": "a"}]}),
+            ],
+        )
+
+        rows = _rows(_source("everything", _make_manager()))
+
+        assert [r["url"] for r in rows] == ["a"]
+        assert session.send.call_count == 2
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_error_raises_without_retry(self, MockSession: Any, _sleep: Any) -> None:
+        # A 401 is a permanent credential failure — it must surface at once, not burn retries.
+        session = MockSession.return_value
+        _wire(session, [_response({"status": "error", "code": "apiKeyInvalid"}, status=401)])
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_source("everything", _make_manager()))
+
+        assert session.send.call_count == 1
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False)])
-    def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status_code)
-        with patch.object(news_api, "make_tracked_session", return_value=session):
-            assert validate_credentials("k") is expected
+    @mock.patch(NEWS_API_SESSION_PATCH)
+    def test_status_maps_to_bool(self, _name: str, status: int, expected: bool, mock_session: Any) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        assert validate_credentials("k") is expected
 
-    def test_network_failure_is_invalid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(news_api, "make_tracked_session", return_value=session):
-            assert validate_credentials("k") is False
+    @mock.patch(NEWS_API_SESSION_PATCH)
+    def test_network_failure_is_invalid(self, mock_session: Any) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        assert validate_credentials("k") is False
 
 
 class TestSourceResponse:
@@ -312,31 +330,19 @@ class TestSourceResponse:
             ("sources", ["id"], "asc"),
         ]
     )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_primary_keys_and_sort_mode_per_endpoint(
-        self, endpoint: str, expected_keys: list[str], expected_sort: str
+        self, endpoint: str, expected_keys: list[str], expected_sort: str, MockSession: Any
     ) -> None:
-        response = news_api_source(
-            api_key="k",
-            endpoint=endpoint,
-            query="bitcoin",
-            language=None,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == expected_sort
 
     @parameterized.expand([("everything", "publishedAt"), ("top_headlines", "publishedAt"), ("sources", None)])
-    def test_partition_key_per_endpoint(self, endpoint: str, expected_partition: str | None) -> None:
-        response = news_api_source(
-            api_key="k",
-            endpoint=endpoint,
-            query="bitcoin",
-            language=None,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_partition_key_per_endpoint(self, endpoint: str, expected_partition: str | None, MockSession: Any) -> None:
+        response = _source(endpoint, _make_manager())
         if expected_partition is None:
             assert response.partition_keys is None
             assert response.partition_mode is None

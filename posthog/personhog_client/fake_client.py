@@ -32,6 +32,7 @@ from posthog.personhog_client.proto.generated.personhog.types.v1 import (
     group_pb2,
     person_pb2,
 )
+from posthog.utils import is_anonymous_id
 
 
 @dataclass
@@ -39,6 +40,14 @@ class _Call:
     method: str
     request: Any
     response: Any = None
+
+
+def _order_identified_first(
+    dids: list[person_pb2.DistinctIdWithVersion],
+) -> list[person_pb2.DistinctIdWithVersion]:
+    """Mirror the server-side ordering of limited distinct_id fetches (personhog-replica
+    orders anonymous-shaped ids last before applying LIMIT, so identified ids survive)."""
+    return sorted(dids, key=lambda d: is_anonymous_id(d.distinct_id))
 
 
 class FakePersonHogClient:
@@ -243,7 +252,7 @@ class FakePersonHogClient:
         dids = self._distinct_ids.get((request.team_id, request.person_id), [])
         limit = request.limit if request.HasField("limit") and request.limit > 0 else None
         if limit is not None:
-            dids = dids[:limit]
+            dids = _order_identified_first(dids)[:limit]
         return person_pb2.GetDistinctIdsForPersonResponse(distinct_ids=dids)
 
     def get_distinct_ids_for_persons(
@@ -257,7 +266,7 @@ class FakePersonHogClient:
         for pid in request.person_ids:
             dids = self._distinct_ids.get((request.team_id, pid), [])
             if limit is not None:
-                dids = dids[:limit]
+                dids = _order_identified_first(dids)[:limit]
             results.append(person_pb2.PersonDistinctIds(person_id=pid, distinct_ids=dids))
         return person_pb2.GetDistinctIdsForPersonsResponse(person_distinct_ids=results)
 
@@ -508,6 +517,12 @@ class FakePersonHogClient:
                         m.detail_dashboard_id = request.detail_dashboard_id
                     elif field == "default_columns":
                         m.default_columns = request.default_columns
+                    elif field == "created_at":
+                        # Mirror the replica: the path in the mask with no value nulls the column.
+                        if request.HasField("created_at"):
+                            m.created_at = request.created_at
+                        else:
+                            m.ClearField("created_at")
                 return group_pb2.UpdateGroupTypeMappingResponse(mapping=m)
         import grpc
 
@@ -594,15 +609,6 @@ class FakePersonHogClient:
             deleted_count += 1
         response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
-        return response
-
-    def delete_personless_distinct_ids_batch_for_team(
-        self, request: person_pb2.DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
-    ) -> person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse:
-        # The fake does not model personless distinct IDs, so this records the
-        # call for assertions and reports nothing deleted.
-        response = person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=0)
-        self.calls.append(_Call("delete_personless_distinct_ids_batch_for_team", request, response))
         return response
 
     # ── Person split ──────────────────────────────────────────────────
@@ -763,14 +769,25 @@ def activate_personhog_fake():
     persons-DB ORM access so a stray Person.objects.* call fails loudly.  Test
     helpers in posthog.test.persons seed the fake explicitly when creating data.
     """
+    import posthog.personhog_client.client as personhog_client_module  # noqa: PLC0415
     from posthog.person_db_router import block_persons_orm, unblock_persons_orm  # noqa: PLC0415
 
     fake = FakePersonHogClient()
     set_active_fake(fake)
     block_persons_orm()
-    with patch("posthog.personhog_client.client.get_personhog_client", return_value=fake):
-        try:
-            yield fake
-        finally:
-            unblock_persons_orm()
-            set_active_fake(None)
+
+    # Plain attribute swap instead of mock.patch: this context manager wraps every test in the
+    # repo, and mock.patch's MagicMock construction is measurable at that volume. The swap is
+    # equivalent — both replace the same module attribute — and tests that patch the client
+    # themselves still layer over it and restore this one on exit.
+    def _get_fake_client() -> Any:
+        return fake
+
+    original_get_client = personhog_client_module.get_personhog_client
+    personhog_client_module.get_personhog_client = _get_fake_client  # ty: ignore[invalid-assignment]
+    try:
+        yield fake
+    finally:
+        personhog_client_module.get_personhog_client = original_get_client
+        unblock_persons_orm()
+        set_active_fake(None)

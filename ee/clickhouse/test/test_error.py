@@ -2,7 +2,15 @@ import pytest
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.clickhouse.client import sync_execute
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    QueryErrorCategory,
+    classify_query_error,
+    clickhouse_error_type,
+    wrap_clickhouse_query_error,
+)
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryMemoryLimitExceeded
 
 
 @pytest.mark.parametrize(
@@ -39,7 +47,7 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
                 code=241,
             ),
             "ClickHouseQueryMemoryLimitExceeded",
-            "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize.",
+            "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries",
             None,
             "CHQueryErrorMemoryLimitExceeded",
         ),
@@ -79,6 +87,60 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             "Code: 499.\nS3 error occurred. (Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet)",
             499,
             "CHQueryErrorS3Error",
+        ),
+        (
+            ServerException(
+                "Code: 499. DB::Exception: Unable to parse ExceptionName: InvalidRange Message: The requested range is not satisfiable: (in file/uri some-bucket/mongo/users.6.parquet): While executing ParquetV3BlockInputFormat: While executing ReadFromObjectStorage. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=499,
+            ),
+            "CHQueryErrorS3FileChangedDuringRead",
+            "A file backing a data warehouse table changed while the query was reading it (some-bucket/mongo/users.6.parquet). "
+            "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
+            "upload new files and delete old ones instead.",
+            499,
+            "CHQueryErrorS3Error",
+        ),
+        (
+            ServerException(
+                "Code: 117. DB::Exception: Not a Parquet file (wrong magic bytes at the end of file): (in file/uri some-bucket/mongo/users.52.parquet): While executing ParquetV3BlockInputFormat. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=117,
+            ),
+            "CHQueryErrorS3FileChangedDuringRead",
+            "A file backing a data warehouse table changed while the query was reading it (some-bucket/mongo/users.52.parquet). "
+            "Retry the query. If you manage these files yourself, avoid overwriting files in place: "
+            "upload new files and delete old ones instead.",
+            117,
+            "CHQueryErrorIncorrectData",
+        ),
+        (
+            ServerException(
+                "DB::Exception: Cannot read all data. Bytes read: 5. Bytes expected: 100.",
+                code=117,
+            ),
+            "CHQueryErrorIncorrectData",
+            "Code: 117.\nDB::Exception: Cannot read all data. Bytes read: 5. Bytes expected: 100.",
+            117,
+            "CHQueryErrorIncorrectData",
+        ),
+        (
+            ServerException(
+                "Code: 467. DB::Exception: Cannot parse boolean value here: 'null', should be 'true' or 'false' controlled by setting bool_true_representation and bool_false_representation: while converting 'null' to Bool. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=467,
+            ),
+            "CHQueryErrorCannotParseBool",
+            "Cannot parse boolean value here: 'null', should be 'true' or 'false' controlled by setting bool_true_representation and bool_false_representation: while converting 'null' to Bool.",
+            467,
+            "CHQueryErrorCannotParseBool",
+        ),
+        (
+            ServerException(
+                "Code: 376. DB::Exception: Cannot parse uuid 2026072018044213140: while converting '2026072018044213140' to UUID: while executing function equals. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x00000000141cccd0",
+                code=376,
+            ),
+            "CHQueryErrorCannotParseUuid",
+            "Cannot parse uuid 2026072018044213140: while converting '2026072018044213140' to UUID: while executing function equals.",
+            376,
+            "CHQueryErrorCannotParseUuid",
         ),
         (
             ServerException(
@@ -159,3 +221,39 @@ def test_wrap_clickhouse_query_error(error, expected_type, expected_message, exp
     assert str(new_error) == expected_message
     assert getattr(new_error, "code", None) == expected_code
     assert label == expected_ch_error
+
+
+def test_per_query_memory_limit_phrasing_matches_real_clickhouse():
+    with pytest.raises(ClickHouseQueryMemoryLimitExceeded) as ctx:
+        sync_execute(
+            "SELECT groupArray(number) FROM numbers(10000000)",
+            settings={"max_memory_usage": 1_000_000},
+        )
+    assert ctx.value.is_per_query_limit
+    assert not isinstance(ctx.value, ClickHouseClusterMemoryLimitExceeded)
+
+
+@pytest.mark.parametrize(
+    "message,expected_per_query",
+    [
+        ("DB::Exception: Memory limit (for query) exceeded: would use 1.00 GiB, maximum: 900.00 MiB.", True),
+        ("DB::Exception: Query memory limit exceeded: would use 1.00 GiB, maximum: 900.00 MiB.", True),
+        (
+            "DB::Exception: (total) memory limit exceeded: would use 270.76 GiB, maximum: 660.53 GiB. : While executing Remote.",
+            False,
+        ),
+        ("DB::Exception: Memory limit (for user) exceeded: would use 1.00 GiB, maximum: 900.00 MiB.", False),
+    ],
+)
+def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query):
+    wrapped = wrap_clickhouse_query_error(ServerException(message, code=241))
+    assert isinstance(wrapped, ClickHouseQueryMemoryLimitExceeded)
+    assert wrapped.is_per_query_limit is expected_per_query
+
+    # A ceiling the query did not set is cluster pressure: it lands on the class every retry path
+    # keys off, and classifies as rate-limited capacity rather than a query-performance problem.
+    is_cluster = isinstance(wrapped, ClickHouseClusterMemoryLimitExceeded)
+    assert is_cluster is (not expected_per_query)
+    if is_cluster:
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+        assert classify_query_error(wrapped) == QueryErrorCategory.RATE_LIMITED

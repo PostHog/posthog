@@ -3,9 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
+import { themeLogic } from 'lib/logic/themeLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -113,6 +113,8 @@ describe('SharingModal (dashboard)', () => {
 
         // Dashboard options smoke checks
         expect(screen.getByText(/Show PostHog branding/i)).toBeInTheDocument()
+        expect(screen.getByText('Theme')).toBeInTheDocument()
+        expect(screen.queryByText(/Show insight details/i)).toBeNull()
     })
 
     it('calls onSharingEnabledChange after the dashboard sharing switch update succeeds', async () => {

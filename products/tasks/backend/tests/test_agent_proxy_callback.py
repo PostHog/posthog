@@ -40,7 +40,10 @@ class TestAgentProxyCallback(TestCase):
         return f"/internal/tasks/runs/{run_id or self.task_run.id}/agent-proxy-callback/"
 
     def _token(self, run: TaskRun | None = None) -> str:
-        return create_sandbox_event_ingest_token(run or self.task_run)
+        token_run = run or self.task_run
+        token_run.state = {**(token_run.state or {}), "sandbox_id": f"sandbox-{token_run.id}"}
+        token_run.save(update_fields=["state", "updated_at"])
+        return create_sandbox_event_ingest_token(token_run)
 
     def _body(self, **overrides: Any) -> dict[str, Any]:
         body: dict[str, Any] = {
@@ -140,7 +143,7 @@ class TestAgentProxyCallback(TestCase):
 
     def test_awaiting_input_dispatches_for_interactive_run(self) -> None:
         run = self.task.create_run(mode="interactive")
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_awaiting_input") as notify:
+        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
             response = self._post(
                 self._body(kind="awaiting_input", agent_active=False),
                 token=self._token(run),
@@ -151,7 +154,7 @@ class TestAgentProxyCallback(TestCase):
         notify.assert_called_once()
 
     def test_awaiting_input_skipped_for_background_run(self) -> None:
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_awaiting_input") as notify:
+        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
             response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])

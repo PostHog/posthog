@@ -1,18 +1,37 @@
+import asyncio
+
+from django.conf import settings
+
 from temporalio import activity
 
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.team.event_retention import parse_events_feature_to_months
-from posthog.sync import database_sync_to_async
+from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
+from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput, SyncEventsRetentionResult
 
 LOGGER = get_write_only_logger()
 
 
+def _capture_retention_changes(changes: list[dict]) -> None:
+    with ph_scoped_capture() as capture:
+        for change in changes:
+            capture(
+                distinct_id="sync-events-retention",
+                event="events_retention_changed",
+                properties={
+                    **change,
+                    "cloud_deployment": settings.CLOUD_DEPLOYMENT,
+                    # Personless: a mass change (e.g. a policy flip) must not mint one person per team.
+                    "$process_person_profile": False,
+                },
+            )
+
+
 @activity.defn(name="sync-events-retention")
-async def sync_events_retention(input: SyncEventsRetentionInput) -> None:
+async def sync_events_retention(input: SyncEventsRetentionInput) -> SyncEventsRetentionResult:
     """Reconcile every team's events retention window with its billing entitlement.
 
     Events retention is plan-derived and not user-editable, so we set it outright — unlike replay enforcement, which
@@ -20,40 +39,57 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> None:
     """
     async with Heartbeater():
         logger = LOGGER.bind()
-        teams_to_update = []
-        query_counter = 0
-
         logger.info("Syncing events retention for all teams...")
-        async for team in Team.objects.select_related("organization").only(
-            "id", "name", "organization", "event_retention_months"
-        ):
-            organization = team.organization
-            retention_feature = await database_sync_to_async(organization.get_available_feature)(
-                AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
-            )
-            target_months = parse_events_feature_to_months(retention_feature)
 
-            if team.event_retention_months != target_months:
-                logger.info(
-                    "Events retention period synced",
-                    team_id=team.id,
-                    team_name=team.name,
-                    organization_id=organization.id,
-                    retention_months_before=team.event_retention_months,
-                    retention_months_after=target_months,
+        last_pk = 0
+        total_processed = 0
+        total_updated = 0
+
+        while True:
+            # Bounded keyset batches: pgbouncer disables server-side cursors, so iterating the full queryset
+            # would materialize every team (with its joined organization row) in memory at once.
+            teams = [
+                team
+                async for team in Team.objects.filter(pk__gt=last_pk)
+                .order_by("pk")
+                .select_related("organization")
+                .only("id", "event_retention_months", "organization__available_product_features")[: input.batch_size]
+            ]
+            if not teams:
+                break
+            last_pk = teams[-1].pk
+
+            teams_to_update: list[Team] = []
+            changes: list[dict] = []
+            for team in teams:
+                retention_feature = team.organization.get_available_feature(
+                    AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
                 )
-                team.event_retention_months = target_months
-                teams_to_update.append(team)
+                target_months = parse_events_feature_to_months(retention_feature)
+                if team.event_retention_months != target_months:
+                    changes.append(
+                        {
+                            "team_id": team.pk,
+                            "organization_id": str(team.organization_id),
+                            "retention_months_before": team.event_retention_months,
+                            "retention_months_after": target_months,
+                        }
+                    )
+                    team.event_retention_months = target_months
+                    teams_to_update.append(team)
 
-            query_counter += 1
-            if query_counter >= input.batch_size:
-                query_counter = 0
-                logger.info(f"Processed {input.batch_size} teams...")
+            if teams_to_update and not input.dry_run:
+                await Team.objects.abulk_update(teams_to_update, ["event_retention_months"])
+                # Per batch and off-thread so a mass change can't stall heartbeats or overflow the client queue.
+                await asyncio.to_thread(_capture_retention_changes, changes)
 
-        if not input.dry_run:
-            logger.info(f"Updating {len(teams_to_update)} teams...")
-            await database_sync_to_async(Team.objects.bulk_update)(
-                teams_to_update, ["event_retention_months"], batch_size=input.batch_size
-            )
+            total_processed += len(teams)
+            total_updated += len(teams_to_update)
+            logger.info(f"Processed {total_processed} teams, {total_updated} updated so far...")
+
+        if input.dry_run:
+            logger.info(f"DRY RUN: Would have updated {total_updated} of {total_processed} teams")
         else:
-            logger.info(f"DRY RUN: Would have updated {len(teams_to_update)} teams...")
+            logger.info(f"Updated {total_updated} of {total_processed} teams")
+
+        return SyncEventsRetentionResult(total_processed=total_processed, total_updated=total_updated)

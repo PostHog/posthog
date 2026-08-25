@@ -1,23 +1,25 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
-import { IconPencil } from '@posthog/icons'
+import { IconPencil, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { VisionActionApi } from '../generated/api.schemas'
+import { DeliveryTargetTypeEnumApi, VisionActionModeEnumApi } from '../generated/api.schemas'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from './cadence'
-import { VisionActionForm } from './components/VisionActionForm'
 import { VisionActionRuns } from './components/VisionActionRuns'
+import { replayScannerLogic } from './replayScannerLogic'
 import { visionActionRunsLogic } from './visionActionRunsLogic'
 import { visionActionSceneLogic } from './visionActionSceneLogic'
-import { visionActionsLogic } from './visionActionsLogic'
 
 export const scene: SceneExport = {
     component: VisionActionSceneComponent,
@@ -25,8 +27,78 @@ export const scene: SceneExport = {
     productKey: ProductKey.REPLAY_VISION,
 }
 
-// The title bar, current-guidance panel, and edit modal — shown once the action loads. Bound to
-// visionActionsLogic (keyed by the scanner) so the shared create/edit form drives the modal here too.
+function ConfigRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+    return (
+        <div className="flex flex-col sm:flex-row sm:gap-4">
+            <div className="text-xs font-semibold uppercase text-secondary sm:w-32 sm:shrink-0 sm:pt-0.5">{label}</div>
+            <div className="flex-1 min-w-0">{children}</div>
+        </div>
+    )
+}
+
+function deliveryRow(action: VisionActionApi, noun: string): JSX.Element {
+    const target = action.delivery_config?.[0]
+    if (target?.type === DeliveryTargetTypeEnumApi.Webhook) {
+        return (
+            <p className="m-0">
+                Webhook at <span className="font-mono text-sm break-all">{target.url}</span>
+            </p>
+        )
+    }
+    if (target?.type === DeliveryTargetTypeEnumApi.Slack) {
+        return <p className="m-0">Slack in {slackChannelDisplayName(target.channel ?? '') || 'a channel'}</p>
+    }
+    return (
+        <p className="m-0 text-muted italic">
+            Not sent anywhere. Edit the action to deliver this {noun} to Slack or a webhook.
+        </p>
+    )
+}
+
+// One card summarizing the action's config — schedule, guidance (digests), and delivery — so it's all
+// visible without opening the editor.
+function ConfigCard({
+    action,
+    scheduleLabel,
+    noun,
+}: {
+    action: VisionActionApi
+    scheduleLabel: string | null
+    noun: string
+}): JSX.Element {
+    const isAlert = action.mode === VisionActionModeEnumApi.Alert
+    const guidance = action.synthesis_config?.prompt_guide?.trim()
+
+    return (
+        <LemonCard hoverEffect={false} className="p-4">
+            <div className="flex flex-col gap-3">
+                <ConfigRow label={isAlert ? 'Checks' : 'Schedule'}>
+                    <p className="m-0">
+                        {isAlert
+                            ? action.alert_config?.frequency === 'every_match'
+                                ? 'Every few minutes; each alert covers the new matches since the last check'
+                                : 'About every hour; notifies when the threshold starts being crossed'
+                            : scheduleLabel || 'Not scheduled'}
+                    </p>
+                </ConfigRow>
+                {!isAlert && (
+                    <ConfigRow label="Guidance">
+                        {guidance ? (
+                            <p className="m-0 whitespace-pre-wrap">{guidance}</p>
+                        ) : (
+                            <p className="m-0 text-muted italic">
+                                None set. The AI summarizes this scanner's observations freely.
+                            </p>
+                        )}
+                    </ConfigRow>
+                )}
+                <ConfigRow label="Delivery">{deliveryRow(action, noun)}</ConfigRow>
+            </div>
+        </LemonCard>
+    )
+}
+
+// The title bar and config summary, shown once the action loads. Edit links to the action editor page.
 function ActionOverview({
     action,
     scheduleLabel,
@@ -34,43 +106,48 @@ function ActionOverview({
     action: VisionActionApi
     scheduleLabel: string | null
 }): JSX.Element {
-    const { openEditForm } = useActions(visionActionsLogic)
-    const guidance = action.synthesis_config?.prompt_guide?.trim()
+    const isAlert = action.mode === VisionActionModeEnumApi.Alert
+    // `action.scanner` is only the id — the action's own user_access_level would just reflect the
+    // replay_scanner resource default, not a per-scanner object grant, so load the scanner itself.
+    const { scanner } = useValues(replayScannerLogic({ id: action.scanner }))
+    const { runningNow, runInProgress } = useValues(visionActionRunsLogic)
+    const { runNow } = useActions(visionActionRunsLogic)
+    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     return (
         <>
             <SceneTitleSection
                 name={action.name}
-                description={scheduleLabel ? `Runs ${scheduleLabel.toLowerCase()}` : undefined}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
+                    <>
+                        {!isAlert && (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlay />}
+                                onClick={runNow}
+                                loading={runningNow}
+                                disabledReason={
+                                    editDisabledReason ?? (runInProgress ? 'A run is already in progress' : undefined)
+                                }
+                                data-attr="vision-action-run-now"
+                            >
+                                {runInProgress ? 'Running…' : 'Run now'}
+                            </LemonButton>
+                        )}
                         <LemonButton
                             type="secondary"
                             icon={<IconPencil />}
-                            onClick={() => openEditForm(action)}
+                            to={urls.replayVisionActionEdit(action.id)}
+                            disabledReason={editDisabledReason}
                             data-attr="vision-action-edit-from-page"
                         >
                             Edit
                         </LemonButton>
-                    </AccessControlAction>
+                    </>
                 }
             />
-            <LemonCard hoverEffect={false} className="p-4">
-                <div className="text-xs font-semibold uppercase text-secondary mb-1">Summary guidance</div>
-                {guidance ? (
-                    <p className="m-0 whitespace-pre-wrap">{guidance}</p>
-                ) : (
-                    <p className="m-0 text-muted italic">
-                        No guidance set — the AI summarizes this scanner's observations freely. Edit the action to steer
-                        it.
-                    </p>
-                )}
-            </LemonCard>
-            <VisionActionForm scannerId={action.scanner} />
+            <ConfigCard action={action} scheduleLabel={scheduleLabel} noun={isAlert ? 'alert' : 'digest'} />
         </>
     )
 }
@@ -78,14 +155,12 @@ function ActionOverview({
 function VisionActionDetail(): JSX.Element {
     const { action, actionLoading } = useValues(visionActionRunsLogic)
     const rrule = action?.trigger_config?.rrule
-    const schedule = rrule ? humanizeCadence(parseRruleToCadence(rrule)) : null
+    const schedule = rrule ? humanizeCadence(parseRruleToCadence(rrule), action?.trigger_config?.timezone) : null
 
     return (
         <SceneContent>
             {action ? (
-                <BindLogic logic={visionActionsLogic} props={{ scannerId: action.scanner }}>
-                    <ActionOverview action={action} scheduleLabel={schedule} />
-                </BindLogic>
+                <ActionOverview action={action} scheduleLabel={schedule} />
             ) : (
                 <SceneTitleSection
                     name={actionLoading ? 'Loading…' : 'Action runs'}

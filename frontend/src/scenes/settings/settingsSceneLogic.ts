@@ -1,4 +1,4 @@
-import { connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -11,23 +11,62 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
-import type { settingsSceneLogicType } from './settingsSceneLogicType'
 import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
+import type { Setting, SettingSection } from './types'
 
 const AI_OBSERVABILITY_SETTINGS_SECTION: SettingSectionId = 'project-ai-observability'
 const AI_OBSERVABILITY_BYOK_SETTING: SettingId = 'ai-observability-byok'
 const LEGACY_LLM_ANALYTICS_BYOK_SETTING = 'llm-analytics-byok'
+const WEB_ANALYTICS_SETTINGS_SECTION: SettingSectionId = 'project-web-analytics'
+const WEB_ANALYTICS_AUTHORIZED_URLS_SETTING: SettingId = 'web-analytics-authorized-urls'
+const LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING = 'authorized-urls'
 
-const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
+// Section ids that should resolve to a different section than the URL asks for. Two kinds live here:
+// sections that were removed or renamed, and ids that were never valid but are the intuitive guess.
+// Both would otherwise render "Setting not found". Applied on every `/settings/:section` navigation,
+// including a cold page load, so a pasted URL or an old bookmark redirects the same way an in-app
+// click does. This is browser routing only; nothing outside the frontend reads this map.
+const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     'environment-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
     'project-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
+    // The dedicated Toolbar section was removed; its authorized-URL config now lives under Web analytics.
+    'environment-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
+    'project-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
+    // `project-members` is the never-valid kind: members and invites are organization-level, but a
+    // project-level id is what people reach for, so it turns up in hand-typed URLs and in links the
+    // in-app assistant has suggested. Keep it even once those links age out; it only becomes wrong
+    // if members ever become project-scoped.
+    'project-members': 'organization-members',
+}
+
+// Settings that moved to a different section, keyed by setting id. Deep links to the old
+// section (docs, CDP filter warnings, bookmarks) redirect to the setting's current home.
+const MOVED_SETTINGS: Record<string, SettingSectionId> = {
+    'internal-user-filtering': 'project-customization',
+    'warehouse-person-properties': 'environment-customer-analytics',
 }
 
 const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)
 
+const sectionForMovedSetting = (section: string, hashParams: Params): SettingSectionId | null => {
+    for (const [settingId, currentSection] of Object.entries(MOVED_SETTINGS)) {
+        if (section === currentSection) {
+            continue
+        }
+        if (
+            hasHashParam(hashParams, settingId) ||
+            hashParams.setting === settingId ||
+            hashParams.selectedSetting === settingId
+        ) {
+            return currentSection
+        }
+    }
+    return null
+}
+
 const canonicalSettingsSection = (section: string): string => {
-    if (LEGACY_SETTINGS_SECTIONS[section]) {
-        return LEGACY_SETTINGS_SECTIONS[section]
+    if (SETTINGS_SECTION_ALIASES[section]) {
+        return SETTINGS_SECTION_ALIASES[section]
     }
 
     if (section.startsWith('environment') && !section.endsWith('-details') && !section.endsWith('-danger-zone')) {
@@ -59,8 +98,74 @@ const canonicalSettingsHashParams = (hashParams: Params): [Params, boolean] => {
         changed = true
     }
 
+    // The toolbar `#authorized-urls` deep link now points at the Web analytics domains setting.
+    if (hasHashParam(nextHashParams, LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING)) {
+        delete nextHashParams[LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING]
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
+        changed = true
+    }
+
+    if (nextHashParams.setting === LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING) {
+        nextHashParams.setting = WEB_ANALYTICS_AUTHORIZED_URLS_SETTING
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
+        changed = true
+    }
+
+    if (nextHashParams.selectedSetting === LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING) {
+        nextHashParams.selectedSetting = WEB_ANALYTICS_AUTHORIZED_URLS_SETTING
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
+        changed = true
+    }
+
     return [nextHashParams, changed]
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface settingsSceneLogicValues {
+    sections: SettingSection[] // settingsLogic
+    selectedLevel: SettingLevelId // settingsLogic
+    selectedSection: SettingSection | null // settingsLogic
+    selectedSectionId: SettingSectionId | null // settingsLogic
+    settings: Setting[] // settingsLogic
+    breadcrumbs: Breadcrumb[]
+    sidePanelContext: SidePanelSceneContext | null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface settingsSceneLogicActions {
+    selectLevel: (level: 'environment' | 'organization' | 'project' | 'user') => {
+        level: 'environment' | 'organization' | 'project' | 'user'
+    } // settingsLogic
+    selectSection: (
+        section: SettingSectionId,
+        level: 'environment' | 'organization' | 'project' | 'user'
+    ) => {
+        level: 'environment' | 'organization' | 'project' | 'user'
+        section: SettingSectionId
+    } // settingsLogic
+    selectSetting: (setting: SettingId) => {
+        setting: SettingId
+    } // settingsLogic
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface settingsSceneLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        breadcrumbs: (
+            selectedLevel: 'environment' | 'organization' | 'project' | 'user',
+            selectedSectionId: SettingSectionId | null,
+            selectedSection: SettingSection | null
+        ) => Breadcrumb[]
+        sidePanelContext: (selectedSectionId: SettingSectionId | null) => SidePanelSceneContext | null
+    }
+}
+
+export type settingsSceneLogicType = MakeLogicType<
+    settingsSceneLogicValues,
+    settingsSceneLogicActions,
+    Record<string, any>,
+    settingsSceneLogicMeta
+>
 
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),
@@ -75,7 +180,11 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     selectors({
         breadcrumbs: [
             (s) => [s.selectedLevel, s.selectedSectionId, s.selectedSection],
-            (selectedLevel, selectedSectionId, selectedSection): Breadcrumb[] => {
+            (
+                selectedLevel: SettingLevelId,
+                selectedSectionId: SettingSectionId | null,
+                selectedSection: null | import('./types').SettingSection
+            ): Breadcrumb[] => {
                 const sectionName = selectedSection?.title ?? capitalizeFirstLetter(selectedLevel)
 
                 return [
@@ -126,11 +235,12 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
             const canonicalSection = canonicalSettingsSection(section)
             const [hashParams, didCanonicalizeHashParams] = canonicalSettingsHashParams(router.values.hashParams)
+            const targetSection = sectionForMovedSetting(canonicalSection, hashParams) ?? canonicalSection
 
             // Use `replace` so legacy settings URLs don't become dead back-button entries.
-            if (canonicalSection !== section || didCanonicalizeHashParams) {
+            if (targetSection !== section || didCanonicalizeHashParams) {
                 router.actions.replace(
-                    urls.settings(canonicalSection as SettingSectionId),
+                    urls.settings(targetSection as SettingSectionId),
                     router.values.searchParams,
                     hashParams
                 )
@@ -153,7 +263,13 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
                 const firstSection = values.sections.find((s) => s.level === effectiveLevel)
                 if (firstSection) {
-                    router.actions.replace(urls.settings(firstSection.id))
+                    // Keep the params: links like `/settings/project#variables` rely on the hash
+                    // to scroll to the setting after the redirect.
+                    router.actions.replace(
+                        urls.settings(firstSection.id),
+                        router.values.searchParams,
+                        router.values.hashParams
+                    )
                 } else {
                     actions.selectLevel(effectiveLevel)
                 }

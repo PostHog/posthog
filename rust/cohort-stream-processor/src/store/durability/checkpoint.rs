@@ -18,6 +18,11 @@
 //! checkpoints). Every fallible step is handled, the failure is logged and counted, and the loop
 //! continues.
 
+// The checkpoint sweeper offloads its own store I/O (its own `spawn_blocking` + log-and-skip on
+// every `JoinError`) to honor the must-not-panic policy above, so its direct `CohortStore` calls are
+// sanctioned. See `checkpoint_once`.
+#![allow(clippy::disallowed_methods)]
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -109,6 +114,10 @@ impl CheckpointSweeper {
     async fn checkpoint_once(&self) {
         let tick = self.tick.fetch_add(1, Ordering::SeqCst);
 
+        // The checkpoint sweeper runs its own `spawn_blocking` and catches every `JoinError` to
+        // log-and-skip: the `Sweeper` contract forbids panicking (a panic aborts the timer task and
+        // stops all future checkpoints), so store panics must not propagate out of this loop.
+        //
         // 1. fsync the WAL before the snapshot so `committed <= durable` holds. A failure here would
         //    yield a checkpoint whose manifest claims more than is durable — skip the tick.
         let flush_store = self.store.clone();

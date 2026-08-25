@@ -13,7 +13,6 @@ Operations include:
 import random
 import statistics
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -26,6 +25,7 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Gauge
 
+from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -171,7 +171,7 @@ class UpdateFn(Protocol):
     def __call__(self, team: Team | int, ttl: int | None = None) -> bool: ...
 
 
-@dataclass
+@frozen
 class HyperCacheManagementConfig:
     """
     Configuration for batch HyperCache management operations.
@@ -209,11 +209,29 @@ class HyperCacheManagementConfig:
     # skip as an optimization and leave this False.
     repair_miss_during_grace_period: bool = False
 
+    # Team columns the refresh/warm path reads off each Team object. When set,
+    # get_teams_with_expiring_caches narrows its SELECT to these columns via .only()
+    # instead of fetching the whole row. This keeps the refresh working when a Team
+    # column added by a migration the read replica hasn't applied yet would otherwise
+    # make `SELECT *` raise UndefinedColumn (the replica lags on posthog_team DDL).
+    # Must list every Team field the config's update_fn/load_fn reads; related fields
+    # (organization/project) come via select_related and don't need listing, but the
+    # FK columns (organization_id, project_id) do. Leave None to select all columns.
+    refresh_only_fields: list[str] | None = None
+
     # Optional write guard: given (key, payload), returns True to skip the write. Used
     # to veto caching an emptied group_type_mapping over populated data when personhog
     # lags. Applied by the verifier's direct db_data write and the self-heal drain; a
     # veto is neither a fix nor a failure. `update_fn` paths already guard internally.
     should_skip_write: Callable[[Any, dict], bool] | None = None
+
+    # Optional attribution of a team's primary cache writer, used to label verifier
+    # fixes. During a dual-writer migration (Python Celery builder vs Rust Kafka
+    # builder) the verifier is the parity oracle: a fix on a team owned by one writer
+    # signals that writer diverged, which an unattributed fix counter blends into the
+    # other writer's baseline repair noise. Takes a team id, returns a short static
+    # label value (e.g. "python", "rust", "unknown"). None labels every fix "python".
+    get_primary_writer_fn: Callable[[int], str] | None = None
 
     # Derived properties (computed from required properties using conventions)
     @property
@@ -268,6 +286,26 @@ class HyperCacheManagementConfig:
             return self.get_teams_queryset_fn()
         return Team.objects.all()
 
+    def narrow_team_queryset(
+        self, queryset: "QuerySet[Team]", *, extra_fields: tuple[str, ...] = ()
+    ) -> "QuerySet[Team]":
+        """Select related org/project and restrict Team columns to refresh_only_fields.
+
+        The library warm, refresh, and verify paths and the management commands all
+        route through this so a Team column the read replica hasn't migrated yet
+        can't turn their `SELECT *` into an UndefinedColumn error (see the
+        refresh_only_fields field comment). Only Team columns are narrowed:
+        org/project rows are still fully selected.
+
+        extra_fields adds Team columns a caller needs beyond refresh_only_fields
+        (e.g. the management commands print team.name) without widening the hot
+        cron SELECTs for every config.
+        """
+        queryset = queryset.select_related("organization", "project")
+        if self.refresh_only_fields is not None:
+            queryset = queryset.only(*self.refresh_only_fields, *extra_fields)
+        return queryset
+
 
 def warm_caches(
     config: HyperCacheManagementConfig,
@@ -316,9 +354,9 @@ def warm_caches(
 
     try:
         if team_ids:
-            teams_queryset = Team.objects.filter(id__in=team_ids).select_related("organization", "project")
+            teams_queryset = config.narrow_team_queryset(Team.objects.filter(id__in=team_ids))
         else:
-            teams_queryset = config.get_teams_queryset().select_related("organization", "project")
+            teams_queryset = config.narrow_team_queryset(config.get_teams_queryset())
 
         total_teams = teams_queryset.count()
 

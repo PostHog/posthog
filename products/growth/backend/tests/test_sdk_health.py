@@ -5,6 +5,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.growth.backend.sdk_health import (
+    LEGACY_JAVA_MIGRATION_REASON,
+    LEGACY_JAVA_VERSION_LABEL,
     MINOR_AGE_THRESHOLD_DAYS,
     MINOR_VERSIONS_BEHIND_THRESHOLD,
     SINGLE_VERSION_GRACE_PERIOD_DAYS,
@@ -245,7 +247,9 @@ class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
         assert result.is_current_or_newer is True
 
     def test_ahead_of_cached_latest_not_outdated(self):
-        entry = _entry("1.6.0", 100)
+        # The release date is past the single-version grace period on purpose: a version newer
+        # than a stale cached "latest" must not fall into the single-version outdatedness rule
+        entry = _entry("1.6.0", 100, days_ago=SINGLE_VERSION_GRACE_PERIOD_DAYS + 10)
         result = assess_release(
             "posthog-node",
             entry,
@@ -255,6 +259,59 @@ class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
         )
         assert result.is_outdated is False
         assert result.is_current_or_newer is True
+
+
+class TestAssessSdkReason(SimpleTestCase):
+    # `reason` is the whole alert body forwarded to Slack/email/MCP, so these rows guard
+    # against it asserting a match while the in-use version is behind latest, or ahead of a
+    # stale cached latest. Patch-level and grace-period differences are never flagged, which
+    # is what makes the false all-clear reachable in the first place.
+    @parameterized.expand(
+        [
+            (
+                "matches_latest",
+                "posthog-node",
+                "1.5.0",
+                [_entry("1.5.0", 100)],
+                "Node.js is on 1.5.0 which matches or exceeds latest 1.5.0.",
+            ),
+            (
+                "behind_latest",
+                "posthog-node",
+                "1.5.9",
+                [_entry("1.5.0", 100, days_ago=100)],
+                "Node.js is on 1.5.0, behind latest 1.5.9. Upgrading is not urgent yet.",
+            ),
+            (
+                "traffic_alert_while_matching_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.298.1", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.298.1 matches or exceeds latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+            (
+                "traffic_alert_while_ahead_of_stale_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.299.0", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.299.0 matches or exceeds latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+            (
+                "traffic_alert_while_behind_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.298.0", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.298.0 is behind latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+        ]
+    )
+    def test_reason(self, _name: str, sdk_type: str, latest_version: str, usage: list[UsageEntry], expected: str):
+        sdk = assess_sdk(sdk_type, latest_version, usage, now=NOW)
+        assert sdk is not None
+        assert sdk.reason == expected
 
 
 class TestAssessReleaseIsOld(SimpleTestCase):
@@ -320,13 +377,22 @@ class TestAssessSdkTrafficAlerts(SimpleTestCase):
         # Primary (first) is fresh, so SDK not marked outdated
         assert result.is_outdated is False
 
-    def test_mobile_never_gets_traffic_alerts(self):
+    @parameterized.expand(
+        [
+            ("posthog-ios",),
+            ("posthog-android",),
+            ("posthog-flutter",),
+            ("posthog-react-native",),
+            ("posthog-kmp",),
+        ]
+    )
+    def test_mobile_never_gets_traffic_alerts(self, sdk_type: str):
         # Even at high traffic, mobile SDKs shouldn't trigger traffic alerts (users don't auto-update)
         entries = [
             _entry("2.0.0", 10, days_ago=5, is_latest=True),
             _entry("1.0.0", 90, days_ago=200),
         ]
-        result = assess_sdk("posthog-ios", "2.0.0", entries, now=NOW)
+        result = assess_sdk(sdk_type, "2.0.0", entries, now=NOW)
         assert result is not None
         assert result.outdated_traffic_alerts == []
 
@@ -344,6 +410,7 @@ class TestComputeSdkHealth(SimpleTestCase):
         assert report.health == "success"
         assert report.needs_updating_count == 0
         assert report.team_sdk_count == 1
+        assert report.sdks[0].migration_required is False
 
     def test_warning_when_one_of_many_outdated(self):
         # 1 of 3 outdated — below half, so warning not danger
@@ -388,6 +455,39 @@ class TestComputeSdkHealth(SimpleTestCase):
         assert report.team_sdk_count == 3
         assert report.health == "warning"
         assert report.overall_health == "needs_attention"
+
+    def test_legacy_java_is_reported_with_migration_guidance_without_a_version(self):
+        data = {
+            "posthog-java": {
+                "latest_version": "1.2.0",
+                "usage": [
+                    {
+                        "lib_version": None,
+                        "count": 42,
+                        "max_timestamp": NOW.isoformat(),
+                        "is_latest": False,
+                    }
+                ],
+            }
+        }
+
+        report = compute_sdk_health(data, now=NOW, project_id=7)
+
+        assert report.needs_updating_count == 1
+        assert report.team_sdk_count == 1
+        sdk = report.sdks[0]
+        assert sdk.lib == "posthog-java"
+        assert sdk.latest_version == "1.2.0"
+        assert sdk.migration_required is True
+        assert sdk.reason == LEGACY_JAVA_MIGRATION_REASON
+        assert sdk.banners == []
+        release = sdk.releases[0]
+        assert release.version == LEGACY_JAVA_VERSION_LABEL
+        assert release.count == 42
+        assert release.is_outdated is True
+        assert "properties.$lib = 'posthog-java'" in release.sql_query
+        assert "$lib_version" not in release.sql_query
+        assert release.activity_page_url.startswith("/project/7/activity/explore#q=")
 
     def test_danger_when_half_or_more_outdated(self):
         # 2 of 3 outdated — triggers danger

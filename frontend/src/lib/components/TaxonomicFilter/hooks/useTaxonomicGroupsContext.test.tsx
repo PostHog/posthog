@@ -7,6 +7,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { PropertyFilterType } from '~/types'
 
 import { TaxonomicFilterGroupType } from '../types'
 import { buildTaxonomicGroups } from '../utils/buildTaxonomicGroups'
@@ -87,6 +88,38 @@ describe('useTaxonomicGroupsContext', () => {
         expect(result.current).toBe(first)
     })
 
+    it.each([
+        {
+            description: 'promotes the taxonomy-default primary property for $pageview',
+            eventNames: ['$pageview'],
+            expectedPromoted: ['$pathname'],
+            expectedSuggestedOptions: ['$pathname'],
+        },
+        {
+            description: 'promotes the taxonomy-default primary property for $mcp_tool_call',
+            eventNames: ['$mcp_tool_call'],
+            expectedPromoted: ['$mcp_tool_name'],
+            // The Suggested tab also seeds MCP_TOOL_CALL_SUGGESTED_PROPERTIES
+            // ($mcp_is_error) after the promoted primary property.
+            expectedSuggestedOptions: ['$mcp_tool_name', '$mcp_is_error'],
+        },
+        {
+            description: 'promotes nothing when no event is in context',
+            eventNames: [] as string[],
+            expectedPromoted: [],
+            expectedSuggestedOptions: [],
+        },
+    ])('$description', ({ eventNames, expectedPromoted, expectedSuggestedOptions }) => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames }), { wrapper })
+        expect(result.current.promotedPropertiesForContextEvents).toEqual(expectedPromoted)
+        const suggestedGroup = buildTaxonomicGroups(result.current).find(
+            (g) => g.type === TaxonomicFilterGroupType.SuggestedFilters
+        )
+        expect(suggestedGroup?.options).toEqual(
+            expectedSuggestedOptions.map((name) => ({ name, group: TaxonomicFilterGroupType.EventProperties }))
+        )
+    })
+
     it('feeds buildTaxonomicGroups end-to-end and produces a non-empty groups array', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({ eventNames: ['$pageview'] }), {
             wrapper,
@@ -100,6 +133,19 @@ describe('useTaxonomicGroupsContext', () => {
         expect(types.has(TaxonomicFilterGroupType.Cohorts)).toBe(true)
         expect(types.has(TaxonomicFilterGroupType.HogQLExpression)).toBe(true)
         expect(types.has(TaxonomicFilterGroupType.SuggestedFilters)).toBe(true)
+    })
+
+    it('makes exception properties commit as event property filters', () => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
+        const exceptionGroup = buildTaxonomicGroups(result.current).find(
+            (group) => group.type === TaxonomicFilterGroupType.ErrorTrackingProperties
+        )
+        const exceptionValue = exceptionGroup?.options?.find((option) => option.name === '$exception_values') as
+            | { name: string; propertyFilterType: PropertyFilterType }
+            | undefined
+
+        expect(exceptionGroup?.getValue?.(exceptionValue)).toBe('$exception_values')
+        expect(exceptionValue?.propertyFilterType).toBe(PropertyFilterType.Event)
     })
 
     it.each([

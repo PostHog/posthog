@@ -18,13 +18,13 @@ import {
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlLineGraph } from './SqlLineGraph'
 
 // Some blocks below mount the full DataVisualization tree (~7 logics). Neither timeout is set
 // globally (jest.setup leaves asyncUtilTimeout at 1s, jest.config has no testTimeout → 5s): the
-// heavy mount needs findByRole headroom beyond 1s on CI, and sqlChart.hoverTooltip's internal
-// waits (findByRole + tooltip poll) can sum past the 5s default.
+// heavy mount needs findBy* headroom beyond 1s on CI, and sqlChart.hoverTooltip's internal
+// waits (findBy* + tooltip poll) can sum past the 5s default.
 configure({ asyncUtilTimeout: 5000 })
 jest.setTimeout(15000)
 
@@ -68,7 +68,7 @@ const ySeries = (name: string, data: (number | null)[], settings: YSettings = {}
     settings,
 })
 
-const props = (overrides: Partial<LineGraphProps>): LineGraphProps => ({
+const props = (overrides: Partial<SqlChartProps>): SqlChartProps => ({
     xData: xData(['Mon', 'Tue', 'Wed']),
     yData: [],
     visualizationType: ChartDisplayType.ActionsLineGraph,
@@ -76,9 +76,9 @@ const props = (overrides: Partial<LineGraphProps>): LineGraphProps => ({
     ...overrides,
 })
 
-const renderChart = async (overrides: Partial<LineGraphProps>): Promise<void> => {
+const renderChart = async (overrides: Partial<SqlChartProps>): Promise<void> => {
     renderWithInsights({ component: <SqlLineGraph {...props(overrides)} /> })
-    await screen.findByRole('img', { name: /chart with/i })
+    await screen.findByLabelText(/chart with/i)
 }
 
 const lowestTick = (ticks: string[]): number => Math.min(...ticks.map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, ''))))
@@ -155,6 +155,33 @@ describe('SqlLineGraph', () => {
             expect(rightTicks.length).toBeGreaterThan(0)
             expect(rightTicks.every((tick) => tick.endsWith('%'))).toBe(true)
         })
+
+        it('hides only the right gutter when the right axis turns tick labels off', async () => {
+            await renderChart({
+                chartSettings: { rightYAxisSettings: { showTicks: false } },
+                yData: [
+                    ySeries('revenue', [1200, 1400, 1300]),
+                    ySeries('conversion', [12, 18, 15], { display: { yAxisPosition: 'right' } }),
+                ],
+            })
+
+            await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
+            expect(getHogChart().yRightTicks()).toHaveLength(0)
+        })
+
+        it('floats only the right axis when its begin-at-zero is off', async () => {
+            await renderChart({
+                chartSettings: { rightYAxisSettings: { startAtZero: false } },
+                yData: [
+                    ySeries('revenue', [1200, 1400, 1300]),
+                    ySeries('conversion', [800, 900, 850], { display: { yAxisPosition: 'right' } }),
+                ],
+            })
+
+            await waitFor(() => expect(getHogChart().hasRightAxis).toBe(true))
+            expect(lowestTick(getHogChart().yRightTicks())).toBeGreaterThan(0)
+            expect(lowestTick(getHogChart().yTicks())).toBe(0)
+        })
     })
 
     describe('start at zero', () => {
@@ -196,7 +223,7 @@ describe('SqlLineGraph', () => {
         it('shows one row per series with its own value', async () => {
             renderLine({ yAxis: [{ column: 'a' }, { column: 'b' }] }, twoSeries())
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
 
             expect(tooltip.rows()).toEqual(['a', 'b'])
@@ -229,7 +256,7 @@ describe('SqlLineGraph', () => {
         ])('$name', async ({ showTotalRow, expectedTotal }) => {
             renderLine({ yAxis: [{ column: 'a' }, { column: 'b' }], showTotalRow }, twoSeries())
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
 
             expect(tooltip.total()).toBe(expectedTotal)
@@ -248,7 +275,7 @@ describe('SqlLineGraph', () => {
                 twoSeries()
             )
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
 
             expect(tooltip.swatchColors()).toEqual(['rgb(255, 0, 0)', 'rgb(0, 255, 0)'])
@@ -265,7 +292,7 @@ describe('SqlLineGraph', () => {
                 twoSeries()
             )
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             const labels = [...getLegend(container).querySelectorAll('button')].map((b) => b.textContent)
             expect(labels).toEqual(['a', 'b'])
         })
@@ -273,25 +300,32 @@ describe('SqlLineGraph', () => {
         it('renders no legend by default', async () => {
             const { container } = renderLine({ yAxis: [{ column: 'a' }, { column: 'b' }] }, twoSeries())
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             expect(container.querySelector('[data-attr="hog-chart-timeseries-line-legend"]')).not.toBeInTheDocument()
         })
 
-        it('hides a series from the chart and tooltip when its legend item is toggled off', async () => {
+        it.each([
+            { name: 'clicking a legend item isolates that series', additive: false, expectedRows: ['b'] },
+            {
+                name: 'meta-clicking a legend item hides just that series',
+                additive: true,
+                expectedRows: ['a'],
+            },
+        ])('$name', async ({ additive, expectedRows }) => {
             const { container } = renderLine(
                 { yAxis: [{ column: 'a' }, { column: 'b' }], showLegend: true },
                 twoSeries()
             )
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             const bButton = [...getLegend(container).querySelectorAll('button')].find((b) =>
                 b.textContent?.includes('b')
             )!
-            fireEvent.click(bButton)
+            fireEvent.click(bButton, { metaKey: additive })
 
             await waitFor(() => expect(getHogChart().seriesCount).toBe(1))
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
-            expect(tooltip.rows()).toEqual(['a'])
+            expect(tooltip.rows()).toEqual(expectedRows)
         })
     })
 
@@ -310,9 +344,13 @@ describe('SqlLineGraph', () => {
                 lineFixture([{ name: 'pageviews', valueAt: (i) => (i + 1) * 100 }])
             )
 
-            await screen.findByRole('img', { name: /chart with/i })
-            expect(getHogChart().xAxisLabel()).toBe(expectedX)
-            expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            await screen.findByLabelText(/chart with/i)
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears, so read them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe(expectedX)
+                expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            })
         })
     })
 
@@ -323,7 +361,7 @@ describe('SqlLineGraph', () => {
                 lineFixture([{ name: 'pageviews', valueAt: (i) => (i + 1) * 100 }])
             )
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(() => expect(getHogChart().xTicks().length).toBeGreaterThan(0))
             // Date-axis tick formatter renders month names (year shown at the Jan boundary).
             expect(getHogChart().xTicks()).toEqual(expect.arrayContaining(['October', 'November', 'December']))
@@ -335,7 +373,7 @@ describe('SqlLineGraph', () => {
                 lineFixture([{ name: 'pageviews', valueAt: (i) => (i + 1) * 100 }])
             )
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             expect(getHogChart().xTicks()).toHaveLength(0)
         })
     })
@@ -347,7 +385,7 @@ describe('SqlLineGraph', () => {
                 lineFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
             )
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
             // A log axis lays out ticks per power of ten (10, 20, … 100, 200, …) rather than evenly.
             expect(getHogChart().yTicks()).toEqual(expect.arrayContaining(['10', '100']))
@@ -390,7 +428,7 @@ describe('SqlLineGraph', () => {
                 lineFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
             )
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             const lines = getHogChart().referenceLines()
             expect(lines.map((l) => l.label)).toEqual(expectedLabels)
             expect(lines.map((l) => l.orientation)).toEqual(expectedLabels.map(() => 'horizontal'))
@@ -407,7 +445,7 @@ describe('SqlLineGraph', () => {
                 response: twoSeries(),
             })
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
             expect(tooltip.value('a')).toBe('300')
         })

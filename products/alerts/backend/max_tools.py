@@ -24,8 +24,9 @@ from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
@@ -76,6 +77,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - For percentage-based thresholds, set threshold_type to "percentage" and use decimal values (e.g., 0.5 for 50%)
 
     # Calculation intervals
+    - **real_time**: Check in real time (Scale+ required)
     - **every_15_minutes**: Check every 15 minutes (Boost+ required)
     - **hourly**: Check every hour
     - **daily**: Check once per day (default for create)
@@ -99,7 +101,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
 
     # Listing alerts
     - To list existing alerts, use the list_data tool with kind="alerts"
-    - To view alerts in the UI, direct the user to /insights?tab=alerts
+    - To view alerts in the UI, direct the user to /alerts
     - To view alerts for a specific insight, direct the user to /insights/{insightShortId}/alerts
     """).strip()
 
@@ -115,7 +117,7 @@ class CreateAlertAction(BaseModel):
     )
     calculation_interval: AlertCalculationInterval = Field(
         default=AlertCalculationInterval.DAILY,
-        description="How often to check: every_15_minutes (Boost+), hourly, daily, weekly, or monthly",
+        description="How often to check: real_time (Scale+), every_15_minutes (Boost+), hourly, daily, weekly, or monthly",
     )
     upper_threshold: float | None = Field(
         default=None,
@@ -150,7 +152,7 @@ class UpdateAlertAction(BaseModel):
     condition_type: AlertConditionType | None = Field(default=None, description="New condition type")
     calculation_interval: AlertCalculationInterval | None = Field(
         default=None,
-        description="New calculation interval (every_15_minutes requires Boost+)",
+        description="New calculation interval (real_time requires Scale+, every_15_minutes requires Boost+)",
     )
     upper_threshold: float | None = Field(default=None, description="New upper threshold bound")
     lower_threshold: float | None = Field(default=None, description="New lower threshold bound")
@@ -198,7 +200,7 @@ class UpsertAlertTool(MaxTool):
         else:
             return await self._handle_update(action)
 
-    async def _validate_every_15_minutes_interval(
+    async def _validate_interval_entitlement(
         self,
         calculation_interval: str | AlertCalculationInterval | None,
         *,
@@ -206,9 +208,26 @@ class UpsertAlertTool(MaxTool):
     ) -> str | None:
         team = self._team
         org = await sync_to_async(lambda: team.organization)()
-        return await sync_to_async(AlertConfiguration.every_15_minutes_interval_validation_error)(
+        return await sync_to_async(AlertConfiguration.interval_entitlement_error)(
             calculation_interval=calculation_interval or existing_interval,
             organization=org,
+        )
+
+    async def _validate_real_time_alert(
+        self,
+        calculation_interval: str | AlertCalculationInterval | None,
+        *,
+        enabled: bool,
+        existing: AlertConfiguration | None = None,
+    ) -> str | None:
+        team = self._team
+        org = await sync_to_async(lambda: team.organization)()
+        return await sync_to_async(AlertConfiguration.real_time_alert_validation_error)(
+            team_id=team.id,
+            organization=org,
+            calculation_interval=calculation_interval,
+            enabled=enabled,
+            existing=existing,
         )
 
     async def _handle_create(self, action: CreateAlertAction) -> tuple[str, dict[str, Any]]:
@@ -224,8 +243,13 @@ class UpsertAlertTool(MaxTool):
             if limit_msg := await self._check_alert_limit():
                 return limit_msg, {"error": "plan_limit_reached"}
 
-            if interval_msg := await self._validate_every_15_minutes_interval(action.calculation_interval):
+            if interval_msg := await self._validate_interval_entitlement(action.calculation_interval):
                 return interval_msg, {"error": "validation_failed"}
+
+            if real_time_msg := await self._validate_real_time_alert(
+                action.calculation_interval, enabled=action.enabled
+            ):
+                return real_time_msg, {"error": "plan_limit_reached"}
 
             try:
                 insight, was_auto_saved = await self._resolve_and_validate_insight(
@@ -305,11 +329,18 @@ class UpsertAlertTool(MaxTool):
 
             await self.check_object_access(alert, "editor", resource="alert", action="edit")
 
-            if interval_msg := await self._validate_every_15_minutes_interval(
+            if interval_msg := await self._validate_interval_entitlement(
                 action.calculation_interval,
                 existing_interval=alert.calculation_interval,
             ):
                 return interval_msg, {"error": "validation_failed"}
+
+            new_interval = (
+                action.calculation_interval if action.calculation_interval is not None else alert.calculation_interval
+            )
+            new_enabled = action.enabled if action.enabled is not None else alert.enabled
+            if real_time_msg := await self._validate_real_time_alert(new_interval, enabled=new_enabled, existing=alert):
+                return real_time_msg, {"error": "plan_limit_reached"}
 
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
@@ -331,9 +362,14 @@ class UpsertAlertTool(MaxTool):
                 alert.config = {**(alert.config or {}), "series_index": action.series_index}
                 update_fields.append("config")
 
+            enabled_changed = action.enabled is not None and action.enabled != alert.enabled
             if action.enabled is not None:
-                alert.enabled = action.enabled
-                update_fields.append("enabled")
+                if enabled_changed and action.enabled:
+                    update_fields.extend(apply_enable(alert))
+                elif enabled_changed:
+                    update_fields.extend(apply_disable(alert))
+                else:
+                    update_fields.append("enabled")
 
             if action.skip_weekend is not None:
                 alert.skip_weekend = action.skip_weekend
@@ -354,7 +390,10 @@ class UpsertAlertTool(MaxTool):
             if not update_fields and not has_threshold_changes:
                 return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
-            update_fields.extend(alert.mark_for_recheck(reset_state=conditions_or_threshold_changed))
+            if conditions_or_threshold_changed:
+                update_fields.extend(apply_threshold_change(alert))
+            alert.next_check_at = None
+            update_fields.append("next_check_at")
             await sync_to_async(alert.save)(update_fields=update_fields)
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 

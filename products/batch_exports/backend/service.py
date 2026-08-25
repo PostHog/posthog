@@ -2,7 +2,7 @@ import json
 import types
 import typing
 import datetime as dt
-from dataclasses import Field, asdict, dataclass, fields
+from dataclasses import Field, asdict, dataclass, field, fields
 from uuid import UUID
 
 from django.conf import settings
@@ -46,6 +46,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportOnDemand,
     BatchExportRun,
 )
+from products.batch_exports.backend.temporal.workflow_metadata import build_static_summary
 
 logger = structlog.get_logger(__name__)
 
@@ -136,7 +137,8 @@ class BatchExportField(typing.TypedDict):
 
 class BatchExportSchema(typing.TypedDict):
     fields: list[BatchExportField]
-    values: dict[str, str]
+    # HogQL binds these at any type; narrowing breaks Temporal input decoding.
+    values: dict[str, typing.Any]
 
 
 @dataclass
@@ -157,6 +159,7 @@ class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
     filters: list[dict[str, str | list[str] | None]] | None = None
+    hogql_query: str | None = None
 
 
 @dataclass
@@ -253,7 +256,7 @@ class BaseBatchExportInputs:
         return self.is_earliest_backfill
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3BatchExportInputs(BaseBatchExportInputs):
     """Inputs for S3 export workflow.
 
@@ -287,7 +290,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     region: str
     prefix: str
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -297,7 +300,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     use_virtual_style_addressing: bool = False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
@@ -310,7 +313,7 @@ class S3FamilyBaseInputs(BaseBatchExportInputs):
     region: str
     prefix: str
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -359,24 +362,29 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     expires_in_seconds: int = 3600
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for Snowflake export workflow."""
+    """Inputs for Snowflake export workflow.
 
-    account: str
-    user: str
+    account, user, authentication_type and the credential fields are optional here:
+    integration-backed exports resolve them from the linked Integration at run time (see
+    `integration_id`), while legacy exports carry them inline.
+    """
+
     database: str
     warehouse: str
     schema: str
+    account: str | None = None
+    user: str | None = None
     table_name: str = "events"
     authentication_type: str = "password"
-    password: str | None = None
-    private_key: str | None = None
-    private_key_passphrase: str | None = None
+    password: str | None = field(default=None, repr=False)
+    private_key: str | None = field(default=None, repr=False)
+    private_key_passphrase: str | None = field(default=None, repr=False)
     role: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
@@ -387,17 +395,26 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
     user: str | None = None
     host: str | None = None
     port: int | None = 5432
-    password: str | None = None
+    password: str | None = field(default=None, repr=False)
     has_self_signed_cert: bool = False
 
 
 IAMRole = str
 
 
-@dataclass
+@dataclass(frozen=False)
 class AWSCredentials:
     aws_access_key_id: str
-    aws_secret_access_key: str
+    aws_secret_access_key: str = field(repr=False)
+    aws_session_token: str | None = field(default=None, repr=False)
+    expiration: dt.datetime | None = field(default=None)
+
+    @property
+    def expiry_time(self) -> str | None:
+        """ISO-8601 expiration time for temporary credentials, if available."""
+        if self.expiration is None:
+            return None
+        return self.expiration.isoformat()
 
 
 @dataclass
@@ -413,12 +430,12 @@ class RedshiftCopyInputs:
     bucket_credentials: AWSCredentials
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
     user: str
-    password: str
+    password: str = field(repr=False)
     host: str
     database: str
     schema: str = "public"
@@ -464,14 +481,14 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
             )
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 
     dataset_id: str
     table_id: str = "events"
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None
@@ -904,13 +921,25 @@ def backfill_export(
 
     workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc_str}-{end_at_utc_str}"
 
-    workflow_id = start_backfill_batch_export_workflow(temporal, workflow_id, inputs=inputs)
+    workflow_id = start_backfill_batch_export_workflow(
+        temporal,
+        workflow_id,
+        inputs=inputs,
+        destination_type=batch_export.destination.type,
+        model=batch_export.model or "events",
+        interval=batch_export.interval,
+    )
     return workflow_id
 
 
 @async_to_sync
 async def start_backfill_batch_export_workflow(
-    temporal: Client, workflow_id: str, inputs: BackfillBatchExportInputs
+    temporal: Client,
+    workflow_id: str,
+    inputs: BackfillBatchExportInputs,
+    destination_type: str,
+    model: str,
+    interval: str,
 ) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
     await temporal.start_workflow(
@@ -918,6 +947,7 @@ async def start_backfill_batch_export_workflow(
         inputs,
         id=workflow_id,
         task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+        static_summary=build_static_summary(destination_type, model, interval, is_backfill=True),
     )
 
     return workflow_id
@@ -1010,7 +1040,7 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-    model = BatchExportRun.objects.filter(id=run_id)
+    model = BatchExportRun.objects.select_related("batch_export", "batch_export__destination").filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(
@@ -1188,6 +1218,9 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=2,
                 non_retryable_error_types=["ActivityError", "ApplicationError", "CancelledError"],
+            ),
+            static_summary=build_static_summary(
+                batch_export.destination.type, batch_export.model or "events", batch_export.interval
             ),
         ),
         spec=_get_schedule_spec(batch_export),

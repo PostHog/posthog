@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from posthog.schema import (
     AggregationType,
@@ -38,7 +38,14 @@ from posthog.hogql_queries.insights.retention.retention_base_query_fixed import 
 from posthog.hogql_queries.insights.retention.retention_base_query_rolling import (
     RetentionRollingIntervalBaseQueryBuilder,
 )
-from posthog.hogql_queries.insights.retention.retention_validation_rules import DisallowCumulativeWith24HourWindows
+from posthog.hogql_queries.insights.retention.retention_validation_rules import (
+    DisallowBreakdownsWithDataWarehouse24HourWindows,
+    DisallowCumulativeWith24HourWindows,
+    DisallowGroupAggregationWithDataWarehouse24HourWindows,
+    DisallowPropertyAggregationWith24HourWindows,
+    DisallowUnsupportedDataWarehouseTimestampField,
+    RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
+)
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_OTHER_STRING_LABEL,
@@ -138,7 +145,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 self.modifiers.inCohortVia = InCohortVia.LEFTJOIN
 
     def validators(self) -> Sequence[QueryValidationRule[RetentionQuery]]:
-        return (DisallowCumulativeWith24HourWindows(), DisallowUnsupportedDataWarehouseSettings())
+        return (
+            DisallowCumulativeWith24HourWindows(),
+            DisallowBreakdownsWithDataWarehouse24HourWindows(),
+            DisallowGroupAggregationWithDataWarehouse24HourWindows(),
+            DisallowPropertyAggregationWith24HourWindows(),
+            DisallowUnsupportedDataWarehouseSettings(),
+            DisallowUnsupportedDataWarehouseTimestampField(),
+            RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget(),
+        )
 
     @cached_property
     def property_aggregation_expr(self) -> ast.Expr | None:
@@ -236,6 +251,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return "person_id"
 
     @cached_property
+    def has_data_warehouse_series(self) -> bool:
+        return self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
+
+    def coerce_actor_id_expr(self, actor_id_expr: ast.Expr) -> ast.Expr:
+        # A query's arms resolve actor_id against different sources, which give it different ClickHouse
+        # types — a person_id UUID on the events side, whatever the configured target yields on the
+        # warehouse side. The UNION ALL, the 24-hour-window JOIN, and the actors-modal events JOIN each
+        # need one common type, so coerce to string the way funnels does for its own aggregation_target.
+        # Events-only series keep their UUID keys.
+        if not self.has_data_warehouse_series:
+            return actor_id_expr
+        return ast.Call(name="toString", args=[actor_id_expr])
+
+    @cached_property
     def global_event_filters(self) -> list[ast.Expr]:
         global_event_filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence
@@ -246,18 +275,33 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             global_event_filters.append(is_relevant_event)
 
         if self.group_type_index is not None:
-            global_event_filters.append(
-                ast.Not(
-                    expr=ast.Call(
-                        name="has",
-                        args=[
-                            ast.Array(exprs=[ast.Constant(value="")]),
-                            ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
-                        ],
-                    ),
-                ),
-            )
+            global_event_filters.append(self._group_actor_filter())
         return global_event_filters
+
+    def arm_event_filters(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> list[ast.Expr]:
+        """Filters for one events-table arm of a two-scan retention query, scoped to that arm's entity only."""
+        filters = self.events_where_clause(
+            self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence, entities=[entity]
+        )
+        if query_kind == "return" and (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            # First-time modes need the start arm unbounded to find the first-ever start event.
+            # The return arm's timestamp aggregates are all window-conditioned, so bounding it
+            # drops no rows any aggregate depends on.
+            filters.append(self.events_timestamp_filter())
+        if self.group_type_index is not None:
+            filters.append(self._group_actor_filter())
+        return filters
+
+    def _group_actor_filter(self) -> ast.Expr:
+        return ast.Not(
+            expr=ast.Call(
+                name="has",
+                args=[
+                    ast.Array(exprs=[ast.Constant(value="")]),
+                    ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
+                ],
+            ),
+        )
 
     def convert_single_breakdown_to_multiple_breakdowns(self):
         assert self.query.breakdownFilter is not None
@@ -359,10 +403,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
 
-    def events_where_clause(self, is_first_occurrence_matching_filters: bool, is_first_ever_occurrence: bool = False):
-        """
-        Event filters to apply to both start and return events
-        """
+    def events_where_clause(
+        self,
+        is_first_occurrence_matching_filters: bool,
+        is_first_ever_occurrence: bool = False,
+        entities: list[RetentionEntity] | None = None,
+    ):
+        """Event filters for both start and return events, or just `entities` for a per-arm scan."""
         events_where = []
 
         if self.query.properties is not None and self.query.properties != []:
@@ -381,20 +428,27 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             events_where.append(self.events_timestamp_filter())
 
         # Pre-filter by event name
-        events = self.get_events_for_entity(self.start_event) + self.get_events_for_entity(self.return_event)
-        unique_events = set(events)
-        # Don't pre-filter if any of them is "All events"
-        if None not in unique_events:
-            events_where.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    # Sorting for consistent snapshots in tests
-                    right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
-                    op=ast.CompareOperationOp.In,
-                )
-            )
+        if entities is None:
+            entities = [self.start_event, self.return_event]
+        event_name_filter = self.event_name_filter(entities)
+        if event_name_filter is not None:
+            events_where.append(event_name_filter)
 
         return events_where
+
+    def event_name_filter(self, entities: list[RetentionEntity]) -> ast.Expr | None:
+        """`event IN (...)` pre-filter for the given entities, or None when any of them is "All events"
+        (or an action with no concrete events), in which case no name filter can narrow the scan."""
+        events = [event for entity in entities for event in self.get_events_for_entity(entity)]
+        unique_events = set(events)
+        if not unique_events or None in unique_events:
+            return None
+        return ast.CompareOperation(
+            left=ast.Field(chain=["event"]),
+            # Sorting for consistent snapshots in tests
+            right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
+            op=ast.CompareOperationOp.In,
+        )
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -979,7 +1033,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         "actor_subquery": actor_subquery,
                         "join_condition": ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["events", self.aggregation_target_events_column]),
+                            left=self.coerce_actor_id_expr(
+                                ast.Field(chain=["events", self.aggregation_target_events_column])
+                            ),
                             right=ast.Field(chain=["actors", "actor_id"]),
                         ),
                         "start_of_interval_sql": self.query_date_range.get_start_of_interval_hogql(

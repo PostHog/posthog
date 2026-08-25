@@ -14,14 +14,16 @@ def resolve_detected_primary_keys(
 ) -> list[str] | None:
     """Pick the per-table primary key columns to advertise on a `SourceSchema`.
 
-    Returns the discovered list when present, otherwise falls back to `["id"]` if any column is
-    literally named `id` (the convention every SQL source we ingest from happens to follow), else
-    None. Used by Postgres / MySQL / MSSQL / Redshift discovery.
+    Returns the discovered list when present, otherwise falls back to a column named `id` —
+    matched case-insensitively, since engines like Snowflake uppercase unquoted identifiers —
+    else None. The column's actual stored casing is returned, because the merge later indexes
+    batches by the real column name. Used by Postgres / MySQL / MSSQL / Redshift discovery.
     """
     if discovered_pk_columns:
         return discovered_pk_columns
-    if any(column[0] == "id" for column in columns):
-        return ["id"]
+    id_column = next((column[0] for column in columns if column[0].lower() == "id"), None)
+    if id_column is not None:
+        return [id_column]
     return None
 
 

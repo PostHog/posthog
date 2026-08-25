@@ -1,14 +1,15 @@
 import os
 import datetime as dt
 from datetime import UTC, datetime
-from typing import Final, TypedDict, cast
+from typing import Any, Final, Literal, TypedDict, cast
 from zoneinfo import ZoneInfo
 
-from django.db import models, transaction
+from django.db import transaction
 from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -25,18 +26,28 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.alerts.backend.facade.api import (
+    DESTINATION_TEMPLATE_IDS,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    AlertScheduleRestriction,
+    DestinationType,
+    build_alert_destination_config,
+    create_alert_destination_hog_functions,
+    soft_delete_alert_destinations,
+    soft_delete_all_alert_destinations,
+    validate_and_normalize_schedule_restriction,
+    validate_destination_data,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
+    EVENT_KIND_CONFIG,
     EVENT_KINDS,
-    EventKind,
-    build_slack_config,
-    build_teams_config,
-    build_webhook_config,
+    LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    LOGS_DESTINATION_TYPES,
 )
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
@@ -54,10 +65,12 @@ from products.logs.backend.alert_state_machine import (
     apply_user_reset,
     evaluate_alert_check,
 )
+from products.logs.backend.facade.api import next_allowed_check_at
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
+LOGS_ALERT_EVENT_IDS: Final = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
 # argocd for internal dogfood projects whose observability needs exceed the
 # customer-facing cap; the cap's correctness assumptions (bounded N+1 in list,
@@ -68,6 +81,15 @@ UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
 )
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
+
+
+class LogsAlertListQuerySerializer(serializers.Serializer):
+    created_by = serializers.UUIDField(
+        required=False,
+        help_text="Only return log alerts created by the user with this UUID.",
+    )
+
+
 STATE_TIMELINE_LOOKBACK_HOURS = 24
 # Mirrors LogsAlertConfiguration.check_interval_minutes' default — used as the
 # simulate endpoint's default cadence so it matches production when callers
@@ -79,12 +101,6 @@ _NOT_ANNOTATED: Final = object()
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
     return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
-
-
-class DestinationType(models.TextChoices):
-    SLACK = "slack"
-    WEBHOOK = "webhook"
-    TEAMS = "teams"
 
 
 class LogsAlertStateIntervalSerializer(serializers.Serializer):
@@ -136,6 +152,11 @@ class LogsAlertFiltersField(serializers.JSONField):
             location = ".".join(str(p) for p in first["loc"]) or "filters"
             raise serializers.ValidationError(f"Invalid filters shape at `{location}`: {first['msg']}") from e
         return value
+
+
+@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
+class ScheduleRestrictionField(serializers.JSONField):
+    pass
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -203,6 +224,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         default=0,
         min_value=0,
         help_text="Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+    )
+    schedule_restriction = ScheduleRestrictionField(
+        required=False,
+        allow_null=True,
+        help_text="Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.",
     )
     snooze_until = serializers.DateTimeField(
         required=False,
@@ -348,22 +374,27 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         )
         return intervals
 
-    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=list(DestinationType))))
+    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
         # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
         team_id = obj.team_id
-        template_ids = (
+        configured_template_ids = set(
             HogFunction.objects.filter(
                 team_id=team_id,
                 deleted=False,
-                template_id__in=["template-slack", "template-webhook", "template-microsoft-teams"],
+                template_id__in=(
+                    DESTINATION_TEMPLATE_IDS[destination_type] for destination_type in LOGS_DESTINATION_TYPES
+                ),
                 filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
             )
             .values_list("template_id", flat=True)
             .distinct()
         )
-        type_map = {"template-slack": "slack", "template-webhook": "webhook", "template-microsoft-teams": "teams"}
-        return sorted(type_map[tid] for tid in template_ids if tid in type_map)
+        return sorted(
+            destination_type.value
+            for destination_type in LOGS_DESTINATION_TYPES
+            if DESTINATION_TEMPLATE_IDS[destination_type] in configured_template_ids
+        )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
@@ -400,6 +431,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "evaluation_periods",
             "datapoints_to_alarm",
             "cooldown_minutes",
+            "schedule_restriction",
             "snooze_until",
             "next_check_at",
             "last_notified_at",
@@ -459,6 +491,14 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if snooze_until is not None and snooze_until <= datetime.now(UTC):
             raise ValidationError({"snooze_until": "Must be a future datetime."})
 
+        if "schedule_restriction" in attrs:
+            try:
+                attrs["schedule_restriction"] = validate_and_normalize_schedule_restriction(
+                    attrs["schedule_restriction"]
+                )
+            except ValueError as e:
+                raise ValidationError({"schedule_restriction": str(e)}) from e
+
         return attrs
 
     def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
@@ -477,6 +517,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
         threshold_changed = _any_field_changed(instance, validated_data, threshold_or_filter_fields)
         window_changed = _any_field_changed(instance, validated_data, {"window_minutes"})
+        schedule_restriction_changed = _any_field_changed(instance, validated_data, {"schedule_restriction"})
 
         enabled_change: bool | None = None
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
@@ -512,8 +553,21 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             if snooze_data is not _SENTINEL:
                 instance.snooze_until = snooze_data
 
-            if threshold_changed or window_changed:
-                instance.clear_next_check()
+            if (
+                threshold_changed
+                or window_changed
+                or schedule_restriction_changed
+                or (enabled_change is True and instance.schedule_restriction)
+            ):
+                next_schedule_restriction = validated_data.get("schedule_restriction", instance.schedule_restriction)
+                if next_schedule_restriction:
+                    validated_data["next_check_at"] = next_allowed_check_at(
+                        datetime.now(UTC),
+                        team_timezone=instance.team.timezone,
+                        schedule_restriction=next_schedule_restriction,
+                    )
+                else:
+                    instance.clear_next_check()
 
             return super().update(instance, validated_data)
 
@@ -531,11 +585,17 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # select_for_update().count() doesn't acquire row locks because
             # Django optimises count() to SELECT COUNT(*). Locking the team
             # row instead serialises concurrent creates for this team.
-            Team.objects.select_for_update().get(id=validated_data["team_id"])
+            team = Team.objects.select_for_update().get(id=validated_data["team_id"])
             if validated_data["team_id"] not in UNCAPPED_ALERT_TEAM_IDS:
                 count = LogsAlertConfiguration.objects.filter(team_id=validated_data["team_id"]).count()
                 if count >= MAX_ALERTS_PER_TEAM:
                     raise ValidationError(f"Maximum number of alerts ({MAX_ALERTS_PER_TEAM}) reached for this team.")
+            if schedule_restriction := validated_data.get("schedule_restriction"):
+                validated_data["next_check_at"] = next_allowed_check_at(
+                    datetime.now(UTC),
+                    team_timezone=team.timezone,
+                    schedule_restriction=schedule_restriction,
+                )
             return super().create(validated_data)
 
 
@@ -664,9 +724,7 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(
-        choices=list(DestinationType), help_text="Destination type — slack, webhook, or teams."
-    )
+    type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
@@ -676,17 +734,18 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     )
     webhook_url = serializers.URLField(
         required=False,
-        help_text="HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.",
+        help_text="HTTPS endpoint to post to. Required for webhook and teams.",
     )
 
     def validate(self, attrs: dict) -> dict:
-        destination_type = attrs["type"]
-        if destination_type == "slack":
-            if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
-                raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
-        elif destination_type in ("webhook", "teams"):
-            if not attrs.get("webhook_url"):
-                raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
+        data = cast(AlertDestinationData, attrs)
+        data["type"] = DestinationType(attrs["type"])
+        try:
+            validate_destination_data(data, allowed_destination_types=LOGS_DESTINATION_TYPES)
+        except AlertDestinationValidationError as error:
+            if error.field:
+                raise ValidationError({error.field: error.message})
+            raise ValidationError(error.message)
         return attrs
 
 
@@ -694,6 +753,7 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
+        max_length=len(LOGS_ALERT_EVENT_IDS),
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
 
@@ -795,15 +855,21 @@ def _fill_empty_buckets(
     return result
 
 
+@extend_schema_view(list=extend_schema(parameters=[LogsAlertListQuerySerializer]))
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = LogsAlertConfigurationSerializer
     lookup_field = "id"
-    posthog_feature_flag = "logs-alerting"
-    permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        if self.action == "list":
+            query_serializer = LogsAlertListQuerySerializer(data=self.request.query_params)
+            query_serializer.is_valid(raise_exception=True)
+            created_by = query_serializer.validated_data.get("created_by")
+            if created_by:
+                queryset = queryset.filter(created_by__uuid=created_by)
+
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
         latest_error = (
@@ -856,6 +922,27 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return context
 
+    def _get_locked_alert(self) -> LogsAlertConfiguration:
+        queryset = self.filter_queryset(self.get_queryset()).select_for_update()
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        alert = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[lookup_url_kwarg]})
+        self.check_object_permissions(self.request, alert)
+        return alert
+
+    def update(self, request: Request, *args: object, **kwargs: Any) -> Response:
+        partial = kwargs.pop("partial", False)
+        with transaction.atomic():
+            instance = self._get_locked_alert()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+
+            prefetched_objects_cache = getattr(instance, "_prefetched_objects_cache", None)
+            if prefetched_objects_cache:
+                prefetched_objects_cache.clear()
+
+        return Response(serializer.data)
+
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,
         responses={201: LogsAlertDestinationResponseSerializer},
@@ -863,18 +950,30 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        data = cast(AlertDestinationData, serializer.validated_data)
 
         with transaction.atomic():
-            hog_functions = [self._build_and_create_hog_function(alert, data, kind) for kind in EVENT_KINDS]
+            alert = self._get_locked_alert()
+            configs = [
+                build_alert_destination_config(
+                    team=alert.team,
+                    spec=EVENT_KIND_CONFIG[kind],
+                    alert_id=str(alert.id),
+                    alert_name=alert.name,
+                    data=data,
+                    slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+                )
+                for kind in EVENT_KINDS
+            ]
+            hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
 
         report_user_action(
             request.user,
             "logs alert destination created",
             {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+            request=request,
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
         return Response(response.data, status=201)
@@ -886,56 +985,26 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["logs:write"])
     def delete_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
         serializer = LogsAlertDeleteDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
         with transaction.atomic():
-            updated = HogFunction.objects.filter(
+            alert = self._get_locked_alert()
+            soft_delete_alert_destinations(
                 team_id=self.team_id,
-                id__in=hog_function_ids,
-                filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-            ).update(deleted=True)
-            if updated != len(hog_function_ids):
-                # Ownership check: if the filtered UPDATE touched fewer rows than we were asked
-                # to delete, something in the list doesn't belong to this alert. Roll back.
-                raise ValidationError("One or more HogFunctions do not belong to this alert.")
+                alert_id=str(alert.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                hog_function_ids=hog_function_ids,
+            )
 
         report_user_action(
             request.user,
             "logs alert destination deleted",
             {"alert_id": str(alert.id), "count": len(hog_function_ids)},
+            request=request,
         )
         return Response(status=204)
-
-    def _build_and_create_hog_function(
-        self,
-        alert: LogsAlertConfiguration,
-        data: dict,
-        kind: EventKind,
-    ) -> HogFunction:
-        if data["type"] == "slack":
-            config = build_slack_config(
-                alert,
-                kind,
-                slack_workspace_id=data["slack_workspace_id"],
-                slack_channel_id=data["slack_channel_id"],
-                slack_channel_name=data.get("slack_channel_name"),
-            )
-        elif data["type"] == "teams":
-            config = build_teams_config(alert, kind, webhook_url=data["webhook_url"])
-        else:
-            config = build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
-
-        # Route through HogFunctionSerializer so template lookup and bytecode compilation run.
-        team = config.pop("team")
-        serializer = HogFunctionSerializer(
-            data=config,
-            context={"request": self.request, "get_team": lambda: team, "is_create": True},
-        )
-        serializer.is_valid(raise_exception=True)
-        return serializer.save(team=team)
 
     @extend_schema(
         request=None,
@@ -1021,7 +1090,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     ],
                 ),
             )
-        report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)})
+        report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)}, request=request)
         return Response(self.get_serializer(alert).data)
 
     @extend_schema(
@@ -1169,13 +1238,15 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response_serializer = LogsAlertSimulateResponseSerializer(response_data)
         return Response(response_serializer.data)
 
-    def _track(self, event: str, instance: LogsAlertConfiguration) -> None:
+    def _track(self, action: Literal["created", "updated", "deleted"], instance: LogsAlertConfiguration) -> None:
         report_user_action(
             self.request.user,
-            event,
+            f"alert {action}",
             {
-                "id": str(instance.id),
-                "name": instance.name,
+                "alert_id": str(instance.id),
+                "alert_name": instance.name,
+                "config_type": "LogsAlertConfig",
+                "check_interval_minutes": instance.check_interval_minutes,
                 "enabled": instance.enabled,
                 "threshold_count": instance.threshold_count,
                 "threshold_operator": instance.threshold_operator,
@@ -1186,11 +1257,24 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer) -> None:
-        self._track("logs alert created", serializer.save())
+        self._track("created", serializer.save())
 
     def perform_update(self, serializer) -> None:
-        self._track("logs alert updated", serializer.save())
+        self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        self._track("logs alert deleted", instance)
-        super().perform_destroy(instance)
+        with transaction.atomic():
+            locked_instance = (
+                LogsAlertConfiguration.objects.select_for_update()
+                .filter(team_id=instance.team_id, id=instance.id)
+                .first()
+            )
+            if locked_instance is None:
+                return
+            soft_delete_all_alert_destinations(
+                team_id=locked_instance.team_id,
+                alert_id=str(locked_instance.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            )
+            super().perform_destroy(locked_instance)
+            transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)

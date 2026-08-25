@@ -2,7 +2,6 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -36,6 +35,12 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/billing/': { products: [] },
                 '/api/projects/:id/integrations': { results: [] },
+                // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
+                '/api/projects/:id/integrations/github/available_installations/': {
+                    installations: [],
+                    personal_github_connected: false,
+                },
+                '/api/users/@me/integrations/github/install_requests/': { results: [], install_url: null },
                 '/api/projects/:id/core_memory': { results: [] },
                 '/api/projects/:id/hog_functions': { results: [] },
                 '/api/projects/:id/pipeline_destination_configs': { results: [] },
@@ -58,9 +63,10 @@ const meta: Meta<StoryProps> = {
         }),
     ],
     render: ({ sectionId }: StoryProps) => {
-        useEffect(() => {
-            router.actions.push(urls.settings(sectionId))
-        }, [sectionId])
+        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
+        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
+        // can race and capture the homepage frame instead.
+        router.actions.push(urls.settings(sectionId))
 
         return <App />
     },

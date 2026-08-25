@@ -23,7 +23,9 @@ import uuid
 import dataclasses
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any, cast
 
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -31,32 +33,38 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 
 # PostHog's `SessionAuthentication` (not DRF's) calls `enforce_two_factor()`.
 # Authenticators are tried in order and a browser-session request authenticates on
 # the first matching class, so DRF's plain `SessionAuthentication` would let a
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
-from posthog.permissions import APIScopePermission
+from posthog.models.user import User
+from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.client import sync_connect
 
+from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScoutNote,
     SignalScoutRun,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
@@ -80,23 +88,37 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
+    RecentRunsPerScoutQuerySerializer,
+    RecordStructuredOutputRequestSerializer,
+    RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMemberSerializer,
     ScoutMembersQuerySerializer,
     ScoutMetadataSerializer,
+    ScoutNoteCreateRequestSerializer,
+    ScoutNoteSerializer,
+    ScoutNotesQuerySerializer,
     ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigCreateSerializer,
+    SignalScoutConfigListQuerySerializer,
     SignalScoutConfigSerializer,
+    SignalScoutConfigUpdateSerializer,
+    SignalScoutCreateResponseSerializer,
+    SignalScoutCreateSerializer,
     SignalScoutEmissionSerializer,
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
-from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError, load_skill_for_run
+from products.signals.backend.scout_harness.skill_loader import (
+    REPORT_CHANNEL_TOOLS,
+    SkillNotFoundError,
+    load_skill_for_run,
+)
 from products.signals.backend.scout_harness.team_limits import (
     DAILY_BUDGET_WINDOW,
     _canonicalize_team_config_keys,
@@ -112,8 +134,16 @@ from products.signals.backend.scout_harness.team_limits import (
     withheld_skills_for_team,
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
+from products.signals.backend.scout_harness.tools.notes import (
+    DEFAULT_NOTES_LIST_LIMIT,
+    InvalidNoteError,
+    delete_note,
+    leave_note,
+    list_notes,
+)
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.report import (
+    ReportChartInput,
     ReportEvidence,
     ReviewerInput,
     edit_report_sync,
@@ -121,8 +151,11 @@ from products.signals.backend.scout_harness.tools.report import (
 )
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
+    DEFAULT_RUNS_PER_SCOUT,
+    DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     fleet_findings_summary,
     get_run,
+    recent_runs_per_scout,
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -131,8 +164,15 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     remember,
     search_scratchpad,
 )
+from products.signals.backend.scout_harness.tools.structured_output import (
+    InvalidStructuredOutputError,
+    StructuredOutputDeliveryError,
+    StructuredOutputRecord,
+    record_structured_output_sync,
+)
 from products.signals.backend.scout_report import InvalidScoutReportError
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.api.skill_services import LLMSkillDuplicateNameConflictError, create_skill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -152,6 +192,15 @@ MAX_EMISSIONS_PER_BATCH = 5000
 # lately?" gets a useful window in one call without an unbounded scan; walk back via `date_to`.
 DEFAULT_RECENT_EMISSIONS_LIMIT = 50
 MAX_RECENT_EMISSIONS_LIMIT = 200
+
+
+class _StructuredOutputDeliveryFailed(exceptions.APIException):
+    """503 for a failed structured-output event forward: transient and safe to retry
+    (deterministic event ids), unlike a 400 the agent would read as "fix the batch"."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "structured_output_delivery_failed"
+
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
 # drf-spectacular can't derive the path-param type from the model and warns (fatal under
@@ -187,6 +236,33 @@ def _caller_carries_scout_internal_scope(request: Request) -> bool:
     else:
         return False
     return "signal_scout_internal:write" in scopes
+
+
+def _may_read_reports(request: Request, canonical_team: Team) -> bool:
+    """Whether this caller could read the inbox reports a `report_dismissal` note quotes.
+
+    Those notes carry a report's id, title, and the reviewer's dismissal text, all of which the
+    reports API gates on the `task` scope object. The notes surface rides `signal_scout` instead,
+    so both of that API's legs are re-checked here or a caller reads report content it cannot
+    reach canonically. Mirrors the `signal_scout:read` + `task:read` pair on `emission_reports`.
+
+    Both legs matter independently. A token carries API scopes, and one without task read is
+    refused. Every caller, token or session, must also clear the `task` RBAC bar on the canonical
+    team, because an admin can grant a member scout access while withholding task access, and a
+    session caller carries no scopes for the first leg to inspect.
+
+    Scopes come from `get_authenticator_scopes` rather than a local isinstance ladder: this
+    viewset also admits ID-JAG tokens, and a ladder that misses an authenticator returns no
+    scopes, which reads as "session caller" and skips the first leg entirely.
+    """
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    if scopes is not None and not ("*" in scopes or "task:read" in scopes or "task:write" in scopes):
+        return False
+
+    user = request.user
+    if not isinstance(user, User):
+        return False
+    return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("task", "viewer")
 
 
 class Conflict(exceptions.APIException):
@@ -288,6 +364,29 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     return view.team.parent_team_id or view.team_id
 
 
+def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | None:
+    """Map validated `charts` entries to `ReportChartInput`s for the report tools. Content validation
+    lives in `ReportChart`, which the tools build from these; this only crosses the DRF boundary so a
+    malformed chart still surfaces as an invalid-report error.
+
+    An absent or null `charts` yields None, which an edit reads as "leave the report's charts alone".
+    An empty list is preserved as an empty list, because on an edit that is the instruction to take
+    the report's charts down (see `_build_edit_charts`). Emit treats both the same way."""
+    if entries is None:
+        return None
+    return [
+        ReportChartInput(
+            chart_id=entry["chart_id"],
+            title=entry["title"],
+            query=entry["query"],
+            caption=entry.get("caption") or None,
+            # Narrowed by the serializer's choices; the cast only crosses the untyped DRF dict.
+            size=cast("ChartSize | None", entry.get("size") or None),
+        )
+        for entry in entries
+    ]
+
+
 def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
     """Map validated `suggested_reviewers` entries to `ReviewerInput`s for the report tools. `user_uuid`
     is a `UUID` (from `UUIDField`) — stringified here so the tool layer has no DRF dependency. Empty/None
@@ -298,6 +397,7 @@ def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | Non
         ReviewerInput(
             github_login=entry.get("github_login"),
             user_uuid=str(entry["user_uuid"]) if entry.get("user_uuid") else None,
+            reason=entry.get("reason") or None,
         )
         for entry in entries
     ]
@@ -423,21 +523,63 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
+        query_serializer=RecentRunsPerScoutQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutRunSummarySerializer(many=True),
+                description="Each scout's most recent runs, newest-first across the fleet.",
+            ),
+        },
+        summary="List each scout's most recent runs",
+        description=(
+            "Return the most recent `per_scout_limit` runs of *every* configured scout on the "
+            "project (default 25), newest-first across the fleet. The per-scout probe is the point: "
+            "a fleet-wide time window has to serve hourly and weekly scouts from one result cap, so "
+            "the busy scouts crowd out the sparse ones and a scout's visible history shrinks as the "
+            "rest of the fleet gets busier. Probing each `skill_name` gives every scout the same "
+            "depth of history whatever its schedule, and bounds the response at scouts x "
+            "`per_scout_limit` rather than at the fleet's run rate. Only scouts that still have a "
+            "config are covered, so runs left behind by a deleted or renamed scout are excluded. "
+            "Runs older than the staleness guard are excluded too, so a scout that stopped running "
+            "reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, "
+            "which each scout's own cadence extends. Use `list` instead when you want a literal "
+            "time window or a text/emitted filter. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_runs_recent_per_scout",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="recent-per-scout",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def recent_per_scout(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        rows = recent_runs_per_scout(
+            team_id=_canonical_team_id(self),
+            per_scout_limit=validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT,
+            max_age_days=validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+        )
+        return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+
+    @validated_request(
         query_serializer=FleetFindingsSummaryQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=FleetFindingsSummarySerializer,
-                description="Fleet-wide tally of recently emitted findings.",
+                description="Fleet-wide tally of recent scout output — findings and report activity.",
             ),
         },
-        summary="Summarise recently emitted findings across the fleet",
+        summary="Summarise recent scout output across the fleet",
         description=(
-            "Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — "
-            "the total count, the number of distinct scouts behind them, and the latest emission time. "
-            "Backs the 'Scout findings' callout so it renders from one query instead of the client paging "
-            "through the whole runs window. Counts only runs that emitted at least one finding "
-            "(`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent "
-            "120 emitted runs so the count matches what the findings list renders. Strictly team-scoped."
+            "Return a cheap fleet-wide tally of the output the scout troop produced in the recent window — "
+            "the finding count, the distinct reports authored/edited via the report channel, the number of "
+            "distinct scouts behind them, and the latest output time. Backs the 'Scout findings' callout so "
+            "it renders from one query instead of the client paging through the whole runs window. Counts "
+            "runs that emitted at least one finding (`emitted_count > 0`) or authored/edited an inbox report "
+            "within the last `window_hours` (default 72), capped to the most recent 120 such runs so the "
+            "count matches what the findings list renders. Strictly team-scoped."
         ),
         operation_id="signals_scout_runs_findings_summary",
     )
@@ -871,6 +1013,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+                charts=_to_report_charts(data.get("charts")),
+                suggested_prompts=data.get("suggested_prompts"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -926,6 +1070,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+                charts=_to_report_charts(data.get("charts")),
+                suggested_prompts=data.get("suggested_prompts"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -936,7 +1082,89 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
                     "reviewers_set": result.reviewers_set,
+                    "charts_set": result.charts_set,
+                    "suggested_prompts_set": result.suggested_prompts_set,
                 }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=RecordStructuredOutputRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=RecordStructuredOutputResponseSerializer,
+                description="All records validated against the configured schema and recorded as events.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "No structured_output_schema configured for this scout, the channel is off (dry-run "
+                    "scout, org AI-processing consent missing, or the signals_scout source disabled), a "
+                    "record failed schema validation (nothing written), or a batch/size cap was exceeded."
+                )
+            ),
+            404: OpenApiResponse(description="Run not found for this project."),
+            503: OpenApiResponse(
+                description=(
+                    "The records validated but event delivery failed; nothing was recorded. Retry the "
+                    "same call — delivery is idempotent, so a retry cannot double-count."
+                )
+            ),
+        },
+        summary="Record structured output for a run",
+        description=(
+            "The structured-output channel: record schema-validated records this run produced. Opt-in via "
+            "the scout config's `structured_output_schema` (a JSON Schema describing one record) — without "
+            "it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any "
+            "invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each "
+            "accepted record lands in the project's event stream as a `$scout_structured_output` event — "
+            "query them like any event (insights, SQL over `events`). Recording is idempotent: event ids "
+            "are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot "
+            "double-count."
+        ),
+        operation_id="signals_scout_record_output",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="record-output",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def record_output(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+        from products.tasks.backend.facade import api as tasks_facade
+
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {
+                    "status": (
+                        f"Structured output can only be recorded on in-progress runs (current: {run.task_run.status})."
+                    )
+                }
+            )
+        records = [
+            StructuredOutputRecord(payload=entry["payload"], subject=entry.get("subject") or None)
+            for entry in request.validated_data["records"]
+        ]
+        try:
+            # `run.team` is the canonical team the run was resolved on, as in `emit_report`.
+            result = record_structured_output_sync(team=run.team, run=run, records=records)
+        except InvalidStructuredOutputError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        except StructuredOutputDeliveryError as exc:
+            raise _StructuredOutputDeliveryFailed(detail=str(exc))
+        return Response(
+            RecordStructuredOutputResponseSerializer(
+                {"recorded_count": result.recorded_count, "record_ids": result.record_ids}
             ).data,
             status=status.HTTP_200_OK,
         )
@@ -961,7 +1189,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_scout"
-    # `list` returns a raw newest-first array (capped at limit=500 by the query serializer),
+    # `list` returns a raw newest-first array (capped at limit=1000 by the query serializer),
     # not a paginated wrapper. See SignalScoutRunViewSet for the same rationale.
     pagination_class = None
 
@@ -985,11 +1213,12 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Search the scout scratchpad",
         description=(
             "Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` "
-            "and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
+            "and `key`; pass `key` instead for an exact single-entry lookup. "
+            "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
             "to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
-            "from returning every entry's full prose. Results capped at 500."
+            "from returning every entry's full prose. Results capped at 1000."
         ),
         operation_id="signals_scout_scratchpad_search",
     )
@@ -1004,6 +1233,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         rows = search_scratchpad(
             team_id=_canonical_team_id(self),
             text=text,
+            key=validated.get("key") or None,
             date_from=date_from,
             date_to=date_to,
             limit=limit,
@@ -1069,6 +1299,191 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
 
 
+class ScoutCanonicalTeamAccessPermission(BasePermission):
+    """Authorize against the canonical (data-owning) team, not just the URL environment team.
+
+    Scout notes are `TeamScopedRootMixin` rows that canonicalize to the parent (project-root)
+    team on save, so a request made against a child environment reads and writes the PARENT's
+    rows (`_canonical_team_id`). The default team gate only checks membership / token
+    team-scope for the URL team, so a user or key scoped solely to a child environment would
+    be authorized against one team while touching another's rows. Re-anchor both checks to
+    the canonical team. Mirrors `StamphogCanonicalTeamAccessPermission`. Root teams (no
+    parent) are unaffected — the default checks already cover them.
+    """
+
+    message = "You don't have access to the project that owns this data."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not request.user.is_authenticated:
+            return True  # IsAuthenticated handles the unauthenticated case first
+        team = view.team
+        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
+            return True
+        # A team-scoped token must cover the CANONICAL team too: the default scope check
+        # accepted the URL (child) team, but the rows read and written belong to the parent.
+        authenticator = request.successful_authenticator
+        scoped_teams = None
+        if isinstance(authenticator, OAuthAccessTokenAuthentication):
+            scoped_teams = authenticator.access_token.scoped_teams
+        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
+            scoped_teams = authenticator.personal_api_key.scoped_teams
+        if scoped_teams and team.parent_team_id not in scoped_teams:
+            return False
+        # Same helper the default gate uses, re-pointed at the parent. It accounts for a
+        # private parent team, so None means genuinely no access -> 403.
+        level = view.user_permissions.team(team.parent_team).effective_membership_level
+        return level is not None
+
+
+class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Steering notes for the scout fleet (`SignalScoutNote`) — list, leave, and delete.
+
+    Unlike the scratchpad (agent memory, write-gated to the sandbox), notes are the
+    *inbound* channel: a team member — or an agent acting for one — leaves a note over the
+    public MCP surface, and scout runs read it back as prior context. Reads sit on the
+    user-grantable `signal_scout:read`. Writes are the prompt-injection surface the
+    scratchpad's internal-only gate exists to block, so they demand skill-authoring-level
+    authorization on both legs: API keys need `llm_skill:write` on top of
+    `signal_scout:write` (see `dangerously_get_required_scopes`), and every writer must
+    clear the same `llm_skill` RBAC editor bar that gates editing a scout's skill body
+    (`_assert_can_steer_scouts`). A caller who can write a note could therefore already
+    steer the fleet by editing its skills — notes add a cheaper channel, not new power.
+    """
+
+    serializer_class = ScoutNoteSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    scope_object = "signal_scout"
+    # `destroy` resolves the note through `_parse_run_id_or_404`, which reads the `id` kwarg.
+    lookup_field = "id"
+    # `list` returns a raw newest-first array (capped by the query serializer), not a
+    # paginated wrapper. See SignalScoutRunViewSet for the same rationale.
+    pagination_class = None
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # Both scopes are required (the permission ANDs them): `signal_scout:write` says the
+        # key may act on the scout surface, `llm_skill:write` says it may author what a
+        # privileged agent reads verbatim — the same capability as editing a scout's skill.
+        if getattr(view, "action", None) in ("create", "destroy"):
+            return ["signal_scout:write", "llm_skill:write"]
+        return None
+
+    def _assert_can_steer_scouts(self) -> None:
+        # RBAC leg of the write gate: session callers (and key holders) must hold the same
+        # `llm_skill` editor level that editing a scout's skill body requires — a member an
+        # admin restricted from skill editing must not steer scouts through notes instead.
+        # Bind the check to the CANONICAL team: the note lands on (and is read by) the parent
+        # project's scouts, so a child-environment request must clear the parent's RBAC, not
+        # the child's — mirroring `ScoutCanonicalTeamAccessPermission` for the resource level.
+        # (`self.user_access_control` binds to the URL team, hence the explicit construction.)
+        canonical_team = self.team.parent_team or self.team
+        access = UserAccessControl(user=cast(User, self.request.user), team=canonical_team)
+        if not access.check_access_level_for_resource("llm_skill", "editor"):
+            raise exceptions.PermissionDenied(
+                "Leaving or deleting scout notes requires editor access to skills, since notes steer the scout agents."
+            )
+
+    @validated_request(
+        query_serializer=ScoutNotesQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutNoteSerializer(many=True),
+                description="Matching notes newest-first.",
+            ),
+        },
+        summary="List scout notes",
+        description=(
+            "Return the steering notes left for this project's scouts, newest first. Pass "
+            "`skill_name` to get the notes addressed to one scout plus the general (blank-target) "
+            "fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to "
+            "browse every note. Expired notes are excluded unless `include_expired=true`. "
+            "`date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, "
+            "`< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past "
+            "the cap. Results capped at 500."
+        ),
+        operation_id="signals_scout_notes_list",
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        rows = list_notes(
+            team_id=_canonical_team_id(self),
+            skill_name=validated.get("skill_name") or None,
+            include_general=bool(validated.get("include_general", True)),
+            include_expired=bool(validated.get("include_expired", False)),
+            date_from=validated.get("date_from"),
+            date_to=validated.get("date_to"),
+            limit=validated.get("limit") or DEFAULT_NOTES_LIST_LIMIT,
+            content_max_chars=validated.get("content_max_chars"),
+            exclude_origins=(
+                ()
+                if _may_read_reports(request, self.team.parent_team or self.team)
+                # Every derived origin quotes report content (id, title, and the reviewer's / user's
+                # text), so a caller without report read access must not see any of them.
+                else (
+                    SignalScoutNote.Origin.REPORT_DISMISSAL,
+                    SignalScoutNote.Origin.REPORT_DISCUSSION,
+                    SignalScoutNote.Origin.REPORT_FEEDBACK,
+                )
+            ),
+        )
+        return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
+
+    @validated_request(
+        request_serializer=ScoutNoteCreateRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=ScoutNoteSerializer, description="The note as created."),
+            400: OpenApiResponse(description="Invalid note (empty content, oversized, bad skill_name target)."),
+        },
+        summary="Leave a note for the scouts",
+        description=(
+            "Leave a steering note the scout fleet reads on its next runs. Address it to one scout "
+            "via `skill_name` (`signals-scout-*`), or omit it for a general note every scout sees. "
+            "Each call creates a new note (no upsert); delete retires one. Attributed to the "
+            "authenticated user."
+        ),
+        operation_id="signals_scout_notes_create",
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        self._assert_can_steer_scouts()
+        data = request.validated_data
+        # `request.user` is a real `User` under all three auth classes here; `pk` guards the
+        # theoretical anonymous edge so attribution degrades to null instead of raising.
+        created_by_id = request.user.pk if getattr(request.user, "pk", None) else None
+        try:
+            note = leave_note(
+                team_id=_canonical_team_id(self),
+                content=data["content"],
+                skill_name=data.get("skill_name") or "",
+                created_by_id=created_by_id,
+                expires_at=data.get("expires_at"),
+            )
+        except InvalidNoteError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(ScoutNoteSerializer(note.as_dict()).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Note deleted."),
+            404: OpenApiResponse(description="Note not found for this project."),
+        },
+        summary="Delete a scout note",
+        description=(
+            "Delete one note by its `id`, retiring it from every scout's view. Use this when a note "
+            "has been acted on or no longer applies; time-boxed notes can instead carry an "
+            "`expires_at` and retire themselves."
+        ),
+        operation_id="signals_scout_notes_destroy",
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        self._assert_can_steer_scouts()
+        note_id = _parse_run_id_or_404(kwargs)
+        removed = delete_note(team_id=_canonical_team_id(self), note_id=str(note_id))
+        if not removed:
+            raise exceptions.NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project profile — deterministic snapshot of \"what's true about this project\".
 
@@ -1097,7 +1512,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     pagination_class = None
 
     # The DRF default `list` operation_id would be `signals_scout_project_profile_list`,
-    # which renders as `signals-scout-project-profile-list` in the MCP. The agent-facing
+    # which renders as `scout-project-profile-list` in the MCP. The agent-facing
     # tool is semantically a "get the current profile" (singleton), not a "list" — override
     # the id so it matches the tool name in tools.yaml and the scout's bootstrap step.
     @validated_request(
@@ -1295,6 +1710,174 @@ def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
         )
 
 
+def _upsert_scout_config(
+    *,
+    team_id: int,
+    skill_name: str,
+    tunables: dict,
+    request: Request,
+    serializer_context: dict,
+) -> tuple[SignalScoutConfig, bool]:
+    """Create or tune one config while preserving the existing config endpoint's upsert semantics."""
+
+    # The per-team cap only gates net-new enables: creating an enabled row or
+    # flipping a disabled row on. Reasserting an already-enabled scout stays exempt.
+    existing = SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).first()
+    will_enable = (
+        tunables.get("enabled", True)
+        if existing is None
+        else (not existing.enabled and tunables.get("enabled") is True)
+    )
+    if will_enable:
+        _reject_if_enabled_cap_reached(team_id, skill_name)
+
+    # `team_id` stays in the kwargs because queryset filters do not propagate into
+    # the row Django builds for `get_or_create`.
+    config, created = SignalScoutConfig.objects.for_team(team_id).get_or_create(
+        team_id=team_id,
+        skill_name=skill_name,
+        defaults={
+            **tunables,
+            "created_by": request.user,
+            "enabled_by": request.user if tunables.get("enabled", True) else None,
+        },
+    )
+    if created or not tunables:
+        return config, created
+
+    # The coordinator or another caller may have won the create race. Apply only
+    # fields supplied by this request so omitted settings remain untouched.
+    update = SignalScoutConfigUpdateSerializer(
+        config,
+        data=tunables,
+        partial=True,
+        context=serializer_context,
+    )
+    update.is_valid(raise_exception=True)
+    save_kwargs: dict[str, Any] = {}
+    if not config.enabled and update.validated_data.get("enabled"):
+        save_kwargs["enabled_by"] = request.user
+    # Provenance is create-only, so the update serializer does not carry it. Stamp it here for the
+    # row someone else created first, or the owning product would never find its own scout.
+    for field in ("source_product", "source_id"):
+        if tunables.get(field) and not getattr(config, field):
+            save_kwargs[field] = tunables[field]
+    return update.save(**save_kwargs), False
+
+
+@frozen
+class ScoutCreationOutcome:
+    """What a scout creation produced. `created` is False when a scout of this name already existed
+    and the supplied config was applied to it instead."""
+
+    skill: LLMSkill
+    config: SignalScoutConfig
+    created: bool
+
+
+def create_scout_for_source(
+    *,
+    team: Team,
+    user: User,
+    name: str,
+    description: str,
+    body: str,
+    files: list[Any],
+    config_options: dict[str, Any],
+    request: Any,
+    serializer_context: dict[str, Any],
+    source_product: str | None = None,
+    source_id: str | None = None,
+) -> ScoutCreationOutcome:
+    """Create a scout skill and its config in one transaction, optionally recording who owns it.
+
+    `source_product` / `source_id` are trusted arguments, never request input: the caller is another
+    product's view that has already checked the caller may act on the object being named. They are
+    deliberately absent from the public create serializer, because this endpoint cannot make that
+    check for an object it knows nothing about, and a claim it cannot verify must not be storable.
+
+    Creating a scout creates an `LLMSkill` carrying the report-channel agent tools, so the caller
+    clears the skill-authoring bar here whatever route they came in by. A product that owns the
+    object checks its own access on top; it cannot stand in for this one.
+    """
+    if not UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_skill", "editor"):
+        raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
+
+    with transaction.atomic():
+        try:
+            skill = create_skill(
+                team,
+                user=user,
+                name=name,
+                description=description,
+                body=body,
+                allowed_tools=sorted(REPORT_CHANNEL_TOOLS),
+                files=files,
+            )
+            skill_created = True
+        except LLMSkillDuplicateNameConflictError:
+            existing_skill = (
+                LLMSkill.objects.select_for_update().filter(team=team, name=name, is_latest=True, deleted=False).first()
+            )
+            if existing_skill is None:
+                raise
+            if not _skill_matches_scout_definition(
+                existing_skill,
+                description=description,
+                body=body,
+                files=files,
+            ):
+                raise Conflict("A scout with this name already exists with a different definition.")
+            skill = existing_skill
+            skill_created = False
+
+        tunables = dict(config_options)
+        if source_product and source_id:
+            # Reusing a name adopts the existing config, and the source pair is what the owning
+            # product's report route trusts — so adopting an unowned scout would expose everything it
+            # filed before. A scout belongs to one object for its whole life, or to none.
+            existing_config = SignalScoutConfig.objects.for_team(team.id).filter(skill_name=name).first()
+            if existing_config is not None and (existing_config.source_product, existing_config.source_id) != (
+                source_product,
+                source_id,
+            ):
+                raise Conflict("A scout with this name already exists and belongs elsewhere. Pick another name.")
+            tunables["source_product"] = source_product
+            tunables["source_id"] = source_id
+        config, config_created = _upsert_scout_config(
+            team_id=team.id,
+            skill_name=name,
+            tunables=tunables,
+            request=request,
+            serializer_context=serializer_context,
+        )
+
+    return ScoutCreationOutcome(skill=skill, config=config, created=skill_created or config_created)
+
+
+def _skill_matches_scout_definition(
+    skill: LLMSkill,
+    *,
+    description: str,
+    body: str,
+    files: list[dict[str, str]],
+) -> bool:
+    stored_files = list(
+        LLMSkillFile.objects.filter(skill=skill).order_by("path").values_list("path", "content", "content_type")
+    )
+    requested_files = sorted((file["path"], file["content"], file.get("content_type", "text/plain")) for file in files)
+    return (
+        skill.description == description
+        and skill.body == body
+        and skill.category == "scout"
+        and skill.license == ""
+        and skill.compatibility == ""
+        and skill.metadata == {}
+        and set(skill.allowed_tools or []) == REPORT_CHANNEL_TOOLS
+        and stored_files == requested_files
+    )
+
+
 @dataclass(frozen=True)
 class _ScoutSkillInfo:
     """Per-skill metadata the config serializer needs but doesn't store on the config row.
@@ -1327,6 +1910,81 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
     }
 
 
+class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Create a runnable custom scout and its config through one atomic API call."""
+
+    serializer_class = SignalScoutCreateSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        AccessControlPermission,
+        ScoutCanonicalTeamAccessPermission,
+    ]
+    required_scopes = ["llm_skill:write", "signal_scout:write"]
+    scope_object = "llm_skill"
+    queryset = LLMSkill.objects.all()
+    pagination_class = None
+
+    def _assert_can_create_scout(self, *, user: User, canonical_team: Team) -> None:
+        access = UserAccessControl(user=user, team=canonical_team)
+        if not access.check_access_level_for_resource("llm_skill", "editor"):
+            raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
+
+    @validated_request(
+        SignalScoutCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=SignalScoutCreateResponseSerializer,
+                description="The scout skill, config, or both were created.",
+            ),
+            200: OpenApiResponse(
+                response=SignalScoutCreateResponseSerializer,
+                description="The scout definition already existed; the requested config fields were applied.",
+            ),
+            400: OpenApiResponse(description="The scout definition, config, or destination is invalid."),
+            409: OpenApiResponse(description="A scout with this name already exists with a different definition."),
+        },
+        summary="Create a scout",
+        description=(
+            "Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the "
+            "report-channel tools. The optional config controls schedule, enablement, dry-run posture, network "
+            "access, and typed destinations such as Slack. Repeating the same definition is safe and applies any "
+            "supplied config fields; "
+            "reusing its name for a different definition returns 409."
+        ),
+        operation_id="signals_scout_create",
+        include_serializer_context=True,
+    )
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        canonical_team = self.team.parent_team or self.team
+        user = cast(User, request.user)
+        self._assert_can_create_scout(user=user, canonical_team=canonical_team)
+        validated = request.validated_data
+        # No source here: this endpoint cannot check the caller's access to another product's object,
+        # so a scout created through it records no owner. A product that stands scouts up for its own
+        # objects calls `create_scout_for_source` after making that check itself.
+        outcome = create_scout_for_source(
+            team=canonical_team,
+            user=user,
+            name=validated["name"],
+            description=validated["description"],
+            body=validated["body"],
+            files=validated.get("files", []),
+            config_options=validated.get("config", {}),
+            request=request,
+            serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
+        )
+        response = SignalScoutCreateResponseSerializer(
+            {"created": outcome.created, "skill": outcome.skill, "config": outcome.config},
+            context={"skill_info": _skill_info_for(canonical_team.id, [validated["name"]])},
+        )
+        return Response(
+            response.data,
+            status=status.HTTP_201_CREATED if outcome.created else status.HTTP_200_OK,
+        )
+
+
 class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Per-scout config: list, register, tune, and delete each scout's schedule, enablement,
     and emit posture.
@@ -1343,13 +2001,46 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     serializer_class = SignalScoutConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    # Every action resolves `_canonical_team_id`, so the rows read and written belong to the
+    # parent project even on a child-environment URL — and config writes drive spend and the
+    # sandbox network posture, so authorization must anchor to the data-owning team.
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     queryset = SignalScoutConfig.objects.unscoped()
     lookup_field = "id"
     pagination_class = None
 
-    @extend_schema(
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # Setting a `structured_output_schema` injects text a privileged agent reads verbatim in
+        # its run prompt (schema `description` fields are free prose), so it is skill-authoring-level
+        # steering: keys need `llm_skill:write` on top of the config write — the same two-leg gate as
+        # scout notes. Only the *setting* write escalates; reads, other config edits, and clearing
+        # the schema (privilege-reducing) stay on the base config scopes.
+        if getattr(view, "action", None) in ("create", "partial_update") and self._sets_structured_output_schema(
+            request
+        ):
+            return ["signal_scout:write", "llm_skill:write"]
+        return None
+
+    @staticmethod
+    def _sets_structured_output_schema(request: Request) -> bool:
+        data = request.data
+        return isinstance(data, dict) and data.get("structured_output_schema") is not None
+
+    def _assert_can_author_structured_output_schema(self) -> None:
+        # RBAC leg of the schema-write gate, mirroring the scout-notes steering gate: session
+        # callers (and key holders) must clear the same `llm_skill` editor bar that editing a
+        # scout's skill body requires, bound to the canonical team whose scouts read the prompt.
+        canonical_team = self.team.parent_team or self.team
+        access = UserAccessControl(user=cast(User, self.request.user), team=canonical_team)
+        if not access.check_access_level_for_resource("llm_skill", "editor"):
+            raise exceptions.PermissionDenied(
+                "Setting structured_output_schema requires editor access to skills, since the schema "
+                "is read verbatim by the scout agent."
+            )
+
+    @validated_request(
+        query_serializer=SignalScoutConfigListQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=SignalScoutConfigSerializer(many=True),
@@ -1358,10 +2049,11 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="List scout configs",
         description=(
-            "List the per-(team, skill) scout configs for this project — schedule "
-            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly "
-            "authored scout skill appears here once its config is registered, either "
-            "explicitly via create or by the coordinator's next tick."
+            "List the per-(team, skill) scout configs for this project. Each row includes its schedule "
+            "(rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, "
+            "`emit` posture, and `tags`. A freshly authored scout skill appears here once its config is "
+            "registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to "
+            "narrow the fleet to the scouts carrying at least one of the given labels."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -1372,12 +2064,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # held-back team across the whole config API. Storage is untouched; the row reappears if
         # the team is later un-withheld.
         withheld = withheld_skills_for_team(team_id)
-        configs = list(
-            SignalScoutConfig.objects.unscoped()
-            .filter(team_id=team_id)
-            .exclude(skill_name__in=withheld)
-            .order_by("skill_name")
-        )
+        queryset = SignalScoutConfig.objects.unscoped().filter(team_id=team_id).exclude(skill_name__in=withheld)
+        # Any-of, matching how the fleet UI's tag picker reads. `&&` over the array column rather
+        # than a join table or a GIN index: the team filter already bounds this to the handful of
+        # scouts an org is allowed to create, so there is nothing left for an index to save.
+        tags = (getattr(request, "validated_query_data", None) or {}).get("tags")
+        if tags:
+            queryset = queryset.filter(tags__overlap=tags)
+        configs = list(queryset.order_by("skill_name"))
         skill_info = _skill_info_for(team_id, [c.skill_name for c in configs])
         serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info})
         return Response(serializer.data)
@@ -1400,16 +2094,22 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Create a scout config",
         description=(
             "Register the config for a `signals-scout-*` skill immediately, without waiting "
-            "for the coordinator to auto-register it — optionally setting `run_interval_minutes`, "
-            "`enabled`, and `emit` in the same call. The skill must already exist on this "
-            "project. Upsert: if a config already exists for the skill, the provided fields "
-            "are applied to it."
+            "for the coordinator to auto-register it. The same call can optionally set "
+            "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, "
+            "and output destinations. "
+            "The skill must already exist on this project. Upsert: if a config already exists "
+            "for the skill, the provided fields are applied to it."
         ),
         operation_id="signals_scout_config_create",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
-        serializer = SignalScoutConfigCreateSerializer(data=request.data)
+        if self._sets_structured_output_schema(request):
+            self._assert_can_author_structured_output_schema()
+        serializer = SignalScoutConfigCreateSerializer(
+            data=request.data,
+            context={**self.get_serializer_context(), "project_id": self.team.project_id},
+        )
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
         if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
@@ -1420,38 +2120,13 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the skills UI's Scouts tab immediately, without waiting for the next coordinator reconcile.
         ensure_scout_category(team_id, skill_name=skill_name)
         tunables = {key: value for key, value in serializer.validated_data.items() if key != "skill_name"}
-        # The per-team cap only gates net-new enables: a fresh row defaulting (or set) to
-        # enabled, or an upsert flipping a disabled row on. Tuning an already-enabled scout
-        # stays exempt via the exclude-self count.
-        existing = SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).first()
-        will_enable = (
-            tunables.get("enabled", True)
-            if existing is None
-            else (not existing.enabled and tunables.get("enabled") is True)
-        )
-        if will_enable:
-            _reject_if_enabled_cap_reached(team_id, skill_name)
-        # `team_id` stays in the kwargs: `get_or_create` builds the created row from
-        # kwargs/defaults only — the queryset's team filter does not propagate into `create`.
-        config, created = SignalScoutConfig.objects.for_team(team_id).get_or_create(
+        config, created = _upsert_scout_config(
             team_id=team_id,
             skill_name=skill_name,
-            defaults={
-                **tunables,
-                "created_by": request.user,
-                # Configs default enabled; record who switched the scout on (it drives spend).
-                "enabled_by": request.user if tunables.get("enabled", True) else None,
-            },
+            tunables=tunables,
+            request=request,
+            serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
         )
-        if not created and tunables:
-            # The coordinator tick (or a concurrent caller) won the race — apply the provided
-            # fields to the existing row so the call still lands the requested settings.
-            update = SignalScoutConfigSerializer(config, data=tunables, partial=True)
-            update.is_valid(raise_exception=True)
-            save_kwargs = {}
-            if not config.enabled and update.validated_data.get("enabled"):
-                save_kwargs["enabled_by"] = request.user
-            config = update.save(**save_kwargs)
         skill_info = _skill_info_for(team_id, [config.skill_name])
         return Response(
             SignalScoutConfigSerializer(config, context={"skill_info": skill_info}).data,
@@ -1459,7 +2134,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @extend_schema(
-        request=SignalScoutConfigSerializer,
+        request=SignalScoutConfigUpdateSerializer,
         responses={
             200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Updated config."),
             400: OpenApiResponse(
@@ -1469,25 +2144,34 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Update a scout config",
         description=(
-            "Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` "
-            "(dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is "
-            "activity-logged since it drives spend."
+            "Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron "
+            "`run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) "
+            "posture, `network_access` (trusted-domain allowlist vs full access for the scout's "
+            "sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` "
+            "and is activity-logged since it drives spend."
         ),
         operation_id="signals_scout_config_update",
     )
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
+        if self._sets_structured_output_schema(request):
+            self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
         config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
         if config is None:
             raise exceptions.NotFound()
-        serializer = SignalScoutConfigSerializer(config, data=request.data, partial=True)
+        serializer = SignalScoutConfigUpdateSerializer(
+            config,
+            data=request.data,
+            partial=True,
+            context={**self.get_serializer_context(), "project_id": self.team.project_id},
+        )
         serializer.is_valid(raise_exception=True)
         enabling = not config.enabled and serializer.validated_data.get("enabled")
         if enabling:
             _reject_if_enabled_cap_reached(team_id, config.skill_name)
         # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
-        save_kwargs = {}
+        save_kwargs: dict[str, Any] = {}
         if enabling:
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)
@@ -1505,7 +2189,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Config not found for this project (or the scout is withheld)."),
             409: OpenApiResponse(description="A run for this scout is already in progress."),
             429: OpenApiResponse(
-                description="The project is over its Signals credits quota or daily scout run budget; try again later."
+                description="The project is over its Signals credits quota, its daily report limit, or its daily scout run budget; try again later."
             ),
         },
         summary="Run a scout now",
@@ -1514,8 +2198,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Useful to test a scout right after authoring it, or to refresh its findings on demand. "
             "The run executes asynchronously on the worker and inherits every guard the scheduled "
             "path has: it is forbidden if scouts are not enabled for the project (403), and skipped "
-            "if the project is over its Signals credits quota or daily run budget (429) or a run for "
-            "this scout is already in progress (409). A manual run counts against the same daily run "
+            "if the project is over its Signals credits quota, daily report limit, or daily run "
+            "budget (429) or a run for this scout is already in progress (409). A manual run counts "
+            "against the same daily run "
             "budget as scheduled runs, so repeated manual runs of the same scout can exhaust the "
             "project's daily allowance. A manual run does not change the scout's schedule or "
             "`last_run_at`. A disabled scout can still be run this way (to test before enabling). "
@@ -1558,13 +2243,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # exceed the daily cap the scheduled path respects.
         _reject_if_manual_run_suppressed(team_id)
 
-        # Fail-fast guards so the trigger can't be gamed into churning workflows or spend. Both are
-        # re-checked authoritatively downstream (quota in the run activity, single-flight in the
-        # runner and at the Temporal server), but rejecting here avoids dispatching a workflow that
-        # would only be skipped, and turns the common cases into clean 429/409 responses.
-        api_token = Team.objects.only("api_token").get(pk=team_id).api_token
-        if is_team_signals_quota_limited(api_token):
+        # Fail-fast guards so the trigger can't be gamed into churning workflows or spend. All are
+        # re-checked authoritatively downstream (quota and daily report limit in the run activity,
+        # single-flight in the runner and at the Temporal server), but rejecting here avoids
+        # dispatching a workflow that would only be skipped, and turns the common cases into clean
+        # 429/409 responses.
+        team = Team.objects.get(pk=team_id)
+        if is_team_signals_quota_limited(team.api_token):
             raise exceptions.Throttled(detail="This project is over its Signals credits quota. Try again later.")
+        if daily_report_limit_gate(team).limited:
+            raise exceptions.Throttled(detail="This project reached its daily report limit. Try again tomorrow.")
         if _scout_run_in_flight(team_id, skill_name):
             raise Conflict()
 

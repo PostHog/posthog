@@ -3,6 +3,17 @@
 Every table in a data warehouse source needs a `sync_type`. The choice determines how data flows on every sync, how
 much it costs, how fresh the data is, and what shape it has after import.
 
+## Contents
+
+- The five sync types
+- How to choose
+- Picking an `incremental_field`
+- `incremental_field_type` values
+- `primary_key_columns`
+- `cdc_table_mode` (CDC only)
+- Webhooks are a two-step setup
+- Sync frequency
+
 ## The five sync types
 
 | Sync type      | What it does                                             | Requires                                       | Good for                                             |
@@ -111,13 +122,13 @@ The `supports_webhooks` flag on each table in the db-schema response is the sour
 ## Sync frequency
 
 `sync_frequency` is a per-schema option that's orthogonal to `sync_type`. Valid values are (smallest to largest):
-`"1min"`, `"5min"`, `"15min"`, `"30min"`, `"1hour"`, `"6hour"`, `"12hour"`, `"24hour"`, `"7day"`, `"30day"`, and
-`"never"`.
+`"5min"`, `"15min"`, `"30min"`, `"1hour"`, `"6hour"`, `"12hour"`, `"24hour"`, `"7day"`, `"30day"`, and
+`"never"`. `"5min"` is the floor for every sync type — the API rejects anything faster.
 
 - For `full_refresh` on anything non-trivial: default to `24hour` — it re-imports everything each run. Sub-hour
   frequencies are usually wasteful for full refresh.
-- For `incremental` / `append`: `1hour` or `6hour` is a reasonable default on reasonably sized tables. Sub-minute
-  frequencies (`1min`, `5min`) exist but are rarely needed — if the user wants real-time, prefer `cdc` or `webhook`.
+- For `incremental` / `append`: `1hour` or `6hour` is a reasonable default on reasonably sized tables. The `5min`
+  floor exists but is rarely needed — if the user wants real-time, prefer `cdc` or `webhook`.
 - For `cdc`: frequency doesn't really apply — CDC streams continuously.
 - For cold archive tables: `7day` or `30day` keeps the schedule alive without wasting runs.
 

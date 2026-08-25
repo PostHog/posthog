@@ -10,6 +10,7 @@ import logging
 import tempfile
 import threading
 from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.conf import settings
 
 from cachetools import TTLCache, cached
+from semantic_version import NpmSpec
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -26,6 +28,8 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InvalidError as ModalInvalidError,
+    ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
@@ -35,6 +39,8 @@ from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    DEV_STACK_IMAGE_NAME,
+    POSTHOG_EXEC_PERMISSION_REGEX,
     SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -43,18 +49,20 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
+    SandboxNetworkPolicyError,
     SandboxNotFoundError,
     SandboxNotRunningError,
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
+    SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
-    ENV_FILE,
     ENV_WRAPPER_SCRIPT,
+    GH_GUARD_INSTALL_PATH,
     SESSION_ID_FILE,
     _hostname_from_url,
     build_exec_prefix,
@@ -63,13 +71,19 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
+    read_gh_guard_script,
 )
-from products.tasks.backend.logic.services.local_packages import get_local_posthog_code_packages
+from products.tasks.backend.logic.services.local_packages import (
+    LocalPackage,
+    get_local_package_runtime_dependencies,
+    get_local_posthog_code_packages,
+)
 from products.tasks.backend.logic.services.local_skills import (
     BUILT_SKILLS_RELATIVE_PATH as LOCAL_BUILT_SKILLS_PATH,
     LocalSkillsCache,
     populate_skills_directory,
 )
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     SandboxProvisionDiagnostics,
     capture_modal_output_if_debug,
@@ -84,19 +98,42 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.models import SandboxSnapshot
 
-from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import (
+    AgentServerResult,
+    ExecutionResult,
+    ExecutionStream,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    SandboxWorkload,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
+# Self-driving runs boot the same default image as a user's task, so only the app separates them.
+# Images and snapshots are workspace-scoped in Modal, not app-scoped, so a box here still restores
+# a snapshot baked under the default app.
+SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
+
+CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.state"
+CPU_BILLING_SAMPLER_PATH = "/usr/local/bin/posthog-cpu-billing-sampler"
 
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
 SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
+
+# SLIM_BASE has no registry image and no CD publish pipeline — it's built inline by Modal
+# (see _build_slim_template_image below) from debian_slim + apt packages, so there's nothing
+# to push or pin a digest for. Keep these two pins in sync with
+# Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
+# which both mirror).
+SANDBOX_SLIM_NODE_MAJOR = 24
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.11.15"
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
@@ -115,12 +152,81 @@ TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
 
 DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 
+# Heavy, reproducible directories to prune before retrying a snapshot that hit Modal's
+# 1M-file cap. Each is a package cache or install tree the resume sandbox rebuilds, so
+# dropping them shrinks the file count without losing the run's own work.
+SNAPSHOT_PRUNE_DIR_NAMES = (
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pnpm-store",
+    ".cache",
+    ".pytest_cache",
+    ".mypy_cache",
+)
+SNAPSHOT_PRUNE_TIMEOUT_SECONDS = 90
+
+
+def _is_snapshot_file_cap_error(error: BaseException) -> bool:
+    """Whether Modal's ``ResourceExhaustedError`` is the permanent >1M-file snapshot cap
+    rather than a generic (retryable) quota/rate-limit ``RESOURCE_EXHAUSTED``.
+
+    ``ResourceExhaustedError`` is Modal's generic gRPC RESOURCE_EXHAUSTED wrapper, so we
+    key on the file-count message ("... snapshot contains more than 1000000 files") to avoid
+    classifying a transient quota/rate-limit blip as a permanent, non-retryable failure.
+    """
+    message = str(error).lower()
+    return "snapshot" in message and "more than" in message and "file" in message
+
+
+# Modal's snapshot_filesystem default timeout is 55s, which multi-GB sandbox filesystems
+# routinely exceed. The default fits the standalone snapshot activity's 10-minute budget;
+# resume snapshots run under a 5-minute activity budget and pass a tighter per-call
+# timeout (see create_resume_snapshot) so Modal's classified timeout fires before
+# Temporal kills the attempt. Published-image snapshots (the prebaked dev-stack bake,
+# with gigabytes of docker state) get a far larger budget bounded only by the bake
+# activity timeout.
+FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS = 8 * 60
+PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS = 30 * 60
+
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
     "gateway.eu.posthog.com",
     "api.anthropic.com",
-    "mcp.posthog.com",
 )
+
+_MODAL_NETWORK_POLICY_REJECTION_MARKERS = (
+    "outbound_domain_allowlist",
+    "outbound domain allowlist",
+    "domain allowlist",
+    "allowed domains",
+)
+
+
+def _is_modal_network_policy_rejection(error: BaseException) -> bool:
+    if not isinstance(error, ModalInvalidError):
+        return False
+    message = str(error).casefold()
+    return any(marker in message for marker in _MODAL_NETWORK_POLICY_REJECTION_MARKERS)
+
+
+def _session_init_probe_hosts() -> list[str]:
+    """Hosts the startup-failure egress probe checks. Both gateway settings
+    are included: routed products call SANDBOX_AI_GATEWAY_URL, everything
+    else SANDBOX_LLM_GATEWAY_URL, and a block on either is this probe's
+    reason to exist.
+    """
+    hosts = list(SESSION_INIT_PROBE_HOSTS)
+    mcp_host = _hostname_from_url(resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL))
+    if mcp_host and mcp_host not in hosts:
+        hosts.insert(0, mcp_host)
+    for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
+        gateway_host = _hostname_from_url(getattr(settings, setting_name, None))
+        if gateway_host and gateway_host not in hosts:
+            hosts.insert(0, gateway_host)
+    return hosts
+
 
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
@@ -147,21 +253,18 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
     ``(request, limit)`` tuple form so the box is billed at ``max(request, actual)`` and can burst
     up to the limit; otherwise emit the flat scalar, which makes request == limit (fixed size).
 
-    The burstable request floor comes from ``cpu_request_cores`` / ``memory_request_mb`` (defaulting
-    to the small floor in ``sandbox_config``). The request is clamped to the limit so it never
-    exceeds it when the configured size is at or below the requested floor.
+    The burstable request floors come from the config's ``effective_*_request`` properties — the
+    same values the usage ledger records — so what Modal reserves and what pricing bills can't
+    diverge.
     """
     cpu_limit = float(config.cpu_cores)
     memory_limit_mb = int(config.memory_gb * 1024)
     if not config.burstable_resources:
         return {"cpu": cpu_limit, "memory": memory_limit_mb}
 
-    cpu_value = (min(float(config.cpu_request_cores), cpu_limit), cpu_limit)
-    if config.is_vm:
-        return {"cpu": cpu_value, "memory": memory_limit_mb}
     return {
-        "cpu": cpu_value,
-        "memory": (min(int(config.memory_request_mb), memory_limit_mb), memory_limit_mb),
+        "cpu": (config.effective_cpu_request_cores, cpu_limit),
+        "memory": (config.effective_memory_request_mb, memory_limit_mb),
     }
 
 
@@ -173,6 +276,12 @@ LOCAL_MODAL_DOCKERFILES = {
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
+LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
+# The notebook image bakes the notebooks SQLV2 kernel and stamps its content hash,
+# so a local build context needs the package and the module that computes the hash.
+LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
+LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
+LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -271,19 +380,122 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
 AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
 
 
-def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
+@dataclass(frozen=True)
+class ImageCandidate:
+    """One entry of the ordered image-downgrade chain a sandbox is created from."""
+
+    image: modal.Image
+    label: str
+    restored_from_snapshot: bool = False
+    # The image is a Modal sandbox filesystem snapshot (a resume snapshot or the
+    # published dev-stack image), so a boot from it needs the post-create health probe —
+    # snapshot restores can come up dead with every RPC succeeding.
+    snapshot_derived: bool = False
+
+
+def _merge_runtime_dependency_specs(name: str, existing: str, candidate: str) -> str:
+    if existing == candidate:
+        return existing
+
+    try:
+        NpmSpec(existing)
+        NpmSpec(candidate)
+    except ValueError as error:
+        raise ValueError(
+            f"Conflicting non-semver runtime dependency specs for {name}: {existing!r} and {candidate!r}"
+        ) from error
+
+    return f"{existing} {candidate}"
+
+
+def _local_package_bin_link_commands(packages: tuple[LocalPackage, ...]) -> list[str]:
+    commands: list[str] = []
+    bin_root = "/scripts/node_modules/.bin"
+
+    for package in packages:
+        manifest = json.loads((package.source_path / "package.json").read_text())
+        package_name = manifest.get("name")
+        package_bin = manifest.get("bin", {})
+        if not isinstance(package_name, str):
+            continue
+        if isinstance(package_bin, str):
+            package_bin = {package_name.rsplit("/", 1)[-1]: package_bin}
+        if not isinstance(package_bin, dict):
+            continue
+
+        for executable, target in package_bin.items():
+            if not isinstance(executable, str) or not isinstance(target, str):
+                continue
+            target_path = f"../{package_name}/{target.removeprefix('./')}"
+            executable_path = f"{bin_root}/{executable}"
+            commands.append(f"ln -sfn {shlex.quote(target_path)} {shlex.quote(executable_path)}")
+
+    return commands
+
+
+def _attach_local_package_mounts(
+    image: modal.Image, template: SandboxTemplate, *, install_dependencies: bool = True
+) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
     via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
     and local packages are available.
 
-    Transitive deps are resolved from the baked /scripts/node_modules/ tree;
-    only compiled output is swapped live.
+    Install external runtime dependencies that are missing from the published image
+    before mounting the compiled output. The published package can lag behind a local
+    branch, but running npm inside it would also process unpublished workspace packages.
+
+    ``install_dependencies=False`` skips that npm-install build layer and attaches the
+    mounts only. Sandbox filesystem snapshots (resume/repo snapshots, the published
+    dev-stack image) cannot take Modal build steps — the image build fails and the
+    sandbox loses the snapshot entirely — while the mounts are attached at create time
+    without a build. Runtime dependencies a local branch added over the published
+    package are then missing; that dev-only gap surfaces as an agent-server import
+    error rather than silently forfeiting the snapshot.
     """
     if template not in AGENT_SERVER_TEMPLATES:
         return image
     packages = get_local_posthog_code_packages()
     if not packages:
         return image
+
+    dependencies = get_local_package_runtime_dependencies(packages)
+    if dependencies and not install_dependencies:
+        logger.info(
+            "Skipping local package dependency install on snapshot-derived image; attaching dist mounts only",
+            extra={"packages": sorted(dependencies)},
+        )
+    elif dependencies:
+        if any("@openai/codex" in package_dependencies for package_dependencies in dependencies.values()):
+            image = image.apt_install("musl")
+
+        runtime_dependencies: dict[str, str] = {}
+        for package_dependencies in dependencies.values():
+            for name, version in package_dependencies.items():
+                if existing_version := runtime_dependencies.get(name):
+                    runtime_dependencies[name] = _merge_runtime_dependency_specs(name, existing_version, version)
+                    continue
+                runtime_dependencies[name] = version
+
+        dependency_json = json.dumps(runtime_dependencies, separators=(",", ":"), sort_keys=True)
+        merge_manifest_script = (
+            'const fs=require("fs");'
+            'const path="/scripts/package.json";'
+            'const manifest=JSON.parse(fs.readFileSync(path,"utf8"));'
+            "const dependencies=JSON.parse(process.argv[1]);"
+            "manifest.dependencies={...(manifest.dependencies||{}),...dependencies};"
+            "fs.writeFileSync(path,JSON.stringify(manifest));"
+        )
+        install_command = (
+            f"node -e {shlex.quote(merge_manifest_script)} {shlex.quote(dependency_json)} && "
+            "npm install --prefix /scripts --package-lock=false "
+            "--omit=dev --no-audit --no-fund"
+        )
+        image = image.run_commands(install_command)
+
+    bin_link_commands = _local_package_bin_link_commands(packages)
+    if bin_link_commands:
+        image = image.run_commands(*bin_link_commands)
+
     for package in packages:
         image = image.add_local_dir(
             str(package.build_output_path),
@@ -293,12 +505,58 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
-_template_image_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
+def _build_slim_template_image() -> modal.Image:
+    """Inline image for SLIM_BASE: git + ca-certificates + node + uv, nothing else.
+
+    Built and cached by Modal itself from debian_slim — no registry image, no CD publish
+    pipeline, no digest pin to resolve. The first sandbox create after this definition
+    changes pays a one-time Modal-side build; every create after that reuses the cached
+    image layers.
+    """
+    return (
+        modal.Image.debian_slim()
+        # bash is required by the NodeSource setup script below; debian_slim doesn't guarantee it.
+        .apt_install("git", "ca-certificates", "curl", "bash")
+        .run_commands(
+            f"curl -fsSL https://deb.nodesource.com/setup_{SANDBOX_SLIM_NODE_MAJOR}.x | bash -",
+            "apt-get install -y --no-install-recommends nodejs",
+            "rm -rf /var/lib/apt/lists/*",
+        )
+        .dockerfile_commands(
+            [f"COPY --from={SANDBOX_SLIM_UV_IMAGE} /uv /uvx /usr/local/bin/"],
+        )
+    )
+
+
+def _build_canvas_template_image() -> modal.Image:
+    # The builder script and its platform manifest are baked in beside the
+    # npm dependencies, so a build only ships its project payload into the
+    # sandbox. node resolves /scripts/node_modules from the script's parent.
+    builder_dir = Path(settings.CANVAS_BUILDER_DIR)
+    return (
+        _build_slim_template_image()
+        .add_local_file(str(builder_dir / "package.json"), "/scripts/package.json", copy=True)
+        .add_local_file(str(builder_dir / "package-lock.json"), "/scripts/package-lock.json", copy=True)
+        .run_commands("npm ci --prefix /scripts --omit=dev --no-audit --no-fund")
+        .add_local_file(str(builder_dir / "build.mjs"), "/scripts/canvas-builder/build.mjs", copy=True)
+        .add_local_file(str(builder_dir / "manifest.json"), "/scripts/canvas-builder/manifest.json", copy=True)
+    )
+
+
+_template_image_cache: TTLCache = TTLCache(maxsize=4, ttl=300)
 _template_image_lock = threading.Lock()
 
 
 @cached(cache=_template_image_cache, lock=_template_image_lock)
-def _get_template_image(template: SandboxTemplate) -> modal.Image:
+def get_template_base_image(template: SandboxTemplate) -> modal.Image:
+    """The template's base image without local dev mounts — safe to extend with further layers."""
+    if template == SandboxTemplate.SLIM_BASE:
+        # Built inline (see _build_slim_template_image), never from a registry or a local
+        # Dockerfile build context — same image in DEBUG and in production.
+        return _build_slim_template_image()
+    if template == SandboxTemplate.CANVAS_BUILD:
+        return _build_canvas_template_image()
+
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
@@ -310,11 +568,36 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
 
     if settings.DEBUG:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
-        image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
-    else:
-        image = modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
+        return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
+    image_reference = resolve_template_base_image_reference(template)
+    if image_reference is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return modal.Image.from_registry(image_reference)
 
-    return _attach_local_package_mounts(image, template)
+
+def _get_template_image(template: SandboxTemplate) -> modal.Image:
+    return _attach_local_package_mounts(get_template_base_image(template), template)
+
+
+def resolve_template_base_image(template: SandboxTemplate) -> modal.Image:
+    # Undecorated import surface: the @cached wrapper on get_template_base_image trips
+    # mypy's cross-module attribute resolution intermittently, so external callers import this.
+    return get_template_base_image(template)
+
+
+def resolve_template_base_image_reference(template: SandboxTemplate) -> str | None:
+    if settings.DEBUG:
+        return None
+
+    registry_image = {
+        SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
+        SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
+        SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+    }.get(template)
+    if registry_image is None:
+        raise ValueError(f"Template does not use a registry image: {template}")
+    return _get_sandbox_image_reference(registry_image)
 
 
 @lru_cache(maxsize=3)
@@ -333,11 +616,19 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_dockerfile_path, destination_dockerfile_path)
 
-    # Both base and notebook Dockerfiles COPY the git guard, so include it in
-    # every local build context.
+    # Both base and notebook Dockerfiles COPY the git and gh guards, so include
+    # them in every local build context.
     destination_git_guard_path = context_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT
     destination_git_guard_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT, destination_git_guard_path)
+    destination_gh_guard_path = context_dir / LOCAL_MODAL_GH_GUARD_SCRIPT
+    destination_gh_guard_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_dir / LOCAL_MODAL_GH_GUARD_SCRIPT, destination_gh_guard_path)
+
+    if template in {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE}:
+        destination_sampler_path = context_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER
+        destination_sampler_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -349,6 +640,18 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         # latest rendered output.
         LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
+
+    elif template == SandboxTemplate.NOTEBOOK_BASE:
+        destination_kernel_module_path = context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE
+        destination_kernel_module_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE, destination_kernel_module_path)
+        # A checkout that ran the tests locally has bytecode here, and this context
+        # bypasses .dockerignore, so drop it rather than bake it into the image.
+        shutil.copytree(
+            base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
 
     elif template == SandboxTemplate.STREAMLIT_BASE:
         # Copy all sibling files (streamlit_auth_proxy.py, etc.)
@@ -376,12 +679,14 @@ class ModalSandbox(SandboxBase):
     provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
+    STREAMLIT_APP_NAME = STREAMLIT_MODAL_APP_NAME
+    SELF_DRIVING_APP_NAME = SELF_DRIVING_MODAL_APP_NAME
 
     def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = type(self)._get_app_for_template(config.template)
+        self._app = type(self)._get_app_for_config(config)
         self._sandbox_url = sandbox_url
         self.provision_diagnostics = None
 
@@ -391,25 +696,55 @@ class ModalSandbox(SandboxBase):
         return self._sandbox_url
 
     @classmethod
-    def _get_default_app(cls) -> modal.App:
-        return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
+    def _template_app_name(cls, template: SandboxTemplate) -> str | None:
+        """App a template owns outright, or None when it shares the general-purpose apps.
+
+        Notebook and Streamlit boxes are their own products with their own images, so they stay
+        in their own app whatever the workload — neither is ever self-driving.
+        """
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            return cls.NOTEBOOK_APP_NAME
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            return cls.STREAMLIT_APP_NAME
+        return None
 
     @classmethod
     def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
-        if template == SandboxTemplate.NOTEBOOK_BASE:
-            return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
-        if template == SandboxTemplate.STREAMLIT_BASE:
-            return modal.App.lookup(STREAMLIT_MODAL_APP_NAME, create_if_missing=True)
-        return cls._get_default_app()
+        """App for a template alone, ignoring workload. For image builds, where the built image
+        is visible to every app in the workspace and so has no workload of its own."""
+        return modal.App.lookup(cls._template_app_name(template) or cls.DEFAULT_APP_NAME, create_if_missing=True)
+
+    @classmethod
+    def _get_app_for_config(cls, config: SandboxConfig) -> modal.App:
+        """App that owns this sandbox: the template's when it has one, otherwise the workload's."""
+        app_name = cls._template_app_name(config.template)
+        if app_name is None and config.workload == SandboxWorkload.SELF_DRIVING:
+            app_name = cls.SELF_DRIVING_APP_NAME
+        return modal.App.lookup(app_name or cls.DEFAULT_APP_NAME, create_if_missing=True)
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
             modal.enable_output()
-            app = cls._get_app_for_template(config.template)
+            app = cls._get_app_for_config(config)
             base_image = _get_template_image(config.template)
-            image = base_image
+            custom_image_bare: modal.Image | None = None
+            custom_image: modal.Image | None = None
+            if config.custom_image_name:
+                try:
+                    custom_image_bare = modal.Image.from_name(config.custom_image_name)
+                    # The prebaked dev-stack image is a published sandbox filesystem snapshot,
+                    # which Modal cannot layer build steps on — mount-only overlay for it.
+                    custom_image = _attach_local_package_mounts(
+                        custom_image_bare,
+                        config.template,
+                        install_dependencies=config.custom_image_name != DEV_STACK_IMAGE_NAME,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to load custom image {config.custom_image_name}: {e}")
+                    capture_exception(e)
             config.snapshot_restored = False
+            config.image_fallback = None
             snapshot_external_id: str | None = None
             snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
             # No default-fill: a directory snapshot must arrive with an explicit allowed mount
@@ -417,15 +752,11 @@ class ModalSandbox(SandboxBase):
             # snapshot that upstream validation invalidated (mount path stripped).
             snapshot_mount_path: str | None = config.snapshot_mount_path
             snapshot_image: modal.Image | None = None
-            used_snapshot_image = False
 
             if config.snapshot_external_id:
                 snapshot_external_id = config.snapshot_external_id
                 try:
                     snapshot_image = modal.Image.from_id(config.snapshot_external_id)
-                    if snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
-                        image = _attach_local_package_mounts(snapshot_image, config.template)
-                        used_snapshot_image = True
                 except Exception as e:
                     logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
                     capture_exception(e)
@@ -439,12 +770,59 @@ class ModalSandbox(SandboxBase):
                         snapshot_mount_path = metadata_mount_path
                     try:
                         snapshot_image = modal.Image.from_id(snapshot.external_id)
-                        if snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
-                            image = _attach_local_package_mounts(snapshot_image, config.template)
-                            used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
+            # Keep the config's kind authoritative for downstream trust decisions — the
+            # dev-stack bootstrap gate distinguishes directory from filesystem restores.
+            config.snapshot_kind = snapshot_kind
+
+            # Creation candidates, best first. Each later entry is a downgrade attempted only
+            # when creating from the previous image fails (e.g. its overlay image build errors),
+            # so a broken overlay costs the local packages, never the snapshot or custom image.
+            candidates: list[ImageCandidate] = []
+            if snapshot_image is not None and snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+                overlaid_snapshot = _attach_local_package_mounts(
+                    snapshot_image, config.template, install_dependencies=False
+                )
+                if overlaid_snapshot is not snapshot_image:
+                    candidates.append(
+                        ImageCandidate(
+                            overlaid_snapshot,
+                            f"snapshot image {snapshot_external_id} with local package overlay",
+                            restored_from_snapshot=True,
+                            snapshot_derived=True,
+                        )
+                    )
+                candidates.append(
+                    ImageCandidate(
+                        snapshot_image,
+                        f"snapshot image {snapshot_external_id}",
+                        restored_from_snapshot=True,
+                        snapshot_derived=True,
+                    )
+                )
+            if custom_image is not None and custom_image_bare is not None:
+                # The published dev-stack image is itself a sandbox filesystem snapshot
+                # (dockerd cannot run in the gVisor image builder), so booting it is the
+                # same restore the health probe guards; user custom images are spec-built.
+                custom_is_snapshot = config.custom_image_name == DEV_STACK_IMAGE_NAME
+                if custom_image is not custom_image_bare:
+                    candidates.append(
+                        ImageCandidate(
+                            custom_image,
+                            f"custom image {config.custom_image_name} with local package overlay",
+                            snapshot_derived=custom_is_snapshot,
+                        )
+                    )
+                candidates.append(
+                    ImageCandidate(
+                        custom_image_bare,
+                        f"custom image {config.custom_image_name}",
+                        snapshot_derived=custom_is_snapshot,
+                    )
+                )
+            candidates.append(ImageCandidate(base_image, "base image"))
 
             secrets = []
             if config.environment_variables:
@@ -459,7 +837,6 @@ class ModalSandbox(SandboxBase):
             create_kwargs: dict[str, object] = {
                 "app": app,
                 "name": sandbox_name,
-                "image": image,
                 "timeout": config.ttl_seconds,
                 **_resource_create_kwargs(config),
                 "region": region,
@@ -469,26 +846,16 @@ class ModalSandbox(SandboxBase):
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
-            if config.outbound_domain_allowlist:
+            if config.block_network:
+                create_kwargs["block_network"] = True
+
+            if config.outbound_domain_allowlist is not None:
                 create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
                 create_kwargs["secrets"] = secrets
 
-            try:
-                modal_output: StringIO | None
-                with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                    config.snapshot_restored = used_snapshot_image
-            except Exception as e:
-                if not used_snapshot_image:
-                    raise
-                logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
-                capture_exception(e)
-                create_kwargs["image"] = base_image
-                with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                    config.snapshot_restored = False
+            sb, modal_output, winner = cls._create_from_image_candidates(create_kwargs, candidates, config)
 
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
                 # The mount REPLACES the target directory in the running sandbox — over a live
@@ -521,12 +888,18 @@ class ModalSandbox(SandboxBase):
                         )
                         capture_exception(e)
 
-            # A restored sandbox can come up dead with every RPC succeeding; probe before use.
-            if config.snapshot_restored and not cls._is_healthy_after_restore(sb):
+            # A sandbox whose filesystem came out of a Modal snapshot restore can come up
+            # dead with every RPC succeeding — probe before use. That covers resume
+            # snapshots (image or directory mount) and the published dev-stack image,
+            # which is itself a sandbox filesystem snapshot; spec-built images boot
+            # normally and skip the probe. Loops because a recovery can land on another
+            # snapshot-derived tier (resume snapshot -> dev-stack image -> base).
+            while (config.snapshot_restored or winner.snapshot_derived) and not cls._is_healthy_after_restore(sb):
                 logger.warning(
-                    "Snapshot-restored sandbox is not executing processes; recreating from base image",
+                    "Snapshot-restored sandbox is not executing processes; recreating from the remaining image candidates",
                     extra={
                         "sandbox_id": sb.object_id,
+                        "winner_label": winner.label,
                         "snapshot_external_id": snapshot_external_id,
                         "snapshot_kind": snapshot_kind,
                         "snapshot_mount_path": snapshot_mount_path,
@@ -536,10 +909,23 @@ class ModalSandbox(SandboxBase):
                     sb.terminate()
                 except Exception as e:
                     logger.warning(f"Failed to terminate wedged sandbox {sb.object_id}: {e}")
-                create_kwargs["image"] = base_image
-                with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                config.snapshot_restored = False
+                if config.snapshot_restored and not winner.restored_from_snapshot:
+                    # The directory resume mount (not the image) wedged the sandbox:
+                    # recreate on the same chain and leave the mount off. The run loses
+                    # its resume state — exactly what the fallback message must say,
+                    # rather than implying an image downgrade that never happened.
+                    wedged = (
+                        f"directory resume snapshot {snapshot_external_id} "
+                        "(sandbox unresponsive after mount; resume state dropped)"
+                    )
+                    remaining = [c for c in candidates if not c.restored_from_snapshot]
+                else:
+                    # The winning image itself restored wedged: drop it and every tier
+                    # above it, along with any resume-snapshot candidates.
+                    wedged = f"{winner.label} (unresponsive after restore)"
+                    remaining = [c for c in candidates[candidates.index(winner) + 1 :] if not c.restored_from_snapshot]
+                sb, modal_output, winner = cls._create_from_image_candidates(create_kwargs, remaining, config)
+                config.image_fallback = f"{wedged} -> {winner.label}"
 
             if config.metadata:
                 sb.set_tags(config.metadata)
@@ -548,15 +934,68 @@ class ModalSandbox(SandboxBase):
             if modal_output is not None:
                 sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
-            logger.info(f"Created sandbox {sandbox.id} for {config.name}")
+            logger.info(
+                f"Created sandbox {sandbox.id} for {config.name}",
+                extra={"modal_app": getattr(app, "name", None), "workload": config.workload.value},
+            )
 
             return sandbox
 
+        except SandboxNetworkPolicyError:
+            raise
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
-            )
+            ) from e
+
+    @staticmethod
+    def _create_from_image_candidates(
+        create_kwargs: dict[str, object],
+        candidates: list[ImageCandidate],
+        config: SandboxConfig,
+    ) -> tuple[modal.Sandbox, StringIO | None, ImageCandidate]:
+        """Create the sandbox from the best image candidate that works, downgrading in order.
+
+        A downgrade is recorded on ``config.image_fallback`` so callers can surface it in
+        run-visible logs instead of the run silently landing on a lesser image. The last
+        candidate's failure propagates. Returns the winning candidate so callers that
+        re-enter this chain (the wedged-restore recovery) can describe what they landed on.
+        """
+        for index, candidate in enumerate(candidates):
+            attempt_kwargs = {**create_kwargs, "image": candidate.image}
+            try:
+                modal_output: StringIO | None
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
+            except Exception as e:
+                if config.outbound_domain_allowlist is not None and _is_modal_network_policy_rejection(e):
+                    raise SandboxNetworkPolicyError(
+                        "Modal rejected the requested sandbox network policy.",
+                        {
+                            "config_name": config.name,
+                            "network_policy_fingerprint": config.network_policy_fingerprint,
+                            "error": str(e),
+                        },
+                        cause=e,
+                    ) from e
+                if index == len(candidates) - 1:
+                    raise
+                logger.warning(
+                    f"Failed to create sandbox with {candidate.label}, "
+                    f"falling back to {candidates[index + 1].label}: {e}"
+                )
+                capture_exception(e)
+                continue
+            config.snapshot_restored = candidate.restored_from_snapshot
+            if index > 0:
+                config.image_fallback = f"{candidates[0].label} -> {candidate.label}"
+            return sb, modal_output, candidate
+        raise SandboxProvisionError(
+            "No sandbox image candidates to create from",
+            {"config_name": config.name},
+            cause=RuntimeError("empty image candidate list"),
+        )
 
     @staticmethod
     def _is_healthy_after_restore(sb: modal.Sandbox) -> bool:
@@ -797,34 +1236,60 @@ class ModalSandbox(SandboxBase):
         run_id: str,
         mode: str,
         create_pr: bool,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
+        initial_permission_mode: str | None = None,
         mcp_servers_arg: str = "",
+        relay_mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        rtk_enabled: bool = True,
+        peer_messaging: bool = False,
+        posthog_exec_permission_regex: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
+            agent_runtime=agent_runtime,
+            sandbox_id=self.id,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            context_window=context_window,
+            fast_mode=fast_mode,
+            initial_permission_mode=initial_permission_mode,
             event_ingest_token=event_ingest_token,
+            task_run_session_token=task_run_session_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
+            rtk_enabled=rtk_enabled,
+            peer_messaging=peer_messaging,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
+        # Only append when opted in: agent-server builds without the option reject unknown
+        # flags, so default runs (and resumes of old snapshots) must not see it.
+        auto_publish_flag = " --autoPublish true" if auto_publish else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
+        exec_permission_flag = (
+            f" --posthogExecPermissionRegex {shlex.quote(posthog_exec_permission_regex)}"
+            if posthog_exec_permission_regex
+            else ""
+        )
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
@@ -834,18 +1299,26 @@ class ModalSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
         )
 
+        if repo_ready_file:
+            # Keep the adapter process from inheriting a repository cwd that does not
+            # exist yet, even if an overlaid agent-server mishandles its readiness flag.
+            wait_for_repo = f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; exec {server_cmd}"
+            server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
+
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
+        initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
 
         if allowed_domains is not None:
             return (
-                f"cd /scripts && env -0 > {ENV_FILE} && "
-                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
+                f"cd /scripts && {initialize_env_file} && "
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
             )
         else:
-            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
 
     def _diagnose_startup_failure(self, allowed_domains: list[str] | None) -> dict[str, str]:
         diagnostics: dict[str, str] = {}
@@ -883,10 +1356,7 @@ class ModalSandbox(SandboxBase):
         return diagnostics
 
     def _probe_session_init_egress(self) -> str:
-        hosts = list(SESSION_INIT_PROBE_HOSTS)
-        gateway_host = _hostname_from_url(getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None))
-        if gateway_host and gateway_host not in hosts:
-            hosts.insert(0, gateway_host)
+        hosts = _session_init_probe_hosts()
         checks = "; ".join(
             f"printf '%s ' {shlex.quote(host)}; "
             f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
@@ -901,19 +1371,28 @@ class ModalSandbox(SandboxBase):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
+        initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
+        rtk_enabled: bool = True,
+        peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -924,7 +1403,9 @@ class ModalSandbox(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        if self._agent_server_is_healthy():
+        if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
+            if wait_for_health:
+                self.wait_for_agent_server_ready(allowed_domains)
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return
         self._free_agent_server_port()
@@ -935,6 +1416,11 @@ class ModalSandbox(SandboxBase):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        # Install the gh shim at runtime too (see agentsh.GH_GUARD_INSTALL_PATH): a resume from a
+        # pre-shim filesystem snapshot — or any window where the base image lags this backend —
+        # would otherwise leave gh with no token once the frozen launch-env token is unset.
+        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
@@ -944,24 +1430,53 @@ class ModalSandbox(SandboxBase):
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        relay_mcp_servers_arg = ""
+        if relayed_mcp_servers:
+            relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
+
+        if agent_runtime == "pi" and not self.agent_server_supports_pi_runtime():
+            raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
+
+        if auto_publish and not self.agent_server_supports_auto_publish():
+            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
+            auto_publish = False
+
+        exec_permission_regex: str | None = POSTHOG_EXEC_PERMISSION_REGEX
+        if not self.agent_server_supports_exec_permission_regex():
+            logger.warning(
+                f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
+                "exec sub-tools will not prompt"
+            )
+            exec_permission_regex = None
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
             run_id,
             mode,
             create_pr,
+            auto_publish,
             interaction_origin,
             branch,
+            agent_runtime,
             runtime_adapter,
             provider,
             model,
             reasoning_effort,
-            mcp_servers_arg,
+            context_window=context_window,
+            fast_mode=fast_mode,
+            initial_permission_mode=initial_permission_mode,
+            mcp_servers_arg=mcp_servers_arg,
+            relay_mcp_servers_arg=relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
+            task_run_session_token=task_run_session_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
+            rtk_enabled=rtk_enabled,
+            peer_messaging=peer_messaging,
+            posthog_exec_permission_regex=exec_permission_regex,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -979,6 +1494,12 @@ class ModalSandbox(SandboxBase):
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
         if self._wait_for_health_check():
+            if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
+                raise SandboxExecutionError(
+                    "Failed to verify agentsh network enforcement",
+                    {"sandbox_id": self.id},
+                    cause=RuntimeError("agentsh daemon health check failed"),
+                )
             logger.info(f"Agent-server ready in sandbox {self.id}")
             return
         diagnostics = self._diagnose_startup_failure(allowed_domains)
@@ -1083,25 +1604,53 @@ class ModalSandbox(SandboxBase):
             timeout_seconds=15,
         )
 
-    def create_snapshot(self) -> str:
+    def _snapshot_filesystem_image(
+        self, publish_name: str | None = None, *, timeout_seconds: int = FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS
+    ) -> str:
+        """Guarded filesystem snapshot, optionally published under a Modal image name.
+
+        Returns the snapshot image's object id.
+        """
         if not self.is_running():
             raise SandboxNotRunningError(
-                f"Sandbox not in running state.",
+                "Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
+        error_context = {"sandbox_id": self.id, **({"publish_name": publish_name} if publish_name else {})}
         try:
             # Modal can report the sandbox as running before filesystem snapshotting is ready.
             self._sandbox.exec("true", timeout=30).wait()
             # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
-            image = self._sandbox.snapshot_filesystem(ttl=None)
+            image = self._sandbox.snapshot_filesystem(timeout=timeout_seconds, ttl=None)
+            if publish_name is not None:
+                image.publish(publish_name)
+                logger.info(f"Published filesystem image {publish_name} ({image.object_id}) from sandbox {self.id}")
+            else:
+                logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {image.object_id}")
+            return image.object_id
 
-            snapshot_id = image.object_id
-
-            logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
-
-            return snapshot_id
+        except ModalResourceExhaustedError as e:
+            if _is_snapshot_file_cap_error(e):
+                # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. Permanent, not
+                # transient: classify it separately so it neither retries forever nor mints a generic
+                # captured issue.
+                logger.warning(f"Filesystem snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
+                raise SnapshotFileLimitExceededError(
+                    f"Filesystem snapshot exceeds Modal's file-count cap: {e}",
+                    {**error_context, "error": str(e)},
+                    cause=e,
+                )
+            # A generic RESOURCE_EXHAUSTED (server-side quota / rate limit) is transient — let the
+            # caller's retry recover it instead of failing permanently.
+            logger.warning(f"Transient resource-exhausted error creating snapshot for sandbox {self.id}: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient resource-exhausted error creating snapshot: {e}",
+                {**error_context, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
 
         except TRANSIENT_SNAPSHOT_ERRORS as e:
             # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
@@ -1109,16 +1658,35 @@ class ModalSandbox(SandboxBase):
             logger.warning(f"Transient error creating snapshot for sandbox {self.id}, will retry: {e}")
             raise SnapshotTimeoutError(
                 f"Transient error creating snapshot: {e}",
-                {"sandbox_id": self.id, "error": str(e)},
+                {**error_context, "error": str(e)},
                 cause=e,
                 capture=False,
             )
 
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")
-            raise SnapshotCreationError(
-                f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
-            )
+            raise SnapshotCreationError(f"Failed to create snapshot: {e}", {**error_context, "error": str(e)}, cause=e)
+
+    def create_snapshot(self, *, timeout_seconds: int | None = None) -> str:
+        return self._snapshot_filesystem_image(
+            timeout_seconds=timeout_seconds if timeout_seconds is not None else FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS
+        )
+
+    def prune_snapshot_heavy_dirs(self, path: str) -> None:
+        """Delete reproducible package/cache trees under ``path`` so a later snapshot fits under
+        Modal's file-count cap. Best-effort: a failure here must not crash the caller — a partial
+        prune may already have shrunk the tree enough, and the caller decides what to do next.
+        """
+        quoted_path = shlex.quote(path)
+        name_predicate = " -o ".join(f"-name {shlex.quote(name)}" for name in SNAPSHOT_PRUNE_DIR_NAMES)
+        prune_command = (
+            f"find {quoted_path} -type d \\( {name_predicate} \\) -prune -exec rm -rf {{}} + 2>/dev/null || true"
+        )
+        try:
+            self.execute(prune_command, timeout_seconds=SNAPSHOT_PRUNE_TIMEOUT_SECONDS)
+            logger.info(f"Pruned heavy directories under {path} for sandbox {self.id}")
+        except Exception as e:
+            logger.warning(f"Best-effort prune of heavy directories under {path} failed for sandbox {self.id}: {e}")
 
     def create_directory_snapshot(self, path: str) -> str:
         if not self.is_running():
@@ -1146,6 +1714,27 @@ class ModalSandbox(SandboxBase):
 
             return snapshot_id
 
+        except ModalResourceExhaustedError as e:
+            if _is_snapshot_file_cap_error(e):
+                # Modal rejects a snapshot whose tree exceeds its hard 1M-file cap. This is permanent,
+                # not transient — retrying the same tree cannot succeed — so classify it separately
+                # (the caller prunes the tree and retries) instead of misclassifying it as a generic error.
+                logger.warning(f"Directory snapshot for sandbox {self.id} exceeds Modal's file-count cap: {e}")
+                raise SnapshotFileLimitExceededError(
+                    f"Directory snapshot exceeds Modal's file-count cap: {e}",
+                    {"sandbox_id": self.id, "path": path, "error": str(e)},
+                    cause=e,
+                )
+            # A generic RESOURCE_EXHAUSTED (server-side quota / rate limit) is transient — let the
+            # caller's retry recover it instead of failing permanently.
+            logger.warning(f"Transient resource-exhausted error creating directory snapshot for sandbox {self.id}: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient resource-exhausted error creating directory snapshot: {e}",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
+
         except TRANSIENT_SNAPSHOT_ERRORS as e:
             logger.warning(f"Transient error creating directory snapshot for sandbox {self.id}, will retry: {e}")
             raise SnapshotTimeoutError(
@@ -1162,6 +1751,15 @@ class ModalSandbox(SandboxBase):
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
             )
+
+    def publish_filesystem_image(self, publish_name: str) -> str:
+        """Snapshot the filesystem and publish it as a named Modal image.
+
+        Republishing an existing name moves it to the new snapshot, so a fixed name
+        (e.g. the prebaked dev-stack image) can be refreshed without touching its
+        consumers. Returns the snapshot image's object id.
+        """
+        return self._snapshot_filesystem_image(publish_name, timeout_seconds=PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS)
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:
@@ -1180,6 +1778,53 @@ class ModalSandbox(SandboxBase):
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
+
+    def read_cpu_usage_usec(self) -> int | None:
+        try:
+            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+        except Exception:
+            cpu_stat = None
+        if cpu_stat is not None:
+            for line in cpu_stat.splitlines():
+                key, _, value = line.partition(" ")
+                if key == "usage_usec":
+                    return int(value)
+        try:
+            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            if cpuacct_usage.strip():
+                return int(cpuacct_usage) // 1000
+        except Exception:
+            pass
+        return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        request_cores = (
+            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+        )
+        command = (
+            f"rm -f {shlex.quote(CPU_BILLING_STATE_PATH)}; "
+            f"setsid {shlex.quote(CPU_BILLING_SAMPLER_PATH)} "
+            f"{shlex.quote(CPU_BILLING_STATE_PATH)} {shlex.quote(str(request_cores))} "
+            ">/dev/null 2>&1 </dev/null & "
+            f"for _ in $(seq 1 50); do [ -f {shlex.quote(CPU_BILLING_STATE_PATH)} ] && exit 0; sleep 0.02; done; exit 1"
+        )
+        result = self.execute(command, timeout_seconds=10)
+        return result.exit_code == 0
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
+        values = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH).split()
+        if len(values) != 3:
+            return None
+        billed_usec, previous_cpu, previous_time = (int(value) for value in values)
+        current_cpu = self.read_cpu_usage_usec()
+        if current_cpu is None:
+            return None
+        elapsed_ns = max(0, time.time_ns() - previous_time)
+        request_cores = (
+            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+        )
+        floor_usec = round(request_cores * elapsed_ns / 1000)
+        return billed_usec + max(current_cpu - previous_cpu, floor_usec)
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

@@ -1,0 +1,44 @@
+# One OTLP receiver + file exporter per shard, so assertions can prove which
+# shard delivered every series.
+receivers:
+    otlp/shard0:
+        protocols:
+            http:
+                endpoint: 0.0.0.0:4318
+    otlp/shard1:
+        protocols:
+            http:
+                endpoint: 0.0.0.0:4418
+    otlp/shard2:
+        protocols:
+            http:
+                endpoint: 0.0.0.0:4518
+    otlp/shard3:
+        protocols:
+            http:
+                endpoint: 0.0.0.0:4618
+
+exporters:
+    file/shard0:
+        path: /out/shard0.json
+    file/shard1:
+        path: /out/shard1.json
+    file/shard2:
+        path: /out/shard2.json
+    file/shard3:
+        path: /out/shard3.json
+
+service:
+    pipelines:
+        metrics/shard0:
+            receivers: [otlp/shard0]
+            exporters: [file/shard0]
+        metrics/shard1:
+            receivers: [otlp/shard1]
+            exporters: [file/shard1]
+        metrics/shard2:
+            receivers: [otlp/shard2]
+            exporters: [file/shard2]
+        metrics/shard3:
+            receivers: [otlp/shard3]
+            exporters: [file/shard3]

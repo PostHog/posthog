@@ -123,6 +123,7 @@ class EndpointCrudService:
                         if data.data_freshness_seconds is not None
                         else DEFAULT_DATA_FRESHNESS_SECONDS
                     ),
+                    optional_breakdown_properties=list(data.optional_breakdown_properties or []),
                     created_by=self.user,
                     columns=columns,
                 )
@@ -315,6 +316,9 @@ class EndpointCrudService:
                 else DEFAULT_DATA_FRESHNESS_SECONDS
             )
             update_fields.append("data_freshness_seconds")
+        if "optional_breakdown_properties" in raw_data:
+            target_version.optional_breakdown_properties = list(data.optional_breakdown_properties or [])
+            update_fields.append("optional_breakdown_properties")
         # When targeting a specific version, is_active updates the version
         if data.is_active is not None and version_targeted:
             target_version.is_active = data.is_active

@@ -2,39 +2,55 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { type Server } from 'node:http'
 
-import { UndecodableImageError, blurOnly } from './blur.ts'
+import { UndecodableImageError } from './blur.ts'
+import { ImageOptOutError } from './image-input.ts'
 import { ScrubMetrics, register } from './metrics.ts'
+import { ScrubAbandonedError } from './pool.ts'
 
 class ConsumerHungUpError extends Error {}
 
-async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
-    if (signal.aborted) {
-        throw new ConsumerHungUpError()
-    }
-    return blurOnly(input)
+/** The scrub implementation is injected (main.ts wires advancedScrub over its loaded models; tests
+ *  inject the model-free blur) so the HTTP plumbing stays testable without the ML runtime. The
+ *  signal carries the caller hanging up, which is what lets queued work be dropped rather than run
+ *  for a response nobody will read. */
+export type ScrubFn = (input: Buffer, signal: AbortSignal) => Promise<Buffer>
+
+export interface SidecarServers {
+    // /scrub, bound to loopback — the pod IP must never expose it.
+    scrub: Server
+    // /metrics + health, bound to all interfaces so Prometheus and the kubelet can reach the pod IP.
+    metrics: Server
 }
 
-export function startServer(port: number, maxConcurrency: number, maxBodyBytes: number): Server {
+export function startServer(
+    port: number,
+    metricsPort: number,
+    maxConcurrency: number,
+    maxBodyBytes: number,
+    scrubFn: ScrubFn,
+    canScrub: () => boolean = () => true
+): SidecarServers {
+    async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
+        if (signal.aborted) {
+            throw new ConsumerHungUpError()
+        }
+        return scrubFn(input, signal)
+    }
+
     let inFlight = 0
     const app = express()
     app.disable('x-powered-by')
     app.disable('etag')
 
-    app.get(['/_health', '/_ready'], (_req, res) => {
-        res.status(200).send('ok')
-    })
-
-    app.get('/metrics', (_req, res, next) => {
-        register
-            .metrics()
-            .then((body) => res.set('Content-Type', register.contentType).send(body))
-            .catch(next)
-    })
-
-    const shedIfBusy = (_req: Request, res: Response, next: NextFunction): void => {
+    const shedIfBusy = (req: Request, res: Response, next: NextFunction): void => {
         if (inFlight >= maxConcurrency) {
             ScrubMetrics.incRejected()
-            res.status(503).send('busy')
+            // Drain first: this runs ahead of the body parser, and Node destroys the socket when a
+            // response completes with an unread request body. The caller would then see a reset
+            // rather than the 503, which is the one status it can tell apart from a real fault, and
+            // the shed would be indistinguishable from the sidecar falling over.
+            req.resume()
+            req.once('end', () => res.status(503).send('busy'))
             return
         }
         inFlight += 1
@@ -90,7 +106,9 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
     })
 
     app.use((err: Error & { status?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) => {
-        if (err instanceof ConsumerHungUpError) {
+        // Both mean the caller stopped waiting: one noticed at the HTTP layer, the other in the pool
+        // when the job came up for dispatch. Neither is a scrub failure, so neither counts as one.
+        if (err instanceof ConsumerHungUpError || err instanceof ScrubAbandonedError) {
             ScrubMetrics.incAborted()
             return
         }
@@ -109,18 +127,61 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
             res.status(422).send('undecodable image')
             return
         }
+        if (err instanceof ImageOptOutError) {
+            ScrubMetrics.incOptedOut()
+            res.status(422).send('image metadata prohibits AI training')
+            return
+        }
         ScrubMetrics.incFailed()
         console.error(`scrub failed: ${String(err)}`)
         res.status(500).send('scrub failed')
     })
 
     // Loopback only: the consumer shares the pod netns; the pod IP must not expose /scrub.
-    const server = app.listen(port, '127.0.0.1', () =>
+    const scrubServer = app.listen(port, '127.0.0.1', () =>
         console.log(`image-scrub sidecar listening on 127.0.0.1:${port} (maxConcurrency ${maxConcurrency})`)
     )
-    server.on('error', (err) => {
-        console.error(`image-scrub sidecar server error: ${String(err)}`)
-        process.exit(1)
+
+    // Observability lives on its own listener bound to all interfaces: Prometheus scrapes the pod IP, which the
+    // loopback /scrub listener above deliberately can't answer. It exposes no image bytes, only counters + probes.
+    const obs = express()
+    obs.disable('x-powered-by')
+    obs.disable('etag')
+    // Liveness, not readiness, is what asks whether any scrub capacity is left. Inference runs on
+    // worker threads, so a pod that has lost all of them answers this listener as fast as a healthy
+    // one: without this the kubelet would never restart it. Failing readiness instead would drop the
+    // pod out of the Service that Prometheus scrapes through, taking the metrics away at the one
+    // moment they explain what happened, and it would buy nothing back, since /scrub is loopback-only
+    // and reaches no Service. The probe's failureThreshold decides how long a pool rebuilding through
+    // its restart backoff is given before the pod is replaced.
+    obs.get('/_health', (_req, res) => {
+        if (!canScrub()) {
+            res.status(503).send('no scrub capacity')
+            return
+        }
+        res.status(200).send('ok')
     })
-    return server
+    obs.get('/_ready', (_req, res) => {
+        res.status(200).send('ok')
+    })
+    obs.get('/metrics', (_req, res, next) => {
+        register
+            .metrics()
+            .then((body) => res.set('Content-Type', register.contentType).send(body))
+            .catch(next)
+    })
+    const metricsServer = obs.listen(metricsPort, '0.0.0.0', () =>
+        console.log(`image-scrub sidecar metrics listening on 0.0.0.0:${metricsPort}`)
+    )
+
+    for (const [name, server] of [
+        ['scrub', scrubServer],
+        ['metrics', metricsServer],
+    ] as const) {
+        server.on('error', (err) => {
+            console.error(`image-scrub sidecar ${name} listener error: ${String(err)}`)
+            process.exit(1)
+        })
+    }
+    return { scrub: scrubServer, metrics: metricsServer }
 }

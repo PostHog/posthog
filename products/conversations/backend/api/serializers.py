@@ -1,5 +1,6 @@
 """Serializers for Conversations API."""
 
+from typing import Any
 from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema_field
@@ -7,7 +8,7 @@ from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
 from posthog.models import Team
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 
 from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
@@ -53,11 +54,12 @@ class WidgetAuthSerializer(serializers.Serializer):
     identity_distinct_id = serializers.CharField(
         required=False, max_length=400, help_text="Verified distinct_id (requires identity_hash)"
     )
-    identity_hash = serializers.CharField(
+    # Hex charset enforced here, not just the length: hmac.compare_digest raises TypeError
+    # on non-ASCII str, which would surface as a 500 instead of a rejected request.
+    identity_hash = serializers.RegexField(
+        r"^[0-9a-f]{64}$",
         required=False,
-        min_length=64,
-        max_length=64,
-        help_text="HMAC-SHA256 of identity_distinct_id using team secret_api_token",
+        help_text="HMAC-SHA256 of identity_distinct_id using the team's signing secret",
     )
 
     def validate(self, data):
@@ -70,11 +72,53 @@ class WidgetAuthSerializer(serializers.Serializer):
         return data
 
 
+def _sanitize_context(
+    value: dict[str, Any],
+    *,
+    max_entries: int,
+    max_key_length: int,
+    max_value_length: int,
+    coerce_to_string: bool = False,
+) -> dict[str, Any]:
+    """Bound widget-attached context by truncating and skipping rather than raising.
+
+    The widget attaches this context itself, so the person filing a ticket can't shorten the
+    page URL it captured: a validation error here costs them the ticket rather than prompting
+    them to fix anything. Over-long values are therefore sliced to the cap, matching how
+    posthog-js handles over-long string properties, and unusable keys and excess entries are
+    skipped for the same reason.
+
+    Entries past max_entries are skipped in iteration order, so a client sending more than
+    that keeps whichever entries it serialized first.
+    """
+    sanitized: dict[str, Any] = {}
+    for key, val in value.items():
+        if len(sanitized) >= max_entries:
+            break
+
+        if not isinstance(key, str) or len(key) > max_key_length:
+            continue
+
+        # Simple types only for MVP
+        if not isinstance(val, str | int | float | bool | type(None)):
+            continue
+
+        if coerce_to_string and val is not None:
+            val = str(val)
+
+        if isinstance(val, str):
+            val = val[:max_value_length]
+
+        sanitized[key] = val
+
+    return sanitized
+
+
 class WidgetMessageSerializer(WidgetAuthSerializer):
     """Serializer for incoming widget messages."""
 
     distinct_id = serializers.CharField(required=False, max_length=400, help_text="PostHog distinct_id")
-    message = serializers.CharField(required=True, max_length=5000, help_text="Message content")
+    message = serializers.CharField(required=True, max_length=10000, help_text="Message content")
     traits = serializers.DictField(required=False, default=dict, help_text="Customer traits")
     session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
     session_context = serializers.DictField(
@@ -97,60 +141,22 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
             raise serializers.ValidationError("Message content is required")
         return value.strip()
 
-    def validate_traits(self, value):
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("traits must be a dictionary")
+    def validate_traits(self, value: dict[str, Any]) -> dict[str, Any]:
+        return _sanitize_context(
+            value,
+            max_entries=50,
+            max_key_length=200,
+            max_value_length=500,
+            coerce_to_string=True,
+        )
 
-        if len(value) > 50:
-            raise serializers.ValidationError(f"Too many traits: {len(value)} (max 50)")
-
-        validated = {}
-        for key, val in value.items():
-            # Validate key is a string with reasonable length
-            if not isinstance(key, str):
-                continue
-            if len(key) > 200:
-                raise serializers.ValidationError(f"Trait key too long: '{key[:50]}...' (max 200 chars)")
-
-            # Only allow simple types for MVP
-            if not isinstance(val, str | int | float | bool | type(None)):
-                continue
-
-            # Convert to string and validate length
-            str_value = str(val) if val is not None else None
-            if str_value and len(str_value) > 500:
-                raise serializers.ValidationError(f"Trait value too long for '{key}' (max 500 chars)")
-
-            validated[key] = str_value
-
-        return validated
-
-    def validate_session_context(self, value):
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("session_context must be a dictionary")
-
-        if len(value) > 20:
-            raise serializers.ValidationError(f"Too many session context fields: {len(value)} (max 20)")
-
-        validated = {}
-        for key, val in value.items():
-            # Validate key
-            if not isinstance(key, str):
-                continue
-            if len(key) > 100:
-                raise serializers.ValidationError(f"Session context key too long: '{key[:50]}...' (max 100 chars)")
-
-            # Allow simple types and validate length
-            if not isinstance(val, str | int | float | bool | type(None)):
-                continue
-
-            # Validate string length for string values
-            if isinstance(val, str) and len(val) > 2000:  # URLs can be long
-                raise serializers.ValidationError(f"Session context value too long for '{key}' (max 2000 chars)")
-
-            validated[key] = val
-
-        return validated
+    def validate_session_context(self, value: dict[str, Any]) -> dict[str, Any]:
+        return _sanitize_context(
+            value,
+            max_entries=20,
+            max_key_length=100,
+            max_value_length=2000,  # URLs can be long
+        )
 
 
 class WidgetMessagesQuerySerializer(WidgetAuthSerializer):
@@ -211,7 +217,9 @@ def validate_url_domain(url: str, team: Team) -> bool:
     if not domains:
         return False
 
-    if has_authority_bypass_chars(url):
+    # The restore link is emailed with this authority intact, so it has to be unambiguous
+    # rather than merely parseable.
+    if has_ambiguous_authority(url):
         return False
 
     parsed = urlparse(url)
@@ -253,7 +261,7 @@ def validate_url_matches_request_origin(request, url: str) -> bool:
 
     origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
 
-    if has_authority_bypass_chars(url):
+    if has_ambiguous_authority(url):
         return False
 
     parsed_url = urlparse(url)

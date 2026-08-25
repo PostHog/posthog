@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from django.db.models import Count
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -28,13 +29,13 @@ from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
     SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
+from products.analytics_platform.backend.models import PreaggregationJob
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = logging.getLogger(__name__)
@@ -83,36 +84,15 @@ def _cache_table_stats() -> list[dict]:
     ttl_only_drop_parts=1, so each partition id is the day the partition drops — the
     per-partition breakdown doubles as a TTL/growth timeline.
     """
+    # Each sharded table's parts live on the cluster its Distributed table targets: exposures on
+    # the main cluster, metric_events on the aux cluster — so system.parts must be read per cluster.
     tables = {
-        SHARDED_EXPERIMENT_EXPOSURES_TABLE(): DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(),
-        SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(): DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+        SHARDED_EXPERIMENT_EXPOSURES_TABLE(): (DISTRIBUTED_EXPERIMENT_EXPOSURES_TABLE(), CLICKHOUSE_CLUSTER),
+        SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(): (
+            DISTRIBUTED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+            CLICKHOUSE_AUX_CLUSTER,
+        ),
     }
-    # cluster() reads one replica per shard. clusterAllReplicas would visit every replica and,
-    # unlike query_log (deduped via is_initial_query), each replica of a shard reports the same
-    # parts — rows/bytes would be multiplied by the replica count.
-    response = sync_execute(
-        """
-        SELECT
-            table,
-            partition,
-            sum(rows) AS rows,
-            sum(bytes_on_disk) AS bytes_on_disk,
-            count() AS parts
-        FROM cluster(%(cluster)s, system, parts)
-        WHERE
-            database = %(database)s
-            AND table IN %(tables)s
-            AND active
-        GROUP BY table, partition
-        ORDER BY table, partition
-        SETTINGS skip_unavailable_shards=1
-        """,
-        {
-            "cluster": CLICKHOUSE_CLUSTER,
-            "database": CLICKHOUSE_DATABASE,
-            "tables": list(tables.keys()),
-        },
-    )
 
     stats: dict[str, dict[str, Any]] = {
         sharded: {
@@ -125,24 +105,88 @@ def _cache_table_stats() -> list[dict]:
             "newest_partition": None,
             "partitions": [],
         }
-        for sharded, base in tables.items()
+        for sharded, (base, _) in tables.items()
     }
-    for table, partition, rows, bytes_on_disk, parts in response:
-        entry = stats.get(table)
-        if entry is None:
+
+    for cluster in dict.fromkeys(cluster for _, cluster in tables.values()):
+        cluster_tables = [sharded for sharded, (_, c) in tables.items() if c == cluster]
+        # cluster() reads one replica per shard. clusterAllReplicas would visit every replica and,
+        # unlike query_log (deduped via is_initial_query), each replica of a shard reports the same
+        # parts — rows/bytes would be multiplied by the replica count.
+        try:
+            response = sync_execute(
+                """
+                SELECT
+                    table,
+                    partition,
+                    sum(rows) AS rows,
+                    sum(bytes_on_disk) AS bytes_on_disk,
+                    count() AS parts
+                FROM cluster(%(cluster)s, system, parts)
+                WHERE
+                    database = %(database)s
+                    AND table IN %(tables)s
+                    AND active
+                GROUP BY table, partition
+                ORDER BY table, partition
+                SETTINGS skip_unavailable_shards=1
+                """,
+                {
+                    "cluster": cluster,
+                    "database": CLICKHOUSE_DATABASE,
+                    "tables": cluster_tables,
+                },
+            )
+        except Exception:
+            # One cluster being unreachable (or absent in a single-cluster deployment) must not
+            # take down the stats read from the healthy cluster.
+            logger.exception("cache_health: failed to read system.parts from cluster %s", cluster)
+            for sharded in cluster_tables:
+                stats[sharded]["unavailable"] = True
             continue
-        entry["total_rows"] += rows
-        entry["bytes_on_disk"] += bytes_on_disk
-        entry["active_parts"] += parts
-        entry["partition_count"] += 1
-        entry["partitions"].append(
-            {"partition": partition, "rows": rows, "bytes_on_disk": bytes_on_disk, "parts": parts}
-        )
+        for table, partition, rows, bytes_on_disk, parts in response:
+            entry = stats.get(table)
+            if entry is None:
+                continue
+            entry["total_rows"] += rows
+            entry["bytes_on_disk"] += bytes_on_disk
+            entry["active_parts"] += parts
+            entry["partition_count"] += 1
+            entry["partitions"].append(
+                {"partition": partition, "rows": rows, "bytes_on_disk": bytes_on_disk, "parts": parts}
+            )
     for entry in stats.values():
         if entry["partitions"]:
             entry["oldest_partition"] = entry["partitions"][0]["partition"]
             entry["newest_partition"] = entry["partitions"][-1]["partition"]
     return list(stats.values())
+
+
+def _bucket_axis(hours: int) -> tuple[str, str, list[str], dict[str, int]]:
+    """Zero-fillable time axis for the timeseries endpoints: hourly buckets up to 48h, daily beyond.
+
+    Returns the ClickHouse bucketing function, the interval name, the bucket keys (ISO strings in
+    explicit UTC, matching what the SQL's formatDateTime emits — so no assumption about the
+    ClickHouse server timezone or driver naive/aware behavior is needed), and a key→index lookup.
+    """
+    bucket_fn = "toStartOfHour" if hours <= 48 else "toStartOfDay"
+    bucket_delta = timedelta(hours=1) if hours <= 48 else timedelta(days=1)
+    interval = "hour" if hours <= 48 else "day"
+
+    window_start = datetime.now(UTC) - timedelta(hours=hours)
+    if interval == "hour":
+        first_bucket = window_start.replace(minute=0, second=0, microsecond=0)
+    else:
+        first_bucket = window_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    buckets: list[datetime] = []
+    cursor = first_bucket
+    end = datetime.now(UTC)
+    while cursor <= end:
+        buckets.append(cursor)
+        cursor += bucket_delta
+    bucket_keys = [b.strftime("%Y-%m-%dT%H:%M:%SZ") for b in buckets]
+    index_by_bucket = {key: i for i, key in enumerate(bucket_keys)}
+    return bucket_fn, interval, bucket_keys, index_by_bucket
 
 
 @extend_schema(exclude=True)
@@ -170,14 +214,22 @@ class DebugCHQueries(viewsets.ViewSet):
     _ALLOWED_FILTER_KEYS = frozenset({"insight_id", "experiment_id"})
 
     def _log_comment_filter(self, filter_key: str, filter_value: str) -> str:
-        """Build a WHERE clause filtering on a log_comment JSON field."""
+        """Build a WHERE clause filtering on a log_comment JSON field, scoped to one team.
+
+        Insight and experiment ids are sequential integers, so the log_comment match on its own
+        reads any team's rows — every caller binds `team_id` alongside it.
+        """
         if filter_key not in self._ALLOWED_FILTER_KEYS:
             raise ValueError(f"Invalid filter_key: {filter_key!r}")
-        return f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
+        return (
+            f"JSONExtractRaw(log_comment, '{filter_key}') = %(filter_value)s"
+            " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
+        )
 
-    def hourly_stats(self, filter_key: str, filter_value: str):
+    def hourly_stats(self, filter_key: str, filter_value: str, team_id: int):
         params = {
             "filter_value": filter_value,
+            "team_id": team_id,
             "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
@@ -229,9 +281,10 @@ class DebugCHQueries(viewsets.ViewSet):
             for resp in response
         ]
 
-    def stats(self, filter_key: str, filter_value: str):
+    def stats(self, filter_key: str, filter_value: str, team_id: int):
         params = {
             "filter_value": filter_value,
+            "team_id": team_id,
             "start_time": (datetime.now(UTC) - timedelta(days=14)).timestamp(),
             "cluster": CLICKHOUSE_CLUSTER,
         }
@@ -267,7 +320,13 @@ class DebugCHQueries(viewsets.ViewSet):
             "exception_percentage": response[0][4],
         }
 
-    def queries(self, request: Request, filter_key: Optional[str] = None, filter_value: Optional[str] = None):
+    def queries(
+        self,
+        request: Request,
+        team_id: Optional[int] = None,
+        filter_key: Optional[str] = None,
+        filter_value: Optional[str] = None,
+    ):
         params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,
@@ -278,6 +337,7 @@ class DebugCHQueries(viewsets.ViewSet):
             # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal _log_comment_filter
             where_clause = self._log_comment_filter(filter_key, filter_value)
             params["filter_value"] = filter_value
+            params["team_id"] = team_id
             limit_clause = "LIMIT 10"
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
@@ -332,7 +392,7 @@ class DebugCHQueries(viewsets.ViewSet):
         ]
 
     def list(self, request):
-        if not (request.user.is_staff or DEBUG or is_impersonated_session(request) or not is_cloud()):
+        if not (request.user.is_staff or DEBUG or is_impersonated_session(request)):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
         tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
@@ -347,11 +407,18 @@ class DebugCHQueries(viewsets.ViewSet):
         elif experiment_id:
             filter_key, filter_value = "experiment_id", experiment_id
 
-        queries = self.queries(request, filter_key, filter_value)
-        response = {"queries": queries}
+        team_id: Optional[int] = None
         if filter_key and filter_value:
-            response["stats"] = self.stats(filter_key, filter_value)
-            response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
+            team = request.user.team
+            if team is None:
+                raise exceptions.PermissionDenied("You're not allowed to see queries.")
+            team_id = team.pk
+
+        queries = self.queries(request, team_id, filter_key, filter_value)
+        response = {"queries": queries}
+        if filter_key and filter_value and team_id is not None:
+            response["stats"] = self.stats(filter_key, filter_value, team_id)
+            response["hourly_stats"] = self.hourly_stats(filter_key, filter_value, team_id)
         return Response(response)
 
     def _serialize_precomputation_team(
@@ -524,26 +591,23 @@ class DebugCHQueries(viewsets.ViewSet):
                 raise exceptions.ValidationError("exception_code must be a positive integer.")
 
         params: dict = {
-            "cluster": CLICKHOUSE_CLUSTER,
             "hours": hours,
             "not_query": "%request:_api_debug_ch_queries_%",
         }
         extra_filters = ""
         if team_id_filter is not None:
-            extra_filters += " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
+            extra_filters += " AND team_id = %(team_id)s"
             params["team_id"] = team_id_filter
         if experiment_id_filter is not None:
-            extra_filters += " AND JSONExtractInt(log_comment, 'experiment_id') = %(experiment_id)s"
+            extra_filters += " AND lc_experiment_id = %(experiment_id)s"
             params["experiment_id"] = experiment_id_filter
         # metric_type and funnel_order_type are tagged before the precompute builds run, so the build
         # sub-queries carry them too and stay grouped with their parent read under these filters.
         if metric_type_filter is not None:
-            extra_filters += " AND JSONExtractString(log_comment, 'experiment_metric_type') = %(metric_type)s"
+            extra_filters += " AND toString(log_comment.experiment_metric_type) = %(metric_type)s"
             params["metric_type"] = metric_type_filter
         if funnel_order_type_filter is not None:
-            extra_filters += (
-                " AND JSONExtractString(log_comment, 'experiment_funnel_order_type') = %(funnel_order_type)s"
-            )
+            extra_filters += " AND toString(log_comment.experiment_funnel_order_type) = %(funnel_order_type)s"
             params["funnel_order_type"] = funnel_order_type_filter
 
         # Filter at the group level (a group's terminal exception_code, resolved per query_id in per_query):
@@ -558,6 +622,9 @@ class DebugCHQueries(viewsets.ViewSet):
         # We rank groups by total duration (build + read — the user waited for both, synchronously) and
         # return every row of the top 100 groups; Python then nests the builds under their parent read.
         # Rows with no group id (legacy / non-runner queries) fall back to a group of one via `grp`.
+        # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
+        # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
+        # ''-when-missing semantics JSONExtractString gave us on the raw column.
         # nosemgrep: clickhouse-fstring-param-audit - extra_filters is built from hardcoded SQL fragments; user values flow through params
         sql_query = f"""
             WITH per_query AS (
@@ -572,33 +639,34 @@ class DebugCHQueries(viewsets.ViewSet):
                     argMax(exception_code, type) AS exception_code,
                     argMax(memory_usage, type) AS memory_usage,
                     max(type) AS status,
-                    argMax(JSONExtractInt(log_comment, 'team_id'), type) AS team_id,
-                    argMax(JSONExtractString(log_comment, 'query_type'), type) AS query_type,
-                    argMax(JSONExtractString(log_comment, 'experiment_name'), type) AS experiment_name,
-                    argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
-                    argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path,
-                    argMax(JSONExtractString(log_comment, 'experiment_metric_type'), type) AS experiment_metric_type,
-                    argMax(JSONExtractString(log_comment, 'experiment_funnel_order_type'), type) AS experiment_funnel_order_type,
-                    argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id,
-                    argMax(JSONExtractString(log_comment, 'experiment_exposures_path'), type) AS experiment_exposures_path,
-                    argMax(JSONExtractString(log_comment, 'experiment_metric_events_path'), type) AS experiment_metric_events_path,
-                    argMax(JSONExtractString(log_comment, 'experiment_query_surface'), type) AS experiment_query_surface,
-                    argMax(JSONExtractString(log_comment, 'experiment_precompute_table'), type) AS experiment_precompute_table,
-                    argMax(JSONExtractString(log_comment, 'experiment_query_group_id'), type) AS experiment_query_group_id,
-                    argMax(JSONExtractString(log_comment, 'experiment_precompute_skip_reason'), type) AS experiment_precompute_skip_reason,
-                    argMax(JSONExtractString(log_comment, 'experiment_scan_date_from'), type) AS experiment_scan_date_from,
-                    argMax(JSONExtractString(log_comment, 'experiment_scan_date_to'), type) AS experiment_scan_date_to,
-                    argMax(JSONExtractString(log_comment, 'precompute_window_start'), type) AS precompute_window_start,
-                    argMax(JSONExtractString(log_comment, 'precompute_window_end'), type) AS precompute_window_end
+                    argMax(team_id, type) AS team_id,
+                    argMax(lc_query_type, type) AS query_type,
+                    argMax(ifNull(toString(log_comment.experiment_name), ''), type) AS experiment_name,
+                    argMax(ifNull(toString(log_comment.experiment_metric_name), ''), type) AS experiment_metric_name,
+                    argMax(ifNull(toString(log_comment.experiment_execution_path), ''), type) AS experiment_execution_path,
+                    argMax(ifNull(toString(log_comment.experiment_metric_type), ''), type) AS experiment_metric_type,
+                    argMax(ifNull(toString(log_comment.experiment_funnel_order_type), ''), type) AS experiment_funnel_order_type,
+                    argMax(lc_experiment_id, type) AS experiment_id,
+                    argMax(ifNull(toString(log_comment.experiment_exposures_path), ''), type) AS experiment_exposures_path,
+                    argMax(ifNull(toString(log_comment.experiment_metric_events_path), ''), type) AS experiment_metric_events_path,
+                    argMax(ifNull(toString(log_comment.experiment_query_surface), ''), type) AS experiment_query_surface,
+                    argMax(ifNull(toString(log_comment.experiment_precompute_table), ''), type) AS experiment_precompute_table,
+                    argMax(ifNull(toString(log_comment.experiment_query_group_id), ''), type) AS experiment_query_group_id,
+                    argMax(ifNull(toString(log_comment.experiment_precompute_skip_reason), ''), type) AS experiment_precompute_skip_reason,
+                    argMax(ifNull(toString(log_comment.experiment_scan_date_from), ''), type) AS experiment_scan_date_from,
+                    argMax(ifNull(toString(log_comment.experiment_scan_date_to), ''), type) AS experiment_scan_date_to,
+                    argMax(ifNull(toString(log_comment.precompute_window_start), ''), type) AS precompute_window_start,
+                    argMax(ifNull(toString(log_comment.precompute_window_end), ''), type) AS precompute_window_end
                 FROM (
                     SELECT
                         query_id, query, query_start_time, query_duration_ms, exception,
                         read_bytes, read_rows, exception_code, memory_usage,
-                        toInt8(type) AS type, log_comment
-                    FROM clusterAllReplicas(%(cluster)s, system, query_log)
+                        toInt8(type) AS type, log_comment, team_id, lc_query_type, lc_experiment_id
+                    FROM query_log_archive
                     WHERE
-                        event_time > now() - INTERVAL %(hours)s HOUR
-                        AND JSONExtractString(log_comment, 'product') = 'experiments'
+                        event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                        AND event_time > now() - INTERVAL %(hours)s HOUR
+                        AND lc_product = 'experiments'
                         AND is_initial_query
                         AND query NOT LIKE %(not_query)s
                         {extra_filters}
@@ -696,6 +764,341 @@ class DebugCHQueries(viewsets.ViewSet):
 
         return Response(_nest_subqueries([_record(row) for row in response]))
 
+    # Skip reasons the runner tags on reads that never attempted precompute. An empty reason on a
+    # direct-scan read means precompute WAS attempted but the data wasn't ready (build failed/slow) —
+    # that read paid for the build AND the full events scan, so it's the bucket to watch.
+    _PRECOMPUTE_SKIP_REASONS = (
+        "team_disabled",
+        "min_runtime",
+        "override_direct",
+        "data_warehouse",
+        "group_aggregation",
+    )
+
+    @action(detail=False, methods=["GET"], url_path="precompute_overview", required_scopes=["query_performance:read"])
+    def precompute_overview(self, request):
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view the precompute overview.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        try:
+            hours = int(request.query_params.get("hours", 24))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
+        hours = max(1, min(hours, 168))  # clamp to 1h–7d
+
+        params: dict = {
+            "hours": hours,
+            "not_query": "%request:_api_debug_ch_queries_%",
+        }
+
+        skip_reason_counts = ",\n".join(
+            f"countIf(skip_reason = '{reason}') AS skip_{reason}" for reason in self._PRECOMPUTE_SKIP_REASONS
+        )
+        # One terminal query_log row per query (toInt8(type) > 1 excludes QueryStart), so plain
+        # counts are per-query without the GROUP BY query_id dedup the slowest_queries endpoint needs.
+        # Duration/bytes stats only cover successful reads — failed ones have truncated durations.
+        # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
+        # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
+        # ''-when-missing semantics JSONExtractString gave us on the raw column.
+        # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from a hardcoded tuple
+        reads_sql = f"""
+            SELECT
+                coalesce(
+                    nullIf(toString(log_comment.experiment_exposures_path), ''),
+                    ifNull(toString(log_comment.experiment_execution_path), '')
+                ) AS exposures_path,
+                count() AS reads,
+                countIf(exception_code != 0) AS failed_reads,
+                {skip_reason_counts},
+                countIf(skip_reason = '') AS attempted,
+                countIf(metric_events_path = 'precomputed') AS me_precomputed,
+                countIf(metric_events_path = 'direct_scan') AS me_direct_scan,
+                countIf(metric_events_path = 'not_applicable') AS me_not_applicable,
+                avgIf(query_duration_ms, exception_code = 0) AS avg_duration_ms,
+                quantileIf(0.5)(query_duration_ms, exception_code = 0) AS p50_duration_ms,
+                quantileIf(0.9)(query_duration_ms, exception_code = 0) AS p90_duration_ms,
+                avgIf(read_bytes, exception_code = 0) AS avg_read_bytes,
+                sum(read_bytes) AS total_read_bytes
+            FROM (
+                SELECT
+                    query_duration_ms, exception_code, read_bytes, log_comment,
+                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason,
+                    ifNull(toString(log_comment.experiment_metric_events_path), '') AS metric_events_path
+                FROM query_log_archive
+                WHERE
+                    event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                    AND event_time > now() - INTERVAL %(hours)s HOUR
+                    AND lc_product = 'experiments'
+                    AND toString(log_comment.experiment_query_surface) = 'metric'
+                    AND is_initial_query
+                    AND toInt8(type) > 1
+                    AND query NOT LIKE %(not_query)s
+            )
+            GROUP BY exposures_path
+            SETTINGS skip_unavailable_shards=1
+            """
+        reads_response = sync_execute(reads_sql, params)
+
+        empty_path = {
+            "reads": 0,
+            "failed_reads": 0,
+            "attempted": 0,
+            "avg_duration_ms": None,
+            "p50_duration_ms": None,
+            "p90_duration_ms": None,
+            "avg_read_bytes": None,
+            "total_read_bytes": 0,
+        }
+        # Must match the projection order of reads_sql.
+        reads_columns = (
+            "exposures_path",
+            "reads",
+            "failed_reads",
+            *(f"skip_{reason}" for reason in self._PRECOMPUTE_SKIP_REASONS),
+            "attempted",
+            "me_precomputed",
+            "me_direct_scan",
+            "me_not_applicable",
+            "avg_duration_ms",
+            "p50_duration_ms",
+            "p90_duration_ms",
+            "avg_read_bytes",
+            "total_read_bytes",
+        )
+
+        def _empty_path_entry() -> dict:
+            return {**empty_path, "skip_reasons": dict.fromkeys(self._PRECOMPUTE_SKIP_REASONS, 0)}
+
+        reads_by_path: dict[str, dict] = {
+            "precomputed": _empty_path_entry(),
+            "direct_scan": _empty_path_entry(),
+        }
+        metric_events = {"precomputed": 0, "direct_scan": 0, "not_applicable": 0}
+        for raw_row in reads_response:
+            row = dict(zip(reads_columns, raw_row))
+            path = row["exposures_path"] or "direct_scan"
+            entry = reads_by_path.setdefault(path, _empty_path_entry())
+            entry["reads"] += row["reads"]
+            entry["failed_reads"] += row["failed_reads"]
+            entry["attempted"] += row["attempted"]
+            entry["total_read_bytes"] += row["total_read_bytes"]
+            if row["reads"] > 0:
+                for stat in ("avg_duration_ms", "p50_duration_ms", "p90_duration_ms", "avg_read_bytes"):
+                    entry[stat] = row[stat]
+            for reason in self._PRECOMPUTE_SKIP_REASONS:
+                entry["skip_reasons"][reason] += row[f"skip_{reason}"]
+            metric_events["precomputed"] += row["me_precomputed"]
+            metric_events["direct_scan"] += row["me_direct_scan"]
+            metric_events["not_applicable"] += row["me_not_applicable"]
+
+        builds_sql = """
+            SELECT
+                ifNull(toString(log_comment.experiment_precompute_table), '') AS build_table,
+                exception_code,
+                count() AS builds,
+                sum(query_duration_ms) AS total_duration_ms,
+                sum(read_bytes) AS total_read_bytes
+            FROM query_log_archive
+            WHERE
+                event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                AND event_time > now() - INTERVAL %(hours)s HOUR
+                AND lc_product = 'experiments'
+                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND is_initial_query
+                AND toInt8(type) > 1
+                AND query NOT LIKE %(not_query)s
+            GROUP BY build_table, exception_code
+            SETTINGS skip_unavailable_shards=1
+            """
+        builds_response = sync_execute(builds_sql, params)
+
+        builds: dict[str, Any] = {
+            "total": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "total_duration_ms": 0,
+            "total_read_bytes": 0,
+            # Spend on builds that failed: pure waste (the read then falls back to a full
+            # events scan on top). The number that should stay near zero.
+            "failed_duration_ms": 0,
+            "failed_read_bytes": 0,
+            "by_table": {},
+            "failures_by_code": {},
+        }
+        for build_table, exception_code, count, total_duration_ms, total_read_bytes in builds_response:
+            table_key = build_table or "unknown"
+            table_entry = builds["by_table"].setdefault(table_key, {"succeeded": 0, "failed": 0})
+            builds["total"] += count
+            builds["total_duration_ms"] += total_duration_ms
+            builds["total_read_bytes"] += total_read_bytes
+            if exception_code == 0:
+                builds["succeeded"] += count
+                table_entry["succeeded"] += count
+            else:
+                builds["failed"] += count
+                table_entry["failed"] += count
+                builds["failed_duration_ms"] += total_duration_ms
+                builds["failed_read_bytes"] += total_read_bytes
+                code_key = str(exception_code)
+                builds["failures_by_code"][code_key] = builds["failures_by_code"].get(code_key, 0) + count
+
+        window_start = now() - timedelta(hours=hours)
+        job_status_counts = dict(
+            PreaggregationJob.objects.filter(created_at__gte=window_start).values_list("status").annotate(n=Count("id"))
+        )
+        jobs = {
+            "ready": job_status_counts.get(PreaggregationJob.Status.READY, 0),
+            "failed": job_status_counts.get(PreaggregationJob.Status.FAILED, 0),
+            "pending": job_status_counts.get(PreaggregationJob.Status.PENDING, 0),
+            # Marked FAILED by a waiter because the owning executor stopped heartbeating — crashes,
+            # OOM-killed pods. Invisible in query_log (the INSERT never finished), so PG is the only source.
+            "stale_failed": PreaggregationJob.objects.filter(
+                created_at__gte=window_start,
+                status=PreaggregationJob.Status.FAILED,
+                error__startswith="Job was stale",
+            ).count(),
+            # PENDING far past any plausible INSERT runtime: nothing will ever mark these, and they
+            # block the range they cover (waiters keep waiting on them until staleness detection fires).
+            "stuck_pending": PreaggregationJob.objects.filter(
+                status=PreaggregationJob.Status.PENDING,
+                created_at__lt=now() - timedelta(minutes=15),
+            ).count(),
+        }
+
+        total_reads = sum(entry["reads"] for entry in reads_by_path.values())
+        total_failed_reads = sum(entry["failed_reads"] for entry in reads_by_path.values())
+        return Response(
+            {
+                "hours": hours,
+                "reads": {
+                    "total": total_reads,
+                    "failed": total_failed_reads,
+                    "by_exposures_path": reads_by_path,
+                    "metric_events": metric_events,
+                },
+                "builds": builds,
+                "jobs": jobs,
+            }
+        )
+
+    @action(detail=False, methods=["GET"], url_path="precompute_timeseries", required_scopes=["query_performance:read"])
+    def precompute_timeseries(self, request):
+        """Bucketed history of the precompute overview's headline numbers, for the trend charts.
+
+        Returns arrays aligned to `buckets` (zero-filled, so charts get a continuous axis):
+        read counts by path outcome, failed-build counts by exit code, and bytes wasted on
+        failed builds. Hourly buckets up to 48h, daily beyond; window capped at 21 days
+        (query_log_archive retention).
+        """
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view the precompute timeseries.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        try:
+            hours = int(request.query_params.get("hours", 168))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
+        hours = max(1, min(hours, 504))  # clamp to 1h–21d
+
+        bucket_fn, interval, bucket_keys, index_by_bucket = _bucket_axis(hours)
+
+        params: dict = {
+            "hours": hours,
+            "not_query": "%request:_api_debug_ch_queries_%",
+        }
+
+        # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
+        reads_sql = f"""
+            SELECT
+                formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
+                count() AS reads,
+                countIf(exposures_path = 'precomputed') AS precomputed_reads,
+                countIf(exposures_path != 'precomputed' AND skip_reason = '') AS fallback_reads
+            FROM (
+                SELECT
+                    event_time,
+                    coalesce(
+                        nullIf(toString(log_comment.experiment_exposures_path), ''),
+                        ifNull(toString(log_comment.experiment_execution_path), '')
+                    ) AS exposures_path,
+                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason
+                FROM query_log_archive
+                WHERE
+                    event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                    AND event_time > now() - INTERVAL %(hours)s HOUR
+                    AND lc_product = 'experiments'
+                    AND toString(log_comment.experiment_query_surface) = 'metric'
+                    AND is_initial_query
+                    AND toInt8(type) > 1
+                    AND query NOT LIKE %(not_query)s
+            )
+            GROUP BY bucket
+            SETTINGS skip_unavailable_shards=1
+            """
+        # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
+        builds_sql = f"""
+            SELECT
+                formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
+                exception_code,
+                count() AS builds,
+                sum(read_bytes) AS read_bytes
+            FROM query_log_archive
+            WHERE
+                event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                AND event_time > now() - INTERVAL %(hours)s HOUR
+                AND lc_product = 'experiments'
+                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND is_initial_query
+                AND toInt8(type) > 1
+                AND query NOT LIKE %(not_query)s
+            GROUP BY bucket, exception_code
+            SETTINGS skip_unavailable_shards=1
+            """
+        reads_response = sync_execute(reads_sql, params)
+        builds_response = sync_execute(builds_sql, params)
+
+        n = len(bucket_keys)
+
+        reads = [0] * n
+        precomputed_reads = [0] * n
+        fallback_reads = [0] * n
+        failed_build_read_bytes = [0] * n
+        failed_builds_by_code: dict[str, list[int]] = {}
+        for bucket, bucket_reads, bucket_precomputed, bucket_fallback in reads_response:
+            i = index_by_bucket.get(bucket)
+            if i is None:
+                continue
+            reads[i] = bucket_reads
+            precomputed_reads[i] = bucket_precomputed
+            fallback_reads[i] = bucket_fallback
+        for bucket, exception_code, bucket_builds, bucket_read_bytes in builds_response:
+            i = index_by_bucket.get(bucket)
+            if i is None or exception_code == 0:
+                continue
+            failed_build_read_bytes[i] += bucket_read_bytes
+            code_series = failed_builds_by_code.setdefault(str(exception_code), [0] * n)
+            code_series[i] += bucket_builds
+
+        return Response(
+            {
+                "hours": hours,
+                "interval": interval,
+                "buckets": bucket_keys,
+                "reads": {
+                    "total": reads,
+                    "precomputed": precomputed_reads,
+                    "fallback": fallback_reads,
+                },
+                "builds": {
+                    "failed_by_code": failed_builds_by_code,
+                    "failed_read_bytes": failed_build_read_bytes,
+                },
+            }
+        )
+
     @action(detail=False, methods=["GET"], url_path="cache_health", required_scopes=["query_performance:read"])
     def cache_health(self, request):
         if not request.user.is_staff:
@@ -704,3 +1107,77 @@ class DebugCHQueries(viewsets.ViewSet):
         tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
 
         return Response({"tables": _cache_table_stats()})
+
+    # Keys match the experiment_precompute_table tag on build INSERTs; both are always present in
+    # the response so the charts render a (zero) series even for a table with no builds in window.
+    _CACHE_GROWTH_TABLES = ("exposures", "metric_events")
+
+    @action(detail=False, methods=["GET"], url_path="cache_growth", required_scopes=["query_performance:read"])
+    def cache_growth(self, request):
+        """Bucketed written rows/bytes per preaggregation table, from the tagged build INSERTs in
+        query_log_archive — the growth-over-time companion to cache_health's point-in-time snapshot.
+
+        written_bytes is ClickHouse's uncompressed INSERT accounting, so it will read higher than
+        the compressed bytes_on_disk in cache_health. Window capped at 21 days (archive retention).
+        """
+        if not request.user.is_staff:
+            raise exceptions.PermissionDenied("Only staff users can view cache growth.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
+        try:
+            hours = int(request.query_params.get("hours", 336))
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("hours must be an integer.")
+        hours = max(1, min(hours, 504))  # clamp to 1h–21d
+
+        bucket_fn, interval, bucket_keys, index_by_bucket = _bucket_axis(hours)
+
+        params: dict = {
+            "hours": hours,
+            "not_query": "%request:_api_debug_ch_queries_%",
+        }
+        # Failed builds are excluded: their written_rows is unreliable and their (retried) work
+        # would double-count against the successful build that actually populated the table.
+        # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
+        growth_sql = f"""
+            SELECT
+                formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
+                ifNull(toString(log_comment.experiment_precompute_table), '') AS build_table,
+                sum(written_rows) AS written_rows,
+                sum(written_bytes) AS written_bytes
+            FROM query_log_archive
+            WHERE
+                event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                AND event_time > now() - INTERVAL %(hours)s HOUR
+                AND lc_product = 'experiments'
+                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND is_initial_query
+                AND toInt8(type) > 1
+                AND exception_code = 0
+                AND query NOT LIKE %(not_query)s
+            GROUP BY bucket, build_table
+            SETTINGS skip_unavailable_shards=1
+            """
+        response = sync_execute(growth_sql, params)
+
+        n = len(bucket_keys)
+        tables: dict[str, dict[str, list[int]]] = {
+            table: {"written_rows": [0] * n, "written_bytes": [0] * n} for table in self._CACHE_GROWTH_TABLES
+        }
+        for bucket, build_table, written_rows, written_bytes in response:
+            i = index_by_bucket.get(bucket)
+            entry = tables.get(build_table)
+            if i is None or entry is None:
+                continue
+            entry["written_rows"][i] += written_rows
+            entry["written_bytes"][i] += written_bytes
+
+        return Response(
+            {
+                "hours": hours,
+                "interval": interval,
+                "buckets": bucket_keys,
+                "tables": tables,
+            }
+        )

@@ -98,9 +98,9 @@ describe('HogFlowPropertyFilters search', () => {
         fireEvent.click(screen.getByTestId('taxonomic-tab-workflow_variables'))
 
         await waitFor(() => {
-            expect(screen.getAllByRole('button', { name: 'order_id' }).length).toBeGreaterThan(0)
+            expect(screen.getAllByText('order_id').length).toBeGreaterThan(0)
         })
-        expect(screen.getAllByRole('button', { name: 'cart_total' }).length).toBeGreaterThan(0)
+        expect(screen.getAllByText('cart_total').length).toBeGreaterThan(0)
     })
 
     it('filters workflow variables by search query in the dedicated tab', async () => {
@@ -112,10 +112,10 @@ describe('HogFlowPropertyFilters search', () => {
         search('cart')
 
         await waitFor(() => {
-            expect(screen.getAllByRole('button', { name: 'cart_total' }).length).toBeGreaterThan(0)
+            expect(screen.getAllByText('cart_total').length).toBeGreaterThan(0)
         })
-        expect(screen.queryByRole('button', { name: 'order_id' })).not.toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'shipping_country' })).not.toBeInTheDocument()
+        expect(screen.queryByText('order_id')).not.toBeInTheDocument()
+        expect(screen.queryByText('shipping_country')).not.toBeInTheDocument()
     })
 
     it('surfaces workflow variables in the All/Suggestions tab when searching', async () => {

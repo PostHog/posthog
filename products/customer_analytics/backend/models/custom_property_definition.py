@@ -14,6 +14,13 @@ class DisplayType(StrEnum):
     DATE = "date"
     DATETIME = "datetime"
     BOOLEAN = "boolean"
+    SELECT = "select"
+
+
+class TargetType(StrEnum):
+    ACCOUNT = "account"
+    PERSON = "person"
+    GROUP = "group"
 
 
 class DataType(StrEnum):
@@ -31,6 +38,7 @@ DATA_TYPE_BY_DISPLAY_TYPE: dict[DisplayType, DataType] = {
     DisplayType.DATE: DataType.DATETIME,
     DisplayType.DATETIME: DataType.DATETIME,
     DisplayType.BOOLEAN: DataType.BOOLEAN,
+    DisplayType.SELECT: DataType.STRING,
 }
 
 NUMERIC_DISPLAY_TYPES = [
@@ -38,9 +46,29 @@ NUMERIC_DISPLAY_TYPES = [
 ]
 
 
+CANONICAL_LAST_SLACK_MESSAGE_AT = "Last Slack message at"
+
+CANONICAL_DISPLAY_TYPE_BY_NAME: dict[str, DisplayType] = {
+    CANONICAL_LAST_SLACK_MESSAGE_AT: DisplayType.DATETIME,
+}
+
+
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
+    target_type = models.CharField(
+        choices=[(t.value, t.value) for t in TargetType],
+        default=TargetType.ACCOUNT,
+        max_length=20,
+        help_text="What entity this property is attached to: an account (default), a person, or a group.",
+    )
+    # Only set for group targets: which group type (0-4) the property attaches to. Groups are keyed by
+    # (group_type_index, group_key), so this pins the type; the source's key_column supplies the key.
+    group_type_index = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="For group targets only: the group type index (0-4). Null for account/person targets.",
+    )
     name = models.CharField(max_length=400)
     description = models.TextField(null=True)
     display_type = models.CharField(
@@ -48,6 +76,12 @@ class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields
     )
     is_big_number = models.BooleanField(
         default=False, help_text="Whether the property is a big number and should be abbreviated. E.g.: 10,000 -> 10K"
+    )
+    options = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="For select properties: the allowed options, each {'id', 'label', 'color'}. Null for other types.",
     )
 
     class Meta:
@@ -59,6 +93,10 @@ class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields
             models.CheckConstraint(
                 condition=models.Q(is_big_number=False) | models.Q(display_type__in=NUMERIC_DISPLAY_TYPES),
                 name="is_big_number_requires_numeric_display_type",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(target_type=TargetType.GROUP.value) | models.Q(group_type_index__isnull=False),
+                name="group_target_requires_group_type_index",
             ),
         ]
 

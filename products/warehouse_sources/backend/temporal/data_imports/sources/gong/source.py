@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GongSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gong import GongSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
@@ -33,6 +30,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GongSource(ResumableSource[GongSourceConfig, GongResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -55,6 +55,12 @@ Grant the following read scopes so the connected endpoints can sync:
 - `api:users:read`
 - `api:settings:scorecards:read`
 - `api:workspaces:read`
+
+To also sync the `calls_extensive` table (call participants and CRM associations), additionally grant:
+- `api:calls:read:extensive`
+
+To also sync the `transcripts` table (what was said on each call), additionally grant:
+- `api:calls:read:transcript`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",
@@ -95,6 +101,7 @@ Grant the following read scopes so the connected endpoints can sync:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -102,6 +109,7 @@ Grant the following read scopes so the connected endpoints can sync:
                 supports_incremental=endpoint_config.supports_incremental,
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=endpoint_config.incremental_fields,
+                default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
                 description="Only syncs the last 365 days on initial sync"
                 if endpoint_config.uses_date_window
                 else None,
@@ -114,7 +122,7 @@ Grant the following read scopes so the connected endpoints can sync:
         return schemas
 
     def validate_credentials(
-        self, config: GongSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GongSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_gong_credentials(config.access_key, config.access_key_secret, schema_name)
 

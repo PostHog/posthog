@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 from django.db import transaction
@@ -10,19 +10,31 @@ from django.utils import timezone as django_timezone
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
-from products.tasks.backend.metrics import observe_task_run_workflow_start
-from products.tasks.backend.models import TaskRun
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
+from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
+from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
+from products.tasks.backend.temporal.constants import (
+    SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_QUERY_TIMEOUT,
+    STEERING_PROTOCOL_VERSION,
+)
+from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
-    from products.slack_app.backend.slack_thread import SlackThreadContext
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +48,15 @@ def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[di
     if hasattr(slack_thread_context, "to_dict"):
         return slack_thread_context.to_dict()
     return slack_thread_context
+
+
+def _record_prefixed_workflow_id(run_id: str, workflow_id: str) -> None:
+    """Persist a non-default workflow ID on the run before starting it.
+
+    A prefixed ID isn't derivable from (task_id, run_id), so row→workflow lookups (the heartbeat
+    relay, follow-up signals, Temporal UI links) read it back from `state` via `TaskRun.workflow_id`.
+    """
+    TaskRun.update_state_atomic(run_id, updates={"workflow_id": workflow_id})
 
 
 def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
@@ -64,10 +85,23 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
     task_run.capture_event(
         "task_run_failed",
         {
-            "error_message": error_message[:500],
+            "error_message": truncate_error_message(error_message),
+            "error_type": "workflow_start_failed",
             "duration_seconds": task_run._duration_seconds(),
         },
     )
+
+    # A run that never starts its workflow never reaches the update_task_run_status activity, so
+    # loop bookkeeping (consecutive_failures, auto-pause, notifications) must hook in here too.
+    # Swallowed so a bookkeeping failure never masks the start failure being reported.
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
+        handle_loop_run_terminal,
+    )
+
+    try:
+        handle_loop_run_terminal(task_run)
+    except Exception:
+        logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
     return True
 
 
@@ -82,15 +116,21 @@ def _get_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
-def _capture_sandbox_event_ingest_flag(run_id: str) -> None:
+def _capture_run_feature_flags(run_id: str) -> None:
+    """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
+
+    Idempotent per key, so retries and resumes keep the decision the run started with.
+    """
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
     except Exception:
-        logger.exception("sandbox_event_ingest_capture_run_missing", extra={"run_id": run_id})
+        logger.exception("run_feature_flag_capture_run_missing", extra={"run_id": run_id})
         return
 
     state = task_run.state or {}
-    if isinstance(state.get("sandbox_event_ingest_enabled"), bool):
+    need_event_ingest = not isinstance(state.get("sandbox_event_ingest_enabled"), bool)
+    need_otel_telemetry = not isinstance(state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool)
+    if not need_event_ingest and not need_otel_telemetry:
         return
 
     task = task_run.task
@@ -99,33 +139,47 @@ def _capture_sandbox_event_ingest_flag(run_id: str) -> None:
         task.created_by.distinct_id if task.created_by and task.created_by.distinct_id else "process_task_workflow"
     )
 
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
+    event_ingest_enabled = False
+    if need_event_ingest:
+        try:
+            event_ingest_enabled = bool(
+                posthoganalytics.feature_enabled(
+                    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+                    distinct_id=distinct_id,
+                    groups={"organization": organization_id},
+                    group_properties={"organization": {"id": organization_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
             )
-        )
-    except Exception as e:
-        logger.warning(
-            "sandbox_event_ingest_capture_flag_failed",
-            extra={"run_id": run_id, "task_id": str(task.id), "error": str(e)},
-        )
-        enabled = False
+        except Exception as e:
+            logger.warning(
+                "sandbox_event_ingest_capture_flag_failed",
+                extra={"run_id": run_id, "task_id": str(task.id), "error": str(e)},
+            )
+    otel_telemetry_enabled = need_otel_telemetry and is_agent_otel_telemetry_enabled(
+        distinct_id=distinct_id, organization_id=organization_id
+    )
 
-    def _set_sandbox_event_ingest_flag(latest_state: dict[str, Any]) -> None:
-        if not isinstance(latest_state.get("sandbox_event_ingest_enabled"), bool):
-            latest_state["sandbox_event_ingest_enabled"] = enabled
+    def _stamp_flags(latest_state: dict[str, Any]) -> None:
+        if need_event_ingest and not isinstance(latest_state.get("sandbox_event_ingest_enabled"), bool):
+            latest_state["sandbox_event_ingest_enabled"] = event_ingest_enabled
+        if need_otel_telemetry and not isinstance(latest_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool):
+            latest_state[AGENT_OTEL_TELEMETRY_STATE_KEY] = otel_telemetry_enabled
 
-    captured_state = TaskRun.mutate_state_atomic(task_run.id, _set_sandbox_event_ingest_flag)
-    captured_enabled = captured_state.get("sandbox_event_ingest_enabled", enabled)
+    captured_state = TaskRun.mutate_state_atomic(task_run.id, _stamp_flags)
+    if need_otel_telemetry:
+        AGENT_OTEL_TELEMETRY_STAMPED_TOTAL.labels(
+            enabled=str(bool(captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY))).lower()
+        ).inc()
     logger.info(
-        "sandbox_event_ingest_captured",
-        extra={"run_id": run_id, "task_id": str(task.id), "sandbox_event_ingest_enabled": captured_enabled},
+        "run_feature_flags_captured",
+        extra={
+            "run_id": run_id,
+            "task_id": str(task.id),
+            "sandbox_event_ingest_enabled": captured_state.get("sandbox_event_ingest_enabled"),
+            "agent_otel_telemetry_enabled": captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY),
+        },
     )
 
 
@@ -146,10 +200,16 @@ async def execute_task_processing_workflow_async(
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
+    workflow_id_prefix: Optional[str] = None,
+    initial_message: PendingFollowup | None = None,
+    durable_dispatch: bool = False,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
     Use this from async contexts (e.g., within Temporal activities).
+
+    ``durable_dispatch`` means an outbox row already covers this run, so a failed start
+    leaves the run QUEUED for the dispatcher to retry instead of terminalizing it.
     """
     logger.info(
         "execute_task_processing_workflow_async_called",
@@ -164,9 +224,11 @@ async def execute_task_processing_workflow_async(
         task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         await Team.objects.select_related("organization").aget(id=team_id)
-        await sync_to_async(_capture_sandbox_event_ingest_flag)(run_id)
+        await sync_to_async(_capture_run_feature_flags)(run_id)
 
-        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
+        if workflow_id_prefix:
+            await sync_to_async(_record_prefixed_workflow_id)(run_id, workflow_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
@@ -175,6 +237,7 @@ async def execute_task_processing_workflow_async(
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
             prewarmed=prewarmed,
+            initial_message=initial_message,
         )
 
         logger.info(
@@ -205,12 +268,20 @@ async def execute_task_processing_workflow_async(
             run_id,
             f"Failed to start task workflow: permission validation failed: {e}",
         )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
+        logger.info(
+            "task_processing_workflow_already_running",
+            extra={"task_id": task_id, "run_id": run_id},
+        )
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        if durable_dispatch:
+            return
         await _terminalize_unstarted_task_run_async(
             run_id,
             f"Failed to start task workflow: {e}",
@@ -223,14 +294,20 @@ def execute_task_processing_workflow(
     team_id: int,
     user_id: Optional[int] = None,
     create_pr: bool = True,
-    slack_thread_context: Optional["SlackThreadContext"] = None,
+    slack_thread_context: Optional[Any] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
+    workflow_id_prefix: Optional[str] = None,
+    initial_message: PendingFollowup | None = None,
+    durable_dispatch: bool = False,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
     Use this from sync contexts (e.g., API endpoints).
+
+    ``durable_dispatch`` means an outbox row already covers this run, so a failed start
+    leaves the run QUEUED for the dispatcher to retry instead of terminalizing it.
     """
     # Metrics lookups stay inside the try so a failure here can't bypass terminalization and
     # leave the run orphaned in QUEUED (see the async variant above).
@@ -244,9 +321,11 @@ def execute_task_processing_workflow(
         )
 
         Team.objects.get(id=team_id)
-        _capture_sandbox_event_ingest_flag(run_id)
+        _capture_run_feature_flags(run_id)
 
-        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
+        if workflow_id_prefix:
+            _record_prefixed_workflow_id(run_id, workflow_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
 
         workflow_input = ProcessTaskInput(
@@ -255,6 +334,7 @@ def execute_task_processing_workflow(
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
             prewarmed=prewarmed,
+            initial_message=initial_message,
         )
 
         logger.info(
@@ -293,12 +373,20 @@ def execute_task_processing_workflow(
             run_id,
             f"Failed to start task workflow: permission validation failed: {e}",
         )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
+        logger.info(
+            "task_processing_workflow_already_running",
+            extra={"task_id": task_id, "run_id": run_id},
+        )
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        if durable_dispatch:
+            return
         _terminalize_unstarted_task_run(
             run_id,
             f"Failed to start task workflow: {e}",
@@ -306,11 +394,32 @@ def execute_task_processing_workflow(
 
 
 def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
-    """Mirror ``_trigger_task_processing_workflow``: full scopes unless the run_source is scoped down."""
+    """Best-effort scope posture for the reconciler when ``pending_dispatch`` didn't carry
+    ``posthog_mcp_scopes`` (pre-reconciler rows, or the bootstrap/start path). Mirrors
+    ``_trigger_task_processing_workflow``: full scopes unless the run_source is scoped down.
+
+    Signals scout runs are the exception. Their posture (``signal_scout_internal:*`` +
+    ``signal_scout_report:write``) is carried by neither ``"full"`` nor ``"read_only"``, so a scout
+    re-dispatched on this fallback with a generic posture loses every ``signals-scout-*`` tool — they
+    drop out of the MCP catalog and surface to the agent as "Unknown tool", burning the whole run
+    (it investigates, then can't emit a report, write scratchpad, or build its profile). Pin
+    scout-origin runs to the most-capable scout posture so a reconciled scout stays fully functional.
+    Over-granting the report scope to a non-report scout is harmless: the report endpoints
+    independently gate on the skill's ``allowed_tools`` opt-in.
+    """
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — avoid an import cycle
         RunSource,
         parse_run_state,
     )
+
+    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
+        return "signals_scout_reports"
+
+    # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
+    # degrade to read_only, never escalate to the full write surface the generic fallback
+    # below grants (loop runs carry no run_source).
+    if task_run.task.origin_product == Task.OriginProduct.LOOP:
+        return "read_only"
 
     run_source = parse_run_state(task_run.state).run_source
     return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
@@ -342,7 +451,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     # Local (desktop) runs idle in QUEUED while the user's local agent drives them — there is no
     # lost dispatch to recover. Starting a cloud workflow here would hijack the live session: the
     # sandbox boots without the repo ever being cloned, burns its retries, and marks the user's
-    # run FAILED. The sweep already filters these out (cloud_only); this guards direct callers.
+    # run FAILED. The sweep already filters these out (environment=CLOUD); this guards direct callers.
     if task_run.environment == TaskRun.Environment.LOCAL:
         return "skipped_local"
 
@@ -354,20 +463,38 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
 
     task = task_run.task
     task_id = str(task.id)
-    workflow_id = TaskRun.get_workflow_id(task_id, run_id)
     # create_and_run persists these on the row; the bootstrap/start path does not, so fall back to
     # deriving mcp scopes from run_source exactly as _trigger_task_processing_workflow does.
     pending = task_run.state.get("pending_dispatch") if isinstance(task_run.state, dict) else None
     dispatch_params = pending if isinstance(pending, dict) else {}
+    workflow_id_prefix = dispatch_params.get("workflow_id_prefix")
+    workflow_id = TaskRun.get_workflow_id(task_id, run_id, workflow_id_prefix)
+    if workflow_id_prefix:
+        _record_prefixed_workflow_id(run_id, workflow_id)
+    # Loop-fired runs are report-only unless their pending_dispatch says otherwise; every
+    # other run keeps the historical True default.
+    default_create_pr = task.origin_product != Task.OriginProduct.LOOP
     workflow_input = ProcessTaskInput(
         run_id=run_id,
-        create_pr=dispatch_params.get("create_pr", True),
+        create_pr=dispatch_params.get("create_pr", default_create_pr),
         slack_thread_context=dispatch_params.get("slack_thread_context"),
         posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
     )
 
+    # A loop run's skill bundles are seeded by the same on_commit callback whose loss
+    # this sweep recovers from, so dispatching without re-seeding would silently start
+    # the run with its skills missing. Idempotent for already-seeded runs. A failed seed
+    # is treated like any other transient recovery error: retried next sweep, with the
+    # 24h killer as the terminal backstop.
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
+        ensure_loop_skill_bundles_seeded,
+    )
+
+    if not ensure_loop_skill_bundles_seeded(task_run):
+        return "error"
+
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
-    _capture_sandbox_event_ingest_flag(run_id)
+    _capture_run_feature_flags(run_id)
     try:
         client = sync_connect()
         asyncio.run(
@@ -397,7 +524,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
 
 
 def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
-    _capture_sandbox_event_ingest_flag(run_id)
+    _capture_run_feature_flags(run_id)
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
@@ -414,10 +541,81 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     )
 
 
-def signal_task_followup_message(workflow_id: str, message: str | None, artifact_ids: list[str]) -> None:
+def execute_bake_dev_stack_image_workflow(
+    publish_name: str = DEV_STACK_IMAGE_NAME, *, trigger: Literal["nightly", "base_changed", "manual"] = "manual"
+) -> None:
+    """Start (or restart) the bake of the prebaked PostHog dev-stack VM image.
+
+    TERMINATE_IF_RUNNING: a bake stuck from the previous night gets replaced by the
+    fresh one instead of blocking it.
+    """
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "bake-dev-stack-image",
+            BakeDevStackImageInput(publish_name=publish_name, trigger=trigger),
+            id=f"bake-dev-stack-image-{publish_name}",
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            # A single workflow attempt: each bake is a full 15-25 minute stack build, the
+            # activity inside already retries once, and the nightly schedule plus the
+            # base-digest sweep are the outer retry loop. Workflow-level retries would
+            # multiply with the activity's into up to four consecutive bakes.
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+    )
+
+
+def execute_build_sandbox_image_workflow(image_id: str, team_id: int, *, refresh: bool = False) -> None:
+    """Start (or restart) the scan → build → publish workflow for a custom sandbox image."""
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "build-sandbox-image",
+            BuildSandboxImageInput(image_id=image_id, team_id=team_id, refresh=refresh),
+            id=f"build-sandbox-image-{image_id}",
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+
+
+def signal_task_followup_message(
+    workflow_id: str,
+    message: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
+    actor_user_id: int | None = None,
+    context: dict[str, Any] | None = None,
+    *,
+    steer: bool = False,
+) -> None:
+    """Legacy positional signal args stay frozen for worker deploy compatibility."""
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+
+    async def signal() -> None:
+        signal_name = "send_followup_message"
+        if steer and is_native_steering_signals_enabled():
+            try:
+                protocol_version = await handle.query(
+                    STEERING_PROTOCOL_QUERY,
+                    rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+                )
+            except Exception:
+                logger.info(
+                    "task_followup_steering_capability_unavailable",
+                    extra={"workflow_id": workflow_id},
+                    exc_info=True,
+                )
+            else:
+                if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
+                    signal_name = SEND_STEER_SIGNAL
+        signal_args = [message, artifact_ids, message_id, actor_user_id, context]
+        await handle.signal(signal_name, args=signal_args)
+
+    asyncio.run(signal())
 
 
 def signal_agent_text_delta(workflow_id: str, text: str) -> None:
@@ -434,6 +632,7 @@ def execute_posthog_code_agent_relay_workflow(
     user_message_ts: str | None = None,
     delete_progress: bool = True,
     reaction_emoji: str | None = None,
+    message_id: str | None = None,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -449,6 +648,7 @@ def execute_posthog_code_agent_relay_workflow(
                 user_message_ts=user_message_ts,
                 delete_progress=delete_progress,
                 reaction_emoji=reaction_emoji,
+                message_id=message_id,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

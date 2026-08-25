@@ -15,7 +15,6 @@ import os
 from typing import Any, cast
 from urllib.parse import urlencode
 
-import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -26,15 +25,18 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.github_callback import state as github_callback_state
+from posthog.api.github_callback.personal_state import list_user_github_app_installations
 from posthog.api.github_callback.types import (
     APP_CONNECT_FROM_VALUES,
     PERSONAL_INTEGRATIONS_SETTINGS_PATH,
     FlowKind,
     GitHubAuthorizeState,
     github_app_install_url,
+    github_app_install_url_shareable,
     github_oauth_authorize_url,
 )
 from posthog.api.integration import (
+    GITHUB_INSTALLATION_STATUS_CHOICES,
     GitHubBranchesQuerySerializer,
     GitHubBranchesResponseSerializer,
     GitHubReposQuerySerializer,
@@ -44,11 +46,11 @@ from posthog.api.integration import (
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.egress.github.transport import GitHubRateLimitError, github_request
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
+from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.user import User
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
@@ -86,8 +88,27 @@ class UserGitHubIntegrationItemSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Installation account metadata from GitHub.",
     )
+    github_login = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The connected user's own GitHub login (distinct from the installation account).",
+    )
     uses_shared_installation = serializers.BooleanField(
         help_text="True when this installation id matches a team-level GitHub integration on the active project.",
+    )
+    installation_shared = serializers.BooleanField(
+        help_text=(
+            "Whether any other PostHog project or personal connection references the same App installation. "
+            "When false, disconnecting this integration also uninstalls the GitHub App from the connected "
+            "account or organization."
+        ),
+    )
+    installation_status = serializers.ChoiceField(
+        choices=GITHUB_INSTALLATION_STATUS_CHOICES,
+        help_text=(
+            "`unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer "
+            "mint tokens for it; `connected` otherwise."
+        ),
     )
     created_at = serializers.DateTimeField(help_text="When this integration row was created.")
 
@@ -107,7 +128,7 @@ class UserGitHubLinkStartRequestSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.",
+        help_text="Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.",
     )
     connect_from = serializers.CharField(
         required=False,
@@ -122,6 +143,60 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
     )
     connect_flow = serializers.CharField(
         help_text="OAuth or install flow used for this GitHub connection.",
+    )
+
+
+class GitHubInstallRequestItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="PostHog GitHubInstallRequest row id.")
+    github_login = serializers.CharField(
+        allow_blank=True,
+        help_text="GitHub login the install was requested under. Blank if it could not be resolved.",
+    )
+    status = serializers.ChoiceField(
+        choices=GitHubInstallRequest.Status.choices,
+        help_text=(
+            "`pending` while waiting on an org owner's approval, `approved` once the installation webhook "
+            "confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval "
+            "can't be detected for an unidentified request, so the user has to start the connect flow again."
+        ),
+    )
+    installation_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="GitHub App installation id, set once the request is approved.",
+    )
+    account_login = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="GitHub organization or user login the installation was approved under, once known.",
+    )
+    account_type = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="GitHub account type (`Organization` or `User`) the installation was approved under, once known.",
+    )
+    requested_at = serializers.DateTimeField(help_text="When the install approval was requested.")
+    resolved_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When an org owner approved the request.",
+    )
+
+
+class GitHubInstallRequestListResponseSerializer(serializers.Serializer):
+    results = GitHubInstallRequestItemSerializer(
+        many=True,
+        help_text="The user's GitHub App install-approval requests, newest first.",
+    )
+    install_url = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Shareable GitHub App install URL with no PostHog session state, for an org owner who needs to "
+            "approve the install. Null when the GitHub App is not configured on this instance."
+        ),
     )
 
 
@@ -209,6 +284,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "retrieve",
         "github_repos",
         "github_branches",
+        "github_install_requests",
         "slack_linkable",
     ]
     scope_object_write_actions = [
@@ -221,6 +297,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "github_prepare_callback",
         "github_destroy",
         "github_repos_refresh",
+        "github_install_requests_destroy",
         "slack_start",
         "slack_destroy",
     ]
@@ -307,16 +384,28 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         # the loop only sees that one shape, but the per-row dispatch keeps
         # the door open for dropping the kind default and returning github
         # + slack rows side-by-side in one response.
-        integrations = UserIntegration.objects.filter(user=user, kind=kind).order_by("created_at")
-        # Only compute the github-specific cross-team installation set when
-        # there could be github rows in the response; for `kind=slack` this
-        # would be an unused DB roundtrip on every settings page load.
-        team_installation_ids: set[str] = self._team_github_installation_ids(user) if kind == "github" else set()
+        integrations = list(UserIntegration.objects.filter(user=user, kind=kind).order_by("created_at"))
+        # Only compute the github-specific lookups when there could be github rows in the
+        # response; for `kind=slack` these would be unused DB roundtrips on every settings page load.
+        team_installation_ids: set[str] = set()
+        reference_counts: dict[str, int] = {}
+        if kind == "github":
+            team_installation_ids = self._team_github_installation_ids(user)
+            # One grouped lookup for the whole page instead of a count pair per row, so
+            # `installation_shared` stays a fixed two queries however many rows there are.
+            reference_counts = UserGitHubIntegration.installation_reference_counts(
+                {integration.integration_id for integration in integrations if integration.integration_id}
+            )
         results: list[dict[str, Any]] = []
         for integration in integrations:
             if integration.kind == "github":
+                UserGitHubIntegration(integration).ensure_account_name()
                 results.append(
-                    _serialize_github_integration(integration, team_integration_installation_ids=team_installation_ids)
+                    _serialize_github_integration(
+                        integration,
+                        team_integration_installation_ids=team_installation_ids,
+                        installation_reference_counts=reference_counts,
+                    )
                 )
             elif integration.kind == "slack":
                 results.append(_serialize_slack_integration(integration))
@@ -368,7 +457,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         github = UserGitHubIntegration(integration)
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
-        return Response({"repositories": repositories, "has_more": has_more})
+        total = github.count_cached_repositories(search=search)
+        return Response({"repositories": repositories, "has_more": has_more, "total": total})
 
     @extend_schema(
         summary="Refresh repositories for a personal GitHub installation",
@@ -385,10 +475,23 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             raise exceptions.NotFound("No GitHub integration found for this installation.")
 
         github = UserGitHubIntegration(integration)
-        repositories = github.sync_repository_cache(
-            min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
+        try:
+            repositories = github.sync_repository_cache(
+                min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
+            )
+        except GitHubIntegrationError as err:
+            if not github.installation_unavailable():
+                capture_exception(err)
+                raise exceptions.ValidationError(
+                    "Unable to refresh GitHub repositories. Please check integration settings and try again."
+                ) from err
+            repositories = github.list_all_cached_repositories(allow_refresh=False)
+        return Response(
+            {
+                "repositories": repositories,
+                "installation_status": "unavailable" if github.installation_unavailable() else "connected",
+            }
         )
-        return Response({"repositories": repositories})
 
     @extend_schema(
         summary="List branches for a personal GitHub installation repository",
@@ -423,6 +526,55 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         )
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+
+    @extend_schema(
+        summary="List the user's GitHub install-approval requests",
+        responses={200: GitHubInstallRequestListResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="github/install_requests")
+    def github_install_requests(self, request: Request, **_kwargs) -> Response:
+        """Return the requesting user's GitHub App install-approval requests, newest first.
+
+        This is the durable server-side "awaiting org owner approval" state (see
+        ``posthog.models.user_integration.GitHubInstallRequest``), distinct from the in-flight
+        connect spinner, which never touches this table.
+        """
+        user = self._get_user()
+        install_requests = GitHubInstallRequest.objects.filter(user=user).order_by("-requested_at")
+        results = [
+            {
+                "id": install_request.id,
+                "github_login": install_request.github_login,
+                "status": install_request.status,
+                "installation_id": install_request.installation_id,
+                "account_login": install_request.account_login,
+                "account_type": install_request.account_type,
+                "requested_at": install_request.requested_at,
+                "resolved_at": install_request.resolved_at,
+            }
+            for install_request in install_requests
+        ]
+        try:
+            install_url: str | None = github_app_install_url_shareable()
+        except exceptions.ValidationError:
+            install_url = None
+        return Response({"results": results, "install_url": install_url})
+
+    @extend_schema(
+        summary="Dismiss a GitHub install-approval request",
+        responses={204: OpenApiResponse(description="Request dismissed.")},
+    )
+    @action(methods=["DELETE"], detail=False, url_path=r"github/install_requests/(?P<request_id>[0-9a-fA-F-]{36})")
+    def github_install_requests_destroy(self, request: Request, request_id: str, **_kwargs) -> Response:
+        """Delete one of the requesting user's install-approval requests, whatever its status.
+
+        User-facing bookkeeping only: a later connect attempt records a fresh row.
+        """
+        user = self._get_user()
+        deleted, _ = GitHubInstallRequest.objects.filter(user=user, id=request_id).delete()
+        if not deleted:
+            raise exceptions.NotFound("No GitHub install request found.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         summary="Start GitHub personal integration linking",
@@ -673,7 +825,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 def _resolve_team_for_github_start(user: User, request: Request):
     """Resolve which team to use for team-level GitHub install discovery.
 
-    PostHog Code passes ``team_id`` (project/team) in the JSON body because the
+    PostHog Desktop passes ``team_id`` (project/team) in the JSON body because the
     session's ``user.current_team`` may not match the app UI. The web app omits
     it and uses ``current_team``.
     """
@@ -696,45 +848,15 @@ def _resolve_team_for_github_start(user: User, request: Request):
 def _has_unlinked_github_installations(user: User) -> bool | None:
     """Check whether the user has GitHub App installations they haven't linked yet.
 
-    Uses the user's existing OAuth token to call ``GET /user/installations``
-    and compares against their ``UserIntegration`` rows.
-
     Returns ``True`` if unlinked installations exist, ``False`` if all are
     linked, or ``None`` if the check couldn't be performed (no existing
     integration, token refresh failed, network error).
     """
-    any_integration = UserIntegration.objects.filter(user=user, kind="github").exclude(sensitive_config={}).first()
-    if any_integration is None:
+    installations = list_user_github_app_installations(user)
+    if installations is None:
         return None
 
-    github = UserGitHubIntegration(any_integration)
-    try:
-        token = github.get_usable_user_access_token()
-    except Exception:
-        return None
-
-    try:
-        # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
-        response = github_request(
-            "GET",
-            "https://api.github.com/user/installations",
-            source="integration",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"per_page": 100},
-            timeout=10,
-        )
-    except requests.RequestException:
-        return None
-
-    if response.status_code != 200:
-        return None
-
-    try:
-        installations = response.json().get("installations", [])
-    except Exception:
-        return None
-
-    github_installation_ids = {str(inst["id"]) for inst in installations if isinstance(inst, dict) and "id" in inst}
+    github_installation_ids = {str(installation["id"]) for installation in installations}
     linked_ids = set(UserIntegration.objects.filter(user=user, kind="github").values_list("integration_id", flat=True))
     return bool(github_installation_ids - linked_ids)
 
@@ -784,15 +906,26 @@ def _serialize_github_integration(
     integration: UserIntegration,
     *,
     team_integration_installation_ids: set[str],
+    installation_reference_counts: dict[str, int],
 ) -> dict[str, Any]:
     """Build the response payload for a single GitHub UserIntegration."""
+    github = UserGitHubIntegration(integration)
+    # Mirrors github_destroy's uninstall_if_last_reference: any other row, team or personal, keeps the
+    # App installed on GitHub after this one is deleted. The precomputed map counts every reference
+    # for the installation including this row, so more than one means another row still shares it.
+    installation_shared = installation_reference_counts.get(integration.integration_id or "", 0) > 1
     return {
         "id": integration.id,
         "kind": "github",
         "installation_id": integration.integration_id,
         "repository_selection": integration.config.get("repository_selection"),
         "account": integration.config.get("account"),
+        # The user's own GitHub login (distinct from `account`, which is the installation's
+        # org/user). Lets the frontend tell which PR comments/reactions are the user's own.
+        "github_login": (integration.config.get("github_user") or {}).get("login"),
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
+        "installation_shared": installation_shared,
+        "installation_status": "unavailable" if github.installation_unavailable() else "connected",
         "created_at": integration.created_at,
     }
 

@@ -1,5 +1,7 @@
 # PostHog MCP
 
+The official MCP server for PostHog. PostHog makes your product self-driving — it reads your data and ships changes with you, never without you — and this server gives MCP clients (Claude, Cursor, VS Code, Zed, and more) that full surface: analytics and SQL, dashboards, experiments, feature flags, surveys, session replay, error tracking, and more.
+
 Documentation: https://posthog.com/docs/model-context-protocol
 
 ## Use the MCP Server
@@ -14,7 +16,7 @@ npx @posthog/wizard@latest mcp add
 
 ### Manual install
 
-1. Obtain a personal API key using the [MCP Server preset](https://app.posthog.com/settings/user-api-keys?preset=mcp_server).
+1. Obtain a personal API key using the [MCP Server preset](https://us.posthog.com/settings/user-api-keys?preset=mcp_server).
 
 2. Add the MCP configuration to your desktop client (e.g. Cursor, Windsurf, Claude Desktop) and add your personal API key
 
@@ -119,7 +121,7 @@ Created feature flag 'new-checkout-flow':
 - Key: new-checkout-flow
 - Active: true
 - Rollout: 20% of all users
-- URL: https://app.posthog.com/feature_flags/12345
+- URL: https://us.posthog.com/project/<project-id>/feature_flags/12345
 ```
 
 #### Example 2: Analytics query
@@ -128,7 +130,7 @@ Created feature flag 'new-checkout-flow':
 
 **What happens:**
 
-1. The `query-run` tool executes a trends query filtering for `$signup` events
+1. The `query-trends` tool executes a trends query filtering for `$signup` events
 2. Returns daily counts with unique user aggregation
 
 **Expected output:**
@@ -164,7 +166,7 @@ Created experiment 'Pricing page test':
 - Variants: control (50%), test (50%)
 - Primary metric: Funnel conversion (pricing_page → checkout)
 - Status: Draft (ready to launch)
-- URL: https://app.posthog.com/experiments/789
+- URL: https://us.posthog.com/project/<project-id>/experiments/789
 ```
 
 #### Example 4: Error investigation
@@ -212,37 +214,71 @@ https://mcp.posthog.com/mcp?features=flags,workspace,dashboards
 
 Available features:
 
-| Feature                  | Description                                                                                               |
-| ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `workspace`              | Organization and project management                                                                       |
-| `actions`                | [Action definitions](https://posthog.com/docs/data/actions)                                               |
-| `activity_logs`          | Activity log viewing                                                                                      |
-| `alerts`                 | [Alert management](https://posthog.com/docs/product-analytics/alerts)                                     |
-| `annotations`            | [Annotation management](https://posthog.com/docs/product-analytics/annotations)                           |
-| `cohorts`                | [Cohort management](https://posthog.com/docs/data/cohorts)                                                |
-| `dashboards`             | [Dashboard creation and management](https://posthog.com/docs/product-analytics/dashboards)                |
-| `data_schema`            | Data schema exploration                                                                                   |
-| `data_warehouse`         | [Data warehouse management](https://posthog.com/docs/data-warehouse)                                      |
-| `debug`                  | Debug and diagnostic tools                                                                                |
-| `docs`                   | PostHog documentation search                                                                              |
-| `early_access_features`  | [Early access feature management](https://posthog.com/docs/feature-flags/early-access-feature-management) |
-| `error_tracking`         | [Error monitoring and debugging](https://posthog.com/docs/error-tracking)                                 |
-| `events`                 | Event and property definitions                                                                            |
-| `experiments`            | [A/B testing experiments](https://posthog.com/docs/experiments)                                           |
-| `flags`                  | [Feature flag management](https://posthog.com/docs/feature-flags)                                         |
-| `hog_functions`          | [CDP function management](https://posthog.com/docs/cdp)                                                   |
-| `hog_function_templates` | CDP function template browsing                                                                            |
-| `insights`               | [Analytics insights](https://posthog.com/docs/product-analytics/insights)                                 |
-| `llm_analytics`          | [AI observability evaluations](https://posthog.com/docs/ai-engineering)                                   |
-| `prompts`                | [LLM prompt management](https://posthog.com/docs/ai-engineering)                                          |
-| `logs`                   | [Log querying](https://posthog.com/docs/ai-engineering/observability)                                     |
-| `notebooks`              | [Notebook management](https://posthog.com/docs/notebooks)                                                 |
-| `persons`                | [Person and group management](https://posthog.com/docs/data/persons)                                      |
-| `reverse_proxy`          | Reverse proxy record management                                                                           |
-| `search`                 | Entity search across the project                                                                          |
-| `sql`                    | SQL query execution                                                                                       |
-| `surveys`                | [Survey management](https://posthog.com/docs/surveys)                                                     |
-| `workflows`              | [Workflow management](https://posthog.com/docs/cdp)                                                       |
+| Feature                  | Description                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `actions`                | [Actions](https://posthog.com/docs/data/actions)                                                |
+| `alerts`                 | [Alerts](https://posthog.com/docs/alerts)                                                       |
+| `annotations`            | [Annotations](https://posthog.com/docs/product-analytics/annotations)                           |
+| `batch_exports`          | Data pipelines                                                                                  |
+| `business_knowledge`     | Business knowledge                                                                              |
+| `canvas`                 | Canvas                                                                                          |
+| `cohorts`                | [Cohorts](https://posthog.com/docs/data/cohorts)                                                |
+| `conversations`          | Conversations                                                                                   |
+| `core`                   | Core utilities (project switching, docs search)                                                 |
+| `customer_analytics`     | [Customer analytics](https://posthog.com/docs/customer-analytics)                               |
+| `dashboards`             | [Dashboards](https://posthog.com/docs/product-analytics/dashboards)                             |
+| `data_catalog`           | Data catalog                                                                                    |
+| `data_schema`            | Data schema exploration                                                                         |
+| `data_warehouse`         | [Data warehouse](https://posthog.com/docs/data-warehouse)                                       |
+| `debug`                  | Debug and diagnostic tools                                                                      |
+| `docs`                   | PostHog documentation search                                                                    |
+| `early_access_features`  | [Early access features](https://posthog.com/docs/feature-flags/early-access-feature-management) |
+| `endpoints`              | [Endpoints](https://posthog.com/docs/endpoints)                                                 |
+| `engineering_analytics`  | Engineering analytics                                                                           |
+| `error_tracking`         | [Error tracking alerts](https://posthog.com/docs/error-tracking)                                |
+| `events`                 | Event and property definitions                                                                  |
+| `experiments`            | [Experiments](https://posthog.com/docs/experiments)                                             |
+| `feedback`               | Send feedback to the PostHog team                                                               |
+| `field_notes`            | Field notes                                                                                     |
+| `flags`                  | [Feature flags](https://posthog.com/docs/feature-flags)                                         |
+| `health_issues`          | Health                                                                                          |
+| `hog_function_templates` | CDP function template browsing                                                                  |
+| `hog_functions`          | [Functions](https://posthog.com/docs/cdp)                                                       |
+| `insights`               | [Insights & analytics](https://posthog.com/docs/product-analytics/insights)                     |
+| `integrations`           | Integrations                                                                                    |
+| `links`                  | PostHog app URL generation                                                                      |
+| `llm_analytics`          | [AI observability](https://posthog.com/docs/ai-observability)                                   |
+| `logs`                   | [Logs](https://posthog.com/docs/logs)                                                           |
+| `managed_migrations`     | Managed migrations                                                                              |
+| `marketing_analytics`    | Marketing analytics                                                                             |
+| `messaging`              | Messaging                                                                                       |
+| `mcp_analytics`          | MCP analytics                                                                                   |
+| `mcp_store`              | MCP Store                                                                                       |
+| `metrics`                | Metrics                                                                                         |
+| `notebooks`              | [Notebooks](https://posthog.com/docs/notebooks)                                                 |
+| `persons`                | [Persons](https://posthog.com/docs/data/persons)                                                |
+| `platform_features`      | Platform Features                                                                               |
+| `product_analytics`      | Product analytics                                                                               |
+| `reminders`              | Reminders                                                                                       |
+| `replay`                 | [Session replays](https://posthog.com/docs/session-replay)                                      |
+| `replay_vision`          | Replay vision                                                                                   |
+| `reverse_proxy`          | Reverse proxy record management                                                                 |
+| `review_hog`             | ReviewHog                                                                                       |
+| `signals`                | [Signals](https://posthog.com/docs/self-driving)                                                |
+| `skills`                 | Skills                                                                                          |
+| `sql`                    | SQL query execution                                                                             |
+| `stamphog`               | Stamphog                                                                                        |
+| `streamlit_apps`         | Streamlit apps                                                                                  |
+| `subscriptions`          | Subscriptions                                                                                   |
+| `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
+| `tasks`                  | [Tasks](https://posthog.com/docs/posthog-desktop/tasks)                                         |
+| `tracing`                | Tracing                                                                                         |
+| `user_interviews`        | User interview topics                                                                           |
+| `visual_review`          | Visual review                                                                                   |
+| `warehouse_sources`      | Warehouse sources                                                                               |
+| `web_analytics`          | [Web analytics](https://posthog.com/docs/web-analytics)                                         |
+| `workflows`              | [Workflows](https://posthog.com/docs/workflows)                                                 |
+| `workspace`              | Organization and project management                                                             |
 
 > **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
 
@@ -266,7 +302,9 @@ The example above exposes all flag tools plus `dashboard-get`.
 
 ### Server mode (tools vs cli)
 
-The MCP server can register either every PostHog tool individually (**tools** mode, the default for most clients) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode, used for token-constrained coding agents). When the caller does not say which mode they want, the server picks one automatically based on the client (coding agents get the cli mode when the rollout flag is enabled).
+The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode).
+**cli is the default for all clients.**
+When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name or its `Cursor/…` User-Agent) and ChatGPT (matched by its `openai-mcp … (ChatGPT)` User-Agent).
 
 You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
 
@@ -285,7 +323,11 @@ x-posthog-mcp-mode: tools
 | `tools` | Force tools mode (one MCP tool per PostHog tool).       |
 | `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
 
-The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
+The header wins when both the header and the query parameter are set.
+An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
+
+The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
+That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
 
 ### Consumer attribution
 
@@ -299,72 +341,81 @@ https://mcp.posthog.com/mcp?consumer=plugin
 x-posthog-mcp-consumer: plugin
 ```
 
-The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Desktop Tasks sandbox), `slack` (Slack integration).
 
 ### Data processing
 
-The MCP server is hosted on a Cloudflare worker which can be located outside of the EU / US, for this reason the MCP server does not store any sensitive data outside of your cloud region.
+The MCP server runs in PostHog's US and EU Kubernetes clusters and stores session state in the region you connect to.
+A stateless Cloudflare Worker in front of it only authenticates requests and routes them to your cloud region; it does not store any sensitive data.
 
 ### Using self-hosted instances
 
-If you're using a self-hosted instance of PostHog, you can specify a custom base URL by adding the `POSTHOG_BASE_URL` [environment variable](https://developers.cloudflare.com/workers/configuration/environment-variables) when running the MCP server locally or on your own infrastructure, e.g. `POSTHOG_BASE_URL=https://posthog.example.com`
+If you're using a self-hosted instance of PostHog, you can specify a custom base URL by setting the `POSTHOG_API_BASE_URL` environment variable when running the MCP server locally or on your own infrastructure, e.g. `POSTHOG_API_BASE_URL=https://posthog.example.com`
 
 # Development
 
-To run the MCP server locally, run the following command:
+To run the MCP server (Hono on Node) locally, run the following command:
 
 ```bash
 pnpm run dev
 ```
 
-And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
+Or use `bin/start-mcp-server` from the repo root, which also bootstraps `.env` and sets Redis/port defaults.
+Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
 
-### Hono runtime (Node)
+The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
-Alongside the Cloudflare Workers entry point, the same MCP code runs on Node via Hono — this is what ships to our k8s clusters. Useful locally when you want a CF-runtime-free debugger, fewer Wrangler quirks, or to repro a k8s-only bug.
+### Session cache
+
+A session's client context lives in one `mcp:s:<id>:c` key with a 24-hour idle expiry, refreshed on every request in the session.
+Concurrent requests merge their fields through a Lua compare-and-merge, so a field first seen mid-session is never lost to an overlapping write.
+
+Monitor `mcp_session_cache_operations_total` for `read_error` and `write_error`.
+Both are non-blocking: a failed read serves whatever context the current request carries, so attribution degrades rather than the call failing.
+Each also logs a warning prefixed `[McpSessionRedisStore]`, so a Redis failure on this path is greppable in logs and not only visible on the metrics counter.
+
+### Edge-proxy worker (Cloudflare)
+
+In production, a thin Cloudflare Worker sits in front of the Hono deployments as a stateless edge router: it serves the OAuth metadata endpoints, validates tokens, resolves the caller's cloud region, and proxies `/mcp` traffic to `mcp.us.posthog.com` / `mcp.eu.posthog.com`.
+It does not serve the MCP protocol itself - see [ARCHITECTURE.md](ARCHITECTURE.md).
+To run just the worker locally:
 
 ```bash
-pnpm run dev:hono
+pnpm run dev:proxy
 ```
-
-Defaults to port **8787**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:8787/mcp`.
-
-`bin/start-mcp-server` runs the Wrangler/CF version by default; set `MCP_RUNTIME=hono` to start the Hono runtime instead.
 
 ### Developing with local resources
 
 To develop with warm loading for MCP resources (workflows, prompts, examples):
 
 1. Start the [context-mill](https://github.com/PostHog/context-mill) dev server: `cd ../context-mill && npm run dev`
-2. Start the MCP server with local resources: `pnpm run dev:local-resources`
+2. Start the MCP server with local resources: `pnpm run dev:local-resources` (runs `bin/start-mcp-server` with `POSTHOG_MCP_LOCAL_SKILLS_URL` pointed at context-mill)
 
 Changes in the examples repo will be reflected on the next request.
 
 ## Project Structure
 
-This repository is organized to support multiple language implementations:
-
-- `typescript/` - TypeScript implementation of the MCP server & tools
-- `schema/` - Shared schema files generated from TypeScript
+- `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)
+- `definitions/` - Hand-authored YAML tool definitions (per-product YAML lives at `products/<product>/mcp/` in the monorepo)
+- `schema/` - Generated schema files, including `tool-definitions-all.json` (the full tool catalog)
+- `typescript/` - A small shim (`typescript/src/tools/posthogAiTools/`) consumed by posthog-ai
 
 ### Development Commands
 
-- `pnpm run dev` - Start development server
-- `pnpm run schema:build:json` - Generate JSON schema for other language implementations
-- `pnpm run lint && pnpm run format` - Format and lint code
+- `pnpm run dev` - Start the MCP development server
+- `pnpm run dev:proxy` - Start the edge-proxy worker (wrangler)
+- `pnpm run lint` / `pnpm run format:check` - Verify linting and formatting without changing files
+- `pnpm run lint:fix` - Apply safe lint fixes without suggestion fixes
+- `pnpm run format` - Format code with Oxfmt only
+- `pnpm run fix` - Apply safe lint fixes, always format code, and report failures from either tool
 
 ### Adding New Tools
 
-See the [tools documentation](typescript/src/tools/README.md) for a guide on adding new tools to the MCP server.
+See the [tools documentation](src/tools/README.md) for a guide on adding new tools to the MCP server.
 
 ### Environment variables
 
-- Create `.dev.vars` in the root
-- Add Inkeep API key to enable `docs-search` tool (see `Inkeep API key - mcp`)
-
-```bash
-INKEEP_API_KEY="..."
-```
+Copy `.env.example` to `.env` in the root and adjust the values as needed.
 
 ### Configuring the Model Context Protocol Inspector
 
@@ -394,7 +445,7 @@ npx
 
 ### Developing against Claude Desktop
 
-Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Code doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
+Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Desktop doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
 
 ```json
 {

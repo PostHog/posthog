@@ -5,6 +5,7 @@ import { ApiConfig } from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import {
+    engineeringAnalyticsJobAggregates,
     engineeringAnalyticsWorkflowJobs,
     engineeringAnalyticsWorkflowRunActivity,
     engineeringAnalyticsWorkflowRunnerCosts,
@@ -14,6 +15,7 @@ import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersL
 import { workflowRunsLogic } from './workflowRunsLogic'
 
 jest.mock('../generated/api', () => ({
+    engineeringAnalyticsJobAggregates: jest.fn(),
     engineeringAnalyticsWorkflowJobs: jest.fn(),
     engineeringAnalyticsWorkflowRunActivity: jest.fn(),
     engineeringAnalyticsWorkflowRunnerCosts: jest.fn(),
@@ -28,6 +30,9 @@ const mockRunnerCosts = engineeringAnalyticsWorkflowRunnerCosts as jest.MockedFu
     typeof engineeringAnalyticsWorkflowRunnerCosts
 >
 const mockJobs = engineeringAnalyticsWorkflowJobs as jest.MockedFunction<typeof engineeringAnalyticsWorkflowJobs>
+const mockJobAggregates = engineeringAnalyticsJobAggregates as jest.MockedFunction<
+    typeof engineeringAnalyticsJobAggregates
+>
 
 describe('workflowRunsLogic', () => {
     let logic: ReturnType<typeof workflowRunsLogic.build>
@@ -40,9 +45,14 @@ describe('workflowRunsLogic', () => {
         mockRunActivity.mockResolvedValue({ points: [], truncated: false, limit: 0 })
         mockRunnerCosts.mockResolvedValue([])
         mockJobs.mockResolvedValue([])
+        mockJobAggregates.mockResolvedValue([])
     })
 
+    let unmountFilters: (() => void) | undefined
+
     afterEach(() => {
+        unmountFilters?.()
+        unmountFilters = undefined
         logic?.unmount()
     })
 
@@ -50,7 +60,7 @@ describe('workflowRunsLogic', () => {
         logic = workflowRunsLogic({ repoOwner: 'PostHog', repoName: 'posthog', workflowName: 'CI', sourceId: null })
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
-        filters.mount()
+        unmountFilters = filters.mount()
         await expectLogic(logic).toDispatchActions([
             'loadRunsSuccess',
             'loadRunActivitySuccess',

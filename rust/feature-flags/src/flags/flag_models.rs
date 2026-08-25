@@ -102,9 +102,9 @@ impl EvaluationMetadata {
 /// which places all flags in one evaluation stage with empty transitive deps.
 ///
 /// HYPERCACHE CONTRACT: These fields must match the top-level keys returned by
-/// `_get_feature_flags_for_service()` in posthog/models/feature_flag/flags_cache.py.
+/// `_get_feature_flags_for_service()` in products/feature_flags/backend/flags_cache.py.
 /// Field changes must follow the expand-and-contract pattern — see contract tests in
-/// posthog/models/feature_flag/test/test_flags_cache.py.
+/// products/feature_flags/backend/test/test_flags_cache.py.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
@@ -124,6 +124,14 @@ pub struct HypercacheFlagsWrapper {
 pub struct Holdout {
     pub id: i64,
     pub exclusion_percentage: f64,
+}
+
+impl Holdout {
+    /// `exclusion_percentage` clamped to a valid 0-100 range, guarding against an out-of-range
+    /// stored value.
+    pub fn exclusion_percentage_clamped(&self) -> f64 {
+        self.exclusion_percentage.clamp(0.0, 100.0)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -177,6 +185,8 @@ pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
 }
 
+// Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates
+// filters against these shapes at write time — keep field shapes in sync (issue #50084).
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagFilters {
     #[serde(default)]

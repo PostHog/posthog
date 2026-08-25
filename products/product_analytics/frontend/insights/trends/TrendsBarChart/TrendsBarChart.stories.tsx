@@ -2,10 +2,16 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { type CSSProperties, useState } from 'react'
 
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { TrendInsight } from 'scenes/trends/Trends'
 
 import { mswDecorator } from '~/mocks/browser'
+import trendsValueFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -555,4 +561,31 @@ const BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT = {
 
 export const BarValueSingleBreakdown: Story = {
     render: () => renderTrendInsight(BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT),
+}
+
+// Plain bar-value display (aggregated totals per series, no breakdown)
+export const BarValue: Story = {
+    render: () => renderTrendInsight(trendsValueFixture),
+}
+
+// Full insight scene in edit mode — the trends editor (shared across display types), aggregated result shape
+export const EditScene: Story = createInsightStory(trendsValueFixture as any, 'edit')
+EditScene.decorators = [insightSceneMswDecorator]
+EditScene.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-bar-value-graph] > canvas',
+    },
+}
+
+export const EditSceneViewports: Story = createInsightStory(trendsValueFixture as any, 'edit')
+EditSceneViewports.decorators = [insightSceneMswDecorator]
+EditSceneViewports.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-bar-value-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
 }

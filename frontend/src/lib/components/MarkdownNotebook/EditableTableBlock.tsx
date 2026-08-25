@@ -29,6 +29,7 @@ export type TableStructureControlLayout = {
     tableTop: number
     tableWidth: number
     tableHeight: number
+    insertZoneSize: number
     rowInsertTops: number[]
     rowRemoveRects: { top: number; height: number }[]
     columnInsertLefts: number[]
@@ -67,6 +68,7 @@ export function areTableStructureControlLayoutsEqual(
         left.tableTop === right.tableTop &&
         left.tableWidth === right.tableWidth &&
         left.tableHeight === right.tableHeight &&
+        left.insertZoneSize === right.insertZoneSize &&
         areNumberArraysEqual(left.rowInsertTops, right.rowInsertTops) &&
         areControlRectsEqual(left.rowRemoveRects, right.rowRemoveRects) &&
         areNumberArraysEqual(left.columnInsertLefts, right.columnInsertLefts) &&
@@ -76,6 +78,31 @@ export function areTableStructureControlLayoutsEqual(
 
 export function tableControlStyle(variables: Record<string, string>): CSSProperties {
     return variables as CSSProperties
+}
+
+// Keep in sync with the 1.25rem add-zone size in MarkdownNotebook.scss
+const TABLE_INSERT_ZONE_SIZE_REM = 1.25
+const DEFAULT_ROOT_FONT_SIZE_PX = 16
+
+export function getTableInsertZoneSize(element: Element): number {
+    // The zone size is authored in rem, so resolve it against the actual root font size
+    // rather than assuming the browser default of 16px.
+    const ownerDocument = element.ownerDocument
+    const rootFontSize = parseFloat(
+        ownerDocument.defaultView?.getComputedStyle(ownerDocument.documentElement).fontSize ?? ''
+    )
+    return TABLE_INSERT_ZONE_SIZE_REM * (Number.isFinite(rootFontSize) ? rootFontSize : DEFAULT_ROOT_FONT_SIZE_PX)
+}
+
+export function clampTableInsertControlCenter(center: number, start: number, extent: number, zoneSize: number): number {
+    // Insert zones are centered on cell boundaries. Keep the outermost ones fully inside the
+    // table, otherwise they add scrollable overflow to the scroll container (a permanently
+    // visible scrollbar) and get clipped at the leading edge.
+    if (extent < zoneSize) {
+        return center
+    }
+    const half = zoneSize / 2
+    return Math.min(Math.max(center, start + half), start + extent - half)
 }
 
 export function EditableTableBlock({
@@ -153,6 +180,7 @@ export function EditableTableBlock({
             tableTop: tableRect.top - gridRect.top,
             tableWidth: tableRect.width,
             tableHeight: tableRect.height,
+            insertZoneSize: getTableInsertZoneSize(table),
             rowInsertTops,
             rowRemoveRects,
             columnInsertLefts,
@@ -345,6 +373,7 @@ export function EditableTableBlock({
     const tableTop = controlLayout?.tableTop ?? 0
     const tableWidth = controlLayout?.tableWidth ?? 0
     const tableHeight = controlLayout?.tableHeight ?? 0
+    const insertZoneSize = controlLayout?.insertZoneSize ?? TABLE_INSERT_ZONE_SIZE_REM * DEFAULT_ROOT_FONT_SIZE_PX
     const rowInsertControls = [
         {
             key: 'row-start',
@@ -360,7 +389,10 @@ export function EditableTableBlock({
             label: `Add row after row ${rowIndex + 1}`,
             tooltip: 'Add row below',
         })),
-    ]
+    ].map((control) => ({
+        ...control,
+        top: clampTableInsertControlCenter(control.top, tableTop, tableHeight, insertZoneSize),
+    }))
     const columnInsertControls = [
         {
             key: 'column-start',
@@ -376,7 +408,10 @@ export function EditableTableBlock({
             label: `Add column after column ${columnIndex + 1}`,
             tooltip: 'Add column after',
         })),
-    ]
+    ].map((control) => ({
+        ...control,
+        left: clampTableInsertControlCenter(control.left, tableLeft, tableWidth, insertZoneSize),
+    }))
 
     return (
         <div

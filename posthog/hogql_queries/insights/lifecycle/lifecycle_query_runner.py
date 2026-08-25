@@ -52,6 +52,14 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             DisallowUnsupportedDataWarehouseSettings(),
         )
 
+    def get_cache_payload(self) -> dict:
+        # Bump when format_results changes shape so old cached responses (e.g. the pre-alignment
+        # positional arrays) are invalidated rather than served stale. Lifecycle-scoped on purpose,
+        # so it doesn't invalidate every other query type's cache.
+        payload = super().get_cache_payload()
+        payload["lifecycle_formatter_version"] = 1
+        return payload
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
             counts_with_sampling: ast.Expr = ast.Constant(value=0)
@@ -204,16 +212,22 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         order = {"new": 1, "returning": 2, "resurrecting": 3, "dormant": 4}
         raw_results = sorted(response.results or [], key=lambda row: order.get(row[cols["status"]], 5))
 
+        # Each status is grouped independently in ClickHouse, and groupArray does not guarantee that the
+        # per-status (date, count) arrays share the same length or ordering. The chart plots every status
+        # positionally against a single shared axis, so align all statuses to one canonical, sorted set of
+        # periods here (filling gaps with 0) to keep the series aligned.
+        all_dates = sorted({date for val in raw_results for date in val[cols["date"]]})
+        labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in all_dates]
+        days = [
+            item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
+            for item in all_dates
+        ]
+
         results = []
         for val in raw_results:
-            counts = val[cols["total"]]
-            dates = val[cols["date"]]
+            counts_by_date = dict(zip(val[cols["date"]], val[cols["total"]]))
             status = val[cols["status"]]
-            labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in dates]
-            days = [
-                item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
-                for item in dates
-            ]
+            data = [float(counts_by_date.get(date, 0)) for date in all_dates]
 
             # legacy response compatibility object
             action_object = {}
@@ -263,8 +277,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             results.append(
                 {
                     "action": action_object,
-                    "data": [float(c) for c in counts],
-                    "count": float(sum(counts)),
+                    "data": data,
+                    "count": float(sum(data)),
                     "labels": labels,
                     "days": days,
                     **additional_values,
@@ -325,6 +339,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     def event_filter(self) -> ast.Expr:
         event_filters: list[ast.Expr] = []
         if not self.is_data_warehouse_series:
+            # Personless (anonymous) events are excluded: lifecycle classifies a user's activity
+            # across periods, which requires a person profile. This makes lifecycle counts lower
+            # than unique-user trends for projects with anonymous traffic.
             event_filters.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["properties", "$process_person_profile"]),
@@ -347,6 +364,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     timings=self.timings,
                 )
             )
+            # dateRange.daysOfWeek is deliberately ignored: lifecycle statuses are defined by
+            # interval adjacency, which a sparse day axis breaks (weekend-only users would be
+            # misclassified as resurrecting, and dormant would land on excluded days).
         with self.timings.measure("properties"):
             if self.query.properties is not None and self.query.properties != []:
                 event_filters.append(property_to_expr(self.query.properties, self.team))

@@ -2,11 +2,9 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
@@ -16,6 +14,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -27,6 +26,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -36,13 +36,13 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { SurveyOpportunityButton } from 'scenes/surveys/components/SurveyOpportunityButton'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
-import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
+import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, ProductKey } from '~/queries/schema/schema-general'
+import { DashboardFilter, Node, ProductKey, TileFilters } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -54,7 +54,16 @@ import {
     InsightLogicProps,
     InsightShortId,
     QueryBasedInsightModel,
+    InsightFilterOverrideContext,
 } from '~/types'
+
+import {
+    areAlertsSupportedForInsight,
+    areAnomalyAlertsSupportedForInsight,
+    insightAlertsLogic,
+} from 'products/alerts/frontend/logic/insightAlertsLogic'
+import type { AlertType } from 'products/alerts/frontend/types'
+import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
@@ -85,6 +94,7 @@ interface InsightMetaProps extends Pick<
     | 'variablesOverride'
     | 'placement'
     | 'surveyOpportunity'
+    | 'showCreateAnomalyAlertButton'
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -93,6 +103,27 @@ interface InsightMetaProps extends Pick<
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
+    onCreateAlert?: () => void
+    onEditAlert?: (alertId: AlertType['id']) => void
+    onCreateAnomalyAlert?: () => void
+}
+
+export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
+    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
 export function InsightMeta({
@@ -121,8 +152,12 @@ export function InsightMeta({
     moreButtons,
     placement,
     surveyOpportunity,
+    showCreateAnomalyAlertButton,
     onDragHandleMouseDown,
     persistDisplayOptions,
+    onCreateAlert,
+    onEditAlert,
+    onCreateAnomalyAlert,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -171,13 +206,17 @@ export function InsightMeta({
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
+    const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters
+    // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
+    const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
+    const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
-        hasTileOverrides: Object.keys(tileFiltersOverride ?? {}).length > 0,
+        hasTileOverrides,
+        ignoresDashboardFilters,
         resolvedDateRange: insightData?.resolved_date_range,
-        dateFromOverride: tileFiltersOverride?.date_from ?? filtersOverride?.date_from,
-        dateToOverride: tileFiltersOverride?.date_to ?? filtersOverride?.date_to,
+        ...dateOverride,
     }
 
     const summary = useSummarizeInsight()(insight.query)
@@ -196,9 +235,9 @@ export function InsightMeta({
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
-        funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
+        metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
@@ -240,16 +279,14 @@ export function InsightMeta({
             </div>
         ) : null
 
-    const surveyOpportunityButton =
-        surveyOpportunity && isSurveyableFunnelInsight(insight) ? (
-            <SurveyOpportunityButton
-                insight={insight}
-                disableAutoPromptSubmit={true}
-                source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
-                fromProduct={ProductKey.PRODUCT_ANALYTICS}
-                tooltip="Create a survey to understand why users are dropping off"
-            />
-        ) : null
+    const surveyOpportunityInsight = surveyOpportunity && isSurveyableFunnelInsight(insight) ? insight : null
+    const canShowCreateAnomalyAlert =
+        showCreateAnomalyAlertButton &&
+        canViewInsight &&
+        canCreateAnomalyAlertForInsight &&
+        !!short_id &&
+        !!insight.id &&
+        !!onCreateAnomalyAlert
 
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
@@ -334,6 +371,7 @@ export function InsightMeta({
             variablesOverride={variablesOverride}
             filtersOverride={filtersOverride}
             tileFiltersOverride={tileFiltersOverride ?? null}
+            filterOverrideContext={insight.filter_override_context}
             hasDataWarehouseSeries={hasDataWarehouseSeries}
         />
     ) : null
@@ -348,6 +386,18 @@ export function InsightMeta({
               reportDashboardInsightMetaUpdated(dashboardId, insight.id, attribute)
           }
         : undefined
+
+    // Carries the dashboard's filters and variables, so the link opens exactly what the tile shows
+    const insightViewUrl = urls.insightView(
+        short_id,
+        dashboardId,
+        variablesOverride,
+        filtersOverride,
+        tileFiltersOverride
+    )
+    const copyInsightLink = (): void => {
+        void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link')
+    }
 
     return (
         <>
@@ -364,13 +414,7 @@ export function InsightMeta({
                 popoverTopHeading={popoverTopHeadingEl}
                 content={
                     <InsightMetaContent
-                        link={urls.insightView(
-                            short_id,
-                            dashboardId,
-                            variablesOverride,
-                            filtersOverride,
-                            tileFiltersOverride
-                        )}
+                        link={insightViewUrl}
                         title={name}
                         fallbackTitle={summary}
                         description={insight.description}
@@ -404,14 +448,17 @@ export function InsightMeta({
                         {/* Insight related */}
                         {canViewInsight && (
                             <LemonButton
-                                to={urls.insightView(
-                                    short_id,
-                                    dashboardId,
-                                    variablesOverride,
-                                    filtersOverride,
-                                    tileFiltersOverride
-                                )}
+                                to={insightViewUrl}
                                 fullWidth
+                                sideAction={{
+                                    icon: <IconLink />,
+                                    tooltip: 'Copy link to insight',
+                                    'aria-label': 'Copy link to insight',
+                                    'data-attr': dashboardId
+                                        ? 'copy-insight-link-from-dashboard'
+                                        : 'copy-insight-link-from-card-list-view',
+                                    onClick: copyInsightLink,
+                                }}
                             >
                                 View
                             </LemonButton>
@@ -602,7 +649,16 @@ export function InsightMeta({
                         ? 'Rename, duplicate, export, refresh and more…'
                         : 'Duplicate, export, refresh and more…'
                 }
-                extraControls={surveyOpportunityButton ?? feedbackButtons}
+                extraControls={
+                    placement !== DashboardPlacement.Public &&
+                    (surveyOpportunityInsight || canShowCreateAnomalyAlert || feedbackButtons) ? (
+                        <InsightMetaExtraControls
+                            surveyOpportunityInsight={surveyOpportunityInsight}
+                            onCreateAnomalyAlert={canShowCreateAnomalyAlert ? onCreateAnomalyAlert : undefined}
+                            feedbackButtons={feedbackButtons}
+                        />
+                    ) : null
+                }
                 refreshControl={refreshControl}
             />
             {showDashboardAlertsMenuItem && insight.id ? (
@@ -613,11 +669,61 @@ export function InsightMeta({
                     insightId={insight.id}
                     insightShortId={short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    onCreateAlert={onCreateAlert}
+                    onEditAlert={onEditAlert}
                     insightQuery={query}
                     deferInitialAlertsLoad
                 />
             ) : null}
         </>
+    )
+}
+
+interface InsightMetaExtraControlsProps {
+    showLabel?: boolean
+    surveyOpportunityInsight?: SurveyableFunnelInsight | null
+    onCreateAnomalyAlert?: () => void
+    feedbackButtons?: JSX.Element | null
+}
+
+function CreateAnomalyAlertButton({ onClick, showLabel }: { onClick: () => void; showLabel?: boolean }): JSX.Element {
+    return (
+        <LemonButton
+            size="xsmall"
+            type="primary"
+            icon={<IconPulse />}
+            onClick={onClick}
+            tooltip={!showLabel ? 'Create anomaly alert' : undefined}
+            data-attr="create-anomaly-alert-button"
+        >
+            {showLabel && 'Create anomaly alert'}
+        </LemonButton>
+    )
+}
+
+function InsightMetaExtraControls({
+    showLabel,
+    surveyOpportunityInsight,
+    onCreateAnomalyAlert,
+    feedbackButtons,
+}: InsightMetaExtraControlsProps): JSX.Element {
+    return (
+        <div className="flex items-center gap-1">
+            {surveyOpportunityInsight ? (
+                <SurveyOpportunityButton
+                    insight={surveyOpportunityInsight}
+                    disableAutoPromptSubmit={true}
+                    source={SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL}
+                    fromProduct={ProductKey.PRODUCT_ANALYTICS}
+                    showLabel={showLabel}
+                    tooltip="Create a survey to understand why users are dropping off"
+                />
+            ) : null}
+            {onCreateAnomalyAlert ? (
+                <CreateAnomalyAlertButton onClick={onCreateAnomalyAlert} showLabel={showLabel} />
+            ) : null}
+            {feedbackButtons}
+        </div>
     )
 }
 

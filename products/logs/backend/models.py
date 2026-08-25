@@ -4,10 +4,13 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Value
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
@@ -24,6 +27,44 @@ logger = logging.getLogger(__name__)
 # whose pipeline uses a different key can override via the `logs_config` endpoint.
 DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = "posthogDistinctId"
 
+DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY]
+
+
+def default_logs_distinct_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS)
+
+
+# Built-in distinct-id attribute key conventions. Mirror of the frontend DISTINCT_ID_KEYS in
+# products/logs/frontend/utils.tsx — keep the two in sync. The logs UI renders a value under
+# any of these keys as a clickable person link (isDistinctIdKey), so the person Logs tab scopes
+# on them too (on top of a team's configured keys), otherwise a log shown as belonging to a
+# person would not appear on that person's tab. Literal keys only: the frontend additionally
+# matches dot-suffixed variants (e.g. `span.distinct_id`), which an exact attribute filter can't
+# express.
+DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "distinct.id",
+    "distinct_id",
+    "distinctId",
+    "distinctID",
+    "posthogDistinctId",
+    "posthogDistinctID",
+    "posthog_distinct_id",
+    "posthog.distinct.id",
+    "posthog.distinct_id",
+]
+
+
+# Default log attribute keys whose values hold the PostHog session ID. `sessionId` is what
+# the posthog-js / posthog-react-native SDKs emit and what
+# https://posthog.com/docs/logs/link-session-replay tells backends to send. Ordered:
+# detection checks keys in list order and the first match wins. Customers whose pipeline
+# emits the session ID under different keys can override via the `logs_config` endpoint.
+DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ["sessionId"]
+
+
+def default_logs_session_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
+
 
 class TeamLogsConfig(models.Model):
     # Plain `models.Model` (not `TeamScopedRootMixin`) — log emission and ingestion
@@ -33,13 +74,33 @@ class TeamLogsConfig(models.Model):
     # access to. Mirrors the `TeamExperimentsConfig` precedent.
     team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
 
-    # Log attribute key whose value matches a PostHog person's distinct_id. Used by the
-    # person profile Logs tab and the `query-logs` MCP tool to filter logs to a single
-    # user without needing per-team prompt engineering.
+    # Legacy single-key predecessor of `logs_distinct_id_attribute_keys`, kept in sync
+    # with its first entry so pre-plural readers stay coherent. Do not write directly.
     logs_distinct_id_attribute_key = models.CharField(
         max_length=200,
         default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
         db_default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    )
+
+    # Log attribute keys whose values match a PostHog person's distinct_id — a log links
+    # to a person when any of these attributes equals one of the person's distinct IDs.
+    # Used by the person profile Logs tab and the `query-logs` MCP tool to filter logs
+    # to a single user without needing per-team prompt engineering.
+    logs_distinct_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_distinct_id_attribute_keys,
+        db_default=Value("{posthogDistinctId}"),
+    )
+
+    # Ordered list of log attribute keys whose values hold the PostHog session ID.
+    # Detection checks keys in order; the first key with a value wins. Used to link
+    # logs to session replay and error tracking sessions.
+    logs_session_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_session_id_attribute_keys,
+        # Stale relative to the default above; aligning it needs a migration and Django
+        # applies `default` first, so this is never observed.
+        db_default=Value("{posthogSessionId}"),
     )
 
 
@@ -57,6 +118,8 @@ class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
+    # Display config (LogsColumnConfig[]), separate from filter state. Null = default column set.
+    columns = models.JSONField(null=True, default=None)
     pinned = models.BooleanField(default=False)
 
     class Meta:
@@ -123,6 +186,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     # Cooldown & snooze
     cooldown_minutes = models.PositiveIntegerField(default=0)
     snooze_until = models.DateTimeField(null=True, blank=True)
+    schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
     # Scheduling & tracking
     next_check_at = models.DateTimeField(null=True, blank=True)
@@ -274,6 +338,62 @@ class LogsAlertEvent(UUIDModel):
         return count
 
 
+# Cap on enabled metric rules per team. Every enabled rule is evaluated against every
+# ingested log record in the Node worker, so the cap bounds per-record CPU. Mirrored in
+# the serializer so the limit surfaces as a 400 rather than silent worker truncation.
+MAX_ENABLED_METRIC_RULES = 10
+
+# Group-by cardinality bounds. Keys beyond the cap multiply the number of emitted metric
+# series per rule; the serializer rejects rules exceeding it at write time.
+MAX_METRIC_RULE_GROUP_BY_KEYS = 5
+
+# Top-level LogRecord fields allowed as group-by dimensions. Anything else must be
+# addressed through the `attributes.` / `resource_attributes.` map prefixes.
+METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS = ("service_name", "severity_text", "event_name")
+
+
+class LogsMetricRule(ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Generates a metric from ingested logs: records matching `filter_group` are tallied
+    at ingest time (before drop rules) and emitted into the Metrics product under
+    `metric_name`. With `value_attribute` unset the rule counts matching records; when set,
+    the numeric value of that attribute is aggregated into a distribution (count + sum)."""
+
+    # db_constraint=False on the team/user FKs: posthog_team and posthog_user are hot tables,
+    # and creating an FK constraint against them locks the parent — see the hot-table section
+    # of safe-django-migrations.md. Enforcement is app-level (Django still cascades in the ORM).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    # Emitted OTLP metric name. Immutable after create (changing it would start a brand-new
+    # series and orphan the old one) — enforced in the serializer.
+    metric_name = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=False)
+    # PropertyGroupFilter JSON (same shape as LogsExclusionRule config.filter_group).
+    # Null = every ingested log record matches.
+    filter_group = models.JSONField(null=True, blank=True, default=None)
+    # Log attribute key holding the numeric value to aggregate (`attributes.` /
+    # `resource_attributes.` prefixed). Null = count matching records. Immutable after
+    # create — it decides the emitted metric type (sum vs histogram).
+    value_attribute = models.CharField(max_length=512, null=True, blank=True)
+    # Group-by dimension keys; each distinct value combination becomes its own series.
+    group_by = ArrayField(models.CharField(max_length=512), default=list, blank=True)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsmetricrule"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "metric_name"], name="logs_metric_rule_team_metric_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["team_id", "enabled"], name="logs_metric_team_enabled_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} -> {self.metric_name} (team={self.team_id})"
+
+
 class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """User-defined rules to drop or exclude log lines before storage (evaluated in ingestion when enabled)."""
 
@@ -300,6 +420,42 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         db_table = "logs_logsexclusionrule"
         indexes = [
             models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"
+
+
+class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules that override how long matching log lines are retained (evaluated in ingestion
+    when enabled). First matching rule by (priority, created_at) wins; logs matching no rule keep the
+    team's default retention (`Team.logs_settings.retention_days`)."""
+
+    # Plain team FK — like LogsExclusionRule and TeamLogsConfig, retention rules are per-environment,
+    # so this deliberately does not use TeamScopedRootMixin (whose canonical-team save() rewrite would
+    # let one child environment mutate a sibling's rules). Tenant isolation is enforced at the API layer
+    # via safely_get_queryset filtering on team_id; the model is tracked in scoping/baseline_unmigrated.txt.
+    # db_constraint=False on the hot-table FKs (team, created_by) keeps the CreateModel migration
+    # lock-free — creating a real FK constraint would take a SHARE ROW EXCLUSIVE lock on the parent.
+    # Enforcement stays at the ORM level (cascade/set-null run through the Django collector).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    # {"filter_group": <PropertyGroupFilter>, "retention_days": <14|30|90>}
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsretentionrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_retention_team_en_pr_idx"),
         ]
 
     def __str__(self) -> str:

@@ -109,7 +109,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                       }),
                                       spanProcessors: [
                                         new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
+                                          projectToken: '<ph_project_token>',
                                           host: '<ph_client_api_host>',
                                         }),
                                       ],
@@ -120,16 +120,6 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                             },
                         ]}
                     />
-
-                    <Markdown>
-                        {dedent`
-                            PostHog identifies each event using the \`posthog.distinct_id\` attribute on the OpenTelemetry
-                            **Resource** (with \`user.id\` as a fallback, then a random UUID if neither is set). Because
-                            the Resource applies to every span in a batched export, you only need to set the distinct ID
-                            once — there's no need for a \`BaggageSpanProcessor\` or per-span propagation. Any other
-                            Resource or span attributes pass through as event properties.
-                        `}
-                    </Markdown>
                 </>
             ),
         },

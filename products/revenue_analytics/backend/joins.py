@@ -1,7 +1,6 @@
-from django.db.models import QuerySet
-
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.api import list_revenue_source_settings
+from products.warehouse_sources.backend.facade.contracts import RevenueSourceSettings
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
@@ -12,23 +11,25 @@ def get_customer_revenue_view_name(table_prefix: str | None = None) -> str:
     return "stripe.customer_revenue_view"
 
 
-def get_stripe_sources_for_team(team_id: int) -> QuerySet[ExternalDataSource]:
-    return ExternalDataSource.objects.filter(
-        team_id=team_id,
-        source_type=ExternalDataSourceType.STRIPE,
-    ).exclude(deleted=True)
+def get_stripe_sources_for_team(team_id: int) -> list[RevenueSourceSettings]:
+    return list_revenue_source_settings(
+        team_id,
+        source_types=[ExternalDataSourceType.STRIPE],
+    )
+
+
+def _enabled_stripe_sources(team_id: int) -> list[RevenueSourceSettings]:
+    return [source for source in get_stripe_sources_for_team(team_id) if source.enabled]
 
 
 def ensure_person_join_for_team(team_id: int) -> None:
-    sources = get_stripe_sources_for_team(team_id)
-    for source in sources:
-        if source.revenue_analytics_config_safe.enabled:
-            ensure_person_join(team_id, source.prefix)
+    for source in _enabled_stripe_sources(team_id):
+        ensure_person_join(team_id, source.prefix)
 
 
 def ensure_person_join(team_id: int, table_prefix: str | None = None) -> None:
     prefix = table_prefix or ""
-    DataWarehouseJoin.objects.get_or_create(
+    DataWarehouseJoin.create_if_missing(
         team_id=team_id,
         deleted=False,
         source_table_name=get_customer_revenue_view_name(prefix),
@@ -40,10 +41,8 @@ def ensure_person_join(team_id: int, table_prefix: str | None = None) -> None:
 
 
 def remove_person_join_for_team(team_id: int) -> None:
-    sources = get_stripe_sources_for_team(team_id)
-    for source in sources:
-        if source.revenue_analytics_config_safe.enabled:
-            remove_person_join(team_id, source.prefix)
+    for source in _enabled_stripe_sources(team_id):
+        remove_person_join(team_id, source.prefix)
 
 
 def remove_person_join(team_id: int, table_prefix: str | None = None) -> None:

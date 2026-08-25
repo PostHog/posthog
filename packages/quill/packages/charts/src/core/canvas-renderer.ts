@@ -2,7 +2,16 @@ import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
 import { barColorAt, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
-import type { BarFillStyle, BoxRect, ChartDimensions, ChartDrawArgs, ChartTheme, DrawHoverResult, ResolvedSeries } from './types'
+import type {
+    BarFillStyle,
+    BoxRect,
+    ChartDimensions,
+    ChartDrawArgs,
+    ChartTheme,
+    DrawHoverResult,
+    ResolvedSeries,
+    ScatterMarkerShape,
+} from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -384,18 +393,26 @@ function resolvePartialIndex(idx: number | undefined, length: number): number | 
 const hatchPatternCache = new Map<string, CanvasPattern>()
 
 function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
-    const cached = hatchPatternCache.get(color)
+    // The draw context is transform-scaled to device pixels, so a tile authored in CSS pixels would
+    // be upscaled and blur. Read the ratio off the backing store rather than `window.devicePixelRatio`
+    // for the reason in `clearAndPrepare`: a redraw can run at a different ratio than sized the canvas.
+    const backing = ctx.canvas
+    const dpr = backing && backing.width > 0 ? backing.width / (backing.clientWidth || backing.width) : 1
+    const scale = dpr > 0 && Number.isFinite(dpr) ? dpr : 1
+    const size = 14
+    const key = `${color}@${scale}`
+    const cached = hatchPatternCache.get(key)
     if (cached) {
         return cached
     }
-    const size = 14
     const patCanvas = document.createElement('canvas')
-    patCanvas.width = size
-    patCanvas.height = size
+    patCanvas.width = Math.max(1, Math.round(size * scale))
+    patCanvas.height = Math.max(1, Math.round(size * scale))
     const patCtx = patCanvas.getContext('2d')
     if (!patCtx) {
         return color
     }
+    patCtx.scale(scale, scale)
     patCtx.strokeStyle = color
     patCtx.lineWidth = 4
     patCtx.beginPath()
@@ -412,7 +429,11 @@ function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPa
     patCtx.stroke()
     const pattern = ctx.createPattern(patCanvas, 'repeat')
     if (pattern) {
-        hatchPatternCache.set(color, pattern)
+        // Undo the backing scale so one bitmap pixel lands on one device pixel.
+        if (scale !== 1 && typeof pattern.setTransform === 'function' && typeof DOMMatrix === 'function') {
+            pattern.setTransform(new DOMMatrix([1 / scale, 0, 0, 1 / scale, 0, 0]))
+        }
+        hatchPatternCache.set(key, pattern)
         return pattern
     }
     return color
@@ -583,6 +604,41 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+/** Trace a scatter marker's outline at (x, y) without painting it, so the caller can fill it
+ *  translucently and stroke it opaquely from one traced path. `radius` is the glyph's half-extent,
+ *  so every shape spans the same width as a circle of that radius. `cross` traces two open strokes
+ *  and can only be stroked. */
+export function traceScatterMarker(
+    ctx: CanvasRenderingContext2D,
+    shape: ScatterMarkerShape,
+    x: number,
+    y: number,
+    radius: number
+): void {
+    ctx.beginPath()
+    switch (shape) {
+        case 'square':
+            ctx.rect(x - radius, y - radius, radius * 2, radius * 2)
+            return
+        case 'triangle':
+            // Base at half the radius, which puts the centroid rather than the bounding box on the
+            // data point, so the glyph's visual weight sits where the value is.
+            ctx.moveTo(x, y - radius)
+            ctx.lineTo(x + radius, y + radius * 0.5)
+            ctx.lineTo(x - radius, y + radius * 0.5)
+            ctx.closePath()
+            return
+        case 'cross':
+            ctx.moveTo(x - radius, y - radius)
+            ctx.lineTo(x + radius, y + radius)
+            ctx.moveTo(x + radius, y - radius)
+            ctx.lineTo(x - radius, y + radius)
+            return
+        default:
+            ctx.arc(x, y, radius, 0, Math.PI * 2)
+    }
+}
+
 /** Snap a coordinate to the nearest half-pixel so a 1px stroke fills exactly one pixel row/column.
  *  Every axis-adjacent stroke — grid lines, axis baselines, tick marks — must share this rule, or
  *  they land one pixel apart and visibly misalign. */
@@ -599,12 +655,19 @@ export function resolveAxisLineColor(theme: ChartTheme): string | undefined {
 
 export interface DrawAxesOptions {
     axisColor?: string
+    /** Stroke the bottom (x) baseline. Default true. */
+    xLine?: boolean
+    /** Stroke the left (y) baseline. Default true. */
+    yLine?: boolean
+    /** Also stroke the right plot edge — for charts with a right-positioned y-axis. Gated on `yLine`. */
+    rightAxis?: boolean
 }
 
 /** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
  *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
 export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
     const { ctx, dimensions } = drawCtx
+    const { xLine = true, yLine = true } = options
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
     ctx.lineWidth = 1
     ctx.setLineDash([])
@@ -612,16 +675,27 @@ export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): v
     // zero-value grid line and with drawTickMarks' ticks.
     const axisX = snapToPixel(dimensions.plotLeft)
     const axisY = snapToPixel(dimensions.plotTop + dimensions.plotHeight)
-    // Route both strokes through the shared, snapped corner (axisX, axisY) so the L meets cleanly
-    // even when plotLeft/plotHeight are fractional.
-    ctx.beginPath()
-    ctx.moveTo(axisX, dimensions.plotTop)
-    ctx.lineTo(axisX, axisY)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.moveTo(axisX, axisY)
-    ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
-    ctx.stroke()
+    const rightX = snapToPixel(dimensions.plotLeft + dimensions.plotWidth)
+    // Route the strokes through shared, snapped corners so the lines meet cleanly even when the
+    // plot edges are fractional.
+    if (yLine) {
+        ctx.beginPath()
+        ctx.moveTo(axisX, dimensions.plotTop)
+        ctx.lineTo(axisX, axisY)
+        ctx.stroke()
+    }
+    if (xLine) {
+        ctx.beginPath()
+        ctx.moveTo(axisX, axisY)
+        ctx.lineTo(rightX, axisY)
+        ctx.stroke()
+    }
+    if (yLine && options.rightAxis) {
+        ctx.beginPath()
+        ctx.moveTo(rightX, dimensions.plotTop)
+        ctx.lineTo(rightX, axisY)
+        ctx.stroke()
+    }
 }
 
 /** Length (px) of an axis tick mark, measured outward from the plot edge. */
@@ -896,9 +970,19 @@ export function withVerticalClip(
     // Matches drawAxes' snapping: the axis line's 1px column starts at round(plotLeft), so trimming
     // there leaves the stroke flush against the axis line.
     const left = clipLeft ? Math.round(dimensions.plotLeft) : 0
+    const clipWidth = dimensions.width - left
+    // `useChartMargins` grows the left margin from measured label widths with a floor but no ceiling
+    // against the container, so a narrow chart with stacked y-axis gutters can reserve more than it
+    // has. That makes the rect negative, which canvas reads as a reversed rectangle sitting entirely
+    // off the right edge — clipping to it would discard the whole series layer while the DOM axis
+    // labels still render. Draw unclipped rather than invisibly. `!(> 0)` also bails on a NaN width.
+    if (!(clipWidth > 0)) {
+        draw()
+        return
+    }
     ctx.save()
     ctx.beginPath()
-    ctx.rect(left, dimensions.plotTop - pad, dimensions.width - left, dimensions.plotHeight + pad * 2)
+    ctx.rect(left, dimensions.plotTop - pad, clipWidth, dimensions.plotHeight + pad * 2)
     ctx.clip()
     try {
         draw()
@@ -1072,20 +1156,45 @@ export function drawBars(
     const dataLength = series.data.length
     const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, dataLength)
     const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, dataLength)
-    const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
 
     for (const bar of bars) {
         if (bar.width <= 0 || bar.height <= 0) {
             continue
         }
         const useHatch =
-            hatch !== null &&
-            ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
-        ctx.fillStyle = useHatch ? hatch : makeBarFill(ctx, barColorAt(series, bar.dataIndex), bar, fillStyle)
+            (dashedFrom !== null && bar.dataIndex >= dashedFrom) ||
+            (dashedTo !== null && bar.dataIndex <= dashedTo) ||
+            !!series.bars?.[bar.dataIndex]?.hatch
+        // The hatch keeps the bar's own resolved color (per-bar override included) so a
+        // flagged bar still reads as belonging to its series. Pattern lookups are cached.
+        const barColor = barColorAt(series, bar.dataIndex)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+        if (useHatch) {
+            drawHatchedBarFill(ctx, barColor)
+            continue
+        }
+        ctx.fillStyle = makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.fill()
     }
+}
+
+// Deliberately higher than the `BAR_TRACK_*` pair above, which the same construction uses. A track
+// is a backdrop meant to recede, whereas a flagged bar carries the bucket's actual count, so at
+// track alpha it would read as an empty bucket rather than one that is still filling.
+const HATCHED_BAR_BASE_ALPHA = 0.25
+const HATCHED_BAR_HATCH_ALPHA = 0.65
+
+/** Fills the already-traced path as a hatched bar. Owns save/restore. */
+function drawHatchedBarFill(ctx: CanvasRenderingContext2D, color: string): void {
+    ctx.save()
+    ctx.globalAlpha = HATCHED_BAR_BASE_ALPHA
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.globalAlpha = HATCHED_BAR_HATCH_ALPHA
+    ctx.fillStyle = getHatchPattern(ctx, color)
+    ctx.fill()
+    ctx.restore()
 }
 
 // Tracks render as a tinted base under hatched stripes — same construction as the legacy
@@ -1364,7 +1473,8 @@ export function drawSelectionRect(
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
 }
 
-// The selection always spans the full plot height — this is x-axis range selection only.
+// x-only drags (`onDateRangeZoom`) span the full plot height; a 2D drag (`onAreaSelect`)
+// carries `y0`/`y1` on the rect and the band clamps to that vertical range too.
 export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawHoverFn {
     return (args) => {
         const result = baseDrawHover(args)
@@ -1374,14 +1484,19 @@ export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawH
         }
         const x0 = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
         const x1 = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
-        if (x1 <= x0) {
+        const plotBottom = args.dimensions.plotTop + args.dimensions.plotHeight
+        const { y0: rectY0, y1: rectY1 } = dragRect
+        const hasY = rectY0 != null && rectY1 != null
+        const y0 = hasY ? Math.max(args.dimensions.plotTop, Math.min(rectY0, rectY1)) : args.dimensions.plotTop
+        const y1 = hasY ? Math.min(plotBottom, Math.max(rectY0, rectY1)) : plotBottom
+        if (x1 <= x0 || y1 <= y0) {
             return result
         }
         drawSelectionRect(args.ctx, {
             x: x0,
-            y: args.dimensions.plotTop,
+            y: y0,
             width: x1 - x0,
-            height: args.dimensions.plotHeight,
+            height: y1 - y0,
         })
         return result
     }

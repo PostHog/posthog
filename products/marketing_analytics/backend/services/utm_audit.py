@@ -4,7 +4,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.schema import DateRange, NativeMarketingSource
+from posthog.schema import DateRange
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -13,14 +13,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 from posthog.models.user import User
+from posthog.sync import database_sync_to_async
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
-from products.marketing_analytics.backend.hogql_queries.constants import (
-    INTEGRATION_DEFAULT_SOURCES,
-    INTEGRATION_PRIMARY_SOURCE,
-)
-from products.marketing_analytics.backend.services.native_integrations import KEY_TO_NATIVE, iter_custom_source_mappings
+from products.marketing_analytics.backend.services.campaign_mapping_suggester import suggest_campaign_name_mappings
+from products.marketing_analytics.backend.services.native_integrations import native_for_primary_source
 from products.marketing_analytics.backend.services.types import (
     AlternativeSource,
     Campaign,
@@ -34,90 +32,19 @@ from products.marketing_analytics.backend.services.types import (
     UtmIssueKind,
     UtmIssueSeverity,
 )
+from products.marketing_analytics.backend.services.utm_matching import (
+    build_campaign_lookup,
+    build_known_sources,
+    build_source_lookup,
+    get_match_field,
+    get_match_value,
+    load_team_mappings,
+    normalize_campaign_name,
+    normalize_source_name,
+    resolve_source,
+)
 
 logger = structlog.get_logger(__name__)
-
-
-def _load_team_mappings(team: Team) -> TeamMappings:
-    """Load custom source mappings and campaign name mappings from team config."""
-    config = team.marketing_analytics_config
-    if config is None:
-        return TeamMappings(source_to_integration={}, campaign_aliases={}, field_preferences={})
-
-    # Build source mapping: custom utm_source values -> the integration's primary source.
-    # e.g. custom_source_mappings = {"GoogleAds": ["partner_blog", "affiliate"]} →
-    # {"partner_blog": "google", "affiliate": "google"} because the GoogleAds adapter
-    # uses "google" as `source_name`. The (target_key, raw_value) pairs come from
-    # `iter_custom_source_mappings` so the enum-resolution rules stay shared with
-    # `native_integrations.build_combined_alias_map`.
-    source_to_integration: dict[str, str] = {}
-    for target_key, raw_value in iter_custom_source_mappings(config.custom_source_mappings):
-        native = KEY_TO_NATIVE[target_key]
-        primary = INTEGRATION_PRIMARY_SOURCE.get(native)
-        if not primary:
-            # Integration without a registered primary source (e.g. shipped before
-            # INTEGRATION_PRIMARY_SOURCE was updated). Drop it, but log the gap.
-            logger.warning(
-                "utm_audit_dropping_custom_mapping_no_primary_source",
-                team_id=team.id,
-                integration=native.value,
-                raw_value=raw_value,
-            )
-            continue
-        source_to_integration[raw_value.lower().strip()] = str(primary).lower().strip()
-
-    # Build campaign aliases: clean_campaign_name -> set of raw utm values
-    # e.g. campaign_name_mappings = {"GoogleAds": {"brand_campaign": ["partner_q1", "brand_q1"]}}
-    campaign_aliases: dict[str, set[str]] = {}
-    campaign_name_mappings = config.campaign_name_mappings or {}
-    for _integration_type, campaign_map in campaign_name_mappings.items():
-        for clean_name, raw_values in campaign_map.items():
-            clean_lower = clean_name.lower().strip()
-            if clean_lower not in campaign_aliases:
-                campaign_aliases[clean_lower] = set()
-            for raw_value in raw_values:
-                campaign_aliases[clean_lower].add(raw_value.lower().strip())
-
-    # Build field preferences: lowercase source_name -> match field
-    # Reverse map: primary_source ("google") -> integration_type ("GoogleAds")
-    primary_to_integration: dict[str, str] = {}
-    for native_source in NativeMarketingSource:
-        primary = INTEGRATION_PRIMARY_SOURCE.get(native_source)
-        if primary:
-            primary_to_integration[str(primary).lower().strip()] = native_source.value
-
-    field_preferences: dict[str, str] = {}
-    campaign_field_prefs = config.campaign_field_preferences or {}
-    for integration_type, prefs in campaign_field_prefs.items():
-        match_field = prefs.get("match_field", "campaign_name")
-        try:
-            native_source = NativeMarketingSource(integration_type)
-            primary = INTEGRATION_PRIMARY_SOURCE.get(native_source)
-            if primary:
-                field_preferences[str(primary).lower().strip()] = match_field
-        except ValueError:
-            pass
-
-    return TeamMappings(
-        source_to_integration=source_to_integration,
-        campaign_aliases=campaign_aliases,
-        field_preferences=field_preferences,
-    )
-
-
-def _build_known_sources(mappings: TeamMappings) -> set[str]:
-    """Build the set of utm_source values claimed by any integration (default or custom).
-
-    Used to decide whether an unmatched utm_source is safe to suggest as a mapping —
-    if it's already claimed by another integration, mapping it would break that one.
-    """
-    known: set[str] = set()
-    for sources in INTEGRATION_DEFAULT_SOURCES.values():
-        for source in sources:
-            known.add(source.lower().strip())
-    # Custom mappings already flattened to source -> primary_source
-    known.update(mappings.source_to_integration.keys())
-    return known
 
 
 def run_utm_audit(
@@ -141,11 +68,29 @@ def run_utm_audit(
         now=timezone.now(),
     )
 
-    mappings = _load_team_mappings(team)
-    known_sources = _build_known_sources(mappings)
+    mappings = load_team_mappings(team)
+    campaigns = get_campaigns_with_spend(team, date_range, user=user)
+    utm_events = get_utm_campaign_catalogue(team, date_range, user=user)
 
-    campaigns = _get_campaigns_with_spend(team, date_range, user=user)
-    utm_events = _get_utm_events(team, date_range, user=user)
+    return build_audit(campaigns, utm_events, mappings)
+
+
+# The audit is sync (it reads team config through the ORM and runs HogQL inline), but the
+# async services — `marketing_diagnostic`, `setup_plan` — gather it alongside coroutines.
+run_utm_audit_async = database_sync_to_async(run_utm_audit)
+
+
+def build_audit(
+    campaigns: list[Campaign],
+    utm_events: dict[tuple[str, str], int],
+    mappings: TeamMappings,
+) -> UtmAuditResponse:
+    """Cross-reference already-fetched campaigns and UTM events into an audit.
+
+    Split out of `run_utm_audit` so `setup_plan` can audit the same rows it already
+    pulled for the suggesters instead of paying for both queries a second time.
+    """
+    known_sources = build_known_sources(mappings)
 
     results = _cross_reference(campaigns, utm_events, mappings, known_sources) if campaigns else []
     all_utm = _build_all_utm_events(campaigns, utm_events, mappings)
@@ -162,7 +107,7 @@ def run_utm_audit(
     )
 
 
-def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange, *, user: User | None = None) -> list[Campaign]:
+def get_campaigns_with_spend(team: Team, date_range: QueryDateRange, *, user: User | None = None) -> list[Campaign]:
     """Get all campaigns with spend from marketing integrations."""
     context = QueryContext(
         date_range=date_range,
@@ -239,7 +184,9 @@ def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange, *, user: U
     return campaigns
 
 
-def _get_utm_events(team: Team, date_range: QueryDateRange, *, user: User | None = None) -> dict[tuple[str, str], int]:
+def get_utm_campaign_catalogue(
+    team: Team, date_range: QueryDateRange, *, user: User | None = None
+) -> dict[tuple[str, str], int]:
     """
     Get distinct utm_campaign + utm_source combinations from pageview events.
     Returns a dict mapping (campaign, source) -> event_count.
@@ -273,25 +220,16 @@ def _get_utm_events(team: Team, date_range: QueryDateRange, *, user: User | None
         )
     utm_map: dict[tuple[str, str], int] = {}
     for row in result.results or []:
-        campaign = (row[0] or "").lower().strip()
-        source = (row[1] or "").lower().strip()
+        campaign = normalize_campaign_name(row[0] or "")
+        source = normalize_source_name(row[1] or "")
         count = int(row[2] or 0)
         utm_map[(campaign, source)] = count
     return utm_map
 
 
-def _resolve_source(utm_source: str, mappings: TeamMappings) -> str:
-    """Resolve a utm_source to its integration source using custom mappings."""
-    return mappings.source_to_integration.get(utm_source, utm_source)
-
-
-def _get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
-    """Get the campaign value to match against utm_campaign, based on field preference."""
-    source_name_lower = campaign.source_name.lower().strip()
-    match_field = mappings.field_preferences.get(source_name_lower, "campaign_name")
-    if match_field == "campaign_id":
-        return campaign.campaign_id.lower().strip()
-    return campaign.campaign_name.lower().strip()
+# Same reason as `run_utm_audit_async`: sync ORM and HogQL, gathered by async callers.
+get_campaigns_with_spend_async = database_sync_to_async(get_campaigns_with_spend)
+get_utm_campaign_catalogue_async = database_sync_to_async(get_utm_campaign_catalogue)
 
 
 def _build_all_utm_events(
@@ -303,37 +241,18 @@ def _build_all_utm_events(
     Build a list of all UTM events with their match status against campaigns.
     Uses pre-computed lookup dicts for O(1) matching per UTM event instead of O(C).
     """
-    # Pre-compute campaign lookup: match_value -> (campaign_name, match_type="auto")
-    # and alias lookup: alias -> (campaign_name, match_type="mapped")
-    campaign_lookup: dict[str, tuple[str, str]] = {}
-    for campaign in campaigns:
-        match_value = _get_match_value(campaign, mappings)
-        campaign_name_lower = campaign.campaign_name.lower().strip()
-        if match_value not in campaign_lookup:
-            campaign_lookup[match_value] = (campaign.campaign_name, MatchType.AUTO)
-        for alias in mappings.campaign_aliases.get(campaign_name_lower, set()):
-            if alias not in campaign_lookup:
-                campaign_lookup[alias] = (campaign.campaign_name, MatchType.MAPPED)
-
-    # Pre-compute source lookup: source_name -> match_type
-    source_lookup: dict[str, str] = {}
-    for campaign in campaigns:
-        source_name_lower = campaign.source_name.lower().strip()
-        if source_name_lower not in source_lookup:
-            source_lookup[source_name_lower] = MatchType.AUTO
-    for custom_source, primary_source in mappings.source_to_integration.items():
-        if primary_source in source_lookup and custom_source not in source_lookup:
-            source_lookup[custom_source] = MatchType.MAPPED
+    campaign_lookup = build_campaign_lookup(campaigns, mappings)
+    source_lookup = build_source_lookup(campaigns, mappings)
 
     result: list[UtmEvent] = []
     for (utm_campaign, utm_source), count in utm_events.items():
         campaign_entry = campaign_lookup.get(utm_campaign)
-        campaign_match = campaign_entry[1] if campaign_entry else MatchType.NONE
-        matched_campaign_name = campaign_entry[0] if campaign_entry else None
+        campaign_match = campaign_entry.match_type if campaign_entry else MatchType.NONE
+        matched_campaign_name = campaign_entry.campaign_name if campaign_entry else None
 
         source_match = source_lookup.get(utm_source, MatchType.NONE)
         if source_match == MatchType.NONE:
-            resolved = _resolve_source(utm_source, mappings)
+            resolved = resolve_source(utm_source, mappings)
             if resolved in source_lookup:
                 source_match = MatchType.MAPPED if utm_source in mappings.source_to_integration else MatchType.AUTO
 
@@ -365,6 +284,8 @@ class _CampaignStats:
     match_display: str
     exact_count: int
     alt_source_counts: dict[str, int]
+    # Events matching the campaign name but carrying no utm_source (empty/missing).
+    missing_source_count: int
 
 
 def _compute_campaign_stats(
@@ -373,10 +294,10 @@ def _compute_campaign_stats(
     mappings: TeamMappings,
 ) -> _CampaignStats:
     """Aggregate UTM events for a campaign and separate exact-source vs alternative-source counts."""
-    campaign_name_lower = campaign.campaign_name.lower().strip()
-    source_name_lower = campaign.source_name.lower().strip()
-    match_value = _get_match_value(campaign, mappings)
-    match_field = mappings.field_preferences.get(source_name_lower, "campaign_name")
+    campaign_name_lower = normalize_campaign_name(campaign.campaign_name)
+    source_name_lower = normalize_source_name(campaign.source_name)
+    match_value = get_match_value(campaign, mappings)
+    match_field = get_match_field(campaign.source_name, mappings)
     match_display = campaign.campaign_id if match_field == "campaign_id" else campaign.campaign_name
 
     matching_keys = {match_value}
@@ -388,9 +309,13 @@ def _compute_campaign_stats(
             source_counts[utm_source] = source_counts.get(utm_source, 0) + count
 
     exact_count = 0
+    missing_source_count = 0
     alt_source_counts: dict[str, int] = {}
     for utm_source, count in source_counts.items():
-        resolved_source = _resolve_source(utm_source, mappings)
+        if not utm_source:
+            missing_source_count += count
+            continue
+        resolved_source = resolve_source(utm_source, mappings)
         if resolved_source == source_name_lower or utm_source == source_name_lower:
             exact_count += count
         else:
@@ -403,16 +328,19 @@ def _compute_campaign_stats(
         match_display=match_display,
         exact_count=exact_count,
         alt_source_counts=alt_source_counts,
+        missing_source_count=missing_source_count,
     )
 
 
 _NO_TAGGED_EVENTS_HEADLINE = "No events tagged with utm_source='{platform}'"
+_FALLBACK_HEADLINE = "UTM tagging issue on '{campaign}'"
 
 _HEADLINE_BY_KIND: dict[UtmIssueKind, str] = {
     UtmIssueKind.NOT_LINKED: "No pageview events found for '{campaign}'",
     UtmIssueKind.NAME_COLLISION: "Campaign name also used on {shared}",
     UtmIssueKind.NO_TAGGED_EVENTS: _NO_TAGGED_EVENTS_HEADLINE,
     UtmIssueKind.UNKNOWN_SOURCE: _NO_TAGGED_EVENTS_HEADLINE,
+    UtmIssueKind.MISSING_SOURCE: "Pageviews for '{campaign}' have no utm_source set",
 }
 
 
@@ -421,8 +349,11 @@ def _make_headline(kind: UtmIssueKind, platform: str, campaign: str, shared_with
 
     The UI composes richer text from the structured `UtmIssue` fields (kind, alternative_sources,
     shared_with_integrations, suggested_actions) — this string is intentionally one line.
+
+    Unknown kinds fall back rather than raising: this is a cosmetic log/fallback string, and a
+    newly added `UtmIssueKind` should never be able to break the whole audit response.
     """
-    template = _HEADLINE_BY_KIND[kind]
+    template = _HEADLINE_BY_KIND.get(kind, _FALLBACK_HEADLINE)
     return template.format(
         platform=platform,
         campaign=campaign,
@@ -455,11 +386,24 @@ def _build_issue(
             message=_make_headline(UtmIssueKind.NAME_COLLISION, platform, stats.match_display, shared_with_sorted),
             alternative_sources=alternative_sources,
             shared_with_integrations=shared_with_sorted,
+            missing_source_count=stats.missing_source_count,
             suggested_actions=[SuggestedAction.SWITCH_TO_ID_MATCH, SuggestedAction.FIX_PLATFORM_URLS],
         )
 
-    # No events at all, and no other integration claims this name → just fix the URLs.
+    # No alternative source events. Either the campaign has pageviews with no utm_source at
+    # all (missing tag — common for auto-tagged campaigns) or no matching pageviews whatsoever.
     if not alternative_sources:
+        if stats.missing_source_count > 0:
+            return UtmIssue(
+                field="utm_source",
+                severity=UtmIssueSeverity.WARNING,
+                kind=UtmIssueKind.MISSING_SOURCE,
+                message=_make_headline(UtmIssueKind.MISSING_SOURCE, platform, stats.match_display, []),
+                alternative_sources=[],
+                shared_with_integrations=[],
+                missing_source_count=stats.missing_source_count,
+                suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS],
+            )
         return UtmIssue(
             field="utm_campaign",
             severity=UtmIssueSeverity.ERROR,
@@ -483,6 +427,7 @@ def _build_issue(
             message=_make_headline(UtmIssueKind.UNKNOWN_SOURCE, platform, stats.match_display, []),
             alternative_sources=alternative_sources,
             shared_with_integrations=[],
+            missing_source_count=stats.missing_source_count,
             suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS, SuggestedAction.ADD_SOURCE_MAPPING],
         )
 
@@ -493,8 +438,40 @@ def _build_issue(
         message=_make_headline(UtmIssueKind.NO_TAGGED_EVENTS, platform, stats.match_display, []),
         alternative_sources=alternative_sources,
         shared_with_integrations=[],
+        missing_source_count=stats.missing_source_count,
         suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS],
     )
+
+
+def _mapping_candidates(
+    campaigns: list[Campaign],
+    utm_events: dict[tuple[str, str], int],
+    mappings: TeamMappings,
+) -> dict[tuple[str, str], str]:
+    """(integration, target match value) -> the orphaned `utm_campaign` the suggester maps onto it.
+
+    Keyed by match value, not campaign name, because that is what a proposal names and what
+    id-matching integrations join on. The integration is half the key because a name is unique only
+    within a platform — without it, one platform's candidate explained another's unlinked campaign.
+
+    Only confident proposals: `ambiguous` and `unresolved` are excluded by construction. Contained,
+    so a broken suggester leaves every issue exactly as it was.
+    """
+    try:
+        proposals = suggest_campaign_name_mappings(campaigns, utm_events, mappings).proposals
+    except Exception:
+        logger.exception("utm_audit.mapping_candidates_failed")
+        return {}
+
+    # Highest event count wins when several orphans point at one campaign.
+    best: dict[tuple[str, str], str] = {}
+    best_count: dict[tuple[str, str], int] = {}
+    for proposal in proposals:
+        key = (proposal.integration, normalize_campaign_name(proposal.clean_name))
+        if proposal.event_count > best_count.get(key, -1):
+            best[key] = proposal.raw_utm_campaign
+            best_count[key] = proposal.event_count
+    return best
 
 
 def _cross_reference(
@@ -513,7 +490,7 @@ def _cross_reference(
        and build the appropriate issue.
     """
     if known_sources is None:
-        known_sources = _build_known_sources(mappings)
+        known_sources = build_known_sources(mappings)
 
     utm_by_campaign: dict[str, list[tuple[str, int]]] = {}
     for (utm_campaign, utm_source), count in utm_events.items():
@@ -528,12 +505,28 @@ def _cross_reference(
         if stats.exact_count > 0:
             exact_matches_by_name.setdefault(stats.campaign_name_lower, set()).add(stats.source_name_lower)
 
+    # The audit sees a campaign is unlinked but not why; the suggester holds the other half.
+    mapping_candidates = _mapping_candidates(campaigns, utm_events, mappings)
+
     results: list[CampaignAuditResult] = []
     for stats in all_stats:
         all_matching_sources = exact_matches_by_name.get(stats.campaign_name_lower, set())
         shared_with = all_matching_sources - {stats.source_name_lower}
 
         issue = _build_issue(stats, shared_with, known_sources)
+        if issue is not None and issue.kind == UtmIssueKind.NOT_LINKED:
+            # Same key the proposals were bucketed under, so id-matching integrations look up
+            # correctly and a shared name can't cross platforms.
+            native = native_for_primary_source(stats.campaign.source_name)
+            candidate = (
+                mapping_candidates.get((native.value, get_match_value(stats.campaign, mappings)))
+                if native is not None
+                else None
+            )
+            if candidate:
+                issue.mapping_candidate = candidate
+                # Appended: the order is the recommendation order, and the URL fix is the cure.
+                issue.suggested_actions.append(SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING)
         issues = [issue] if issue is not None else []
 
         results.append(

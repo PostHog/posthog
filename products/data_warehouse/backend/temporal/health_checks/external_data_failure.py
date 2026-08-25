@@ -1,12 +1,41 @@
-from django.db.models import Q
+import datetime as dt
 
-from posthog.dags.common.owners import JobOwners
+from django.db.models import Q
+from django.utils import timezone
+
+from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+
+# A schema carrying a fresh column_type_widened marker is scheduled to reset and re-sync itself on
+# the next scheduled run (see auto_widen_resync), so its failure is about to clear on its own and
+# alerting the user would be noise. A marker still present past this window means the recovery
+# keeps getting blocked (billing limits, paused schedule), which is worth alerting on after all.
+AUTO_WIDEN_MARKER_MUTE_WINDOW = dt.timedelta(hours=48)
+
+
+def _pending_auto_widen_resync(schema: ExternalDataSchema) -> bool:
+    marker = schema.column_type_widened
+    if marker is None:
+        return False
+    # Mute only the widening failure itself (same prefix the v3 consumer substring-matches): an
+    # unrelated failure landing while the marker is fresh still deserves an immediate alert.
+    if "Source column type changed" not in (schema.latest_error or ""):
+        return False
+    detected_at_raw = marker.get("detected_at")
+    if not isinstance(detected_at_raw, str):
+        return False
+    try:
+        detected_at = dt.datetime.fromisoformat(detected_at_raw)
+    except ValueError:
+        return False
+    if detected_at.tzinfo is None:
+        return False
+    return timezone.now() - detected_at < AUTO_WIDEN_MARKER_MUTE_WINDOW
 
 
 class ExternalDataFailureCheck(HealthCheck):
@@ -62,6 +91,8 @@ class ExternalDataFailureCheck(HealthCheck):
         )
 
         for schema in failed_schemas:
+            if _pending_auto_widen_resync(schema):
+                continue
             error = schema.latest_error or ""
             issues.setdefault(schema.team_id, []).append(
                 HealthCheckResult(

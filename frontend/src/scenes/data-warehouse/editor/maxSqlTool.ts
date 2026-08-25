@@ -21,6 +21,7 @@ export function getExecuteSqlToolContext(
     return {
         current_query: queryInput,
         current_query_node: getCurrentQueryNodeContext(sourceQuery),
+        connection_id: 'connectionId' in sourceQuery.source ? (sourceQuery.source.connectionId ?? null) : null,
     }
 }
 
@@ -39,6 +40,8 @@ export function applyExecuteSqlToolOutput({
 }): void {
     let nextQueryInput: string | null = null
     let nextFilters: HogQLFilters | null | undefined
+    let nextDisplay: DataVisualizationNode['display']
+    let nextChartSettings: DataVisualizationNode['chartSettings']
 
     if (typeof toolOutput === 'string') {
         nextQueryInput = toolOutput
@@ -56,14 +59,23 @@ export function applyExecuteSqlToolOutput({
         } else if (sourceOutput && 'filters' in sourceOutput) {
             nextFilters = (sourceOutput.filters ?? null) as HogQLFilters | null
         }
+
+        if (typeof toolOutput.display === 'string') {
+            nextDisplay = toolOutput.display as DataVisualizationNode['display']
+        }
+        if (isRecord(toolOutput.chartSettings)) {
+            nextChartSettings = toolOutput.chartSettings as DataVisualizationNode['chartSettings']
+        }
     }
 
-    if (nextFilters !== undefined) {
+    if (nextFilters !== undefined || nextDisplay !== undefined || nextChartSettings !== undefined) {
         setSourceQuery({
             ...sourceQuery,
+            ...(nextDisplay !== undefined ? { display: nextDisplay } : {}),
+            ...(nextChartSettings !== undefined ? { chartSettings: nextChartSettings } : {}),
             source: {
                 ...sourceQuery.source,
-                filters: nextFilters ?? undefined,
+                ...(nextFilters !== undefined ? { filters: nextFilters ?? undefined } : {}),
             },
         })
     }

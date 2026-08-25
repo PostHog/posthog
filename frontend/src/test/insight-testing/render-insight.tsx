@@ -16,6 +16,15 @@ import { setupInsightMocks, type SetupMocksOptions } from './mocks'
 export const INSIGHT_TEST_KEY = 'test-harness'
 export const INSIGHT_TEST_ID = `new-AdHoc.InsightViz.${INSIGHT_TEST_KEY}`
 
+// Loaded with `require` rather than a static import because it has to run after this
+// module's own imports are bound, or the circular dependency through InsightViz leaves the
+// binding undefined. Keep the call at module scope: it transforms and evaluates the entire
+// InsightViz graph on first use, costing ~1.9s against a cold Jest transform cache (which
+// CI always has, since the jest job restores no cache). From inside a render body that
+// cost lands on whichever test renders first and consumes most of Jest's 5s test budget.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { InsightViz } = require('~/queries/nodes/InsightViz/InsightViz')
+
 export type InsightQuery = TrendsQuery | FunnelsQuery | StickinessQuery
 
 export function buildTrendsQuery(overrides?: Partial<TrendsQuery>): TrendsQuery {
@@ -111,11 +120,6 @@ function InsightWrapper({
         full: showFilters,
     })
 
-    // Dynamic require to break a circular-dependency cycle that causes Jest to fail
-    // with static imports. Node's module cache means this is only resolved once.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { InsightViz } = require('~/queries/nodes/InsightViz/InsightViz')
-
     return (
         <InsightViz
             uniqueKey={INSIGHT_TEST_KEY}
@@ -134,10 +138,18 @@ export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof
     return render(
         <InsightWrapper
             query={props.query ?? buildTrendsQuery()}
-            showFilters={props.showFilters ?? true}
+            showFilters={props.showFilters ?? false}
             context={props.context}
             inSharedMode={props.inSharedMode}
             embedded={props.embedded}
         />
     )
+}
+
+/** Render the full insight page including the filter editor UI (header, series
+ *  editor, breakdown, display config). Mounting all of that roughly doubles a
+ *  test's runtime versus the chart-only `renderInsight`, so reach for this only
+ *  when the test interacts with the filter controls themselves. */
+export function renderInsightPage(props: RenderInsightProps = {}): ReturnType<typeof render> {
+    return renderInsight({ ...props, showFilters: props.showFilters ?? true })
 }

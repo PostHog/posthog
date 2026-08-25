@@ -68,8 +68,8 @@ describe('getUrlChangeTracker', () => {
         const webTracker = getUrlChangeTracker('webAnalyticsLogic')
         const insightsTracker = getUrlChangeTracker('insightsLogic')
 
-        for (let i = 0; i < 6; i++) {
-            webTracker.recordChange(`/web?v=${i}`, 'webAnalyticsLogic', 'setFilters')
+        for (let i = 0; i < 7; i++) {
+            webTracker.recordChange('/web?foo=bar', 'webAnalyticsLogic', 'setFilters')
         }
 
         expect(webTracker.isRapidlyChanging()).toBe(true)
@@ -132,16 +132,37 @@ describe('UrlChangeTracker', () => {
 
     describe('isRapidlyChanging', () => {
         it.each([
-            { count: 3, expected: false },
-            { count: 4, expected: false },
-            { count: 5, expected: true },
+            { count: 5, expected: false },
+            { count: 6, expected: false },
+            { count: 7, expected: true },
             { count: 10, expected: true },
-        ])('returns $expected when $count changes recorded', ({ count, expected }) => {
+        ])('flags a loop re-setting the same URL: $expected at $count changes', ({ count, expected }) => {
             for (let i = 0; i < count; i++) {
-                tracker.recordChange(`/web?v=${i}`, 'webAnalyticsLogic', 'setFilters')
+                tracker.recordChange('/web?foo=bar', 'webAnalyticsLogic', 'setFilters')
             }
 
             expect(tracker.isRapidlyChanging()).toBe(expected)
+        })
+
+        it('does not flag a burst of distinct URLs, e.g. typing into a search box', () => {
+            // Each keystroke syncs a new search term to the query string, so every URL differs.
+            // This is legitimate navigation, not the infinite loop the tracker exists to catch.
+            for (let i = 0; i < 10; i++) {
+                tracker.recordChange(`/dashboard?search=${i}`, 'dashboardsLogic', 'setSearch')
+            }
+
+            expect(tracker.isRapidlyChanging()).toBe(false)
+        })
+
+        it('flags an extreme burst of distinct URLs as a loop', () => {
+            // A runaway loop that mutates the URL each iteration (e.g. an incrementing counter) never
+            // repeats a URL, so the duplicate heuristic alone would miss it. The sheer volume - far
+            // beyond human typing - must still be caught.
+            for (let i = 0; i < 60; i++) {
+                tracker.recordChange(`/web?loop=${i}`, 'webAnalyticsLogic', 'setFilters')
+            }
+
+            expect(tracker.isRapidlyChanging()).toBe(true)
         })
     })
 
@@ -239,11 +260,11 @@ describe('UrlChangeTracker', () => {
                 maxChangesPerSecond: 2,
             })
 
-            customTracker.recordChange('/web?v=1', 'webAnalyticsLogic', 'setFilters')
-            customTracker.recordChange('/web?v=2', 'webAnalyticsLogic', 'setFilters')
+            customTracker.recordChange('/web?foo=bar', 'webAnalyticsLogic', 'setFilters')
+            customTracker.recordChange('/web?foo=bar', 'webAnalyticsLogic', 'setFilters')
             expect(customTracker.isRapidlyChanging()).toBe(false)
 
-            customTracker.recordChange('/web?v=3', 'webAnalyticsLogic', 'setFilters')
+            customTracker.recordChange('/web?foo=bar', 'webAnalyticsLogic', 'setFilters')
             expect(customTracker.isRapidlyChanging()).toBe(true)
         })
 

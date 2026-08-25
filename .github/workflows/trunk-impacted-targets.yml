@@ -1,0 +1,350 @@
+name: Trunk impacted targets
+
+# Uploads this PR's impacted targets to Trunk so the parallel merge queue can
+# schedule it. Trunk needs an impacted-targets upload to place a PR into a lane;
+# without one, fork PRs never enter the queue and have to be merged by hand.
+#
+# Targets are computed by .github/scripts/trunk-impacted-targets.js, which maps
+# changed paths onto lane names. Trunk runs two PRs in parallel only when their
+# target sets are disjoint, so that script is biased toward over-reporting and
+# claims every known target (the old single-lane behavior) whenever it cannot
+# classify a change with confidence. The "ALL" sentinel below is reserved for
+# the degraded cases where the target list cannot be computed at all, which
+# means "unknown" rather than "everything".
+#
+# The upload authenticates with the org API token (x-api-token) on internal PRs.
+# Fork PR workflow runs do NOT receive repo secrets — GitHub withholds them from
+# `pull_request` runs originating in a fork — so for forks we authenticate with
+# the workflow run id instead (x-forked-workflow-run-id). Trunk verifies the run
+# id belongs to a live fork-PR workflow whose head SHA matches the payload.
+# Ref: https://docs.trunk.io/merge-queue/optimizations/parallel-queues/api#handling-forked-pull-requests
+#
+# SECURITY: the caller (pr-housekeeping.yml) MUST stay on the `pull_request`
+# trigger, never `pull_request_target`. `pull_request_target` would hand repo
+# secrets to code from untrusted forks ("pwn request"). The fork path
+# deliberately needs no secret, so `pull_request` is sufficient and safe.
+#
+# SECURITY: `compute` and `upload` MUST stay separate. `upload` MUST NOT check
+# out or run anything from the PR. `compute` executes PR-controlled code (the
+# target script, and whatever the PR did to it), so it is kept free of secrets.
+# Splitting on a step boundary instead of a job boundary would not be enough:
+# steps in one job share a runner, and a script can prepend a directory to
+# GITHUB_PATH (or export through GITHUB_ENV) so that a later step's `jq` and
+# `curl` resolve to attacker-supplied executables, which would then run with
+# TRUNK_API_TOKEN in their environment. Separate jobs get separate runners, so
+# the only thing crossing the boundary is the JSON string in the job output.
+# That string is consumed through `env:` and `jq --argjson`, never interpolated
+# into a shell command.
+
+on:
+    workflow_call:
+        secrets:
+            TRUNK_API_TOKEN:
+                required: false
+
+permissions:
+    contents: read
+
+jobs:
+    compute:
+        name: Compute impacted targets
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # Runs PR-controlled code, so it gets read access to the repo and
+        # nothing else. No secret is available to this job.
+        permissions:
+            contents: read
+        outputs:
+            targets: ${{ steps.targets.outputs.targets }}
+            telemetry: ${{ steps.telemetry.outputs.properties }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            # The default branch, not `base.ref`. A stacked PR's base is the layer
+            # below it, but the queue tests the whole stack merged into master, so
+            # master is the radius Trunk schedules against. Diffing against a stack
+            # parent that has fallen behind master counts every commit the head
+            # picked up in between as this PR's own, and a change set that wide
+            # claims every lane — which serializes the queue behind a PR that
+            # touched none of them.
+            - name: Fetch the merge target for the changed-file diff
+              env:
+                  MERGE_TARGET: ${{ github.event.repository.default_branch }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$MERGE_TARGET:refs/remotes/origin/$MERGE_TARGET"
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            # Split from the computation below so the cargo steps can be skipped
+            # on the PRs that do not need them, which is nearly all of them.
+            - name: Resolve the changed files
+              id: changes
+              env:
+                  MERGE_TARGET: ${{ github.event.repository.default_branch }}
+              run: |
+                  set -uo pipefail
+
+                  # A missing merge base (branch older than the fetched depth) or
+                  # any diff failure has to widen to ALL rather than upload a
+                  # partial file list, which Trunk cannot distinguish from a
+                  # complete one. The computation step reads `resolved` and
+                  # reports ALL when it is anything but true.
+                  if ! merge_base="$(git merge-base "refs/remotes/origin/$MERGE_TARGET" HEAD 2>/dev/null)"; then
+                      echo "::warning::No merge base against $MERGE_TARGET within the fetched depth; reporting ALL."
+                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  if ! changed="$(git diff --name-only "$merge_base" HEAD)"; then
+                      echo "::warning::Could not diff against the merge base; reporting ALL."
+                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  echo "$changed" | sed 's/^/  /'
+                  printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
+
+                  echo 'resolved=true' >> "$GITHUB_OUTPUT"
+                  if printf '%s\n' "$changed" | grep -qx 'rust/Cargo.lock'; then
+                      echo 'cargo_lock=true' >> "$GITHUB_OUTPUT"
+                  fi
+
+            # A lockfile touch would otherwise claim all 66 crates, so the two
+            # steps below buy the narrow answer from the determinator that
+            # ci-rust.yml already runs. Measured at ~50s on a cache miss, which a
+            # lockfile change always is, since the binary's cache key holds it.
+            # Skipped entirely on a PR that leaves rust/Cargo.lock alone.
+            - name: Install rust
+              if: steps.changes.outputs.cargo_lock == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Compute affected rust crates
+              id: affected
+              if: steps.changes.outputs.cargo_lock == 'true'
+              # A failure here must not keep the PR out of the queue. The crate
+              # list goes missing, and the script falls back to every crate.
+              continue-on-error: true
+              uses: ./.github/actions/rust-compute-affected
+              with:
+                  event-name: ${{ github.event_name }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
+
+            - name: Compute impacted targets
+              id: targets
+              env:
+                  RESOLVED: ${{ steps.changes.outputs.resolved }}
+                  # Empty when the determinator was skipped or failed, which the
+                  # script reads as every crate. Its own rebuild-all verdict
+                  # needs no special case: it fills `crates` with the whole
+                  # workspace, which lands on the same target set.
+                  CARGO_LOCK_CRATES: ${{ steps.affected.outputs.crates }}
+              run: |
+                  set -uo pipefail
+
+                  if [ "$RESOLVED" != "true" ]; then
+                      echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  # The script prints a JSON array on stdout, or the JSON string "ALL" when it
+                  # could not enumerate the targets, and never exits non-zero;
+                  # it degrades to "ALL" internally on any error.
+                  computed="$(node .github/scripts/trunk-impacted-targets.js < "$RUNNER_TEMP/changed-files.txt")"
+                  printf 'targets=%s\n' "$(jq -cn --argjson t "$computed" '{impactedTargets: $t}')" >> "$GITHUB_OUTPUT"
+
+            # Summarizes the change set and the targets for the lane-cost
+            # dashboard. Never gates: a telemetry problem must not keep a PR out
+            # of the queue. The early exits above leave no file behind, which
+            # the script reports as the degraded case rather than as a PR that
+            # touched nothing.
+            - name: Summarize lane assignment
+              id: telemetry
+              if: ${{ !cancelled() }}
+              continue-on-error: true
+              env:
+                  IMPACTED_TARGETS: ${{ steps.targets.outputs.targets }}
+              run: |
+                  set -uo pipefail
+                  touch "$RUNNER_TEMP/changed-files.txt"
+                  properties="$(node .github/scripts/trunk-lane-telemetry.js < "$RUNNER_TEMP/changed-files.txt")"
+                  printf 'properties=%s\n' "$properties" >> "$GITHUB_OUTPUT"
+
+    upload:
+        name: Upload impacted targets to Trunk
+        needs: compute
+        # Runs even when the computation failed, because a PR with no upload
+        # never enters the queue at all. A missing result degrades to ALL below.
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # Talks only to Trunk. It never checks out the repo, so it needs no
+        # GitHub permissions whatsoever.
+        permissions: {}
+        outputs:
+            uploaded: ${{ steps.upload.outputs.uploaded }}
+        env:
+            IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+            RUN_ID: ${{ github.run_id }}
+            REPO_OWNER: ${{ github.repository_owner }}
+            REPO_NAME: ${{ github.event.repository.name }}
+            PR_NUMBER: ${{ github.event.pull_request.number }}
+            # Head SHA (not the synthetic merge commit): it matches the workflow
+            # run's head_sha, which is what Trunk checks on a fork upload.
+            PR_SHA: ${{ github.event.pull_request.head.sha }}
+            TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
+        steps:
+            - name: Upload impacted targets to Trunk
+              id: upload
+              # Not continue-on-error: a silent failure here is exactly what keeps
+              # fork PRs out of the queue, so surface upload problems loudly.
+              # --retry rides out transient Trunk/network blips.
+              env:
+                  TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+                  IMPACTED_TARGETS: ${{ needs.compute.outputs.targets }}
+              run: |
+                  set -euo pipefail
+
+                  # An empty result means the compute job failed or was skipped.
+                  # ALL overlaps every lane, so it is the safe degradation: the
+                  # PR still enters the queue, just without any parallelism.
+                  if [ -z "$IMPACTED_TARGETS" ]; then
+                      echo "::warning::No computed targets available; falling back to ALL."
+                      IMPACTED_TARGETS='{"impactedTargets":"ALL"}'
+                  fi
+
+                  if [ "$IS_FORK" != "true" ] && [ -z "$TRUNK_API_TOKEN" ]; then
+                      echo "::warning::TRUNK_API_TOKEN is not set — skipping the impacted-targets upload."
+                      exit 0
+                  fi
+
+                  payload="$(jq -n \
+                      --arg host "github.com" \
+                      --arg owner "$REPO_OWNER" \
+                      --arg name "$REPO_NAME" \
+                      --argjson number "$PR_NUMBER" \
+                      --arg sha "$PR_SHA" \
+                      --arg targetBranch "$TARGET_BRANCH" \
+                      --argjson impacted "$IMPACTED_TARGETS" \
+                      '{repo: {host: $host, owner: $owner, name: $name}, pr: {number: $number, sha: $sha}, targetBranch: $targetBranch} + $impacted')"
+
+                  if [ "$IS_FORK" = "true" ]; then
+                      echo "Fork PR — authenticating with x-forked-workflow-run-id ($RUN_ID)"
+                      auth_header="x-forked-workflow-run-id: $RUN_ID"
+                  else
+                      echo "Internal PR — authenticating with x-api-token"
+                      auth_header="x-api-token: $TRUNK_API_TOKEN"
+                  fi
+
+                  curl --fail --silent --show-error --retry 3 --retry-all-errors \
+                      -X POST "https://api.trunk.io/v1/setImpactedTargets" \
+                      -H "Content-Type: application/json" \
+                      -H "$auth_header" \
+                      --data "$payload" \
+                      --output "$RUNNER_TEMP/trunk-response.json"
+                  echo 'uploaded=true' >> "$GITHUB_OUTPUT"
+
+            # Lane-cost telemetry. Runs here rather than in `compute` because
+            # `compute` executes PR-controlled code and is deliberately kept free
+            # of credentials; this job holds them and never checks out the repo.
+            # The summary crosses that boundary as a JSON string and is consumed
+            # through env: and jq --argjson, never interpolated into a command.
+            #
+            # The key is the write-only token from hogli.yaml's telemetry block:
+            # it cannot read data, which is why it is committed rather than a
+            # secret, and why this works on fork PRs too.
+            - name: Record lane telemetry
+              if: ${{ !cancelled() }}
+              continue-on-error: true
+              env:
+                  POSTHOG_TELEMETRY_HOST: https://us.i.posthog.com
+                  POSTHOG_TELEMETRY_API_KEY: phc_JYFXrbqdzueOYb0wFUTnCglFKZuC4xRXBW790ewdcvn
+                  LANE_PROPERTIES: ${{ needs.compute.outputs.telemetry }}
+              run: |
+                  set -uo pipefail
+
+                  if [ -z "$LANE_PROPERTIES" ]; then
+                      echo "::warning::No lane summary available; skipping telemetry."
+                      exit 0
+                  fi
+
+                  # Trunk does not document a batch id on this response, so
+                  # whatever it returns is recorded verbatim (capped) rather
+                  # than parsed. Correlating a lane with the PRs Trunk actually
+                  # ran beside it still needs Trunk's own record.
+                  trunk_response="$(head -c 500 "$RUNNER_TEMP/trunk-response.json" 2>/dev/null || echo '')"
+
+                  # The key is committed, so any fork that keeps these files
+                  # reports into the same project, and PR numbers restart at 1
+                  # in every fork. Qualifying the id with the repository keeps
+                  # one person per pull request instead of merging ours with a
+                  # fork's PR of the same number. Same spelling as a GitHub
+                  # cross-repo reference, so it reads as the PR it names.
+                  event="$(jq -n \
+                      --arg key "$POSTHOG_TELEMETRY_API_KEY" \
+                      --arg distinct_id "$REPO_OWNER/$REPO_NAME#$PR_NUMBER" \
+                      --arg repo "$REPO_OWNER/$REPO_NAME" \
+                      --argjson pr_number "$PR_NUMBER" \
+                      --arg head_sha "$PR_SHA" \
+                      --arg target_branch "$TARGET_BRANCH" \
+                      --arg is_fork "$IS_FORK" \
+                      --arg run_id "$RUN_ID" \
+                      --arg trunk_response "$trunk_response" \
+                      --argjson lane "$LANE_PROPERTIES" \
+                      '{api_key: $key, event: "trunk_lane_targets", distinct_id: $distinct_id,
+                        properties: ($lane + {repo: $repo, pr_number: $pr_number, head_sha: $head_sha,
+                                              target_branch: $target_branch, is_fork: ($is_fork == "true"),
+                                              workflow_run_id: $run_id, trunk_response: $trunk_response})}')"
+
+                  curl --silent --show-error --max-time 20 \
+                      -X POST "$POSTHOG_TELEMETRY_HOST/i/v0/e/" \
+                      -H "Content-Type: application/json" \
+                      --data "$event" > /dev/null
+
+    comment:
+        name: Update Trunk lane in CI report
+        needs: [compute, upload]
+        if: >-
+            ${{
+                !cancelled() &&
+                needs.upload.outputs.uploaded == 'true' &&
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                !startsWith(github.head_ref, 'trunk-merge/')
+            }}
+        concurrency:
+            group: trunk-lane-report-${{ github.event.pull_request.number }}
+            cancel-in-progress: true
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Run only trusted base-branch code with the token that can edit PR comments.
+                  ref: ${{ github.event.pull_request.base.sha }}
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Post Trunk lane to CI report
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  IMPACTED_TARGETS: ${{ needs.compute.outputs.targets }}
+                  LANE_PROPERTIES: ${{ needs.compute.outputs.telemetry }}
+              run: |
+                  if [ -f .github/scripts/post-trunk-lane-section.mjs ]; then
+                      node .github/scripts/post-trunk-lane-section.mjs
+                  else
+                      echo "::warning::Skipping the Trunk lane section because the trusted base does not contain its poster."
+                  fi

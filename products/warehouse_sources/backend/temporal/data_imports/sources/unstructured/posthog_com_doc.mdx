@@ -1,0 +1,63 @@
+<!--
+This is the user-facing source doc. It belongs in the posthog.com repo at
+contents/docs/cdp/sources/unstructured.md (served at /docs/cdp/sources/unstructured), NOT in this
+repo. It is staged here because no posthog.com checkout was available while implementing the source.
+Move it to posthog.com and run `python manage.py audit_source_docs --docs-dir ../posthog.com/contents/docs/cdp/sources` before publishing.
+-->
+
+---
+
+title: Linking Unstructured as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Unstructured
+
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Unstructured](https://unstructured.io) is a document ETL platform that turns raw files (PDFs, Office documents, emails, and more) into RAG-ready structured data. This source pulls the metadata from your Unstructured platform account, its workflows, job runs, and source/destination connectors, into the PostHog data warehouse so you can monitor the health of your document pipelines alongside the rest of your data.
+
+## Prerequisites
+
+- An [Unstructured platform](https://platform.unstructuredapp.io) account (a free tier is available).
+- An Unstructured API key. The key has account-wide read access, so no extra scopes are required.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+You need an Unstructured API key:
+
+1. Sign in to the [Unstructured platform dashboard](https://platform.unstructuredapp.io).
+2. Open **API Keys** and generate a new key.
+3. Copy the key and paste it into the **API key** field in PostHog.
+
+Leave **API host** blank unless Unstructured provisioned your account with a custom API URL, in which case enter that origin (for example `https://platform.unstructuredapp.io`).
+
+## Sync modes
+
+<SyncModes />
+
+Unstructured's read endpoints do not expose a reliable server-side incremental filter, and workflows and connectors are mutable configuration objects, so every table syncs as a full refresh. These are low-volume inventory tables, so a full refresh each sync is inexpensive and always reflects the current state.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **Invalid API key**: regenerate the key in the Unstructured platform dashboard and reconnect. The key is account-wide, so a valid key can read every table.
+- **Custom API host**: if your account uses a custom API URL, make sure the **API host** field matches the origin Unstructured gave you.
+
+<TroubleshootingLink />

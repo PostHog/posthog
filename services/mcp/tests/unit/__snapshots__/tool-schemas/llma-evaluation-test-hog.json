@@ -28,6 +28,32 @@
             "description": "Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
             "minLength": 1,
             "type": "string"
+        },
+        "target": {
+            "default": "generation",
+            "description": "What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.\n\n* `generation` - Generation\n* `trace` - Trace\n* `session` - Session",
+            "enum": ["generation", "trace", "session"],
+            "type": "string"
+        },
+        "target_config": {
+            "description": "Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.",
+            "properties": {
+                "quiet_period_seconds": {
+                    "default": 3600,
+                    "description": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.",
+                    "maximum": 86400,
+                    "minimum": 10,
+                    "type": "number"
+                },
+                "window_seconds": {
+                    "default": 1800,
+                    "description": "Aggregation window for trace samples, in seconds.",
+                    "maximum": 7200,
+                    "minimum": 10,
+                    "type": "number"
+                }
+            },
+            "type": "object"
         }
     },
     "required": ["source"],

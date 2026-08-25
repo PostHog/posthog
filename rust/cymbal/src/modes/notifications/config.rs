@@ -10,8 +10,7 @@ pub const DEFAULT_CONSUMER_TOPIC: &str = "error_tracking_ingestion_notifications
 /// `KAFKA_CONSUMER_GROUP`.
 pub const DEFAULT_CONSUMER_GROUP: &str = "error_tracking_ingestion_notifications";
 
-/// Top-level config for notifications mode. Keep this narrow: only Kafka,
-/// Postgres, signal emission, and the metrics server.
+/// Top-level config for notifications mode.
 #[derive(Envconfig, Clone)]
 pub struct NotificationsConfig {
     #[envconfig(nested = true)]
@@ -23,42 +22,77 @@ pub struct NotificationsConfig {
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
-    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
-    pub database_url: String,
-
-    // Keep this low: each Cymbal pod owns its own sqlx pool, regardless of DATABASE_URL routing.
-    #[envconfig(default = "4")]
-    pub max_pg_connections: u32,
-
-    #[envconfig(default = "")]
-    pub internal_api_secret: String,
-
     /// HTTP bind port for liveness, readiness, and Prometheus metrics.
     #[envconfig(from = "METRICS_PORT", default = "9102")]
     pub metrics_port: u16,
-
-    // Internal API for signal emission.
-    #[envconfig(default = "")]
-    pub signals_api_base_url: String,
-
-    #[envconfig(default = "document_embeddings_input")]
-    pub embedding_worker_topic: String,
-
-    #[envconfig(default = "cdp_internal_events")]
-    pub internal_events_topic: String,
-
-    // Optional override for the brokers used to produce `cdp_internal_events`.
-    #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_HOSTS")]
-    pub cyclotron_kafka_hosts: Option<String>,
-
-    // Optional TLS override for the cyclotron producer.
-    #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_TLS")]
-    pub cyclotron_kafka_tls: Option<bool>,
 
     pub posthog_api_key: Option<String>,
 
     #[envconfig(default = "https://us.i.posthog.com/capture")]
     pub posthog_endpoint: String,
+
+    #[envconfig(from = "TEMPORAL_HOST", default = "")]
+    pub temporal_host: String,
+
+    #[envconfig(from = "TEMPORAL_PORT", default = "7233")]
+    pub temporal_port: u16,
+
+    #[envconfig(from = "TEMPORAL_NAMESPACE", default = "")]
+    pub temporal_namespace: String,
+
+    #[envconfig(from = "TEMPORAL_CLIENT_CERT", default = "")]
+    pub temporal_client_cert: String,
+
+    #[envconfig(from = "TEMPORAL_CLIENT_KEY", default = "")]
+    pub temporal_client_key: String,
+
+    /// Connect to Temporal without TLS. Only the local dev stack serves plaintext
+    /// gRPC, so leaving this off keeps a missing certificate a boot failure.
+    #[envconfig(from = "TEMPORAL_INSECURE", default = "false")]
+    pub temporal_insecure: bool,
+
+    #[envconfig(from = "TEMPORAL_SECRET_KEY", default = "")]
+    pub temporal_secret_key: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_LIFECYCLE_TASK_QUEUE",
+        default = "error-tracking-lifecycle-task-queue"
+    )]
+    pub error_tracking_lifecycle_task_queue: String,
+
+    /// Redis backing the per-team cap on issue-created workflows. It carries no
+    /// default, so envconfig rejects a boot that does not set it.
+    #[envconfig(from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL")]
+    pub notifications_rate_limit_redis_url: String,
+
+    /// Bucket size, and the tokens a team earns back per hour. Zero or less
+    /// disables the limit.
+    #[envconfig(
+        from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR",
+        default = "1000"
+    )]
+    pub notifications_rate_limit_per_hour: i64,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX",
+        default = "@posthog/error-tracking-notifications-rate-limiter"
+    )]
+    pub notifications_rate_limit_key_prefix: String,
+
+    /// Idle buckets expire after this long. A bucket always takes an hour to
+    /// refill, so anything below 3600 is raised to 3600: a shorter TTL would
+    /// drop a partly refilled bucket and hand the next caller a full one.
+    #[envconfig(
+        from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS",
+        default = "3600"
+    )]
+    pub notifications_rate_limit_bucket_ttl_seconds: u64,
+
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
 }
 
 impl NotificationsConfig {

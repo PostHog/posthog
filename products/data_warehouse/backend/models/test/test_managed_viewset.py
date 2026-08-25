@@ -14,18 +14,20 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 STRIPE_SCHEMA_NAMES = [
     STRIPE_CHARGE_RESOURCE_NAME,
@@ -62,6 +64,52 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             ),
         ]
         self.team.revenue_analytics_config.save()
+
+    def test_sync_views_reconciles_dag_schedules_once(self):
+        # sync_views touches N views; reconciling per view would issue N redundant
+        # Temporal converges for the one managed DAG
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        with (
+            patch(SCHEDULE_MATERIALIZATION),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag") as reconcile,
+        ):
+            managed_viewset.sync_views()
+
+        reconcile.assert_called_once()
+
+    def test_failed_dag_sync_does_not_mint_a_v1_schedule(self):
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        with (
+            patch(
+                "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
+                side_effect=Exception("dependency resolution failed"),
+            ),
+            patch(
+                "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+                side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
+            ) as sync_wf,
+            patch(
+                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            managed_viewset.sync_views()
+
+        sync_wf.assert_not_called()
+        assert not DataWarehouseSavedQuery.objects.filter(
+            managed_viewset=managed_viewset, is_materialized=True
+        ).exists()
 
     def test_sync_views_creates_views(self):
         """Test that enabling managed viewset creates the expected views"""

@@ -62,8 +62,8 @@ export interface UseTooltipLifecycleResult<Meta> {
 /** Geometry-independent tooltip state and dismiss lifecycle.
  *
  *  Owns: tooltipCtx (and the boolean `isPinned`), hoverIndex/hoverPosition, the three dismiss
- *  effects (scroll outside the chart, click outside, Escape), and the pinned-rebuild effect
- *  with its value-equivalence bail.
+ *  effects (scroll outside the chart, pointer-down outside, Escape), and the pinned-rebuild
+ *  effect with its value-equivalence bail.
  *
  *  Does NOT own: cursor → index hit-testing (cartesian or radial), or anchor positioning. Geometry
  *  hooks compute those and call `setHover` + `setTooltipCtx` to publish results, and pass a
@@ -154,13 +154,17 @@ export function useTooltipLifecycle<Meta = unknown>({
         }
     }, [tooltipShown, wrapperRef, clearTooltip])
 
-    // Dismiss listeners for pinned tooltip (click outside, Escape).
+    // Dismiss listeners for pinned tooltip (pointer-down outside, Escape). Outside-ness is
+    // decided at pointerdown — where the press *started* — not at click: a text-selection drag
+    // that starts inside the tooltip and releases outside it fires its click on the common
+    // ancestor of the two targets (usually <body>), and dismissing on that would clear the
+    // tooltip and wipe the selection mid-copy.
     useEffect(() => {
         if (!isPinned) {
             return
         }
 
-        const handleClickOutside = (e: MouseEvent): void => {
+        const handlePointerDownOutside = (e: PointerEvent): void => {
             const target = e.target
             if (target instanceof Element && target.closest('[data-hog-charts-tooltip]')) {
                 return
@@ -177,15 +181,15 @@ export function useTooltipLifecycle<Meta = unknown>({
             }
         }
 
-        // Delay click listener so the pinning click doesn't immediately unpin.
+        // Defer attaching so the gesture that created the pin can't also dismiss it.
         const timer = setTimeout(() => {
-            document.addEventListener('click', handleClickOutside, { passive: true })
+            document.addEventListener('pointerdown', handlePointerDownOutside, { passive: true })
         }, 0)
         document.addEventListener('keydown', handleKeyDown, { passive: true })
 
         return () => {
             clearTimeout(timer)
-            document.removeEventListener('click', handleClickOutside)
+            document.removeEventListener('pointerdown', handlePointerDownOutside)
             document.removeEventListener('keydown', handleKeyDown)
         }
     }, [isPinned, wrapperRef, clearTooltip])

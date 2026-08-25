@@ -17,7 +17,7 @@ import {
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types'
+import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
@@ -98,6 +98,15 @@ export enum TileId {
     BOT_AI_REFERRALS = 'BOT_AI_REFERRALS',
     BOT_AI_ENGAGEMENT = 'BOT_AI_ENGAGEMENT',
     BOT_CRAWLERS = 'BOT_CRAWLERS',
+
+    AI_REFERRALS_TREND = 'AI_REFERRALS_TREND',
+    AI_REFERRALS_BY_ENGINE = 'AI_REFERRALS_BY_ENGINE',
+    AI_LANDING_PAGES = 'AI_LANDING_PAGES',
+    AI_CRAWLERS_TREND = 'AI_CRAWLERS_TREND',
+    AI_CRAWLERS = 'AI_CRAWLERS',
+    AI_CRAWLED_PAGES = 'AI_CRAWLED_PAGES',
+
+    PAGE_PERFORMANCE_TABLE = 'PAGE_PERFORMANCE_TABLE',
 }
 
 export enum ProductTab {
@@ -109,6 +118,7 @@ export enum ProductTab {
     HEALTH = 'health',
     LIVE = 'live',
     BOT_ANALYTICS = 'bots',
+    PAGE_PERFORMANCE = 'page-performance',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -181,6 +191,15 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.BOT_AI_REFERRALS]: 5,
     [TileId.BOT_AI_ENGAGEMENT]: 6,
     [TileId.BOT_CRAWLERS]: 7,
+
+    [TileId.AI_REFERRALS_TREND]: 3,
+    [TileId.AI_REFERRALS_BY_ENGINE]: 4,
+    [TileId.AI_LANDING_PAGES]: 5,
+    [TileId.AI_CRAWLERS_TREND]: 7,
+    [TileId.AI_CRAWLERS]: 8,
+    [TileId.AI_CRAWLED_PAGES]: 9,
+
+    [TileId.PAGE_PERFORMANCE_TABLE]: 1,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -253,6 +272,13 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.BOT_AI_REFERRALS]: 'AI referral traffic',
     [TileId.BOT_AI_ENGAGEMENT]: 'AI referral engagement',
     [TileId.BOT_CRAWLERS]: 'Crawlers',
+    [TileId.AI_REFERRALS_TREND]: 'AI referrals over time',
+    [TileId.AI_REFERRALS_BY_ENGINE]: 'AI referrals by engine',
+    [TileId.AI_LANDING_PAGES]: 'Landing pages from AI',
+    [TileId.AI_CRAWLERS_TREND]: 'AI crawler activity over time',
+    [TileId.AI_CRAWLERS]: 'AI crawlers',
+    [TileId.AI_CRAWLED_PAGES]: 'Pages AI crawlers read',
+    [TileId.PAGE_PERFORMANCE_TABLE]: 'Pages by search & AI',
 }
 
 export interface BaseTile {
@@ -457,6 +483,17 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
+        case WebStatsBreakdown.FirstPageviewChannelType:
+        case WebStatsBreakdown.FirstPageviewReferringDomain:
+        case WebStatsBreakdown.FirstPageviewUTMSource:
+        case WebStatsBreakdown.FirstPageviewUTMCampaign:
+        case WebStatsBreakdown.FirstPageviewUTMMedium:
+        case WebStatsBreakdown.FirstPageviewUTMTerm:
+        case WebStatsBreakdown.FirstPageviewUTMContent:
+        case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
+            // Computed per-session from the first pageview at query time — there is
+            // no stored property to filter sessions by.
+            return undefined
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -528,6 +565,30 @@ export const sessionPropertiesToPathClean = new Set([
     '$end_current_url',
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
+
+/**
+ * Pick the operator for an exact match on a breakdown value. With path cleaning on, the value is a
+ * cleaned path such as `/user/:id`, which no raw property equals. `IsCleanedPathExact` cleans the
+ * stored property too, so the comparison happens on cleaned paths on both sides.
+ */
+export const exactMatchOperatorFor = (
+    key: string,
+    type: PropertyFilterType,
+    doPathCleaning: boolean | undefined
+): PropertyOperator => {
+    if (!doPathCleaning) {
+        return PropertyOperator.Exact
+    }
+
+    const cleanableProperties =
+        type === PropertyFilterType.Session
+            ? sessionPropertiesToPathClean
+            : type === PropertyFilterType.Person
+              ? personPropertiesToPathClean
+              : eventPropertiesToPathClean
+
+    return cleanableProperties.has(key) ? PropertyOperator.IsCleanedPathExact : PropertyOperator.Exact
+}
 
 // Utility function to map SQL/internal column names to UI-friendly display names
 export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreakdown): string => {
@@ -604,6 +665,22 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
                 return 'URL'
             case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
                 return 'Source / Medium / Campaign'
+            case WebStatsBreakdown.FirstPageviewChannelType:
+                return 'Channel Type (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewReferringDomain:
+                return 'Referring Domain (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMSource:
+                return 'UTM Source (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMCampaign:
+                return 'UTM Campaign (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMMedium:
+                return 'UTM Medium (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMTerm:
+                return 'UTM Term (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMContent:
+                return 'UTM Content (First Pageview)'
+            case WebStatsBreakdown.FirstPageviewUTMSourceMediumCampaign:
+                return 'Source / Medium / Campaign (First Pageview)'
         }
     }
 

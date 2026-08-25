@@ -1,7 +1,7 @@
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA as SUBSCRIPTION_SCHEMA
 from products.revenue_analytics.backend.views.sources.stripe.subscription import build
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import SUBSCRIPTION_RESOURCE_NAME
+from products.warehouse_sources.backend.facade.sources import SUBSCRIPTION_RESOURCE_NAME
 
 
 class TestSubscriptionStripeBuilder(StripeSourceBaseTest):
@@ -49,10 +49,6 @@ class TestSubscriptionStripeBuilder(StripeSourceBaseTest):
         self.setup_stripe_external_data_source_with_specific_schemas(
             [{"name": SUBSCRIPTION_RESOURCE_NAME, "table_name": None}]
         )
-
-        # Set the table to None to simulate missing table
-        subscription_schema = self.get_stripe_schema_by_name(SUBSCRIPTION_RESOURCE_NAME)
-        subscription_schema.table = None
 
         # Test the query structure
         query = build(self.stripe_handle)

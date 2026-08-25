@@ -10,12 +10,21 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
+from products.mcp_store.backend.models import (
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerInstallationTool,
+    TeamMCPGatewayConfig,
+)
 from products.mcp_store.backend.oauth import TokenRefreshError
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.call_mcp_server.installations import _build_server_headers, _get_installations
+from ee.hogai.tools.call_mcp_server.installations import (
+    _build_server_headers,
+    _get_installations,
+    _get_tool_approval_states,
+)
 from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
@@ -120,6 +129,33 @@ class TestCreateToolClass(TestCallMCPServerTool):
             team=self.team, user=self.user, state=self.state, context_manager=self.context_manager
         )
         self.assertEqual(tool._installations, [])
+
+    async def test_sees_teammates_shared_installation(self):
+        from posthog.models import User
+
+        owner = await sync_to_async(User.objects.create_and_join)(self.organization, "owner@example.com", "password")
+        await sync_to_async(MCPServerInstallation.objects.create)(
+            team=self.team,
+            user=owner,
+            display_name="Shared Linear",
+            url="https://mcp.linear.app/mcp",
+            scope="shared",
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "owner-token"},
+        )
+
+        tool = await CallMCPServerTool.create_tool_class(
+            team=self.team, user=self.user, state=self.state, context_manager=self.context_manager
+        )
+
+        self.assertEqual(len(tool._installations), 1)
+        self.assertIn("https://mcp.linear.app/mcp", tool._allowed_server_urls)
+        self.assertIn("Shared Linear", tool.description)
+        # Calls ride the owner's shared credential.
+        self.assertEqual(
+            tool._server_headers["https://mcp.linear.app/mcp"]["Authorization"],
+            "Bearer owner-token",
+        )
 
 
 class TestAuthHeaders(TestCallMCPServerTool):
@@ -288,7 +324,106 @@ class TestCallTool(TestCallMCPServerTool):
             self.assertIn("Failed to connect", str(ctx.exception))
 
 
+class TestGetToolApprovalStates(BaseTest):
+    def test_gateway_policy_uses_cached_tool_annotations(self) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Issue server",
+            url="https://mcp.issue-policy.example.com/mcp",
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="manage_issue",
+            annotations={"destructiveHint": True},
+            last_seen_at=timezone.now(),
+        )
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(
+            team=self.team,
+            member_default_preset="block",
+        )
+
+        with self.assertNumQueries(5):
+            states = _get_tool_approval_states(str(installation.id), self.team.id, server.id, self.user)
+
+        assert states == {"manage_issue": "do_not_use"}
+
+
+class TestCachedToolListGatewayPolicy(TestCallMCPServerTool):
+    async def test_cached_tool_list_resolves_states_through_gateway_policy(self) -> None:
+        def _setup():
+            server = MCPGatewayServer.objects.for_team(self.team.id).create(
+                team=self.team,
+                name="Issue server",
+                url="https://mcp.example.com/mcp",
+            )
+            installation = self._install_server()
+            installation.gateway_server = server
+            installation.save()
+            for tool_name, description in (
+                ("delete_issue", "Deletes an issue permanently."),
+                ("read_issue", "Reads an issue."),
+            ):
+                MCPServerInstallationTool.objects.create(
+                    installation=installation,
+                    tool_name=tool_name,
+                    description=description,
+                    approval_state="approved",
+                    last_seen_at=timezone.now(),
+                )
+            TeamMCPGatewayConfig.objects.for_team(self.team.id).create(
+                team=self.team,
+                member_default_preset="block",
+            )
+            return installation, server
+
+        installation, server = await sync_to_async(_setup)()
+        tool = self._create_tool(
+            installations=[
+                {
+                    "id": str(installation.id),
+                    "display_name": "Test Server",
+                    "url": installation.url,
+                    "gateway_server_id": server.id,
+                }
+            ]
+        )
+
+        listing = await tool._get_cached_tool_list(installation.url)
+
+        assert listing is not None
+        assert "read_issue" in listing
+        # The legacy per-installation state says approved, but the team's
+        # "block destructive" preset must gate the cached list too.
+        assert "delete_issue" not in listing
+        assert tool._approval_cache[installation.url]["delete_issue"] == "do_not_use"
+
+
 class TestGetInstallations(TestCallMCPServerTool):
+    def _create_teammate(self, email="teammate@example.com"):
+        from posthog.models import User
+
+        return User.objects.create_and_join(self.organization, email, "password")
+
+    def _install_shared_server(self, owner, url="https://mcp.linear.app/mcp", sensitive_configuration=None):
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=owner,
+            display_name="Shared Linear",
+            url=url,
+            scope="shared",
+            auth_type="oauth",
+            sensitive_configuration=(
+                sensitive_configuration if sensitive_configuration is not None else {"access_token": "owner-token"}
+            ),
+        )
+
     def test_returns_installed_servers(self):
         self._install_server(name="Linear", url="https://mcp.linear.app")
         result = _get_installations(self.team, self.user)
@@ -298,6 +433,81 @@ class TestGetInstallations(TestCallMCPServerTool):
 
     def test_returns_empty_when_none_installed(self):
         result = _get_installations(self.team, self.user)
+        self.assertEqual(result, [])
+
+    def test_includes_teammates_shared_installation(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner)
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["scope"], "shared")
+        self.assertEqual(result[0]["url"], "https://mcp.linear.app/mcp")
+
+    def test_personal_wins_over_shared_for_same_url(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner, url="https://mcp.linear.app/mcp")
+        self._install_server(name="My Linear", url="https://mcp.linear.app/mcp")
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["scope"], "personal")
+        self.assertEqual(result[0]["display_name"], "My Linear")
+
+    def test_hides_shared_installation_without_live_credential(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner, url="https://mcp.pending.com/mcp", sensitive_configuration={})
+        self._install_shared_server(
+            owner,
+            url="https://mcp.reauth.com/mcp",
+            sensitive_configuration={"access_token": "tok", "needs_reauth": True},
+        )
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(result, [])
+
+    def test_dead_personal_does_not_shadow_ready_shared(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner, url="https://mcp.linear.app/mcp")
+        self._install_server(
+            name="My Linear",
+            url="https://mcp.linear.app/mcp",
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "tok", "needs_reauth": True},
+        )
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["scope"], "shared")
+
+    def test_keeps_unready_personal_without_shared_alternative(self):
+        self._install_server(
+            name="My Linear",
+            url="https://mcp.linear.app/mcp",
+            auth_type="oauth",
+            sensitive_configuration={"needs_reauth": True},
+        )
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["display_name"], "My Linear")
+
+    def test_excludes_teammates_personal_installations(self):
+        owner = self._create_teammate()
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=owner,
+            display_name="Their Server",
+            url="https://mcp.other.com",
+        )
+
+        result = _get_installations(self.team, self.user)
+
         self.assertEqual(result, [])
 
 

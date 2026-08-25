@@ -1,0 +1,596 @@
+import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
+from django.apps import apps
+from django.conf import settings
+from django.test import SimpleTestCase
+
+from celery.exceptions import Retry
+from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
+
+from posthog.models import Team
+from posthog.models.integration import Integration
+
+from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.scout_harness.slack_delivery import (
+    ScoutSlackPermanentDeliveryError,
+    get_scout_slack_destination,
+    post_scout_emission_to_slack,
+)
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
+from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
+
+
+class TestGetScoutSlackDestination(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("explicit_true", {"thread_reports": True}, True),
+            ("omitted_defaults_off", {}, False),
+            ("explicit_false", {"thread_reports": False}, False),
+            # Only a real boolean True turns threading on; a truthy non-bool stays off.
+            ("truthy_non_bool_stays_off", {"thread_reports": "yes"}, False),
+        ]
+    )
+    def test_parses_thread_reports(self, _name: str, extra: dict, expected: bool) -> None:
+        destination = get_scout_slack_destination({"slack": {"integration_id": 7, "channel": "C1|#x", **extra}})
+
+        assert destination is not None
+        assert destination.thread_reports is expected
+
+
+class FakeSlackResponse(dict):
+    def __init__(self, data: dict, headers: dict | None = None) -> None:
+        super().__init__(data)
+        self.headers = headers or {}
+
+
+class TestScoutSlackDelivery(BaseTest):
+    def _make_emission(self, description: str = "**Checkout** failures") -> SignalScoutEmission:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            title="scout run",
+            description="scout run",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        )
+        task_run = TaskRun.objects.create(task=task, team=self.team)
+        run = SignalScoutRun.all_teams.create(
+            task_run=task_run,
+            team=self.team,
+            skill_name="signals-scout-error-tracking",
+            skill_version=1,
+        )
+        return SignalScoutEmission.all_teams.create(
+            team=self.team,
+            scout_run=run,
+            finding_id="checkout/500s",
+            description=description,
+            weight=1.0,
+            confidence=0.84,
+            severity="P1",
+            tags=["checkout", "regression"],
+            source_id=f"run:{run.id}:finding:checkout-500s",
+        )
+
+    def test_posts_safe_mrkdwn_but_does_not_invite_followup_for_child_environment(self) -> None:
+        emission = self._make_emission(
+            "**Checkout** failures [trace](https://example.com/trace) <!channel> [ping](!here)"
+        )
+        child_team = Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            parent_team=self.team,
+            name="Child environment",
+        )
+        integration = Integration.objects.create(team=child_team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000100"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            post_scout_emission_to_slack(
+                emission,
+                integration_id=integration.id,
+                channel="CSCOUTS|#scout-findings",
+            )
+
+        call = fake_client.chat_postMessage.call_args_list[0].kwargs
+        assert call["channel"] == "CSCOUTS"
+        assert call["client_msg_id"] == str(emission.id)
+        assert "thread_ts" not in call
+        section = call["blocks"][1]["text"]["text"]
+        assert "*Checkout*" in section
+        assert "<https://example.com/trace|trace>" in section
+        assert "<!channel>" not in section
+        assert "<!here>" not in section
+        assert "&lt;!channel&gt;" in section
+        assert call["blocks"][-1]["elements"][0]["url"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
+        )
+        assert fake_client.chat_postMessage.call_count == 1
+
+    def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="**Checkout** failed for <!channel> [trace](https://example.com/trace)",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200"}
+        delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                delivery_id,
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        call = fake_client.chat_postMessage.call_args_list[0].kwargs
+        assert call["channel"] == "CSCOUTS"
+        assert call["client_msg_id"] == delivery_id
+        assert "thread_ts" not in call
+        section = call["blocks"][2]["text"]["text"]
+        assert "*Checkout*" in section
+        assert "<!channel>" not in section
+        assert "&lt;!channel&gt;" in section
+        assert "<https://example.com/trace|trace>" in section
+        assert call["blocks"][-1]["elements"][0]["url"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
+        )
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
+        assert reply["thread_ts"] == "1785418710.000200"
+        assert reply["blocks"][0]["type"] == "context"
+
+    def test_note_only_edit_delivers_the_note_instead_of_the_report(self) -> None:
+        # Without the edit_note branch a note-only edit re-posts the full report message, which is
+        # byte-identical to the one already in the channel and reads as a duplicate.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="**Checkout** failed for many users",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000300"}
+        delivery_id = "0198f2a1-4c31-7a52-9f1e-3c5d6e7f8a9b"
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                delivery_id,
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                "Re-checked after the fix: **error rate** is back to baseline <!channel>",
+            )
+
+        call = fake_client.chat_postMessage.call_args_list[0].kwargs
+        assert call["client_msg_id"] == delivery_id
+        context = call["blocks"][0]["elements"][0]["text"]
+        assert "added a note to an existing report" in context
+        assert call["blocks"][1]["text"]["text"] == "Checkout failures"
+        section = call["blocks"][2]["text"]["text"]
+        assert "*error rate*" in section
+        assert "<!channel>" not in section
+        assert "&lt;!channel&gt;" in section
+        assert "failed for many users" not in section
+        assert call["blocks"][-1]["elements"][0]["url"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
+        )
+
+    def test_enqueue_omits_edit_note_kwarg_when_unset(self) -> None:
+        # A worker still running the previous task signature rejects an unknown kwarg, so every
+        # delivery without a note must keep the exact payload shape it had before edit_note existed.
+        with patch.object(deliver_scout_slack_output, "delay") as delay:
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="b316c1d1-6901-49eb-8223-96d4df69f67f",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+            )
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="c4f7d2e2-7012-4afc-9334-a7e5df70a80a",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+                edit_note="Re-validated on the next run",
+            )
+
+        assert delay.call_args_list[0].kwargs == {}
+        assert delay.call_args_list[1].kwargs == {"edit_note": "Re-validated on the next run"}
+
+    def test_enqueue_omits_thread_reports_kwarg_when_off(self) -> None:
+        # Same backward-compat contract as edit_note: the flag rides as a kwarg only when on, so a
+        # worker on the previous task signature never sees an unknown keyword for a default delivery.
+        with patch.object(deliver_scout_slack_output, "delay") as delay:
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="b316c1d1-6901-49eb-8223-96d4df69f67f",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+            )
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="c4f7d2e2-7012-4afc-9334-a7e5df70a80a",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        assert delay.call_args_list[0].kwargs == {}
+        assert delay.call_args_list[1].kwargs == {"thread_reports": True}
+
+    def test_threaded_report_posts_lead_and_delivers_the_full_tail(self) -> None:
+        # The bug: a summary past the section cap was truncated with an ellipsis, so the tail never
+        # reached the channel. With thread_reports on, the lead posts to the channel and the rest
+        # rides as threaded replies, so a distinctive tail marker still arrives.
+        emission = self._make_emission()
+        tail_marker = "TAIL_MARKER_9137"
+        summary = (
+            "Lead paragraph before any heading.\n\n"
+            "## First finding\n" + ("First body line.\n" * 400) + "\n"
+            "## Second finding\n" + ("Second body line.\n" * 400) + f"\nClosing note {tail_marker}."
+        )
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary=summary,
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000500"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        calls = fake_client.chat_postMessage.call_args_list
+        lead = calls[0].kwargs
+        assert "thread_ts" not in lead
+        assert lead["blocks"][1]["text"]["text"] == "Checkout failures"
+        replies = calls[1:]
+        assert len(replies) > 1
+        assert all(reply.kwargs["thread_ts"] == "1785418710.000500" for reply in replies)
+        # Every posted section stays within the cap, and nothing is ellipsis-truncated.
+        section_texts = [
+            block["text"]["text"] for call in calls for block in call.kwargs["blocks"] if block["type"] == "section"
+        ]
+        assert all(len(text) <= 2900 for text in section_texts)
+        assert not any(text.endswith("…") for text in section_texts)
+        assert any(tail_marker in text for text in section_texts)
+
+    def test_threaded_short_report_with_headings_posts_a_single_message(self) -> None:
+        # Threading must track content size, not heading count: a short report that fits one Slack
+        # section posts as one message however many headings it has, so it never floods a thread.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Lead line.\n\n## First\nshort body\n\n## Second\nshort body",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        # Only the lead message and the unconditional @PostHog follow-up reply — no per-heading replies.
+        calls = fake_client.chat_postMessage.call_args_list
+        assert len(calls) == 2
+        assert "thread_ts" not in calls[0].kwargs
+        section_texts = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
+        assert len(section_texts) == 1
+        assert "First" in section_texts[0] and "Second" in section_texts[0]
+        assert calls[1].kwargs["blocks"][0]["type"] == "context"
+
+    def test_threaded_report_packs_many_small_headings_into_few_replies(self) -> None:
+        # A report past the section cap made of many small heading sections must pack adjacent
+        # sections up to the Slack limit, not post one reply per heading. Otherwise the reply count
+        # tracks heading count and a heading-dense report bursts a request per heading into the thread.
+        emission = self._make_emission()
+        heading_count = 50
+        summary = "".join(
+            f"## Section {i}\nBody line for section {i} with a bit of detail to add length.\n\n"
+            for i in range(heading_count)
+        )
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary=summary,
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000700"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        calls = fake_client.chat_postMessage.call_args_list
+        section_texts = [
+            block["text"]["text"] for call in calls for block in call.kwargs["blocks"] if block["type"] == "section"
+        ]
+        # Packed: far fewer sections than headings, each within the cap, and no section is dropped.
+        assert len(section_texts) < heading_count // 5
+        assert all(len(text) <= 2900 for text in section_texts)
+        joined = "\n".join(section_texts)
+        assert all(f"Section {i}" in joined for i in range(heading_count))
+
+    def test_reply_posted_regardless_of_ai_approval(self) -> None:
+        # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000400"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        assert fake_client.chat_postMessage.call_count == 2
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
+        assert reply["thread_ts"] == "1785418710.000400"
+
+    def test_reply_transport_failure_does_not_fail_delivery(self) -> None:
+        # The parent message already landed, so a failing follow-up reply — even a non-SlackApiError
+        # transport error — must be swallowed rather than fail the task and retry the whole delivery.
+        emission = self._make_emission()
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.side_effect = [{"ts": "1785418710.000500"}, ConnectionError("boom")]
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            post_scout_emission_to_slack(
+                emission,
+                integration_id=integration.id,
+                channel="CSCOUTS|#scout-findings",
+            )
+
+        assert fake_client.chat_postMessage.call_count == 2
+
+    def test_task_skips_report_suppressed_before_delivery(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.SUPPRESSED,
+            title="Unsafe report",
+            summary="This report must not leave PostHog.",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        fake_client.chat_postMessage.assert_not_called()
+
+    def test_task_retries_transient_delivery_failure(self) -> None:
+        emission = self._make_emission()
+        error = SlackApiError(
+            message="rate limited",
+            response=FakeSlackResponse({"error": "ratelimited"}, headers={"retry-after": "120"}),
+        )
+
+        with patch(
+            "products.signals.backend.tasks.post_scout_emission_to_slack",
+            side_effect=error,
+        ):
+            with pytest.raises(Retry) as retry:
+                deliver_scout_slack_output.apply(
+                    args=(
+                        self.team.id,
+                        "finding",
+                        str(emission.id),
+                        str(emission.scout_run_id),
+                        str(emission.id),
+                        1,
+                        "CSCOUTS|#scout-findings",
+                    ),
+                    throw=True,
+                )
+
+        assert retry.value.when == 120
+
+    def test_task_captures_known_permanent_failure_without_retry(self) -> None:
+        emission = self._make_emission()
+        error = ScoutSlackPermanentDeliveryError("channel unavailable", error_code="channel_not_found")
+
+        with (
+            patch("products.signals.backend.tasks.post_scout_emission_to_slack", side_effect=error),
+            patch("products.signals.backend.tasks.capture_exception") as capture,
+        ):
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "finding",
+                str(emission.id),
+                str(emission.scout_run_id),
+                str(emission.id),
+                9,
+                "CMISSING|#missing",
+            )
+
+        capture.assert_called_once_with(
+            error,
+            {
+                "team_id": self.team.id,
+                "output_type": "finding",
+                "output_id": str(emission.id),
+                "run_id": str(emission.scout_run_id),
+                "integration_id": 9,
+                "error_code": "channel_not_found",
+            },
+        )
+
+    def test_task_captures_transient_failure_after_retries_are_exhausted(self) -> None:
+        emission = self._make_emission()
+        error = ConnectionError("Slack unavailable")
+
+        with (
+            patch("products.signals.backend.tasks.post_scout_emission_to_slack", side_effect=error),
+            patch("products.signals.backend.tasks.capture_exception") as capture,
+        ):
+            result = deliver_scout_slack_output.apply(
+                args=(
+                    self.team.id,
+                    "finding",
+                    str(emission.id),
+                    str(emission.scout_run_id),
+                    str(emission.id),
+                    9,
+                    "CSCOUTS|#scout-findings",
+                ),
+                retries=5,
+                throw=True,
+            )
+
+        assert result.successful()
+        capture.assert_called_once_with(
+            error,
+            {
+                "team_id": self.team.id,
+                "output_type": "finding",
+                "output_id": str(emission.id),
+                "run_id": str(emission.scout_run_id),
+                "integration_id": 9,
+                "error_code": None,
+                "attempts": 6,
+            },
+        )
+
+    def test_enqueue_captures_broker_failure(self) -> None:
+        error = ConnectionError("broker unavailable")
+
+        with (
+            patch.object(deliver_scout_slack_output, "delay", side_effect=error),
+            patch("products.signals.backend.tasks.capture_exception") as capture,
+        ):
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="b316c1d1-6901-49eb-8223-96d4df69f67f",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+            )
+
+        capture.assert_called_once_with(
+            error,
+            {
+                "team_id": self.team.id,
+                "output_type": "report",
+                "output_id": "ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                "run_id": "e3865391-bc89-44e6-86f7-2d4405627daf",
+                "integration_id": 9,
+            },
+        )
+
+    def test_queue_captures_failure_before_enqueue(self) -> None:
+        error = ConnectionError("database unavailable")
+        run_id = "e3865391-bc89-44e6-86f7-2d4405627daf"
+
+        with (
+            patch.object(SignalScoutRun.all_teams, "select_related", side_effect=error),
+            patch("products.signals.backend.scout_harness.slack_delivery_queue.capture_exception") as capture,
+        ):
+            queue_configured_scout_slack_delivery(
+                run_id=run_id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+            )
+
+        capture.assert_called_once_with(
+            error,
+            {
+                "run_id": run_id,
+                "output_type": "report",
+                "output_id": "ddab8ee5-2bb8-4226-b145-6732d31dc344",
+            },
+        )

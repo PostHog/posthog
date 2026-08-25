@@ -12,10 +12,7 @@ from products.data_warehouse.backend.logic.external_data_source.webhooks import 
     reconcile_webhook_events,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    WebhookCreationResult,
-    WebhookSyncResult,
-)
+from products.warehouse_sources.backend.facade.source_management import WebhookCreationResult, WebhookSyncResult
 
 pytestmark = [
     pytest.mark.django_db,
@@ -89,6 +86,9 @@ def _make_webhook_source(
         "Customers": "customer",
         "Invoices": "invoice",
     }
+    # Mirror the real `WebhookSource.webhook_mapping_key` default: translate via the resource
+    # map, falling back to the bare schema name.
+    source.webhook_mapping_key.side_effect = lambda name: source.webhook_resource_map.get(name, name)
     return source
 
 
@@ -277,7 +277,9 @@ class TestCreateAndRegisterWebhook:
         assert result.success is True
         assert result.webhook_url == hog_fn_result.webhook_url
         assert result.error is None
-        webhook_source.create_webhook.assert_called_once_with(config, hog_fn_result.webhook_url, team.id)
+        webhook_source.create_webhook.assert_called_once_with(
+            config, hog_fn_result.webhook_url, team.id, api_version=None
+        )
 
     def test_success_saves_extra_inputs_to_hog_function(self):
         _, team = _create_org_and_team()
@@ -396,7 +398,7 @@ class TestReconcileWebhookEvents:
 
         assert result.success is True
         webhook_source.sync_webhook_events.assert_called_once_with(
-            config, hog_fn_result.webhook_url, team.id, ["Customers"]
+            config, hog_fn_result.webhook_url, team.id, ["Customers"], api_version=None
         )
 
     def test_propagates_failure_without_raising(self):

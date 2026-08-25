@@ -1,8 +1,11 @@
 import { Editor } from '@tiptap/core'
+import { useState } from 'react'
 
-import { IconCode, IconList, IconMinus } from '@posthog/icons'
+import { IconCode, IconList, IconMinus, IconPalette } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 
+import { WordArtModal } from 'lib/components/Cards/TextCard/WordArt/WordArtModal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconBold, IconItalic, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 
@@ -55,6 +58,8 @@ export function RichMarkdownEditorFormatControls({
     clearLinkPopoverReference,
 }: RichMarkdownEditorFormatControlsProps): JSX.Element {
     const hasExistingLink = editor?.isActive('link') ?? false
+    const [showWordArtModal, setShowWordArtModal] = useState(false)
+    const wordArtAvailable = useFeatureFlag('TEXT_CARD_WORD_ART') && !!editor?.schema.nodes.wordArt
 
     const setLink = (): void => {
         if (!linkUrl || !editor) {
@@ -202,6 +207,26 @@ export function RichMarkdownEditorFormatControls({
                     tooltip="Lists"
                 />
             </LemonMenu>
+            {wordArtAvailable && (
+                <>
+                    <LemonButton
+                        size="small"
+                        icon={<IconPalette />}
+                        onClick={() => setShowWordArtModal(true)}
+                        tooltip="Word art"
+                        data-attr="word-art-toolbar-button"
+                    />
+                    {showWordArtModal && (
+                        <WordArtModal
+                            onClose={() => setShowWordArtModal(false)}
+                            onSave={(attrs) => {
+                                editor?.chain().focus().insertWordArt(attrs).run()
+                                setShowWordArtModal(false)
+                            }}
+                        />
+                    )}
+                </>
+            )}
             <Popover
                 key={
                     linkPopoverReferenceElement ? 'markdown-link-popover-external-ref' : 'markdown-link-popover-toolbar'

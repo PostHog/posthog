@@ -207,6 +207,25 @@ describe('the property definitions model', () => {
                 })
         })
 
+        it('marks unfetchable definition types as missing without wedging the queue', async () => {
+            // account_custom_property has no definitions endpoint; a stale key for it (e.g. from
+            // a saved view for a deleted definition) must not block other types from resolving.
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyDefinitions(
+                    ['11111111-2222-3333-4444-555555555555'],
+                    PropertyDefinitionType.AccountCustomProperty
+                )
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Event)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    propertyDefinitionStorage: partial({
+                        'account_custom_property/11111111-2222-3333-4444-555555555555': PropertyDefinitionState.Missing,
+                        'event/a string': partial({ name: 'a string' }),
+                    }),
+                })
+        })
+
         it('handles local definitions', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPropertyDefinitions(['$session_duration'], PropertyDefinitionType.Event)
@@ -472,35 +491,56 @@ describe('the property definitions model', () => {
         })
     })
 
-    describe('log_entry property values', () => {
-        it('returns local options for log_entry/level without a network request', async () => {
-            let networkCalled = false
+    describe('local property values', () => {
+        it.each([
+            [
+                'log_entry/level',
+                PropertyDefinitionType.LogEntry,
+                'level',
+                [
+                    { id: 0, name: 'info' },
+                    { id: 1, name: 'warn' },
+                    { id: 2, name: 'error' },
+                ],
+            ],
+            [
+                'resource/severity',
+                PropertyDefinitionType.Resource,
+                'severity',
+                [
+                    { id: 0, name: 'low' },
+                    { id: 1, name: 'medium' },
+                    { id: 2, name: 'high' },
+                    { id: 3, name: 'critical' },
+                ],
+            ],
+        ] as const)(
+            'returns local options for %s without a network request',
+            async (_, type, propertyKey, expectedValues) => {
+                let networkCalled = false
 
-            useMocks({
-                get: {
-                    '/api/log_entry/values': () => {
-                        networkCalled = true
-                        return [200, { results: [], refreshing: false }]
+                useMocks({
+                    get: {
+                        [`/api/${type}/values`]: () => {
+                            networkCalled = true
+                            return [200, { results: [], refreshing: false }]
+                        },
                     },
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.loadPropertyValues({
-                    endpoint: undefined,
-                    type: PropertyDefinitionType.LogEntry,
-                    propertyKey: 'level',
-                    newInput: undefined,
                 })
-            }).toFinishAllListeners()
 
-            expect(networkCalled).toBe(false)
-            expect(logic.values.options['level'].values).toEqual([
-                { id: 0, name: 'info' },
-                { id: 1, name: 'warn' },
-                { id: 2, name: 'error' },
-            ])
-        })
+                await expectLogic(logic, () => {
+                    logic.actions.loadPropertyValues({
+                        endpoint: undefined,
+                        type,
+                        propertyKey,
+                        newInput: undefined,
+                    })
+                }).toFinishAllListeners()
+
+                expect(networkCalled).toBe(false)
+                expect(logic.values.options[propertyKey].values).toEqual(expectedValues)
+            }
+        )
 
         it('does not fetch from a nonexistent endpoint for log_entry properties without local options', async () => {
             let networkCalled = false

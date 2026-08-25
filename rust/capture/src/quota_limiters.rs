@@ -231,7 +231,7 @@ impl CaptureQuotaLimiter {
 
     pub fn get_resource_for_mode(mode: CaptureMode) -> QuotaResource {
         match mode {
-            CaptureMode::Events | CaptureMode::Ai => QuotaResource::Events,
+            CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => QuotaResource::Events,
             CaptureMode::Recordings => QuotaResource::Recordings,
         }
     }

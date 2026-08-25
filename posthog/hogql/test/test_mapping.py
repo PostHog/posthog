@@ -326,6 +326,35 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
         assert response.results is not None
         assert response.results[0] == (2.5, 0.0, None)
 
+    def test_to_int_or_default_function_mapping(self):
+        # Mirror of toFloatOrDefault for integers. Proves toIntOrDefault exists and executes on
+        # ClickHouse: the Int64 default cast lets an integer default literal work, and empty /
+        # unparseable / NULL inputs fall back to the default. The wrapping coalesce confirms the
+        # call resolves to a known Integer type (an UnknownType would break nesting).
+        response = execute_hogql_query(
+            """
+            SELECT
+                toIntOrDefault(3, 7),
+                toIntOrDefault('42', 7),
+                toIntOrDefault('', 7),
+                toIntOrDefault('bla', 7),
+                toIntOrDefault(NULL, 7),
+                coalesce(toIntOrDefault('bla', 0), 1)
+        """,
+            self.team,
+        )
+        assert response.results is not None
+        assert response.results[0] == (3, 42, 7, 7, 7, 0)
+
+    def test_to_int_or_default_single_arg(self):
+        # Single-arg form is degenerate (equivalent to toIntOrZero), rewritten in the printer.
+        response = execute_hogql_query(
+            "SELECT toIntOrDefault('42'), toIntOrDefault('bla'), toIntOrDefault(NULL)",
+            self.team,
+        )
+        assert response.results is not None
+        assert response.results[0] == (42, 0, None)
+
     def test_map_function_with_multiple_key_value_pairs(self):
         """Test that the map function accepts multiple key-value pairs."""
         response = execute_hogql_query(

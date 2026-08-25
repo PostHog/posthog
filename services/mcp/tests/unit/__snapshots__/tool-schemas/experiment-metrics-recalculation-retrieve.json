@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this experiment.",
+            "type": "number"
+        },
+        "recalculation_id": {
+            "description": "UUID of the recalculation run to fetch. This is the run's own id, not the experiment id.",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+        }
+    },
+    "required": ["id", "recalculation_id"],
+    "type": "object"
+}

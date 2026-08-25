@@ -1,6 +1,13 @@
 {
     "configPropertyKeys": {
-        "activity_events_list": ["dateRange", "eventName", "filterTestAccounts", "limit", "widgetFilters"],
+        "activity_events_list": [
+            "dateRange",
+            "eventName",
+            "filterTestAccounts",
+            "limit",
+            "properties",
+            "widgetFilters"
+        ],
         "error_tracking_list": [
             "assignee",
             "dateRange",
@@ -33,6 +40,15 @@
             "severityLevels",
             "timezone",
             "wrapLines"
+        ],
+        "conversations_recent_tickets": [
+            "assignees",
+            "channel",
+            "limit",
+            "priorities",
+            "savedViewId",
+            "search",
+            "status"
         ]
     },
     "configPropertyTrees": {
@@ -59,6 +75,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -78,10 +95,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -91,7 +110,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {
@@ -104,6 +124,64 @@
             },
             "eventName": {
                 "$type": "string"
+            },
+            "properties": {
+                "$array": {
+                    "key": {
+                        "$type": "string"
+                    },
+                    "label": {
+                        "$type": "string"
+                    },
+                    "operator": {
+                        "$enum": [
+                            "between",
+                            "ends_with",
+                            "exact",
+                            "flag_evaluates_to",
+                            "gt",
+                            "gte",
+                            "icontains",
+                            "icontains_multi",
+                            "in",
+                            "is_cleaned_path_exact",
+                            "is_date_after",
+                            "is_date_before",
+                            "is_date_exact",
+                            "is_not",
+                            "is_not_set",
+                            "is_set",
+                            "lt",
+                            "lte",
+                            "max",
+                            "min",
+                            "not_between",
+                            "not_ends_with",
+                            "not_icontains",
+                            "not_icontains_multi",
+                            "not_in",
+                            "not_regex",
+                            "not_starts_with",
+                            "regex",
+                            "semver_caret",
+                            "semver_eq",
+                            "semver_gt",
+                            "semver_gte",
+                            "semver_lt",
+                            "semver_lte",
+                            "semver_neq",
+                            "semver_tilde",
+                            "semver_wildcard",
+                            "starts_with"
+                        ]
+                    },
+                    "type": {
+                        "$enum": ["event", "person"]
+                    },
+                    "value": {
+                        "$types": ["string"]
+                    }
+                }
             }
         },
         "error_tracking_list": {
@@ -129,6 +207,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -148,10 +227,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -161,7 +242,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {
@@ -213,6 +295,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -232,10 +315,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -245,7 +330,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {
@@ -287,7 +373,7 @@
                 "$enum": ["ASC", "DESC"]
             },
             "status": {
-                "$enum": ["all", "draft", "paused", "running", "stopped"]
+                "$enum": ["all", "draft", "exposure_frozen", "paused", "running", "stopped"]
             },
             "createdBy": {
                 "$type": "integer"
@@ -338,6 +424,38 @@
             },
             "timezone": {
                 "$enum": ["UTC", "local"]
+            },
+            "savedViewId": {
+                "$type": "string"
+            }
+        },
+        "conversations_recent_tickets": {
+            "limit": {
+                "$type": "integer"
+            },
+            "status": {
+                "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
+            },
+            "priorities": {
+                "$array": {
+                    "$enum": ["critical", "high", "low", "medium"]
+                }
+            },
+            "channel": {
+                "$enum": ["all", "email", "github", "slack", "teams", "widget"]
+            },
+            "assignees": {
+                "$array": {
+                    "id": {
+                        "$types": ["integer", "string"]
+                    },
+                    "type": {
+                        "$enum": ["role", "user"]
+                    }
+                }
+            },
+            "search": {
+                "$type": "string"
             },
             "savedViewId": {
                 "$type": "string"

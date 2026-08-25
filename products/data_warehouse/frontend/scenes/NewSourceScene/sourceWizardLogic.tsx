@@ -1,5 +1,6 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -40,6 +41,11 @@ import {
     RowFilter,
 } from '~/types'
 
+import type { AvailableSetupTaskIdsEnumApi } from '../../../../../frontend/src/generated/core/api.schemas'
+import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
+import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { ProductIntentProperties } from '../../../../../frontend/src/lib/utils/product-intents'
+import type { DataWarehouseTable, ExternalDataSource, PreflightStatus } from '../../../../../frontend/src/types'
 import {
     getDefaultExpandedSchemaKeys,
     groupTablesBySchema,
@@ -48,8 +54,8 @@ import {
 } from '../../shared/components/forms/schemaGroupingUtils'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
+import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
-import type { sourceWizardLogicType } from './sourceWizardLogicType'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
@@ -164,6 +170,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
+            if (field.multiple) {
+                obj[field.name] = field.defaultValue ? [field.defaultValue] : []
+                return
+            }
+
             if (hasOptionFields) {
                 obj[field.name] = {}
                 obj[field.name]['selection'] = field.defaultValue
@@ -171,6 +182,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
             } else {
                 obj[field.name] = field.defaultValue
             }
+            return
+        }
+
+        if (field.type === 'oauth-account-select' && field.multiple) {
+            obj[field.name] = []
             return
         }
 
@@ -223,8 +239,40 @@ export function shouldHydrateSourceFromUrl(
     return !(selectedConnector?.name === source.name && currentAccessMethod === urlAccessMethod && currentStep > 1)
 }
 
+/**
+ * Resolve the `direct_query_enabled` create-payload value. Synced direct-capable sources
+ * default to live queries enabled unless the toggle was switched off; the flag is omitted
+ * for pure direct sources (backend ignores it) and for sources that can't be live-queried.
+ */
+export function resolveCreateDirectQueryEnabled(
+    sourceValues: { access_method?: string; direct_query_enabled?: boolean },
+    connectorName: string
+): boolean | undefined {
+    if (!supportsDirectQuery(connectorName) || sourceValues.access_method === 'direct') {
+        return undefined
+    }
+    return sourceValues.direct_query_enabled !== false
+}
+
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
+}
+
+// A thrown fetch has no HTTP status, so its message is the raw "Failed to fetch", most often an ad
+// blocker or extension blocking the request. Name that likely cause instead of echoing it.
+export function resolveConnectErrorMessage(e: any): string {
+    const apiMessage = e?.data?.message ?? e?.detail
+    if (apiMessage) {
+        return apiMessage
+    }
+    if (e?.status === undefined || e?.status === null || e?.status === 0) {
+        return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request. Try pausing it or switching networks, then try again."
+    }
+    if (e?.status >= 500) {
+        return 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
+    }
+    // A 4xx without a message body would otherwise toast "undefined".
+    return e?.message ?? 'Something went wrong setting up your source. Please try again.'
 }
 
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
@@ -274,6 +322,28 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     return undefined
 }
 
+// Supabase tables carry arbitrary user columns, so the "any timestamp/date" and id-column
+// fallbacks above can land on a value that never changes on update (a date of birth, a
+// config integer). Such a cursor syncs each row once and then silently stops seeing
+// updates, so only trust update-tracking columns and otherwise default to full refresh.
+export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
+    fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
+    fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
+
+// Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
+// rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
+// (e.g. Supabase Vault tables, which hold decrypted secrets) keep their current state so
+// enabling them always takes an explicit per-table opt-in. Bulk disable still clears them.
+export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, selectAll: boolean): boolean => {
+    if (schema.permission_error) {
+        return false
+    }
+    if (selectAll && schema.should_sync_default === false) {
+        return schema.should_sync
+    }
+    return selectAll
+}
+
 function syncExpandedSchemaGroupKeys(
     actions: sourceWizardLogicType['actions'],
     values: sourceWizardLogicType['values']
@@ -298,6 +368,1883 @@ export interface SourceWizardLogicProps {
     /** Onboarding: pre-select every syncable table with smart defaults for a one-click sync */
     autoConfigureTables?: boolean
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceWizardLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    preflight: PreflightStatus | null // preflightLogic
+    tableLoading: boolean // selfManagedSourceLogic
+    dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
+    currentTeamId: number | null // teamLogic
+    availableSources: any
+    breadcrumbs: Breadcrumb[]
+    canGoBack: boolean
+    canGoNext: boolean
+    cdcPrereqsCheckResult: {
+        errors: string[]
+        valid: boolean
+    } | null
+    cdcPrereqsCheckResultLoading: boolean
+    cdcSelfManagedSetupDialogOpen: boolean
+    cdcSelfManagedVerifyResult: {
+        errors: string[]
+        valid: boolean
+    } | null
+    cdcSelfManagedVerifyResultLoading: boolean
+    configuredSchemaName: string | null
+    connectors: SourceConfig[]
+    currentStep: number
+    currentSyncMethodModalSchema: ExternalDataSourceSyncSchema | null
+    databaseSchema: ExternalDataSourceSyncSchema[]
+    defaultSourceConnectionDetails: Record<string, unknown>
+    expandedSchemaGroupKeys: string[]
+    filteredDatabaseSchema: ExternalDataSourceSyncSchema[]
+    groupedDatabaseSchema: {
+        schemaName: string
+        tables: ExternalDataSourceSyncSchema[]
+    }[]
+    hasWebhookSchemas: boolean
+    isDirectQueryMode: boolean
+    isLoading: boolean
+    isManualLinkFormVisible: boolean
+    isManualLinkingSelected: boolean
+    isSelfManagedSource: boolean
+    isSourceConnectionDetailsSubmitting: boolean
+    isSourceConnectionDetailsValid: boolean
+    isWebhookFieldInputsSubmitting: boolean
+    isWebhookFieldInputsValid: boolean
+    isWrapped: boolean
+    manualConnectors: {
+        name: string
+        type: ManualLinkSourceType
+    }[]
+    manualLinkingProvider: ManualLinkSourceType | null
+    modalTitle:
+        | ''
+        | 'Importing your data...'
+        | 'Link your data source'
+        | 'Select tables to import'
+        | 'Select tables to query'
+        | 'Set up webhook'
+        | 'Tables ready to query'
+    nextButtonDisabledReason: string | null
+    nextButtonText: string
+    requiredTables: any
+    returnConfig: {
+        returnLabel: string
+        returnUrl: string
+    } | null
+    schemaGroupKeys: string[]
+    schemaGroupKeysFingerprint: string
+    schemaNameFilter: string
+    selectedConnector: SourceConfig | null
+    showFooter: boolean | SourceConfig
+    showSkipButton: boolean
+    showSourceConnectionDetailsErrors: boolean
+    showWebhookFieldInputsErrors: boolean
+    source: {
+        access_method: 'direct' | 'warehouse'
+        description: string
+        direct_query_enabled?: boolean
+        payload: Record<string, any>
+        prefix: string
+    }
+    sourceConnectionDetails: Record<string, any>
+    sourceConnectionDetailsAllErrors: Record<string, any>
+    sourceConnectionDetailsChanged: boolean
+    sourceConnectionDetailsErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
+    sourceConnectionDetailsHasErrors: boolean
+    sourceConnectionDetailsManualErrors: Record<string, any>
+    sourceConnectionDetailsTouched: boolean
+    sourceConnectionDetailsTouches: Record<string, boolean>
+    sourceConnectionDetailsValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
+    sourceId: string | null
+    suggestedTablesMap: Record<string, string | null>
+    syncMethodModalOpen: boolean
+    tablesAllToggledOn: boolean | 'indeterminate'
+    webhookCreating: boolean
+    webhookFieldInputs: Record<string, any>
+    webhookFieldInputsAllErrors: Record<string, any>
+    webhookFieldInputsChanged: boolean
+    webhookFieldInputsErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
+    webhookFieldInputsHasErrors: boolean
+    webhookFieldInputsManualErrors: Record<string, any>
+    webhookFieldInputsTouched: boolean
+    webhookFieldInputsTouches: Record<string, boolean>
+    webhookFieldInputsValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
+    webhookResult: WebhookCreateResult | null
+    webhookStepComplete: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceWizardLogicActions {
+    markTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
+        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+    } // globalSetupLogic
+    createTableSuccess: (
+        table: DataWarehouseTable,
+        payload?: any
+    ) => {
+        payload?: any
+        table: DataWarehouseTable
+    } // selfManagedSourceLogic
+    resetTable: (values?: DataWarehouseTable | undefined) => {
+        values?: DataWarehouseTable
+    } // selfManagedSourceLogic
+    loadSources: () => {
+        value: true
+    } // sourceManagementLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    cancelSyncMethodModal: () => {
+        value: true
+    }
+    cancelWizard: () => {
+        value: true
+    }
+    checkCdcPrereqs: () => any
+    checkCdcPrereqsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    checkCdcPrereqsSuccess: (
+        cdcPrereqsCheckResult: {
+            errors: string[]
+            valid: boolean
+        } | null,
+        payload?: any
+    ) => {
+        cdcPrereqsCheckResult: {
+            errors: string[]
+            valid: boolean
+        } | null
+        payload?: any
+    }
+    clearCdcPrereqsCheckResult: () => {
+        value: true
+    }
+    clearCdcPrereqsCheckResultFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    clearCdcPrereqsCheckResultSuccess: (
+        cdcPrereqsCheckResult: null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        cdcPrereqsCheckResult: null
+        payload?: {
+            value: true
+        }
+    }
+    clearCdcSelfManagedVerifyResult: () => {
+        value: true
+    }
+    clearCdcSelfManagedVerifyResultFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    clearCdcSelfManagedVerifyResultSuccess: (
+        cdcSelfManagedVerifyResult: null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        cdcSelfManagedVerifyResult: null
+        payload?: {
+            value: true
+        }
+    }
+    clearReturnConfig: () => {
+        value: true
+    }
+    clearSource: () => {
+        value: true
+    }
+    closeCdcSelfManagedSetupDialog: () => {
+        value: true
+    }
+    closeWizard: () => {
+        value: true
+    }
+    createSource: () => {
+        value: true
+    }
+    createWebhook: () => {
+        value: true
+    }
+    getDatabaseSchemas: () => {
+        value: true
+    }
+    handleRedirect: (
+        source: ExternalDataSourceType,
+        searchParams?: any
+    ) => {
+        searchParams: any
+        source:
+            | 'Ably'
+            | 'AbnormalSecurity'
+            | 'AbTasty'
+            | 'Acast'
+            | 'Acculynx'
+            | 'Actionstep'
+            | 'ActiveCampaign'
+            | 'AcuityScheduling'
+            | 'Adapty'
+            | 'Adjust'
+            | 'AdobeAnalytics'
+            | 'AdobeCommerce'
+            | 'AdpWorkforceNow'
+            | 'AdRoll'
+            | 'Adyen'
+            | 'Aftership'
+            | 'AgileCRM'
+            | 'Aha'
+            | 'AhaIdeas'
+            | 'Ahrefs'
+            | 'AikidoSecurity'
+            | 'Airbrake'
+            | 'Airbridge'
+            | 'Airbyte'
+            | 'Aircall'
+            | 'AirOps'
+            | 'Airtable'
+            | 'Airwallex'
+            | 'Aiven'
+            | 'AkamaiReporting'
+            | 'Akeneo'
+            | 'Alation'
+            | 'Alegra'
+            | 'Algolia'
+            | 'Alguna'
+            | 'Allegro'
+            | 'AlpacaBrokerAPI'
+            | 'AlphaVantage'
+            | 'AmazonAds'
+            | 'AmazonCloudWatch'
+            | 'AmazonEventBridge'
+            | 'AmazonKinesis'
+            | 'AmazonS3'
+            | 'AmazonSellingPartner'
+            | 'AmazonSNS'
+            | 'AmazonSQS'
+            | 'Amplitude'
+            | 'AnodotCost'
+            | 'Anomalo'
+            | 'Anthropic'
+            | 'Apaleo'
+            | 'ApifyDataset'
+            | 'Apitally'
+            | 'Apollo'
+            | 'Appcues'
+            | 'Appdirect'
+            | 'Appdynamics'
+            | 'Appfigures'
+            | 'Appfolio'
+            | 'Appfollow'
+            | 'AppleSearchAds'
+            | 'AppLovin'
+            | 'AppsFlyer'
+            | 'Appsignal'
+            | 'Appstack'
+            | 'AppStoreConnect'
+            | 'Apptivo'
+            | 'Appwrite'
+            | 'Argocd'
+            | 'Arxiv'
+            | 'Asaas'
+            | 'Asana'
+            | 'Ashby'
+            | 'Asknicely'
+            | 'AssemblyAI'
+            | 'Astronomer'
+            | 'Athenahealth'
+            | 'Atlan'
+            | 'Attentive'
+            | 'Attio'
+            | 'Auth0'
+            | 'AutodeskConstructionCloud'
+            | 'Automox'
+            | 'Autumn'
+            | 'Avalara'
+            | 'Aviationstack'
+            | 'Aviator'
+            | 'Awin'
+            | 'AwsAthena'
+            | 'AwsBatch'
+            | 'AwsBudgets'
+            | 'AwsCloudformation'
+            | 'AwsCloudTrail'
+            | 'AwsComputeOptimizer'
+            | 'AwsConfig'
+            | 'AwsConnect'
+            | 'AwsCostAndUsageReport'
+            | 'AwsCostAnomalyDetection'
+            | 'AwsCostExplorer'
+            | 'AwsGlueDataCatalog'
+            | 'AwsGuardduty'
+            | 'AwsHealth'
+            | 'AwsIamAccessAnalyzer'
+            | 'AwsInspector'
+            | 'AwsMacie'
+            | 'AwsOrganizations'
+            | 'AwsRdsPerformanceInsights'
+            | 'AwsSagemaker'
+            | 'AwsSavingsPlans'
+            | 'AwsSecurityHub'
+            | 'AwsSes'
+            | 'AwsStepFunctions'
+            | 'AwsSupport'
+            | 'AwsSystemsManager'
+            | 'AwsTrustedAdvisor'
+            | 'AwsWaf'
+            | 'AwsXray'
+            | 'Axiom'
+            | 'AzureActivityLog'
+            | 'AzureAdvisor'
+            | 'AzureApiManagement'
+            | 'AzureApplicationInsights'
+            | 'AzureBlob'
+            | 'AzureCostManagement'
+            | 'AzureDataExplorer'
+            | 'AzureDataFactory'
+            | 'AzureDevOps'
+            | 'AzureLogAnalytics'
+            | 'AzureMonitorAlerts'
+            | 'AzureMonitorMetrics'
+            | 'AzureOpenaiUsage'
+            | 'AzurePolicyInsights'
+            | 'AzureReservations'
+            | 'AzureResourceGraph'
+            | 'AzureResourceHealth'
+            | 'AzureServiceHealth'
+            | 'AzureSynapse'
+            | 'AzureTableStorage'
+            | 'Babelforce'
+            | 'Backblaze'
+            | 'BackMarket'
+            | 'BambooHR'
+            | 'Basecamp'
+            | 'Baserow'
+            | 'Baseten'
+            | 'BCMS'
+            | 'Beamer'
+            | 'Beehiiv'
+            | 'Bettermode'
+            | 'BetterStack'
+            | 'Bexio'
+            | 'BigCommerce'
+            | 'Bigeye'
+            | 'BigMailer'
+            | 'BigQuery'
+            | 'BillCom'
+            | 'Billit'
+            | 'Billomat'
+            | 'BingAds'
+            | 'BingWebmasterTools'
+            | 'Bitbucket'
+            | 'Bitly'
+            | 'Bitrise'
+            | 'Bitwarden'
+            | 'BlackbaudRaisersEdgeNxt'
+            | 'BlackboardLearn'
+            | 'BlandAI'
+            | 'Bling'
+            | 'Blogger'
+            | 'Bloomerang'
+            | 'Bluesky'
+            | 'Bluetally'
+            | 'BoldSign'
+            | 'BolRetailer'
+            | 'Boulevard'
+            | 'Box'
+            | 'Braintree'
+            | 'Braintrust'
+            | 'Branch'
+            | 'Braze'
+            | 'Breezometer'
+            | 'BreezyHR'
+            | 'Brevo'
+            | 'Brex'
+            | 'BrowseAI'
+            | 'Browserbase'
+            | 'BrowserUse'
+            | 'Buffer'
+            | 'Bugherd'
+            | 'Bugsnag'
+            | 'BuildBetter'
+            | 'Buildium'
+            | 'Buildkite'
+            | 'Bunny'
+            | 'Buttondown'
+            | 'BuyMeACoffee'
+            | 'Buzzsprout'
+            | 'CalCom'
+            | 'Calendarific'
+            | 'Calendly'
+            | 'Calibre'
+            | 'CallRail'
+            | 'CampaignManager360'
+            | 'CampaignMonitor'
+            | 'Campayn'
+            | 'Campfire'
+            | 'Canny'
+            | 'CanvasLms'
+            | 'CapsuleCRM'
+            | 'CaptainData'
+            | 'Capterra'
+            | 'Captivate'
+            | 'CareQualityCommission'
+            | 'CartCom'
+            | 'Cashfree'
+            | 'CastAi'
+            | 'CastorEDC'
+            | 'Catchpoint'
+            | 'CdcOpenData'
+            | 'Census'
+            | 'Chameleon'
+            | 'Chargebee'
+            | 'Chargedesk'
+            | 'Chargify'
+            | 'ChartHop'
+            | 'ChartMogul'
+            | 'Chatwoot'
+            | 'Checkly'
+            | 'Checkmarx'
+            | 'CheckoutCom'
+            | 'Chift'
+            | 'Chorus'
+            | 'Churnkey'
+            | 'Cimis'
+            | 'Cin7'
+            | 'CircleCI'
+            | 'CircleciInsights'
+            | 'CircleSo'
+            | 'CiscoDuo'
+            | 'CiscoMeraki'
+            | 'Clari'
+            | 'Clarifai'
+            | 'Clarify'
+            | 'Classy'
+            | 'Clay'
+            | 'Clazar'
+            | 'Cleartax'
+            | 'Clerk'
+            | 'Clever'
+            | 'Clevertap'
+            | 'ClickHouse'
+            | 'ClickhouseCloud'
+            | 'ClickUp'
+            | 'Cliniko'
+            | 'Clio'
+            | 'Clip'
+            | 'Clockify'
+            | 'Clockodo'
+            | 'Close'
+            | 'Cloudability'
+            | 'Cloudbeds'
+            | 'Cloudflare'
+            | 'Cloudinary'
+            | 'Cloudsmith'
+            | 'Cloudzero'
+            | 'Clover'
+            | 'Coassemble'
+            | 'CockroachDB'
+            | 'Coda'
+            | 'Codacy'
+            | 'Codecov'
+            | 'Codefresh'
+            | 'Codemagic'
+            | 'Codescene'
+            | 'Cody'
+            | 'Cohere'
+            | 'CoinApi'
+            | 'CoinGecko'
+            | 'CoinMarketCap'
+            | 'Collibra'
+            | 'Commercetools'
+            | 'Companycam'
+            | 'Concord'
+            | 'Conekta'
+            | 'ConfigCat'
+            | 'Confluence'
+            | 'ConfluentCloud'
+            | 'ConstantContact'
+            | 'ContaAzul'
+            | 'Contentsquare'
+            | 'ConvertKit'
+            | 'Convex'
+            | 'Convonite'
+            | 'Copper'
+            | 'Coralogix'
+            | 'Cortex'
+            | 'CosmosDB'
+            | 'Couchbase'
+            | 'Coupa'
+            | 'Courier'
+            | 'Coveralls'
+            | 'CratesIO'
+            | 'Crisp'
+            | 'Criteo'
+            | 'Cronitor'
+            | 'Crossref'
+            | 'CrowdstrikeFalcon'
+            | 'Crunchbase'
+            | 'CubeCloud'
+            | 'CultureAmp'
+            | 'Cursor'
+            | 'Curve'
+            | 'Custom'
+            | 'CustomerIO'
+            | 'Customerly'
+            | 'D2lBrightspace'
+            | 'DagsterCloud'
+            | 'Databricks'
+            | 'Datadog'
+            | 'DataForSEO'
+            | 'Datahub'
+            | 'Datascope'
+            | 'DatoCMS'
+            | 'Datorama'
+            | 'Dayforce'
+            | 'Db2'
+            | 'Dbt'
+            | 'Debugbear'
+            | 'Decagon'
+            | 'Deel'
+            | 'DeelFlows'
+            | 'Deepgram'
+            | 'Deepsource'
+            | 'DenoDeploy'
+            | 'Depot'
+            | 'Deputy'
+            | 'Descope'
+            | 'Develocity'
+            | 'DevinAI'
+            | 'Dialpad'
+            | 'DigitalOcean'
+            | 'DingConnect'
+            | 'Directus'
+            | 'Discord'
+            | 'Discourse'
+            | 'DisplayVideo360'
+            | 'Dixa'
+            | 'Dockerhub'
+            | 'Docuseal'
+            | 'Docusign'
+            | 'DodoPayments'
+            | 'DoIt'
+            | 'Dokploy'
+            | 'Dolibarr'
+            | 'Donorbox'
+            | 'Doorloop'
+            | 'Doppler'
+            | 'Dovetail'
+            | 'Drata'
+            | 'Drchrono'
+            | 'Dremio'
+            | 'Drip'
+            | 'Dropbox'
+            | 'DropboxSign'
+            | 'Dub'
+            | 'Dubsado'
+            | 'DuckLake'
+            | 'Dwolla'
+            | 'Dynamics365'
+            | 'Dynamics365BusinessCentral'
+            | 'DynamoDB'
+            | 'Dynatrace'
+            | 'E2B'
+            | 'Easybill'
+            | 'Easypost'
+            | 'Easypromos'
+            | 'Ebay'
+            | 'EcbDataPortal'
+            | 'EConomic'
+            | 'Elasticemail'
+            | 'Elasticsearch'
+            | 'ElevenLabs'
+            | 'Eloqua'
+            | 'EmailOctopus'
+            | 'Emarsys'
+            | 'Embrace'
+            | 'EmploymentHero'
+            | 'Encharge'
+            | 'Entsoe'
+            | 'Env0'
+            | 'Eppo'
+            | 'Etsy'
+            | 'Eurostat'
+            | 'Eventbrite'
+            | 'Eventee'
+            | 'Eventzilla'
+            | 'Everhour'
+            | 'ExchangeRatesApi'
+            | 'Expensify'
+            | 'EZOfficeInventory'
+            | 'FacebookPages'
+            | 'Factorial'
+            | 'Faire'
+            | 'FarosAi'
+            | 'Fastbill'
+            | 'Fastly'
+            | 'Fauna'
+            | 'Featurebase'
+            | 'Feishu'
+            | 'Fieldpulse'
+            | 'Fieldwire'
+            | 'Filevine'
+            | 'Fillout'
+            | 'Finage'
+            | 'FinancialModelling'
+            | 'Finnhub'
+            | 'Finnworlds'
+            | 'Finout'
+            | 'Fintoc'
+            | 'Firebase'
+            | 'Firebolt'
+            | 'Firecrawl'
+            | 'FireHydrant'
+            | 'FireworksAI'
+            | 'FirstPromoter'
+            | 'Five9'
+            | 'Flagsmith'
+            | 'Fleetio'
+            | 'FlexeraCloudCost'
+            | 'Flexmail'
+            | 'Flexport'
+            | 'FloatApp'
+            | 'Flowlu'
+            | 'Flutterwave'
+            | 'FlyIo'
+            | 'Formbricks'
+            | 'Fortnox'
+            | 'Fourthwall'
+            | 'Framer'
+            | 'Fred'
+            | 'FreeAgent'
+            | 'Freightview'
+            | 'FreshBooks'
+            | 'Freshcaller'
+            | 'Freshchat'
+            | 'Freshdesk'
+            | 'Freshsales'
+            | 'Freshservice'
+            | 'Frill'
+            | 'Front'
+            | 'Frontegg'
+            | 'Fulcrum'
+            | 'FullStory'
+            | 'FusionAuth'
+            | 'G2'
+            | 'GainsightPx'
+            | 'Gcore'
+            | 'GcpApigee'
+            | 'GcpArtifactRegistry'
+            | 'GcpBigtable'
+            | 'GcpChronicle'
+            | 'GcpCloudAssetInventory'
+            | 'GcpCloudBilling'
+            | 'GcpCloudBuild'
+            | 'GcpCloudDeploy'
+            | 'GcpCloudDns'
+            | 'GcpCloudFunctions'
+            | 'GcpCloudLogging'
+            | 'GcpCloudMonitoring'
+            | 'GcpCloudRun'
+            | 'GcpCloudSpanner'
+            | 'GcpCloudSql'
+            | 'GcpCloudTrace'
+            | 'GcpCloudWorkflows'
+            | 'GcpComputeEngine'
+            | 'GcpContainerAnalysis'
+            | 'GcpDataflow'
+            | 'GcpDataplex'
+            | 'GcpDataproc'
+            | 'GcpErrorReporting'
+            | 'GcpGke'
+            | 'GcpPubsub'
+            | 'GcpRecaptchaEnterprise'
+            | 'GcpRecommender'
+            | 'GcpSecurityCommandCenter'
+            | 'Gdelt'
+            | 'GenesysCloud'
+            | 'Gerrit'
+            | 'Getdx'
+            | 'GetStream'
+            | 'Ghost'
+            | 'Giphy'
+            | 'GitBook'
+            | 'Gitea'
+            | 'Gitguardian'
+            | 'Github'
+            | 'GitLab'
+            | 'Givebutter'
+            | 'Gladly'
+            | 'Glassfrog'
+            | 'Gleif'
+            | 'Gmail'
+            | 'GNews'
+            | 'GoCardless'
+            | 'Gojiberry'
+            | 'Goldcast'
+            | 'GoLogin'
+            | 'Gong'
+            | 'GoogleAdManager'
+            | 'GoogleAds'
+            | 'GoogleAnalytics'
+            | 'GoogleCalendar'
+            | 'GoogleChat'
+            | 'GoogleClassroom'
+            | 'GoogleCloudStorage'
+            | 'GoogleDirectory'
+            | 'GoogleDrive'
+            | 'GoogleForms'
+            | 'GoogleMerchantCenter'
+            | 'GooglePageSpeedInsights'
+            | 'GooglePlayConsole'
+            | 'GooglePostmasterTools'
+            | 'GoogleSearchConsole'
+            | 'GoogleSheets'
+            | 'GoogleTasks'
+            | 'GoogleWebfonts'
+            | 'GoogleWorkspaceAdminReports'
+            | 'Gorgias'
+            | 'Grafana'
+            | 'Granola'
+            | 'Greenhouse'
+            | 'GreytHr'
+            | 'Gridly'
+            | 'Groq'
+            | 'Growi'
+            | 'GrowthBook'
+            | 'Guardian'
+            | 'Guesty'
+            | 'Gumloop'
+            | 'Gumroad'
+            | 'Guru'
+            | 'Gusto'
+            | 'Harness'
+            | 'HarnessCcm'
+            | 'HarnessSei'
+            | 'Harvest'
+            | 'Harvey'
+            | 'Hatchet'
+            | 'Healthchecks'
+            | 'Healthie'
+            | 'Heap'
+            | 'Height'
+            | 'Helicone'
+            | 'Hellobaton'
+            | 'HelpScout'
+            | 'Heroku'
+            | 'Hetzner'
+            | 'Hex'
+            | 'HeyGen'
+            | 'HiBob'
+            | 'HighLevel'
+            | 'Hightouch'
+            | 'Hitpay'
+            | 'Hivebrite'
+            | 'Holded'
+            | 'Honeybadger'
+            | 'Honeycomb'
+            | 'Hookdeck'
+            | 'HoorayHR'
+            | 'Hootsuite'
+            | 'Hostaway'
+            | 'HousecallPro'
+            | 'Hubplanner'
+            | 'Hubspot'
+            | 'HuggingFace'
+            | 'Humanitec'
+            | 'Humanitix'
+            | 'Huntr'
+            | 'Hyperspell'
+            | 'Hyros'
+            | 'Ikas'
+            | 'IlluminaBasespace'
+            | 'Imagga'
+            | 'ImfData'
+            | 'Impact'
+            | 'ImpactPartner'
+            | 'Imperva'
+            | 'IncidentIo'
+            | 'Infisical'
+            | 'Inflowinventory'
+            | 'InfluxdbCloud'
+            | 'InforNexus'
+            | 'Inngest'
+            | 'Insightful'
+            | 'Insightly'
+            | 'Instagram'
+            | 'Instana'
+            | 'Instantly'
+            | 'Instatus'
+            | 'Intercom'
+            | 'Interzoid'
+            | 'Inth'
+            | 'Intruder'
+            | 'Invoiced'
+            | 'Invoiceninja'
+            | 'IP2Whois'
+            | 'IronSourceAds'
+            | 'Iterable'
+            | 'Iyzico'
+            | 'JamfPro'
+            | 'Jellyfish'
+            | 'Jenkins'
+            | 'JfrogArtifactory'
+            | 'Jira'
+            | 'Jobber'
+            | 'JobNimbus'
+            | 'Jobtread'
+            | 'Jotform'
+            | 'JudgeMeReviews'
+            | 'Jumpcloud'
+            | 'JustCall'
+            | 'JustSift'
+            | 'K6Cloud'
+            | 'Kafka'
+            | 'Kajabi'
+            | 'Kalshi'
+            | 'Kameleoon'
+            | 'Kandji'
+            | 'KapaAI'
+            | 'Katana'
+            | 'KauflandMarketplace'
+            | 'Keka'
+            | 'Kernel'
+            | 'Kestra'
+            | 'Kick'
+            | 'Kickscale'
+            | 'Kickstarter'
+            | 'Kinde'
+            | 'Kion'
+            | 'Kisi'
+            | 'Kissmetrics'
+            | 'Klarna'
+            | 'Klaus'
+            | 'Klaviyo'
+            | 'Knock'
+            | 'Knowbe4'
+            | 'Kommo'
+            | 'Komodor'
+            | 'KongKonnect'
+            | 'Koyeb'
+            | 'Kubecost'
+            | 'Kustomer'
+            | 'KYVE'
+            | 'Labelbox'
+            | 'Lacework'
+            | 'Lago'
+            | 'LambdaLabs'
+            | 'Langfuse'
+            | 'LangSmith'
+            | 'Latitude'
+            | 'Lattice'
+            | 'LaunchDarkly'
+            | 'Lawmatics'
+            | 'Leadfeeder'
+            | 'Learnworlds'
+            | 'Leexi'
+            | 'Lemlist'
+            | 'LemonSqueezy'
+            | 'LessAnnoyingCRM'
+            | 'Lever'
+            | 'LexwareOffice'
+            | 'Liana'
+            | 'Lightdash'
+            | 'Lightfield'
+            | 'LightspeedRetail'
+            | 'Linear'
+            | 'Linearb'
+            | 'LingoDev'
+            | 'LinkedinAds'
+            | 'LinkedinPages'
+            | 'Linkrunner'
+            | 'Linnworks'
+            | 'Linode'
+            | 'LlamaCloud'
+            | 'Lob'
+            | 'Lodgify'
+            | 'Logicmonitor'
+            | 'Logrocket'
+            | 'LogzIO'
+            | 'Lokalise'
+            | 'Looker'
+            | 'LoopReturns'
+            | 'Loops'
+            | 'Luma'
+            | 'M3ter'
+            | 'Mailchimp'
+            | 'MailerLite'
+            | 'MailerSend'
+            | 'Mailgun'
+            | 'Mailjet'
+            | 'Mailosaur'
+            | 'Mailtrap'
+            | 'Mantle'
+            | 'Manychat'
+            | 'Marketo'
+            | 'Marketstack'
+            | 'Mastodon'
+            | 'Matomo'
+            | 'Maxio'
+            | 'Meetup'
+            | 'Meltwater'
+            | 'Mem0'
+            | 'Memberful'
+            | 'Mendeley'
+            | 'Mention'
+            | 'MercadoAds'
+            | 'MercadoPago'
+            | 'Mercury'
+            | 'Merge'
+            | 'MetaAds'
+            | 'Metabase'
+            | 'Metaplane'
+            | 'Meteostat'
+            | 'Metorial'
+            | 'Metricool'
+            | 'Metriport'
+            | 'Metronome'
+            | 'Mews'
+            | 'Mezmo'
+            | 'Microsoft365UsageReports'
+            | 'MicrosoftAdvertising'
+            | 'MicrosoftClarity'
+            | 'MicrosoftDataverse'
+            | 'MicrosoftDefenderCloudApps'
+            | 'MicrosoftDefenderEndpoint'
+            | 'MicrosoftDefenderForCloud'
+            | 'MicrosoftEntraId'
+            | 'MicrosoftExcel'
+            | 'MicrosoftIntune'
+            | 'MicrosoftLists'
+            | 'MicrosoftPurview'
+            | 'MicrosoftPurviewAudit'
+            | 'MicrosoftSentinel'
+            | 'MicrosoftTeams'
+            | 'MicrosoftTeamsCallRecords'
+            | 'Midtrans'
+            | 'MightyNetworks'
+            | 'Mindbody'
+            | 'Mintlify'
+            | 'Mirakl'
+            | 'Miro'
+            | 'Missive'
+            | 'MistralAI'
+            | 'MixMax'
+            | 'Mixpanel'
+            | 'Mode'
+            | 'Moesif'
+            | 'Mollie'
+            | 'Monday'
+            | 'Moneybird'
+            | 'MongoDB'
+            | 'Mono'
+            | 'MonteCarlo'
+            | 'Moodle'
+            | 'Motherduck'
+            | 'Motion'
+            | 'Moxie'
+            | 'MSG91'
+            | 'MSSQL'
+            | 'Mux'
+            | 'Mycase'
+            | 'MyHours'
+            | 'MySQL'
+            | 'N8n'
+            | 'NagerDate'
+            | 'Nasa'
+            | 'Navan'
+            | 'NebiusAI'
+            | 'Neon'
+            | 'NeonCrm'
+            | 'Netlify'
+            | 'NetSuite'
+            | 'NewRelic'
+            | 'NewsApi'
+            | 'NewsData'
+            | 'NewYorkTimes'
+            | 'Nexhealth'
+            | 'Nexiopay'
+            | 'NextdoorAds'
+            | 'NinjaOneRMM'
+            | 'NoaaCdo'
+            | 'Nobl9'
+            | 'NoCRM'
+            | 'Nolt'
+            | 'Nops'
+            | 'Northflank'
+            | 'NorthpassLMS'
+            | 'Notion'
+            | 'NpmRegistry'
+            | 'Nuget'
+            | 'Nuntly'
+            | 'Nutshell'
+            | 'Nylas'
+            | 'Octolens'
+            | 'OctopusDeploy'
+            | 'Odoo'
+            | 'Oecd'
+            | 'Okendo'
+            | 'Okta'
+            | 'Omni'
+            | 'Omnisend'
+            | 'Oncehub'
+            | 'OneDrive'
+            | 'OneHundredMs'
+            | 'Onelogin'
+            | 'Onepagecrm'
+            | 'OnePassword'
+            | 'OneSignal'
+            | 'Onfleet'
+            | 'OpenAI'
+            | 'OpenAIAds'
+            | 'Openalex'
+            | 'OpenAQ'
+            | 'Opencorporates'
+            | 'OpenDataDc'
+            | 'OpenDental'
+            | 'OpenExchangeRates'
+            | 'OpenFDA'
+            | 'Openfec'
+            | 'OpenMeteo'
+            | 'OpenRouter'
+            | 'OpenWeather'
+            | 'OpinionStage'
+            | 'OpnPayments'
+            | 'Opsgenie'
+            | 'Opslevel'
+            | 'Optimizely'
+            | 'OPUSWatch'
+            | 'Oracle'
+            | 'OracleEbs'
+            | 'OracleFusion'
+            | 'Orb'
+            | 'Orbit'
+            | 'OrcaSecurity'
+            | 'Ortto'
+            | 'OttoMarket'
+            | 'Oura'
+            | 'Outbrain'
+            | 'Outlook'
+            | 'Outreach'
+            | 'Oveit'
+            | 'Ownerrez'
+            | 'PabblySubscriptionsBilling'
+            | 'Packagist'
+            | 'Paddle'
+            | 'Pagbank'
+            | 'PagerDuty'
+            | 'PandaDoc'
+            | 'Paperform'
+            | 'Papersign'
+            | 'Pardot'
+            | 'Partnerize'
+            | 'PartnerStack'
+            | 'Patreon'
+            | 'Pax8'
+            | 'Paychex'
+            | 'PayFit'
+            | 'Paylocity'
+            | 'Paymob'
+            | 'Paymongo'
+            | 'PayPal'
+            | 'Paystack'
+            | 'PeecAI'
+            | 'Pendo'
+            | 'Pennylane'
+            | 'Perigon'
+            | 'Perk'
+            | 'PersistIq'
+            | 'Persona'
+            | 'Personio'
+            | 'Pexels'
+            | 'PgAnalyze'
+            | 'Phonepe'
+            | 'Phyllo'
+            | 'Picqer'
+            | 'Pike13'
+            | 'Pinecone'
+            | 'Pingdom'
+            | 'Pingone'
+            | 'PinterestAds'
+            | 'PinterestOrganic'
+            | 'Pipedrive'
+            | 'Pipeliner'
+            | 'PivotalTracker'
+            | 'Piwik'
+            | 'Plaid'
+            | 'Plain'
+            | 'PlanetScaleMySQL'
+            | 'PlanetScalePostgres'
+            | 'Planhat'
+            | 'PlanningCenter'
+            | 'PlatformSh'
+            | 'Plausible'
+            | 'Plivo'
+            | 'Plunk'
+            | 'PluralsightFlow'
+            | 'Pocket'
+            | 'Podbean'
+            | 'Podium'
+            | 'Polar'
+            | 'Polygon'
+            | 'Polymarket'
+            | 'Poplar'
+            | 'Postgres'
+            | 'Postmark'
+            | 'Postscript'
+            | 'PowerBiAdmin'
+            | 'Practicepanther'
+            | 'PrefectCloud'
+            | 'Preset'
+            | 'PrestaShop'
+            | 'Pretix'
+            | 'Primetric'
+            | 'Printavo'
+            | 'Printify'
+            | 'Procore'
+            | 'Productboard'
+            | 'Productiv'
+            | 'Productive'
+            | 'Profound'
+            | 'PromptingCompany'
+            | 'PromptWatch'
+            | 'ProofpointTap'
+            | 'Propertyware'
+            | 'Pubnub'
+            | 'PulumiCloud'
+            | 'Pylon'
+            | 'PyPI'
+            | 'Qdrant'
+            | 'Qonto'
+            | 'Qualaroo'
+            | 'Qualtrics'
+            | 'QualysVmdr'
+            | 'Quay'
+            | 'QuickBooks'
+            | 'Railway'
+            | 'Railz'
+            | 'Raisely'
+            | 'Raken'
+            | 'RakutenAdvertising'
+            | 'Ramp'
+            | 'Rapid7Insightvm'
+            | 'Raygun'
+            | 'Razorpay'
+            | 'RB2B'
+            | 'RDStationMarketing'
+            | 'Recharge'
+            | 'Recreation'
+            | 'Recruitee'
+            | 'Recurly'
+            | 'Reddit'
+            | 'RedditAds'
+            | 'Redis'
+            | 'RedpandaCloud'
+            | 'Redshift'
+            | 'ReferralHero'
+            | 'Render'
+            | 'RentCast'
+            | 'RentManager'
+            | 'Repairshopr'
+            | 'Replicate'
+            | 'ReplyIo'
+            | 'Resend'
+            | 'RetailExpress'
+            | 'RetellAI'
+            | 'Retently'
+            | 'RevenueCat'
+            | 'Reverb'
+            | 'RevolutMerchant'
+            | 'RingCentral'
+            | 'Rippling'
+            | 'RKICovid'
+            | 'Roark'
+            | 'RocketChat'
+            | 'Rocketlane'
+            | 'RocketMatter'
+            | 'Rollbar'
+            | 'Rootly'
+            | 'Rss'
+            | 'Rubygems'
+            | 'RudderStack'
+            | 'Ruddr'
+            | 'RunPod'
+            | 'SafetyCulture'
+            | 'SageHR'
+            | 'SageIntacct'
+            | 'Sailthru'
+            | 'Salesflare'
+            | 'Salesforce'
+            | 'SalesforceMarketingCloud'
+            | 'SalesLoft'
+            | 'Salestrics'
+            | 'SamCart'
+            | 'Sanity'
+            | 'SapConcur'
+            | 'SapErp'
+            | 'SAPFieldglass'
+            | 'SapHana'
+            | 'SapSuccessFactors'
+            | 'SavvyCal'
+            | 'ScaleAI'
+            | 'Scaleway'
+            | 'Scalr'
+            | 'Schematic'
+            | 'SearchAds360'
+            | 'SecEdgar'
+            | 'Secoda'
+            | 'Secureframe'
+            | 'Segment'
+            | 'SelectStar'
+            | 'SemanticScholar'
+            | 'Semaphore'
+            | 'Semgrep'
+            | 'Semrush'
+            | 'SendGrid'
+            | 'Sendowl'
+            | 'SendPulse'
+            | 'Senseforce'
+            | 'Sentinelone'
+            | 'Sentry'
+            | 'Serpstat'
+            | 'ServiceFusion'
+            | 'Servicem8'
+            | 'ServiceNow'
+            | 'Servicetitan'
+            | 'Servicetrade'
+            | 'Sevalla'
+            | 'Sevdesk'
+            | 'SevenShifts'
+            | 'SFTP'
+            | 'SharePoint'
+            | 'Sharetribe'
+            | 'Shippo'
+            | 'ShipStation'
+            | 'Shopify'
+            | 'Shopware'
+            | 'ShopWired'
+            | 'Shortcut'
+            | 'Shortio'
+            | 'Shutterstock'
+            | 'SideShift'
+            | 'SigmaComputing'
+            | 'SignNow'
+            | 'SigNoz'
+            | 'Sim'
+            | 'SimFin'
+            | 'Similarweb'
+            | 'SimpleCast'
+            | 'Simplesat'
+            | 'Simpro'
+            | 'Sinch'
+            | 'Singlestore'
+            | 'Singular'
+            | 'Site24x7'
+            | 'Skyvern'
+            | 'Slack'
+            | 'Slash'
+            | 'Sleekplan'
+            | 'Sleuth'
+            | 'Smaily'
+            | 'SmartEngage'
+            | 'Smartlook'
+            | 'Smartreach'
+            | 'Smartrecruiters'
+            | 'Smartsheet'
+            | 'Smartwaiver'
+            | 'Smokeball'
+            | 'SnapchatAds'
+            | 'Snovio'
+            | 'Snowflake'
+            | 'Snowplow'
+            | 'Snyk'
+            | 'SodaCloud'
+            | 'SolarwindsServiceDesk'
+            | 'SonarCloud'
+            | 'Sonarqube'
+            | 'SonatypeNexus'
+            | 'Sourcegraph'
+            | 'Spacelift'
+            | 'SparkPost'
+            | 'Speedcurve'
+            | 'SplitIo'
+            | 'SplunkObservabilityCloud'
+            | 'SpotifyAds'
+            | 'SpotIo'
+            | 'SpotlerCRM'
+            | 'Sprig'
+            | 'Sprinklr'
+            | 'SproutSocial'
+            | 'Squadcast'
+            | 'Square'
+            | 'Squarespace'
+            | 'StackOverflowForTeams'
+            | 'Starburst'
+            | 'Statsig'
+            | 'Statuscake'
+            | 'Statuspage'
+            | 'Stigg'
+            | 'StockData'
+            | 'Stockx'
+            | 'Strava'
+            | 'StreamElements'
+            | 'Streamlabs'
+            | 'Stripe'
+            | 'Stytch'
+            | 'SumoLogic'
+            | 'Sumsub'
+            | 'Supabase'
+            | 'Superwall'
+            | 'SurveyMonkey'
+            | 'SurveySparrow'
+            | 'Survicate'
+            | 'Svix'
+            | 'Swan'
+            | 'Swarmia'
+            | 'Swonkie'
+            | 'Synthesia'
+            | 'Systeme'
+            | 'Taboola'
+            | 'TackleIo'
+            | 'Tailscale'
+            | 'Talkdesk'
+            | 'Talkwalker'
+            | 'Tally'
+            | 'Tavus'
+            | 'TawkTo'
+            | 'Teachable'
+            | 'Teamcity'
+            | 'Teamtailor'
+            | 'TeamupFitness'
+            | 'Teamwork'
+            | 'Tebra'
+            | 'Telli'
+            | 'Telnyx'
+            | 'Tempo'
+            | 'TemporalIO'
+            | 'TenableVulnerabilityManagement'
+            | 'TeraBox'
+            | 'Ternary'
+            | 'TerraApi'
+            | 'TerraformCloud'
+            | 'Testrail'
+            | 'Thinkific'
+            | 'ThinkificCourses'
+            | 'Thoughtspot'
+            | 'Thousandeyes'
+            | 'Threads'
+            | 'ThriveLearning'
+            | 'Ticketmaster'
+            | 'TicketTailor'
+            | 'TickTick'
+            | 'TikTokAds'
+            | 'TiktokShop'
+            | 'Tile38'
+            | 'Timely'
+            | 'Tinybird'
+            | 'Tinyemail'
+            | 'TinyErp'
+            | 'Tipalti'
+            | 'TMDb'
+            | 'Toast'
+            | 'Todoist'
+            | 'TogetherAI'
+            | 'Toggl'
+            | 'Torii'
+            | 'TrackPMS'
+            | 'TradableBits'
+            | 'Transistor'
+            | 'TravisCI'
+            | 'Trello'
+            | 'Tremendous'
+            | 'TriggerDev'
+            | 'TripleWhale'
+            | 'TrunkIo'
+            | 'TrustPilot'
+            | 'Trustradius'
+            | 'Turso'
+            | 'TVMaze'
+            | 'TwelveData'
+            | 'TwelveLabs'
+            | 'Twenty'
+            | 'Twilio'
+            | 'Twitch'
+            | 'Twitter'
+            | 'TwitterAds'
+            | 'TwoC2p'
+            | 'TyntecSMS'
+            | 'Typeform'
+            | 'Typesense'
+            | 'Ubidots'
+            | 'UkCompaniesHouse'
+            | 'UkOns'
+            | 'Umami'
+            | 'UnComtrade'
+            | 'Unleash'
+            | 'Unstructured'
+            | 'Uploadcare'
+            | 'UpPromote'
+            | 'Upstash'
+            | 'Uptick'
+            | 'Uptimerobot'
+            | 'UsBea'
+            | 'UsBls'
+            | 'USCensus'
+            | 'UsEia'
+            | 'UserCom'
+            | 'Usersnap'
+            | 'Uservoice'
+            | 'UsTreasuryFiscalData'
+            | 'Vanta'
+            | 'Vantage'
+            | 'Vapi'
+            | 'Veeqo'
+            | 'Vellum'
+            | 'Vendr'
+            | 'Veracode'
+            | 'Vercel'
+            | 'Vespa'
+            | 'Virtuous'
+            | 'VismaEconomic'
+            | 'Vitally'
+            | 'Vonage'
+            | 'Vturb'
+            | 'Vultr'
+            | 'VWO'
+            | 'Waiteraid'
+            | 'WalmartMarketplace'
+            | 'Wasabi'
+            | 'Watchmode'
+            | 'Waydev'
+            | 'Wayfair'
+            | 'Webflow'
+            | 'WeightsAndBiases'
+            | 'WhatsappBusinessManagement'
+            | 'WhenIWork'
+            | 'WHMCS'
+            | 'WhoGho'
+            | 'Whop'
+            | 'WikipediaPageviews'
+            | 'Windmill'
+            | 'WindsorAi'
+            | 'WisprFlow'
+            | 'Wix'
+            | 'Wiz'
+            | 'Wompi'
+            | 'WooCommerce'
+            | 'Wordpress'
+            | 'Workable'
+            | 'Workato'
+            | 'Workday'
+            | 'Workflowmax'
+            | 'Workiz'
+            | 'WorkOS'
+            | 'Workramp'
+            | 'WorldBank'
+            | 'WPSOffice'
+            | 'Wrike'
+            | 'Writesonic'
+            | 'Wufoo'
+            | 'Xendit'
+            | 'Xero'
+            | 'Xmatters'
+            | 'Xsolla'
+            | 'YahooFinance'
+            | 'YandexMetrica'
+            | 'Ynab'
+            | 'Yoco'
+            | 'Yotpo'
+            | 'Younium'
+            | 'YouSign'
+            | 'YouTubeAnalytics'
+            | 'YoutubeData'
+            | 'ZalandoZdirect'
+            | 'ZapierSupportedStorage'
+            | 'ZapSign'
+            | 'Zellify'
+            | 'Zendesk'
+            | 'ZendeskSell'
+            | 'ZendeskSunshine'
+            | 'Zenduty'
+            | 'Zenefits'
+            | 'Zenloop'
+            | 'Zep'
+            | 'Zero'
+            | 'Zitadel'
+            | 'Zluri'
+            | 'ZohoAnalytics'
+            | 'ZohoBigin'
+            | 'ZohoBilling'
+            | 'ZohoBooks'
+            | 'ZohoCampaign'
+            | 'ZohoCRM'
+            | 'ZohoDesk'
+            | 'ZohoExpense'
+            | 'ZohoInventory'
+            | 'ZohoInvoice'
+            | 'ZonkaFeedback'
+            | 'Zoom'
+            | 'ZoomInfo'
+            | 'Zuora'
+            | 'Zylo'
+    }
+    onBack: () => {
+        value: true
+    }
+    onClear: () => {
+        value: true
+    }
+    onNext: () => {
+        value: true
+    }
+    onSubmit: () => {
+        value: true
+    }
+    openCdcSelfManagedSetupDialog: () => {
+        value: true
+    }
+    openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => {
+        schema: ExternalDataSourceSyncSchema
+    }
+    resetSourceConnectionDetails: (values?: Record<string, any>) => {
+        values?: Record<string, any>
+    }
+    resetSourceForm: (accessMethod?: 'direct' | 'warehouse') => {
+        accessMethod: 'direct' | 'warehouse' | undefined
+    }
+    resetWebhookFieldInputs: (values?: Record<string, any>) => {
+        values?: Record<string, any>
+    }
+    saveFormStateBeforeRedirect: () => {
+        value: true
+    }
+    selectConnector: (
+        connector: SourceConfig | null,
+        accessMethod?: 'direct' | 'warehouse'
+    ) => {
+        accessMethod: 'direct' | 'warehouse' | undefined
+        connector: SourceConfig | null
+    }
+    setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => {
+        schemas: ExternalDataSourceSyncSchema[]
+    }
+    setExpandedSchemaGroupKeys: (expandedSchemaKeys: string[]) => {
+        expandedSchemaKeys: string[]
+    }
+    setInitialConnector: (connector: SourceConfig | null) => {
+        connector: SourceConfig | null
+    }
+    setIsLoading: (isLoading: boolean) => {
+        isLoading: boolean
+    }
+    setManualLinkingProvider: (provider: ManualLinkSourceType) => {
+        provider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud'
+    }
+    setReturnConfig: (
+        returnUrl: string,
+        returnLabel: string
+    ) => {
+        returnLabel: string
+        returnUrl: string
+    }
+    setSchemaNameFilter: (schemaNameFilter: string) => {
+        schemaNameFilter: string
+    }
+    setSchemaRowFilters: (
+        schema: ExternalDataSourceSyncSchema,
+        rowFilters: RowFilter[] | null
+    ) => {
+        rowFilters: RowFilter[] | null
+        schema: ExternalDataSourceSyncSchema
+    }
+    setSchemaSyncedColumns: (
+        schema: ExternalDataSourceSyncSchema,
+        enabledColumns: string[] | null
+    ) => {
+        enabledColumns: string[] | null
+        schema: ExternalDataSourceSyncSchema
+    }
+    setSourceConnectionDetailsManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setSourceConnectionDetailsValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setSourceConnectionDetailsValues: (values: DeepPartial<Record<string, any>>) => {
+        values: DeepPartial<Record<string, any>>
+    }
+    setSourceId: (id: string) => {
+        sourceId: string
+    }
+    setStep: (step: number) => {
+        step: number
+    }
+    setWebhookFieldInputsManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setWebhookFieldInputsValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setWebhookFieldInputsValues: (values: DeepPartial<Record<string, any>>) => {
+        values: DeepPartial<Record<string, any>>
+    }
+    setWebhookResult: (result: WebhookCreateResult | null) => {
+        result: WebhookCreateResult | null
+    }
+    submitSourceConnectionDetails: () => {
+        value: boolean
+    }
+    submitSourceConnectionDetailsFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitSourceConnectionDetailsRequest: (sourceConnectionDetails: Record<string, any>) => {
+        sourceConnectionDetails: Record<string, any>
+    }
+    submitSourceConnectionDetailsSuccess: (sourceConnectionDetails: Record<string, any>) => {
+        sourceConnectionDetails: Record<string, any>
+    }
+    submitWebhookFieldInputs: () => {
+        value: boolean
+    }
+    submitWebhookFieldInputsFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitWebhookFieldInputsRequest: (webhookFieldInputs: Record<string, any>) => {
+        webhookFieldInputs: Record<string, any>
+    }
+    submitWebhookFieldInputsSuccess: (webhookFieldInputs: Record<string, any>) => {
+        webhookFieldInputs: Record<string, any>
+    }
+    submitWebhookFields: () => {
+        value: true
+    }
+    syncExpandedSchemaGroupKeys: (
+        groupedSchemaKeys: string[],
+        fingerprint: string
+    ) => {
+        fingerprint: string
+        groupedSchemaKeys: string[]
+    }
+    toggleAllTables: (
+        selectAll: boolean,
+        tableNames?: string[]
+    ) => {
+        selectAll: boolean
+        tableNames: string[] | undefined
+    }
+    toggleManualLinkFormVisible: (visible: boolean) => {
+        visible: boolean
+    }
+    toggleSchemaGroup: (
+        schemaName: string,
+        shouldSync: boolean
+    ) => {
+        schemaName: string
+        shouldSync: boolean
+    }
+    toggleSchemaShouldSync: (
+        schema: ExternalDataSourceSyncSchema,
+        shouldSync: boolean
+    ) => {
+        schema: ExternalDataSourceSyncSchema
+        shouldSync: boolean
+    }
+    touchAllSourceConnectionDetailsFields: () => {
+        value: true
+    }
+    touchSourceConnectionDetailsField: (key: string) => {
+        key: string
+    }
+    touchWebhookFieldInputsField: (key: string) => {
+        key: string
+    }
+    updateSchemaSyncType: (
+        schema: ExternalDataSourceSyncSchema,
+        syncType: ExternalDataSourceSyncSchema['sync_type'],
+        incrementalField: string | null,
+        incrementalFieldType: string | null,
+        primaryKeyColumns: string[] | null,
+        cdcTableMode?: 'both' | 'cdc_only' | 'consolidated',
+        incrementalFieldLookbackSeconds?: number | null
+    ) => {
+        cdcTableMode: 'both' | 'cdc_only' | 'consolidated' | undefined
+        incrementalField: string | null
+        incrementalFieldLookbackSeconds: number | null | undefined
+        incrementalFieldType: string | null
+        primaryKeyColumns: string[] | null
+        schema: ExternalDataSourceSyncSchema
+        syncType: 'append' | 'cdc' | 'full_refresh' | 'incremental' | 'webhook' | 'xmin' | null
+    }
+    updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => {
+        source: Partial<ExternalDataSourceCreatePayload>
+    }
+    verifyCdcSelfManagedSetup: () => any
+    verifyCdcSelfManagedSetupFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    verifyCdcSelfManagedSetupSuccess: (
+        cdcSelfManagedVerifyResult: {
+            errors: string[]
+            valid: boolean
+        } | null,
+        payload?: any
+    ) => {
+        cdcSelfManagedVerifyResult: {
+            errors: string[]
+            valid: boolean
+        } | null
+        payload?: any
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface sourceWizardLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        availableSources: (arg: any) => any
+        requiredTables: (arg: any) => any
+        defaultSourceConnectionDetails: (selectedConnector: SourceConfig | null) => Record<string, unknown>
+        suggestedTablesMap: (selectedConnector: SourceConfig | null) => Record<string, string | null>
+        breadcrumbs: (
+            selectedConnector: SourceConfig | null,
+            manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null,
+            manualConnectors: {
+                name: string
+                type: ManualLinkSourceType
+            }[]
+        ) => Breadcrumb[]
+        hasWebhookSchemas: (databaseSchema: ExternalDataSourceSyncSchema[]) => boolean
+        webhookStepComplete: (
+            webhookResult: WebhookCreateResult | null,
+            selectedConnector: SourceConfig | null
+        ) => boolean
+        isManualLinkingSelected: (selectedConnector: SourceConfig | null) => boolean
+        isDirectQueryMode: (
+            source: {
+                access_method: 'direct' | 'warehouse'
+                description: string
+                direct_query_enabled?: boolean
+                payload: Record<string, any>
+                prefix: string
+            },
+            selectedConnector: SourceConfig | null
+        ) => boolean
+        canGoBack: (currentStep: number) => boolean
+        canGoNext: (
+            currentStep: number,
+            isManualLinkingSelected: boolean,
+            databaseSchema: ExternalDataSourceSyncSchema[],
+            isDirectQueryMode: boolean,
+            webhookStepComplete: boolean
+        ) => boolean
+        nextButtonDisabledReason: (
+            currentStep: number,
+            isManualLinkingSelected: boolean,
+            databaseSchema: ExternalDataSourceSyncSchema[],
+            isDirectQueryMode: boolean,
+            webhookStepComplete: boolean
+        ) => string | null
+        showSkipButton: (currentStep: number) => boolean
+        nextButtonText: (
+            currentStep: number,
+            isManualLinkingSelected: boolean,
+            isDirectQueryMode: boolean,
+            hasWebhookSchemas: boolean,
+            arg: any,
+            returnConfig: {
+                returnLabel: string
+                returnUrl: string
+            } | null,
+            sourceId: string | null
+        ) => string
+        showFooter: (selectedConnector: SourceConfig | null, isManualLinkFormVisible: boolean) => boolean | SourceConfig
+        connectors: (
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            availableSources: any
+        ) => SourceConfig[]
+        isSelfManagedSource: (
+            manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null
+        ) => boolean
+        filteredDatabaseSchema: (
+            databaseSchema: ExternalDataSourceSyncSchema[],
+            schemaNameFilter: string
+        ) => ExternalDataSourceSyncSchema[]
+        tablesAllToggledOn: (filteredDatabaseSchema: ExternalDataSourceSyncSchema[]) => boolean | 'indeterminate'
+        configuredSchemaName: (source: {
+            access_method: 'direct' | 'warehouse'
+            description: string
+            direct_query_enabled?: boolean
+            payload: Record<string, any>
+            prefix: string
+        }) => string | null
+        groupedDatabaseSchema: (
+            filteredDatabaseSchema: ExternalDataSourceSyncSchema[],
+            configuredSchemaName: string | null
+        ) => {
+            schemaName: string
+            tables: ExternalDataSourceSyncSchema[]
+        }[]
+        schemaGroupKeys: (
+            groupedDatabaseSchema: {
+                schemaName: string
+                tables: ExternalDataSourceSyncSchema[]
+            }[]
+        ) => string[]
+        modalTitle: (
+            currentStep: number,
+            isDirectQueryMode: boolean
+        ) =>
+            | ''
+            | 'Importing your data...'
+            | 'Link your data source'
+            | 'Select tables to import'
+            | 'Select tables to query'
+            | 'Set up webhook'
+            | 'Tables ready to query'
+        isWrapped: (arg: any) => boolean
+    }
+}
+
+export type sourceWizardLogicType = MakeLogicType<
+    sourceWizardLogicValues,
+    sourceWizardLogicActions,
+    SourceWizardLogicProps,
+    sourceWizardLogicMeta
+>
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
@@ -452,20 +2399,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleAllTables: (state, { selectAll, tableNames }) => {
-                    // permission_error rows stay off — bulk toggle never queues guaranteed-403 syncs.
                     if (!tableNames) {
                         return state.map((schema) => ({
                             ...schema,
-                            should_sync: schema.permission_error ? false : selectAll,
+                            should_sync: bulkToggledShouldSync(schema, selectAll),
                         }))
                     }
                     const targetSet = new Set(tableNames)
                     return state.map((schema) => ({
                         ...schema,
                         should_sync: targetSet.has(schema.table)
-                            ? schema.permission_error
-                                ? false
-                                : selectAll
+                            ? bulkToggledShouldSync(schema, selectAll)
                             : schema.should_sync,
                     }))
                 },
@@ -556,6 +2500,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 prefix: string
                 description: string
                 access_method: 'warehouse' | 'direct'
+                direct_query_enabled?: boolean
                 payload: Record<string, any>
             },
             {
@@ -564,6 +2509,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         prefix: source.prefix ?? state.prefix,
                         description: source.description ?? state.description,
                         access_method: source.access_method ?? state.access_method,
+                        direct_query_enabled:
+                            'direct_query_enabled' in source ? source.direct_query_enabled : state.direct_query_enabled,
                         payload: {
                             ...state.payload,
                             ...source.payload,
@@ -752,7 +2699,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         breadcrumbs: [
             (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
-            (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
+            (
+                selectedConnector: SourceConfig | null,
+                manualLinkingProvider: ManualLinkSourceType | null,
+                manualConnectors: {
+                    name: string
+                    type: ManualLinkSourceType
+                }[]
+            ): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Sources,
@@ -793,15 +2747,25 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return requiredFields.length === 0
             },
         ],
-        isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
+        isManualLinkingSelected: [
+            (s) => [s.selectedConnector],
+            (selectedConnector: SourceConfig | null): boolean => !selectedConnector,
+        ],
         isDirectQueryMode: [
             (s) => [s.source, s.selectedConnector],
-            (source, selectedConnector): boolean =>
-                source.access_method === 'direct' && supportsDirectQuery(selectedConnector?.name),
+            (
+                source: {
+                    access_method: 'direct' | 'warehouse'
+                    description: string
+                    payload: Record<string, any>
+                    prefix: string
+                },
+                selectedConnector: SourceConfig | null
+            ): boolean => source.access_method === 'direct' && supportsDirectQuery(selectedConnector?.name),
         ],
         canGoBack: [
             (s) => [s.currentStep],
-            (currentStep): boolean => {
+            (currentStep: number): boolean => {
                 return currentStep !== 4 && currentStep !== 5
             },
         ],
@@ -813,7 +2777,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.isDirectQueryMode,
                 s.webhookStepComplete,
             ],
-            (currentStep, isManualLinkingSelected, databaseSchema, isDirectQueryMode, webhookStepComplete): boolean => {
+            (
+                currentStep: number,
+                isManualLinkingSelected: boolean,
+                databaseSchema: ExternalDataSourceSyncSchema[],
+                isDirectQueryMode: boolean,
+                webhookStepComplete: boolean
+            ): boolean => {
                 if (isManualLinkingSelected && currentStep === 1) {
                     return false
                 }
@@ -837,9 +2807,42 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return true
             },
         ],
+        nextButtonDisabledReason: [
+            (s) => [
+                s.currentStep,
+                s.isManualLinkingSelected,
+                s.databaseSchema,
+                s.isDirectQueryMode,
+                s.webhookStepComplete,
+            ],
+            (
+                currentStep: number,
+                isManualLinkingSelected: boolean,
+                databaseSchema: ExternalDataSourceSyncSchema[],
+                isDirectQueryMode: boolean,
+                webhookStepComplete: boolean
+            ): string | null => {
+                if (!isManualLinkingSelected && currentStep === 3) {
+                    const tablesToSync = databaseSchema.filter((n) => n.should_sync)
+                    if (tablesToSync.length === 0) {
+                        return 'Select at least one table to sync'
+                    }
+
+                    if (!isDirectQueryMode && tablesToSync.some((n) => !n.sync_type)) {
+                        return 'Choose a sync method for each table you want to sync'
+                    }
+                }
+
+                if (currentStep === 4 && !webhookStepComplete) {
+                    return 'Finish setting up the webhook to continue'
+                }
+
+                return null
+            },
+        ],
         showSkipButton: [
             (s) => [s.currentStep],
-            (currentStep): boolean => {
+            (currentStep: number): boolean => {
                 return currentStep === 5
             },
         ],
@@ -854,13 +2857,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.sourceId,
             ],
             (
-                currentStep,
-                isManualLinkingSelected,
-                isDirectQueryMode,
-                hasWebhookSchemas,
+                currentStep: number,
+                isManualLinkingSelected: boolean,
+                isDirectQueryMode: boolean,
+                hasWebhookSchemas: boolean,
                 onComplete,
-                returnConfig,
-                sourceId
+                returnConfig: {
+                    returnLabel: string
+                    returnUrl: string
+                } | null,
+                sourceId: string | null
             ): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
@@ -900,11 +2906,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         showFooter: [
             (s) => [s.selectedConnector, s.isManualLinkFormVisible],
-            (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
+            (selectedConnector: SourceConfig | null, isManualLinkFormVisible: boolean) =>
+                selectedConnector || isManualLinkFormVisible,
         ],
         connectors: [
             (s) => [s.dataWarehouseSources, s.availableSources],
-            (sources, availableSources: Record<string, SourceConfig>): SourceConfig[] => {
+            (
+                sources: null | import('lib/api').PaginatedResponse<import('~/types').ExternalDataSource>,
+                availableSources: Record<string, SourceConfig>
+            ): SourceConfig[] => {
                 if (!availableSources) {
                     return []
                 }
@@ -959,20 +2969,30 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         configuredSchemaName: [
             (s) => [s.source],
-            (source): string | null => (typeof source.payload.schema === 'string' ? source.payload.schema : null),
+            (source: {
+                access_method: 'direct' | 'warehouse'
+                description: string
+                payload: Record<string, any>
+                prefix: string
+            }): string | null => (typeof source.payload.schema === 'string' ? source.payload.schema : null),
         ],
         groupedDatabaseSchema: [
             (s) => [s.filteredDatabaseSchema, s.configuredSchemaName],
-            (filteredDatabaseSchema, configuredSchemaName) =>
+            (filteredDatabaseSchema: ExternalDataSourceSyncSchema[], configuredSchemaName: string | null) =>
                 groupTablesBySchema(filteredDatabaseSchema, (schema) => schema.table, configuredSchemaName),
         ],
         schemaGroupKeys: [
             (s) => [s.groupedDatabaseSchema],
-            (groupedDatabaseSchema) => getDefaultExpandedSchemaKeys(groupedDatabaseSchema),
+            (
+                groupedDatabaseSchema: {
+                    schemaName: string
+                    tables: ExternalDataSourceSyncSchema[]
+                }[]
+            ) => getDefaultExpandedSchemaKeys(groupedDatabaseSchema),
         ],
         modalTitle: [
             (s) => [s.currentStep, s.isDirectQueryMode],
-            (currentStep, isDirectQueryMode) => {
+            (currentStep: number, isDirectQueryMode: boolean) => {
                 if (currentStep === 1) {
                     return ''
                 }
@@ -1089,19 +3109,24 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(false)
         },
         onSubmit: () => {
-            // Shared function that triggers different actions depending on the current step
-            if (values.currentStep === 1) {
+            // Shared function that triggers different actions depending on the current step.
+            // Snapshot the step once: some branches below (e.g. step 4) dispatch actions that
+            // synchronously advance `currentStep`, and re-reading `values.currentStep` after that
+            // would let this same call fall through into the next step's branch too.
+            const step = values.currentStep
+
+            if (step === 1) {
                 return
             }
 
-            if (values.currentStep === 2 && values.selectedConnector?.name) {
+            if (step === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
-            } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
+            } else if (step === 2 && values.isManualLinkFormVisible) {
                 selfManagedSourceLogic.actions.submitTable()
                 posthog.capture('source created', { sourceType: 'Manual' })
             }
 
-            if (values.currentStep === 3 && values.selectedConnector?.name) {
+            if (step === 3 && values.selectedConnector?.name) {
                 if (values.isDirectQueryMode) {
                     actions.updateSource({
                         payload: {
@@ -1280,7 +3305,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
 
-            if (values.currentStep === 4) {
+            if (step === 4) {
                 if (webhookResultHasNoPendingInputs(values.webhookResult)) {
                     actions.onNext()
                 } else {
@@ -1288,9 +3313,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     // (validates, then triggers submitWebhookFields)
                     actions.submitWebhookFieldInputs()
                 }
-            }
-
-            if (values.currentStep === 5) {
+            } else if (step === 5) {
                 if (props.onComplete) {
                     props.onComplete()
                 } else {
@@ -1321,6 +3344,45 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            // Webhook-sync tables produce no rows until the webhook is registered with the
+            // provider, and the required-tables flow never shows the webhook step (step 4) —
+            // register the webhook after creation and only report completion once it succeeds.
+            const registerRequiredWebhookAndComplete = async (sourceId: string): Promise<void> => {
+                let webhookResult: WebhookCreateResult
+                try {
+                    webhookResult = await api.externalDataSources.createWebhook(sourceId)
+                } catch (e: any) {
+                    posthog.captureException(e)
+                    webhookResult = {
+                        success: false,
+                        webhook_url: '',
+                        error: e.data?.message ?? e.message,
+                    }
+                }
+                actions.setWebhookResult(webhookResult)
+                if (!webhookResultHasNoPendingInputs(webhookResult)) {
+                    lemonToast.error(
+                        `We created the source but couldn't set up its webhook${
+                            webhookResult.error ? `: ${webhookResult.error}` : ''
+                        }. Connect again to retry, or finish webhook setup in the source settings.`
+                    )
+                    return
+                }
+                props.onComplete!()
+            }
+
+            // A required-tables run whose webhook registration failed left the source created —
+            // retry the webhook instead of creating a duplicate source.
+            if (values.requiredTables && props.onComplete && values.sourceId) {
+                if (values.hasWebhookSchemas) {
+                    await registerRequiredWebhookAndComplete(values.sourceId)
+                } else {
+                    props.onComplete()
+                }
+                actions.setIsLoading(false)
+                return
+            }
+
             try {
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
@@ -1348,7 +3410,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
                 if (values.requiredTables && props.onComplete) {
-                    props.onComplete()
+                    if (values.hasWebhookSchemas) {
+                        await registerRequiredWebhookAndComplete(id)
+                    } else {
+                        props.onComplete()
+                    }
                 } else if (values.hasWebhookSchemas) {
                     // Go to webhook setup step (4)
                     actions.onNext()
@@ -1357,7 +3423,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setStep(5)
                 }
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                lemonToast.error(resolveConnectErrorMessage(e))
                 // Surface the failure instead of leaving it as a toast-only dead end: a captured
                 // exception keeps the stack triageable, and the event closes the connect funnel.
                 posthog.captureException(e)
@@ -1402,7 +3468,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             }
 
-            actions.onNext()
+            // Only advance from the webhook step — guards against a stray double submission
+            // (e.g. the form's own Save button plus the wizard's Next button) re-firing this and
+            // pushing `currentStep` past the last real step.
+            if (values.currentStep === 4) {
+                actions.onNext()
+            }
         },
         handleRedirect: async ({ source }) => {
             // By default, we assume the source is a valid external data source
@@ -1411,7 +3482,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: source,
                 })
             } else {
-                lemonToast.error(`Something went wrong.`)
+                lemonToast.error(
+                    `Couldn't finish connecting your source. Please try again, and if it keeps happening contact support.`
+                )
             }
         },
         submitSourceConnectionDetailsSuccess: () => {
@@ -1465,7 +3538,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'webhook'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const resolvedField = resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField =
+                                values.selectedConnector.name === 'Supabase'
+                                    ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
+                                    : resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
                             if (resolvedField) {
                                 schema.incremental_field = resolvedField.field
@@ -1480,8 +3556,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                     // Onboarding one-click setup: opt every syncable table in (permission errors
                     // already continued above), so the user can sync the whole source in one click.
+                    // Default-off tables stay off via the shared bulk rule: this path shows no
+                    // table picker, so nothing else stops a secrets table from syncing.
                     if (props.autoConfigureTables) {
-                        schema.should_sync = true
+                        schema.should_sync = bulkToggledShouldSync(schema, true)
                     }
                 }
 
@@ -1494,15 +3572,41 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // If required tables are specified (e.g. signals setup), skip the schema selection step
                 // entirely and create the source with only those tables, using their default sync settings
                 if (values.requiredTables) {
-                    const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
-                    if (requiredSchemas.length !== values.requiredTables.length) {
-                        const missingTables = values.requiredTables.filter(
-                            (table: string) => !requiredSchemas.some((schema) => schema.table === table)
+                    // Multi-repo sources qualify their schema names (`owner/repo.endpoint`), so a
+                    // required table matches by suffix as well as exactly, and can resolve to one
+                    // row per repo. Mirrors ensureRequiredTableSyncing in signalSourcesLogic.
+                    const matchesRequiredTable = (tableName: string, requiredTable: string): boolean =>
+                        tableName === requiredTable || tableName.endsWith(`.${requiredTable}`)
+                    // The payload below forces should_sync on, so a permission-errored row would
+                    // queue a guaranteed-403 sync. Treat it as unavailable instead.
+                    const requiredSchemas = schemas.filter(
+                        (schema) =>
+                            !schema.permission_error &&
+                            values.requiredTables!.some((table: string) => matchesRequiredTable(schema.table, table))
+                    )
+                    const missingTables = values.requiredTables.filter(
+                        (table: string) => !requiredSchemas.some((schema) => matchesRequiredTable(schema.table, table))
+                    )
+                    if (missingTables.length > 0) {
+                        const permissionError = schemas.find(
+                            (schema) =>
+                                schema.permission_error &&
+                                missingTables.some((table: string) => matchesRequiredTable(schema.table, table))
+                        )?.permission_error
+                        lemonToast.error(
+                            permissionError
+                                ? `Source credentials cannot read the tables this needs (${missingTables.join(', ')}): ${permissionError}. Grant the missing scope in your source provider and reconnect.`
+                                : `Required tables not found in source: ${missingTables.join(', ')}`
                         )
-                        lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
                         actions.setIsLoading(false)
                         return
                     }
+                    for (const schema of requiredSchemas) {
+                        schema.should_sync = true
+                    }
+                    // createSource reads hasWebhookSchemas off databaseSchema to decide whether the
+                    // new source still needs its webhook registered.
+                    actions.setDatabaseSchemas(requiredSchemas)
 
                     actions.updateSource({
                         payload: {
@@ -1531,15 +3635,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                // A gateway timeout / 5xx has no JSON body, so e.message is the raw
-                // "Non-OK response [POST ...] (status 504: )" — meaningless to the user. Surface a
-                // friendly hint for server-side failures while keeping any API-provided message.
                 const apiMessage = e.data?.message ?? e.detail
-                const errorMessage =
-                    apiMessage ??
-                    (e.status >= 500
-                        ? 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
-                        : e.message)
+                const errorMessage = resolveConnectErrorMessage(e)
                 lemonToast.error(errorMessage)
 
                 // A 5xx with no body is an unexpected server failure, not a user credential
@@ -1616,6 +3713,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setReturnConfig(returnUrl, returnLabel)
             } else {
                 actions.clearReturnConfig()
+            }
+
+            // File upload has no backend connector (the uploaded file becomes a self-managed table),
+            // so resolve its client-only synthetic config directly rather than from `connectors`.
+            if (kind === FILE_UPLOAD_SOURCE_NAME.toLowerCase()) {
+                if (values.selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME && values.currentStep > 1) {
+                    return
+                }
+                actions.selectConnector(FILE_UPLOAD_SOURCE_CONFIG)
+                actions.setStep(2)
+                return
             }
 
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
@@ -1707,6 +3815,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',
+                        direct_query_enabled: resolveCreateDirectQueryEnabled(
+                            sourceValues,
+                            values.selectedConnector.name
+                        ),
                         source_type: values.selectedConnector.name,
                     }
                     actions.setIsLoading(true)
@@ -1866,8 +3978,14 @@ export const getErrorsForFields = (
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
             if (!hasOptionFields) {
-                if (field.required && !valueObj[field.name]) {
-                    errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
+                // An empty array is truthy, so a multiple select needs its own emptiness
+                // check or `required` passes with nothing selected.
+                const selected = valueObj[field.name]
+                const selectionMissing = Array.isArray(selected) ? selected.length === 0 : !selected
+                if (field.required && selectionMissing) {
+                    errorsObj[field.name] = Array.isArray(selected)
+                        ? `Please select at least one of your ${field.label.toLowerCase()}`
+                        : `${field.label} is required`
                 }
             } else {
                 errorsObj[field.name] = {}
@@ -1888,8 +4006,26 @@ export const getErrorsForFields = (
             return
         }
 
-        if ('required' in field && field.required && !valueObj[field.name]) {
-            errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
+        // An empty array is truthy, so multi-value fields (e.g. repo pickers) need their own
+        // emptiness check or `required` would pass with zero selections.
+        const fieldValue = valueObj[field.name]
+        const valueMissing = Array.isArray(fieldValue) ? fieldValue.length === 0 : !fieldValue
+
+        // An OAuth field with nothing selected can never produce a working source, but some
+        // backend configs keep it `required=False` so stored configs on the other auth branch
+        // (e.g. GitHub PAT sources) still parse. Enforce it here instead of letting the submit
+        // through to a guaranteed credentials error.
+        if (field.type === 'oauth' && valueMissing) {
+            // Label verbatim: OAuth field labels lead with a brand name ("GitHub account"),
+            // which lowercasing would mangle.
+            errorsObj[field.name] = `Select or connect a ${field.label}`
+            return
+        }
+
+        if ('required' in field && field.required && valueMissing) {
+            errorsObj[field.name] = Array.isArray(fieldValue)
+                ? `Please enter at least one of your ${field.label.toLowerCase()}`
+                : `${field.label} is required`
         }
     }
 

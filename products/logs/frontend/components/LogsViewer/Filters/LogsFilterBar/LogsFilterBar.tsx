@@ -5,15 +5,21 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
+import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     AnyPropertyFilter,
@@ -25,13 +31,8 @@ import {
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
-import { LogsFullScreenButton } from 'products/logs/frontend/components/LogsViewer/LogsFullScreenButton'
-import { SavedViewsButton } from 'products/logs/frontend/components/LogsViews/SavedViewsButton'
 
-import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
-import { ServiceFilter } from '../ServiceFilter'
-import { SeverityLevelsFilter } from '../SeverityLevelsFilter'
 
 const taxonomicFilterLogicKey = 'logs'
 const taxonomicGroupTypes = [
@@ -40,53 +41,8 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.LogAttributes,
 ]
 
-export const LogsFilterBar = ({
-    showSavedViewsButton = false,
-    showFullScreenButton = false,
-}: {
-    showSavedViewsButton?: boolean
-    showFullScreenButton?: boolean
-}): JSX.Element => {
-    // When the facet rail is on, Level + Service live in the rail instead of this bar.
-    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
-    const { setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
-    const { filters, utcDateRange, id } = useValues(logsViewerFiltersLogic)
-    const { severityLevels, serviceNames } = filters
-
-    return (
-        <LogsFilterGroup>
-            <div className="flex flex-col gap-2 w-full bg-primary">
-                <div className="flex gap-2 flex-wrap w-full justify-between">
-                    <div className="flex shrink-0 flex-1 gap-1.5">
-                        {!showFacetRail && (
-                            <>
-                                <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
-                                <ServiceFilter
-                                    value={serviceNames}
-                                    onChange={setServiceNames}
-                                    dateRange={utcDateRange}
-                                />
-                            </>
-                        )}
-                        <div className="min-w-[300px] max-w-[350px] w-full">
-                            <LogsFilterSearch />
-                        </div>
-                        <FilterHistoryDropdown />
-                        {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
-                    </div>
-                    <div className="flex shrink-0 gap-1.5">
-                        <LogsQueryControls />
-                        {showFullScreenButton && <LogsFullScreenButton id={id} />}
-                    </div>
-                </div>
-                <LogsAppliedFilters />
-            </div>
-        </LogsFilterGroup>
-    )
-}
-
 /**
- * Time range, zoom and refresh — the always-relevant "execute the query" controls shared by both bars.
+ * Time range, zoom and refresh — the always-relevant "execute the query" controls of the query bar.
  * Live tail lives in the results bar instead (LogsViewerToolbar): it's the one streaming control we
  * deliberately place with the Logs-only tools so it hides cleanly with that cluster in Patterns mode,
  * rather than collapsing in this top bar and shifting its layout.
@@ -144,6 +100,52 @@ export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JS
     )
 }
 
+/**
+ * Handles selecting a taxonomic item that carries its own value — notably the Logs group's free-text
+ * `Search log message for "…"` item, whose value lives on `item.value` rather than in the `value`
+ * argument (the Logs group's `getValue` returns the key, `message`).
+ *
+ * Besides building the filter, this records the *complete* filter to recents itself. taxonomicFilterLogic
+ * records the selection too, but it strips the item down to `{ name }` and only carries a propertyFilter
+ * through for items that already came from recents — so its record would drop the searched-for value, and
+ * re-selecting the entry from "Recent" would yield a bare `message` with nothing to match on.
+ *
+ * We mirror its groupType/value exactly so both writes collide on one record rather than leaving a duplicate
+ * value-less entry behind. Which of the two lands first doesn't matter: recordRecentFilter ignores a
+ * value-less write when a complete record already exists, and replaces an existing value-less record when a
+ * complete one arrives.
+ */
+export function addLogsValueFilter(
+    taxonomicGroup: TaxonomicFilterGroup,
+    value: TaxonomicFilterValue,
+    item: any,
+    currentValues: UniversalFiltersGroup['values']
+): UniversalFiltersGroup['values'] {
+    const newPropertyFilter = {
+        key: item.key,
+        value: item.value,
+        operator: PropertyOperator.IContains,
+        type: item.propertyFilterType,
+    } as AnyPropertyFilter
+
+    if (recentTaxonomicFiltersLogic.isMounted()) {
+        recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+            groupType: taxonomicGroup.type,
+            groupName: taxonomicGroup.name,
+            value,
+            // Store the key, not `item.name`. Recents are expanded for display into a bare-key row plus a
+            // full-filter row, and the bare row inherits this name while dropping the value — so naming it
+            // `Search log message for "foobar"` would render a row promising a value it can't apply.
+            // `message` reads correctly for both rows, matching how property recents are named elsewhere.
+            item: { name: item.key },
+            teamId: teamLogic.findMounted()?.values.currentTeamId ?? undefined,
+            propertyFilter: newPropertyFilter,
+        })
+    }
+
+    return [...currentValues, newPropertyFilter]
+}
+
 export const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, filters: logsFilters, queryFilterGroup } = useValues(logsViewerFiltersLogic)
@@ -173,15 +175,7 @@ export const LogsFilterSearch = (): JSX.Element => {
                 return
             }
 
-            const newValues = [...filterGroup.values]
-            const newPropertyFilter = {
-                key: item.key,
-                value: item.value,
-                operator: PropertyOperator.IContains,
-                type: item.propertyFilterType,
-            } as AnyPropertyFilter
-            newValues.push(newPropertyFilter)
-            setGroupValues(newValues)
+            setGroupValues(addLogsValueFilter(taxonomicGroup, value, item, filterGroup.values))
             setVisible(false)
         },
         onEnter: onClose,

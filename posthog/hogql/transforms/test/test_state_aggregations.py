@@ -2,7 +2,16 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    NewEventsSchemaSnapshotExtension,
+    _create_event,
+    flush_persons_and_events,
+)
+
+from django.conf import settings
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -20,6 +29,15 @@ from posthog.clickhouse.client.execute import sync_execute
 
 class TestStateTransforms(BaseTest):
     snapshot: Any
+
+    def _schema_snapshot(self, printed: str):
+        self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:
+            return self.snapshot(name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension)
+        return self.snapshot
+
+    def _assert_matches_snapshot(self, printed: str) -> None:
+        assert printed == self._schema_snapshot(printed)
 
     def _print_select(self, expr: ast.SelectQuery | ast.SelectSetQuery):
         query, _ = prepare_and_print_ast(
@@ -43,7 +61,7 @@ class TestStateTransforms(BaseTest):
         state_query = transform_query_to_state_aggregations(query)
 
         printed = self._print_select(state_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_transform_nested_expressions(self):
@@ -59,7 +77,7 @@ class TestStateTransforms(BaseTest):
         state_query = transform_query_to_state_aggregations(query)
 
         printed = self._print_select(state_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_preserve_group_by(self):
@@ -77,7 +95,7 @@ class TestStateTransforms(BaseTest):
         state_query = transform_query_to_state_aggregations(query)
 
         printed = self._print_select(state_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_preserve_query_without_aggregations(self):
@@ -93,7 +111,7 @@ class TestStateTransforms(BaseTest):
         state_query = transform_query_to_state_aggregations(query)
 
         printed = self._print_select(state_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_wrap_state_query_in_merge_query(self):
@@ -111,7 +129,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_merge_wraps_works_with_more_complex_queries(self):
@@ -133,7 +151,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_wrapper_query_aggregation_with_groupby(self):
@@ -152,7 +170,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         printed = self._print_select(wrapper_query_ast)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_filtered_aggregation(self):
@@ -170,7 +188,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         printed = self._print_select(wrapper_query_ast)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_nested_functions_aggregations_and_conversions(self):
@@ -190,7 +208,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         printed = self._print_select(wrapper_query_ast)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_nested_aggregations_in_subquery(self):
@@ -212,7 +230,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         printed = self._print_select(wrapper_query_ast)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_similar_to_web_overview_query_transformation_sql(self):
@@ -236,7 +254,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         printed = self._print_select(wrapper_query_ast)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_with_as_constants(self):
@@ -255,7 +273,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         printed = self._print_select(wrapper_query_ast)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_two_different_state_queries_into_one_merge_query(self):
@@ -292,7 +310,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query_ast = wrap_state_query_in_merge_query(select_set_query_ast)
 
         wrapper_simplified = self._print_select(wrapper_query_ast)
-        assert wrapper_simplified == self.snapshot
+        self._assert_matches_snapshot(wrapper_simplified)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_union_all_state_queries_into_one_merge_query(self):
@@ -316,7 +334,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         wrapper_simplified = self._print_select(wrapper_query_ast)
-        assert wrapper_simplified == self.snapshot
+        self._assert_matches_snapshot(wrapper_simplified)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_with_state_aggregations(self):
@@ -333,7 +351,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_with_conditional_aggregations(self):
@@ -351,7 +369,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_with_mixed_aggregations_and_non_aggregations(self):
@@ -367,7 +385,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_multiple_tuples_with_state_aggregations(self):
@@ -383,7 +401,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_transformation_from_regular_to_state_then_merge_with_tuples(self):
@@ -400,7 +418,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_with_constants_and_state_aggregations(self):
@@ -414,7 +432,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_in_subquery_remains_unchanged(self):
@@ -433,7 +451,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_union_all_tuples_with_state_aggregations(self):
@@ -457,7 +475,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_complex_tuple_union_all_with_grouping(self):
@@ -481,7 +499,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_tuple_union_all_with_different_conditions(self):
@@ -503,7 +521,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_multi_level_tuple_union_all_transformation(self):
@@ -540,7 +558,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(union_query_ast)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_nested_subquery_with_tuple_union_all(self):
@@ -569,7 +587,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(state_query)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_web_analytics_historical_and_realtime_data(self):
@@ -593,7 +611,7 @@ class TestStateTransforms(BaseTest):
 
         combined_query = combine_queries_with_state_and_merge(historical_query, realtime_query)
         printed = self._print_select(combined_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_multiple_time_periods_with_conditional_aggregations(self):
@@ -613,7 +631,7 @@ class TestStateTransforms(BaseTest):
 
         combined_query = combine_queries_with_state_and_merge(last_week_query, current_week_query)
         printed = self._print_select(combined_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_three_data_sources_with_mixed_tuples(self):
@@ -650,7 +668,7 @@ class TestStateTransforms(BaseTest):
 
         combined_query = combine_queries_with_state_and_merge(preaggregated_query, yesterday_query, today_query)
         printed = self._print_select(combined_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_funnel_analysis_segments(self):
@@ -671,7 +689,7 @@ class TestStateTransforms(BaseTest):
 
         combined_query = combine_queries_with_state_and_merge(mobile_users_query, desktop_users_query)
         printed = self._print_select(combined_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_cohort_analysis_time_windows(self):
@@ -702,7 +720,7 @@ class TestStateTransforms(BaseTest):
 
         combined_query = combine_queries_with_state_and_merge(first_week_cohort, second_week_cohort, third_week_cohort)
         printed = self._print_select(combined_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_complex_nested_aggregation_patterns(self):
@@ -737,7 +755,7 @@ class TestStateTransforms(BaseTest):
 
         combined_query = combine_queries_with_state_and_merge(pattern_a_query, pattern_b_query)
         printed = self._print_select(combined_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_regular_and_state_aggregations_mixed(self):
@@ -771,7 +789,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(union_query_ast)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_combine_mixed_transformation_stages_with_tuples(self):
@@ -812,7 +830,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(union_query_ast)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_three_way_mixed_aggregation_stages(self):
@@ -860,7 +878,7 @@ class TestStateTransforms(BaseTest):
         wrapper_query = wrap_state_query_in_merge_query(union_query_ast)
 
         printed = self._print_select(wrapper_query)
-        assert printed == self.snapshot
+        self._assert_matches_snapshot(printed)
 
 
 class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):

@@ -1,0 +1,112 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "transactions": {
+        "description": "APM Transaction events: one row per completed transaction (web request or background task) reported by a New Relic agent.",
+        "docs_url": "https://docs.newrelic.com/attribute-dictionary/?event=Transaction",
+        "columns": {
+            "timestamp": "Time the transaction ended, recorded by the agent.",
+            "appName": "Name of the application that reported the transaction.",
+            "name": "Full metric name of the transaction, e.g. WebTransaction/Uri/api/users.",
+            "duration": "Total server-side response time of the transaction, in seconds.",
+            "transactionType": "Type of the transaction: Web or Other (non-web/background).",
+            "error": "Whether an error was recorded during the transaction.",
+            "httpResponseCode": "HTTP status code returned by web transactions.",
+            "host": "Hostname of the server that processed the transaction.",
+            "databaseDuration": "Total time spent in database calls during the transaction, in seconds.",
+            "externalDuration": "Total time spent in external service calls during the transaction, in seconds.",
+            "traceId": "Distributed tracing trace ID the transaction belongs to, when tracing is enabled.",
+        },
+    },
+    "transaction_errors": {
+        "description": "APM TransactionError events: one row per error captured inside a transaction by a New Relic agent.",
+        "docs_url": "https://docs.newrelic.com/attribute-dictionary/?event=TransactionError",
+        "columns": {
+            "timestamp": "Time the error occurred.",
+            "appName": "Name of the application that reported the error.",
+            "error.class": "Exception class of the captured error.",
+            "error.message": "Message of the captured error.",
+            "transactionName": "Name of the transaction in which the error occurred.",
+            "traceId": "Distributed tracing trace ID associated with the error, when tracing is enabled.",
+        },
+    },
+    "page_views": {
+        "description": "Browser PageView events: one row per full page load captured by New Relic browser monitoring.",
+        "docs_url": "https://docs.newrelic.com/attribute-dictionary/?event=PageView",
+        "columns": {
+            "timestamp": "Time the page load started.",
+            "appName": "Name of the browser application that reported the page view.",
+            "pageUrl": "URL of the viewed page.",
+            "duration": "Total page load time, in seconds.",
+            "city": "City where the page view originated, derived from the request IP.",
+            "countryCode": "Country where the page view originated, derived from the request IP.",
+            "userAgentName": "Browser name parsed from the user agent.",
+            "session": "Browser session identifier grouping page views from one visit.",
+        },
+    },
+    "logs": {
+        "description": "Log events forwarded to New Relic log management: one row per log line.",
+        "docs_url": "https://docs.newrelic.com/attribute-dictionary/?event=Log",
+        "columns": {
+            "timestamp": "Time the log line was written.",
+            "message": "The log line's message body.",
+            "level": "Severity level of the log line, when parsed (e.g. INFO, ERROR).",
+            "hostname": "Host that emitted the log line.",
+        },
+    },
+    "spans": {
+        "description": "Distributed tracing Span events: one row per operation segment within a trace.",
+        "docs_url": "https://docs.newrelic.com/attribute-dictionary/?event=Span",
+        "columns": {
+            "timestamp": "Time the span started.",
+            "guid": "Unique identifier of the span within its trace.",
+            "traceId": "Identifier of the distributed trace the span belongs to.",
+            "parentId": "Identifier of the span's parent span, empty for trace roots.",
+            "name": "Name of the operation the span represents.",
+            "duration": "Duration of the span, in seconds.",
+            "appName": "Name of the application that reported the span.",
+            "error.class": "Exception class recorded on the span, if an error occurred.",
+        },
+    },
+    "entities": {
+        "description": "Inventory of entities New Relic monitors on the account (applications, hosts, services, dashboards, monitors, ...), from NerdGraph entity search.",
+        "docs_url": "https://docs.newrelic.com/docs/apis/nerdgraph/examples/nerdgraph-entities-api-tutorial/",
+        "columns": {
+            "guid": "Globally unique identifier of the entity.",
+            "name": "Display name of the entity.",
+            "accountId": "New Relic account the entity belongs to.",
+            "domain": "Entity domain, e.g. APM, BROWSER, INFRA, SYNTH.",
+            "type": "Entity type within its domain, e.g. APPLICATION, HOST, MONITOR.",
+            "entityType": "Combined domain/type discriminator, e.g. APM_APPLICATION_ENTITY.",
+            "reporting": "Whether the entity is currently reporting data.",
+            "permalink": "Link to the entity in the New Relic UI.",
+            "tags": "Key/value tags attached to the entity.",
+        },
+    },
+    "alert_policies": {
+        "description": "Alert policies configured on the account, which group alert conditions and control incident creation.",
+        "docs_url": "https://docs.newrelic.com/docs/apis/nerdgraph/examples/nerdgraph-api-alerts-policies/",
+        "columns": {
+            "id": "Unique identifier of the alert policy.",
+            "accountId": "New Relic account the policy belongs to.",
+            "name": "Name of the alert policy.",
+            "incidentPreference": "How incidents are created from the policy's conditions: PER_POLICY, PER_CONDITION, or PER_CONDITION_AND_TARGET.",
+        },
+    },
+    "alert_conditions": {
+        "description": "NRQL alert conditions configured on the account: the queries and thresholds that open violations.",
+        "docs_url": "https://docs.newrelic.com/docs/apis/nerdgraph/examples/nerdgraph-api-nrql-condition-alerts/",
+        "columns": {
+            "id": "Unique identifier of the alert condition.",
+            "name": "Name of the alert condition.",
+            "policyId": "Alert policy the condition belongs to.",
+            "enabled": "Whether the condition is currently enabled.",
+            "description": "Custom description shown on violations opened by the condition.",
+            "runbookUrl": "Runbook URL attached to violations opened by the condition.",
+            "type": "Condition type, e.g. STATIC or BASELINE.",
+            "nrql_query": "The NRQL query the condition evaluates.",
+        },
+    },
+}

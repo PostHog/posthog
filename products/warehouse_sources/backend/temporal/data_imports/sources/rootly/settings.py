@@ -89,3 +89,12 @@ ROOTLY_ENDPOINTS: dict[str, RootlyEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(ROOTLY_ENDPOINTS.keys())
+
+# Mapping of endpoint name -> incremental fields, for endpoints that expose a server-side filter.
+# Only incremental endpoints carry fields; full-refresh ones are omitted (empty list == full refresh).
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: config.incremental_fields for name, config in ROOTLY_ENDPOINTS.items() if config.incremental_fields
+}
+
+# Per-endpoint default sync flag; only pulses (the high-volume activity timeline) is off by default.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: config.should_sync_default for name, config in ROOTLY_ENDPOINTS.items()}

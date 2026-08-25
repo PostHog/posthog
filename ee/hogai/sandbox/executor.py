@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from django.conf import settings
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
@@ -24,7 +24,7 @@ from posthog.temporal.common.client import sync_connect
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.streams import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
-from products.tasks.backend.facade.temporal import ProcessTaskWorkflow, execute_task_processing_workflow
+from products.tasks.backend.facade.temporal import ProcessTaskWorkflow, dispatch_task_processing_workflow
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
@@ -53,7 +53,7 @@ def handle_sandbox_message(
     user: User,
     team: Team,
     is_new_conversation: bool,
-) -> StreamingHttpResponse:
+) -> HttpResponseBase:
     """Handle a sandbox-mode message: create/resume a task run and stream events back."""
     if not settings.DEBUG and not has_sandbox_mode_feature_flag(team, user):
         raise exceptions.PermissionDenied("Sandbox mode is not enabled for this user.")
@@ -102,7 +102,7 @@ def handle_sandbox_message(
 
             set_sandbox_mapping(conversation_id, str(task_run.task_id), run_id)
 
-            execute_task_processing_workflow(
+            dispatch_task_processing_workflow(
                 task_id=str(task_run.task_id),
                 run_id=run_id,
                 team_id=task_run.team_id,
@@ -185,7 +185,7 @@ def handle_sandbox_message(
 
 def _make_streaming_response(
     async_generator_factory: Callable[[], AsyncGenerator[bytes]],
-) -> StreamingHttpResponse:
+) -> HttpResponseBase:
     """Create a StreamingHttpResponse that works under both ASGI and WSGI."""
     return sse_streaming_response(
         async_generator_factory()
