@@ -129,7 +129,7 @@ from .slack import (
     validate_slack_request,
 )
 from .snowflake import SnowflakeIntegration, SnowflakeIntegrationError
-from .stripe import StripeIntegration
+from .stripe import STRIPE_POSTHOG_SECRET_NAMES, StripeIntegration
 from .twilio import TwilioIntegration
 
 __all__ = [
@@ -239,6 +239,7 @@ __all__ = [
     "AWSS3Integration",
     "AWSRedshiftIntegration",
     "S3CompatibleIntegration",
+    "STRIPE_POSTHOG_SECRET_NAMES",
     "StripeIntegration",
     "Credentials",
     "Authority",

@@ -65,7 +65,7 @@ class AmazonSellingPartnerReportError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AmazonSellingPartnerResumeConfig:
     # NextToken of the page (or, for the order-items fan-out, of the parent orders page)
     # to pick back up from.
