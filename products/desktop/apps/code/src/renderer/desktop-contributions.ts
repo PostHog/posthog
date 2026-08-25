@@ -4,6 +4,7 @@ import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
 import { localMcpCoreModule } from "@posthog/core/local-mcp/local-mcp.module";
 import { onboardingModule } from "@posthog/core/onboarding/onboarding.module";
+import { platformStatusCoreModule } from "@posthog/core/platform-status/platformStatus.module";
 import { setupCoreModule } from "@posthog/core/setup/setup.module";
 import { skillsCoreModule } from "@posthog/core/skills/skills.module";
 import { speechCoreModule } from "@posthog/core/speech/speech.module";
@@ -50,6 +51,7 @@ export function registerDesktopContributions(): void {
     localMcpCoreModule,
     missionControlUiModule,
     notificationsUiModule,
+    platformStatusCoreModule,
     platformStatusUiModule,
     onboardingModule,
     provisioningUiModule,

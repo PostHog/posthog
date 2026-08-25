@@ -43,6 +43,10 @@ import { piRuntimeModule } from "@posthog/core/pi-runtime/pi-runtime.module";
 import type { PiRunner } from "@posthog/core/pi-runtime/piRunner";
 import { LOCAL_PI_SESSION_FACTORY } from "@posthog/core/pi-runtime/piSessionController";
 import {
+  PLATFORM_STATUS_CLIENT,
+  type PlatformStatusClient,
+} from "@posthog/core/platform-status/identifiers";
+import {
   CLOUD_ARTIFACT_BUNDLE_LOCAL_SKILL,
   CLOUD_ARTIFACT_READ_FILE_AS_BASE64,
   CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES,
@@ -131,10 +135,6 @@ import {
   MISSION_CONTROL_CLIENT,
   type MissionControlClient,
 } from "@posthog/ui/features/mission-control/identifiers";
-import {
-  PLATFORM_STATUS_CLIENT,
-  type PlatformStatusClient,
-} from "@posthog/ui/features/platform-status/platformStatusClient";
 import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,

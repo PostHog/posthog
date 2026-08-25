@@ -1,4 +1,5 @@
 import { SignInCard } from "@posthog/ui/features/auth/SignInCard";
+import { PlatformStatusBanner } from "@posthog/ui/features/platform-status/PlatformStatusBanner";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { Callout, Flex } from "@radix-ui/themes";
 import { useAuthStateValue } from "../store";
@@ -29,6 +30,7 @@ export function AuthScreen() {
                     </Callout.Text>
                   </Callout.Root>
                 )}
+                <PlatformStatusBanner />
                 <SignInCard />
               </Flex>
             </Flex>

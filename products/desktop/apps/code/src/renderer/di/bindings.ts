@@ -89,6 +89,10 @@ import {
   type PiSessionFactory,
   type PiSessionProvider,
 } from "@posthog/core/pi-runtime/piSessionController";
+import type {
+  PLATFORM_STATUS_CLIENT,
+  PlatformStatusClient,
+} from "@posthog/core/platform-status/identifiers";
 import {
   type BundleLocalSkill,
   CLOUD_ARTIFACT_BUNDLE_LOCAL_SKILL,
@@ -231,10 +235,6 @@ import {
   NOTIFICATION_SETTINGS_PROVIDER,
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
-import {
-  PLATFORM_STATUS_CLIENT,
-  type PlatformStatusClient,
-} from "@posthog/ui/features/platform-status/platformStatusClient";
 import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,

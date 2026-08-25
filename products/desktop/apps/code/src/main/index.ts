@@ -34,11 +34,11 @@ import type { NotificationService } from "@posthog/core/notification/notificatio
 import { OAUTH_SERVICE } from "@posthog/core/oauth/identifiers";
 import type { OAuthService } from "@posthog/core/oauth/oauth";
 import { getPlatformStatus } from "@posthog/core/platform-status/getPlatformStatus";
+import { PLATFORM_STATUS_CLIENT } from "@posthog/core/platform-status/identifiers";
 import type { UpdatesService } from "@posthog/core/updates/updates";
 import { CONNECTIVITY_CLIENT } from "@posthog/host-router/ports/connectivity-client";
 import { ENVIRONMENT_CLIENT } from "@posthog/host-router/ports/environment-client";
 import { FILE_WATCHER_CONTROL } from "@posthog/host-router/ports/file-watcher-control";
-import { PLATFORM_STATUS_CLIENT } from "@posthog/host-router/ports/platform-status-client";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { ExternalAppsService } from "@posthog/workspace-server/services/external-apps/external-apps";
