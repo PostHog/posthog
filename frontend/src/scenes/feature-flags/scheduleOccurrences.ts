@@ -92,8 +92,13 @@ export function expandScheduleOccurrences(
         if (schedule.is_recurring && schedule.recurrence_interval && !schedule.cron_expression) {
             const unit = INTERVAL_UNIT[schedule.recurrence_interval]
             const end = schedule.end_date ? dayjs(schedule.end_date) : null
+            // Derive each occurrence from the previous one, as the backend does when it advances
+            // scheduled_at (process_scheduled_changes.compute_next_run). A month-end start then stays
+            // clamped (Jan 31 -> Feb 28 -> Mar 28); adding from the origin each step would restore the
+            // 31st and paint flip dates the flag never fires on.
+            let next = first
             for (let step = 1; step < OCCURRENCE_CAP; step++) {
-                const next = first.add(step, unit)
+                next = next.add(1, unit)
                 if (next.isAfter(horizon) || (end && next.isAfter(end))) {
                     break
                 }

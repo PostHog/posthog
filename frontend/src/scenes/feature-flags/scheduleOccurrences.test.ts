@@ -151,6 +151,27 @@ describe('expandScheduleOccurrences', () => {
         expect(expandScheduleOccurrences(schedules, flag(), NOW)).toHaveLength(3)
     })
 
+    it('clamps month-end recurring dates iteratively, matching the backend', () => {
+        // A monthly schedule starting Jan 31 must not restore the 31st after a short month: the
+        // backend advances from the previous run (Jan 31 -> Feb 28 -> Mar 28), so the projection must too.
+        const schedules = [
+            change({
+                payload: STATUS_ON,
+                is_recurring: true,
+                recurrence_interval: RecurrenceInterval.Monthly,
+                scheduled_at: dayjs('2026-01-31T09:00:00Z').toISOString(),
+            }),
+        ]
+
+        const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
+
+        expect(occurrences.map((o) => o.timestamp)).toEqual([
+            '2026-01-31T09:00:00.000Z',
+            '2026-02-28T09:00:00.000Z',
+            '2026-03-28T09:00:00.000Z',
+        ])
+    })
+
     it('caps the total number of occurrences', () => {
         const schedules = [
             change({
