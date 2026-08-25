@@ -107,6 +107,16 @@ function getCellTitle(cell: TableDataCell<any>): string | undefined {
     return undefined
 }
 
+// A rule has no bytecode until the Hog program compiles server-side, so an empty program is a
+// pending state, not a defect. Only a non-empty program that lacks the '_H' header is malformed.
+export type HogBytecodeState = 'valid' | 'pending' | 'malformed'
+export function classifyHogBytecode(bytecode: any[] | undefined): HogBytecodeState {
+    if (!bytecode || bytecode.length === 0) {
+        return 'pending'
+    }
+    return bytecode[0] === '_H' ? 'valid' : 'malformed'
+}
+
 // Header labels are clamped to a few lines with a CSS ellipsis when they don't fit. The full text stays
 // in the DOM, so we compare the rendered box against the content and reveal the full name on hover only
 // when it's actually cut off. The tooltip prefers the explicit label but falls back to the rendered text,
@@ -171,6 +181,9 @@ export const Table = (props: TableProps): JSX.Element => {
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
+    // Report each malformed rule once per render, across every row and column.
+    const reportedMalformedRuleIds = new Set<string>()
+
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
         ({ column, settings }, index) => {
             const { title, ...columnMeta } = renderColumnMeta(column.name, props.query, props.context)
@@ -190,14 +203,15 @@ export const Table = (props: TableProps): JSX.Element => {
                 const conditionalFormattingMatches = conditionalFormattingRules
                     .filter((n) => n.columnName === sourceColumnName)
                     .filter((n) => {
-                        const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
-                        if (!isValidHog) {
+                        const state = classifyHogBytecode(n.bytecode)
+                        if (state === 'malformed' && !reportedMalformedRuleIds.has(n.id)) {
+                            reportedMalformedRuleIds.add(n.id)
                             posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
                                 formatRule: n,
                             })
                         }
 
-                        return isValidHog
+                        return state === 'valid'
                     })
                     .map((n) => ({
                         rule: n,
