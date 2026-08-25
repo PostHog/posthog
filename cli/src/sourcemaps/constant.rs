@@ -19,3 +19,9 @@ pub const RELEASE_ID_PLACEHOLDER: &str = "__POSTHOG_RELEASE_ID__";
 // dedupe and symbol sets stay stable without a per-build random id.
 pub const CHUNK_ID_NAMESPACE: uuid::Uuid =
     uuid::Uuid::from_u128(0x0e9b3c7a5d1f42a8b6c4e2d0f8a17593);
+
+// Build plugins can register `import.meta.url`'s output filename at runtime before esbuild
+// computes the final content hash. The unique id is then stored only in sourcemap metadata,
+// because the filename does not exist until after bundling. This static marker proves the
+// deployed JavaScript contains that runtime registration before upload accepts a map-only id.
+pub const OUTPUT_FILENAME_CHUNK_ID_MARKER: &str = "/* posthog-chunk-id: output-filename */";

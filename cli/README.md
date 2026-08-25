@@ -91,13 +91,21 @@ Follow one ordering rule: **inject before you compute hashes, or regenerate the 
 
 The CLI logs which files injection rewrote, so watch for that warning.
 
-For Angular, run the source map step before the service worker manifest step:
+For Angular's esbuild-based `application` builder, use `@posthog/esbuild-plugin` with `@angular-builders/custom-esbuild`. The plugin registers output filenames before esbuild computes content hashes, and stamps the same filename into source-map metadata. Upload afterward without modifying the built JavaScript:
 
 ```bash
-ng build
-posthog-cli sourcemap process --directory ./dist
-# regenerate ngsw.json against the injected files
-npx ngsw-config ./dist ./ngsw-config.json
+ng build --configuration production
+posthog-cli sourcemap upload --directory ./dist/<app>/browser
+```
+
+Do not run `sourcemap process`, `sourcemap inject`, or `sourcemap upload --delete-after` after that build. See the esbuild plugin README for the Angular builder configuration.
+
+If a project cannot customize its builder, keep using the fallback ordering and regenerate Angular's manifest after injection:
+
+```bash
+ng build --configuration production
+posthog-cli sourcemap process --directory ./dist/<app>/browser
+npx ngsw-config ./dist/<app>/browser ./ngsw-config.json /
 ```
 
 ## Configuring sourcemap upload concurrency
