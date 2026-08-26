@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -28,18 +28,6 @@ export const VisualReviewReposListQueryParams = /* @__PURE__ */ zod.object({
  * Get a repo by ID.
  */
 export const VisualReviewReposRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Snapshots overview for a repo: every identifier with a current baseline (latest non-superseded master/main run per run_type), plus tolerate counts, active quarantine state, and a 30-day stability sparkline. Capped at 5000 entries — sets `truncated` and returns the most recently active when exceeded. Filtering / faceting / search are all done client-side; this endpoint takes no filter query params.
- */
-export const VisualReviewReposBaselinesRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
     project_id: zod
         .string()
