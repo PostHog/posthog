@@ -212,6 +212,7 @@ def _customer_facing_error(cause: BaseException | None) -> str:
 # as ReadOnlySqlTransaction and whose base class is psycopg's InternalError_, neither of which
 # renders under this name.
 _APP_DB_FAILURE_TYPE = "InternalError"
+_APP_DB_FAILURE_PHRASE = "read-only transaction"
 
 
 def _is_app_db_failure(cause: BaseException | None) -> bool:
@@ -222,8 +223,15 @@ def _is_app_db_failure(cause: BaseException | None) -> bool:
     the message alone can't tell our failover apart from the source-side condition worded the same
     way. Activities that reach the app DB but never pass through ``_handle_import_error`` (creating
     the job row, the post-import steps) surface here unwrapped, which is what this catches.
+
+    The message narrows the type, mirroring ``is_stale_connection_read_only_error``: Django reports
+    corrupted data and failed-transaction states under the same class name, and those are real
+    defects rather than an outage that clears on its own. Narrowing on the message is safe in this
+    direction because it only rejects, and a source-side read-only error carries a different type.
     """
-    return isinstance(cause, exceptions.ApplicationError) and cause.type == _APP_DB_FAILURE_TYPE
+    if not isinstance(cause, exceptions.ApplicationError) or cause.type != _APP_DB_FAILURE_TYPE:
+        return False
+    return _APP_DB_FAILURE_PHRASE in (cause.message or "").lower()
 
 
 def _fail_stale_running_schema(

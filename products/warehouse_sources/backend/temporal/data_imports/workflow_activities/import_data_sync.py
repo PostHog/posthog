@@ -24,6 +24,7 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -247,6 +248,11 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             # that escapes: see POSTHOG_DATABASE_UNAVAILABLE_MESSAGE. _handle_import_error already
             # classifies these types this way once the run is under way; this covers the setup calls
             # that run before it.
+            if isinstance(e, InternalError) and not is_stale_connection_read_only_error(e):
+                # InternalError also covers corrupted data/indexes and failed-transaction states.
+                # Those are deterministic defects, so retrying burns the budget, and NonReportableError
+                # would keep them out of error tracking behind a message saying nothing is wrong.
+                raise
             await logger.awarning(str(e))
             raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
 
@@ -687,12 +693,16 @@ async def _handle_import_error(
     # a connection-pool one for OperationalError/InterfaceError (e.g. a PgBouncer query_wait_timeout
     # under load) and a failover for InternalError: a pooled connection that outlived a primary
     # switchover now points at a demoted standby, so our writes come back as psycopg's
-    # ReadOnlySqlTransaction (see posthog.temporal.common.utils). Same classification already used
+    # ReadOnlySqlTransaction. InternalError alone is too broad for that — it also covers corrupted
+    # data/indexes and failed-transaction states, which are deterministic defects that must stay
+    # reportable — so it is matched through the shared read-only predicate. Same classification already used
     # for app-DB blips in delta_table_ref.is_transient_maintenance_error. PostHogInternalDatabaseError
     # is the same condition already reclassified by shared pipeline code (e.g. cdp_producer's
     # should_run check) specifically so it wouldn't be mistaken for a customer-side failure here —
     # honor that by type.
-    if isinstance(error, OperationalError | InterfaceError | InternalError | PostHogInternalDatabaseError):
+    if isinstance(
+        error, OperationalError | InterfaceError | PostHogInternalDatabaseError
+    ) or is_stale_connection_read_only_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
         raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from error

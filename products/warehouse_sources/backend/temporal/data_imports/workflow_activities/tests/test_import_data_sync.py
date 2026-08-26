@@ -240,6 +240,25 @@ async def test_transient_app_db_error_in_setup_is_retryable_not_raw(
 
 
 @pytest.mark.asyncio
+async def test_non_failover_internal_error_in_setup_is_not_hidden_as_a_platform_outage():
+    # InternalError is the Django class for the failover case above, but also for corrupted data or
+    # indexes and failed-transaction states. Those are deterministic defects: wrapping them as
+    # NonReportableError would spend the retry budget on an error no retry fixes, and keep it out of
+    # error tracking behind a message telling the customer nothing is wrong.
+    error = InternalError('index "posthog_team_pkey" contains unexpected zero page at block 0')
+    source = mock.MagicMock(spec=SimpleSource)
+
+    with (
+        _patched_activity(source),
+        mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(side_effect=error)),
+    ):
+        with pytest.raises(InternalError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value is error
+
+
+@pytest.mark.asyncio
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
@@ -430,6 +449,28 @@ async def test_app_db_connection_error_reraised_as_non_reportable(_name: str, er
     assert str(exc_info.value) == module.POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_non_failover_internal_error_falls_through_to_the_default_branch():
+    # Same narrowing as the setup phase, at the mid-run handler: only the failover read-only case is
+    # ours to retry silently. A corrupted index has to keep escaping so error tracking sees it.
+    error = InternalError('index "posthog_team_pkey" contains unexpected zero page at block 0')
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(InternalError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio

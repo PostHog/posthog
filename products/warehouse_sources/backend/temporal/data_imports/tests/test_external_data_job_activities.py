@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
+    _is_app_db_failure,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
@@ -52,6 +53,25 @@ class TestCustomerFacingError(SimpleTestCase):
 
     def test_missing_cause_does_not_show_the_customer_none(self) -> None:
         assert _customer_facing_error(None) == UNEXPECTED_ERROR_MESSAGE
+
+
+class TestIsAppDbFailure(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # A pooled connection left on a demoted standby by a failover. Ours, and it clears.
+            ("failover", "InternalError", "cannot execute UPDATE in a read-only transaction", True),
+            # Django reports a corrupted index under the same class name. That one is a defect, so
+            # it must not be labeled a passing outage and told to wait for the next run.
+            ("corrupted_index", "InternalError", 'index "posthog_team_pkey" contains a zero page', False),
+            # psycopg raises the source-side read-only condition under its own class name, which is
+            # how a customer's write-on-read view stays the customer's to fix.
+            ("source_side", "ReadOnlySqlTransaction", "cannot execute INSERT in a read-only transaction", False),
+        ]
+    )
+    def test_only_the_failover_case_counts_as_ours(
+        self, _name: str, exc_type: str, message: str, expected: bool
+    ) -> None:
+        assert _is_app_db_failure(ApplicationError(message, type=exc_type)) is expected
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
