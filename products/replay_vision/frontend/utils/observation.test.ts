@@ -4,6 +4,7 @@ import {
     dockObservations,
     observationClipboardText,
     observationSeekbarMarks,
+    scannerLabel,
 } from './observation'
 
 const summarizerEntry = { scannerName: 'Session summarizer', headline: null, snippet: 'Rage clicked pay' }
@@ -180,6 +181,30 @@ describe('observation utils', () => {
             ],
         ])('%s', (_, observations, expectedIds) => {
             expect(dockObservations(observations).map((o) => o.id)).toEqual(expectedIds)
+        })
+    })
+
+    describe('scannerLabel', () => {
+        // A one-off scan's scanner is unnamed, so falling back to the snapshot name renders a blank
+        // label in the player dock, the sidebar, and search — the surfaces that flow is made of.
+        it.each<[string, Partial<ReplayObservationApi>, string]>([
+            [
+                'a saved scanner uses its name',
+                { scanner_origin: 'configured', scanner_snapshot: { name: 'Ghost bugs' } },
+                'Ghost bugs',
+            ],
+            [
+                'a one-off scan is named for what it is',
+                { scanner_origin: 'inline', scanner_snapshot: { name: '' } },
+                'One-off scan',
+            ],
+            [
+                'an unnamed saved scanner still reads as a scanner',
+                { scanner_origin: 'configured', scanner_snapshot: { name: '' } },
+                'Scanner',
+            ],
+        ])('%s', (_, overrides, expected) => {
+            expect(scannerLabel(overrides as ReplayObservationApi)).toBe(expected)
         })
     })
 })

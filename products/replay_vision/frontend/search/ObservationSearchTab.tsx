@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
+import { scannerLabel } from '../utils/observation'
 import { observationSearchLogic } from './observationSearchLogic'
 import { snippetSegments } from './snippetSegments'
 
@@ -45,7 +46,7 @@ function SearchResultCard({
             <div className="flex items-center gap-2 min-w-0">
                 {showScanner && snapshot && (
                     <>
-                        <span className="font-semibold text-sm truncate">{snapshot.name || 'Scanner'}</span>
+                        <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
                         <ScannerTypeBadge scannerType={snapshot.scanner_type} size="small" variant="muted" />
                     </>
                 )}

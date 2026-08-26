@@ -1,7 +1,23 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { ReplayObservationApi } from '../generated/api.schemas'
+import { type ReplayObservationApi, ScannerOriginEnumApi } from '../generated/api.schemas'
 import { citedTextToPlainText, parseCitedSegments } from './citations'
+
+/**
+ * Whether this observation came from a one-off scan — the player's "Summarize this recording" —
+ * rather than from a saved scanner.
+ *
+ * A one-off scan runs on an inline scanner: an unnamed throwaway keyed to that single question. The
+ * scanner endpoints exclude those, so it has no name to show and no page to navigate to.
+ */
+export function isOneOffScan(obs: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
+    return obs.scanner_origin === ScannerOriginEnumApi.Inline
+}
+
+/** What to call the scan behind an observation, anywhere one is named next to its result. */
+export function scannerLabel(obs: ReplayObservationApi): string {
+    return isOneOffScan(obs) ? 'One-off scan' : obs.scanner_snapshot?.name || 'Scanner'
+}
 
 export function readModelOutput(obs: ReplayObservationApi): Record<string, unknown> | null {
     const out = obs.scanner_result?.model_output

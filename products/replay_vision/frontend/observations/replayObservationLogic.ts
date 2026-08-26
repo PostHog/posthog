@@ -8,14 +8,11 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { visionObservationsRetrieve } from '../generated/api'
-import {
-    type ReplayObservationApi,
-    ScannerOriginEnumApi,
-    type VisionObservationsRetrieveParams,
-} from '../generated/api.schemas'
+import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
+import { isOneOffScan, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -45,35 +42,25 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
 }
 
 /**
- * Whether this observation's scanner has a detail page to navigate to.
- *
- * Only configured scanners do. An inline scanner is minted per one-off scan (the player's
- * "Summarize this recording"), and the scanner endpoints don't serve it, so any link to one fails.
- */
-export function hasScannerPage(observation: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
-    return observation.scanner_origin === ScannerOriginEnumApi.Configured
-}
-
-/**
  * The crumb the observation page's back button returns to.
  *
- * A configured scanner owns its observations and has a page listing them, so back goes there. A one-off
+ * A saved scanner owns its observations and has a page listing them, so back goes there. A one-off
  * scan is owned by the recording it was run from — that's where the person started, and the only place
  * its result is listed — so back goes to the recording instead.
  */
 export function observationParentBreadcrumb(observation: ReplayObservationApi): Breadcrumb {
-    if (hasScannerPage(observation)) {
+    if (isOneOffScan(observation)) {
         return {
-            key: `scanner-${observation.scanner_id}`,
-            name: observation.scanner_snapshot?.name || 'Scanner',
-            path: urls.replayVision(observation.scanner_id),
+            key: `recording-${observation.session_id}`,
+            name: 'Recording',
+            path: urls.replaySingle(observation.session_id),
+            iconType: 'session_replay',
         }
     }
     return {
-        key: `recording-${observation.session_id}`,
-        name: 'Recording',
-        path: urls.replaySingle(observation.session_id),
-        iconType: 'session_replay',
+        key: `scanner-${observation.scanner_id}`,
+        name: scannerLabel(observation),
+        path: urls.replayVision(observation.scanner_id),
     }
 }
 
@@ -210,7 +197,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 // replacement shows up: the scanner page for a configured scanner, and the recording itself
                 // for an inline scan, which has no page of its own.
                 const observation = values.observation
-                const landsOnScanner = !!observation && hasScannerPage(observation)
+                const landsOnScanner = !!observation && !isOneOffScan(observation)
                 const retried = await requestObservationRetry(
                     props.id,
                     landsOnScanner
