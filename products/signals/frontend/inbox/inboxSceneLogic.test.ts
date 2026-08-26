@@ -1,5 +1,6 @@
+import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
-import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -165,5 +166,69 @@ describe('inboxSceneLogic routing', () => {
         mountWithRedesign(enabled)
         router.actions.push(urls.inbox())
         expect(logic.values.activeTab).toBe(expectedTab)
+    })
+
+    // A slow flag response (or a bookmarked URL of the other layout) can leave a tab active that the
+    // resolved layout has no panel for. The active tab must fall back to the layout's landing tab
+    // rather than strand the body on a tab that renders nothing.
+    it.each<[boolean, string, string, string]>([
+        [false, '/inbox/runs', 'runs', 'reports'],
+        [true, '/inbox/settings', 'settings', 'pulls'],
+    ])(
+        'a mid-session flag flip (from redesign=%p) via %s strands %s → falls back to %s',
+        (initial, path, strandedTab, expectedTab) => {
+            mountWithRedesign(initial)
+            router.actions.push(path)
+            expect(logic.values.activeTab).toBe(strandedTab)
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+                [FEATURE_FLAGS.INBOX_REDESIGN]: !initial,
+            })
+            expect(logic.values.activeTab).toBe(expectedTab)
+        }
+    )
+
+    // The triage card's "Full report" link opens the report by URL (with a triage `back`), not through
+    // `openCurrent`, so the open-method must be recovered from that `back` or triage opens split between
+    // the `triage` and `click` analytics values.
+    it.each<[string, boolean, string]>([
+        ['a triage back link records the triage open method', true, 'triage'],
+        ['a plain report deep-link is not attributed to triage', false, 'deeplink'],
+    ])('%s', async (_name, withTriageBack, expectedMethod) => {
+        mountWithRedesign(true)
+        const url = withTriageBack
+            ? combineUrl(urls.inboxReport('reports', 'r1'), {
+                  back: combineUrl(urls.inboxTriage(), { report: 'r1', at: 0 }).url,
+              }).url
+            : urls.inboxReport('reports', 'r1')
+
+        let openMethod: string | undefined
+        await expectLogic(logic, () => router.actions.push(url)).toDispatchActions([
+            (action: any) => {
+                if (action.type !== logic.actionTypes.setSelectedReportId) {
+                    return false
+                }
+                openMethod = action.payload.openMethod
+                return true
+            },
+        ])
+        expect(openMethod).toBe(expectedMethod)
+    })
+
+    it('stops the runs poll when opening another surface closes the panel', () => {
+        // Opening a report flips `isRunsOpen` false through a mutual-exclusion reducer, not
+        // `setRunsOpen(false)`, so the poll teardown cannot hang off the `setRunsOpen` listener alone
+        // or it leaks two requests every few seconds for the rest of the visit.
+        mountWithRedesign(true)
+        const clearSpy = jest.spyOn(global, 'clearInterval')
+
+        logic.actions.setRunsOpen(true)
+        const clearedBeforeReport = clearSpy.mock.calls.length
+
+        logic.actions.setSelectedReportId('report-1')
+
+        expect(logic.values.isRunsOpen).toBe(false)
+        expect(clearSpy.mock.calls.length).toBeGreaterThan(clearedBeforeReport)
+
+        clearSpy.mockRestore()
     })
 })

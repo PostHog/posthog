@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import type { CaptureOptions } from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -597,11 +598,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (featureFlags: FeatureFlagsSet): boolean => isInboxRedesignEnabled(featureFlags),
         ],
         // The landing tab differs per layout (Reports under the redesign, Pull requests with the
-        // flag off), and a bare `/inbox` keeps whichever tab was already active.
+        // flag off), and a bare `/inbox` keeps whichever tab was already active. A tab set under one
+        // layout can outlive a mid-session flag flip (async flag resolution, or a bookmarked URL of
+        // the other layout). Fall back to the layout's landing tab when the active tab is not one of
+        // this layout's tabs, so the body never renders a tab the active layout has no panel for.
         activeTab: [
             (s) => [s.activeTabState, s.isRedesign],
             (activeTabState: InboxTabKey | null, isRedesign: boolean): InboxTabKey =>
-                activeTabState ?? (isRedesign ? 'reports' : 'pulls'),
+                activeTabState && isInboxTabKey(activeTabState, isRedesign)
+                    ? activeTabState
+                    : isRedesign
+                      ? 'reports'
+                      : 'pulls',
         ],
         breadcrumbs: [
             () => [],
@@ -663,7 +671,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // kea-disposables pauses it while the browser tab is hidden. The refetch is silent (the
             // skeleton only shows before the first load), so it swaps the list without flicker.
             if (!open) {
-                cache.disposables.dispose('runsPoll')
+                // The `isRunsOpen` subscription owns poll teardown, so it also catches the closes that
+                // flip the panel shut through a mutual-exclusion reducer without dispatching
+                // `setRunsOpen(false)` (a report, scout, triage, scratchpad, or findings opening).
                 return
             }
             actions.loadRuns()
@@ -850,6 +860,19 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         beforeUnmount: () => {
             // Flush dwell time for a report still open when the scene unmounts (navigated away).
             flushOpenReport(cache, 'unmount')
+        },
+    })),
+
+    // The Runs poll (added in the `setRunsOpen` listener) has to stop the moment the panel closes,
+    // however it closes. Opening any other full-width surface flips `isRunsOpen` false through a
+    // mutual-exclusion reducer rather than dispatching `setRunsOpen(false)`, so this one subscription
+    // is the single teardown path that runs for every close — otherwise the poll leaks two requests
+    // every 5s for the rest of the visit.
+    subscriptions(({ cache }) => ({
+        isRunsOpen: (open: boolean) => {
+            if (!open) {
+                cache.disposables.dispose('runsPoll')
+            }
         },
     })),
 
@@ -1050,8 +1073,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     }
                 }
                 if (values.selectedReportId !== reportId) {
-                    // First route to a report before any list URL was seen → cold deep-link; otherwise an in-app click.
-                    actions.setSelectedReportId(reportId, cache.inboxListVisited ? 'click' : 'deeplink')
+                    // A `back` pointing at triage means the open came from the triage card's "Full
+                    // report" link, which navigates by URL rather than through `openCurrent`; attribute
+                    // it to triage so the metric isn't split with plain list clicks. Otherwise: a first
+                    // route before any list URL was seen is a cold deep-link, else an in-app click.
+                    const fromTriage =
+                        typeof searchParams.back === 'string' && searchParams.back.startsWith(urls.inboxTriage())
+                    actions.setSelectedReportId(
+                        reportId,
+                        fromTriage ? 'triage' : cache.inboxListVisited ? 'click' : 'deeplink'
+                    )
                 }
             },
         }

@@ -24,6 +24,8 @@ export interface ReportSummarySection {
 export interface ParsedReportSummary {
     /** Markdown before the first heading, trimmed. The whole summary when there are no headings. */
     lead: string
+    /** Offset of `lead` in the full summary, so chart placements resolve against the original. */
+    leadOffset: number
     sections: ReportSummarySection[]
 }
 
@@ -77,7 +79,15 @@ function trimmedSlice(summary: string, start: number, end: number): { text: stri
 
 export function parseReportSummary(summary: string | null | undefined): ParsedReportSummary {
     const source = typeof summary === 'string' ? summary : ''
-    const whole: ParsedReportSummary = { lead: source.trim(), sections: [] }
+    // `leadOffset` points the renderer past any leading whitespace: chart placements are keyed on
+    // offsets into the untrimmed summary, but `lead` is trimmed for display. Zero when the lead is
+    // empty — there is nothing to place a chart against.
+    const leadSlice = trimmedSlice(source, 0, source.length)
+    const whole: ParsedReportSummary = {
+        lead: leadSlice.text,
+        leadOffset: leadSlice.text ? leadSlice.offset : 0,
+        sections: [],
+    }
     if (!whole.lead) {
         return whole
     }
@@ -89,10 +99,21 @@ export function parseReportSummary(summary: string | null | undefined): ParsedRe
         return whole
     }
 
-    // Only headings the prompt uses and the two levels around them; deeper ones stay inside a body.
-    const headingIndexes = children
-        .map((node, index) => (node?.type === 'heading' && node.depth <= 3 && node.position ? index : -1))
-        .filter((index) => index >= 0)
+    // A heading splits the summary into sections when it names a recognized section (Problem /
+    // Impact / Solution and their aliases) or sits at or above the depth of the section already open.
+    // An unrecognized, deeper heading — e.g. `### Rollout` under `## Solution` — is a subheading, so
+    // it stays inside the current section's body. Headings past depth 3 never split (H4+ stay in a body).
+    const headingIndexes: number[] = []
+    let openDepth = Number.POSITIVE_INFINITY
+    children.forEach((node, index) => {
+        if (node?.type !== 'heading' || node.depth > 3 || !node.position) {
+            return
+        }
+        if (sectionKind(headingText(node)) !== 'other' || node.depth <= openDepth) {
+            headingIndexes.push(index)
+            openDepth = node.depth
+        }
+    })
     if (headingIndexes.length === 0) {
         return whole
     }
@@ -114,5 +135,9 @@ export function parseReportSummary(summary: string | null | undefined): ParsedRe
         }
     })
 
-    return { lead: withDefinitions(source, children, lead.text, 0, leadEnd), sections }
+    return {
+        lead: withDefinitions(source, children, lead.text, 0, leadEnd),
+        leadOffset: lead.text ? lead.offset : 0,
+        sections,
+    }
 }

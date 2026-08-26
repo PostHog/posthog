@@ -62,10 +62,14 @@ export function RecordingPreview({ sessionId, seekTime, exportedAssetId, alt }: 
                 className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
             >
                 {thumbnailSrc && (
+                    // Defer this full-frame screenshot: the evidence rail opens expanded and can hold
+                    // one preview per replay signal, so eager loading fetches frames never scrolled to.
                     <img
                         src={thumbnailSrc}
                         alt={alt}
                         className="absolute inset-0 size-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                         onError={() => setThumbnailFailed(true)}
                     />
                 )}

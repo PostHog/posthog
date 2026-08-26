@@ -144,6 +144,7 @@ export interface reportListLogicValues {
     primarySectionKey: InboxReportSectionKey
     loadedQueryKey: string | null
     reports: SignalReport[]
+    reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
     totalCount: number | null
@@ -285,7 +286,7 @@ export interface reportListLogicMeta {
         primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
         visibleReports: (reports: SignalReport[], visibleCount: number) => SignalReport[]
-        hiddenReportCount: (totalCount: number | null, count: number | null, visibleCount: number) => number
+        hiddenReportCount: (totalCount: number | null, count: number | null, visibleReports: SignalReport[]) => number
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
@@ -422,6 +423,18 @@ export const reportListLogic = kea<reportListLogicType>([
         count: {
             removeReport: (state) => (state != null ? Math.max(0, state - 1) : state),
         },
+        // The first-page load failed. Kea loaders keep `reportsResponse` null on failure, so
+        // `isLoaded` stays false and the section would otherwise show a skeleton forever. Reset when a
+        // load starts or lands, so a retry clears the error. Keyed on the first-page loader only — a
+        // failed `loadMoreReports` keeps the loaded rows, so it must not flag the whole section.
+        reportsLoadFailed: [
+            false,
+            {
+                loadReports: () => false,
+                loadReportsSuccess: () => false,
+                loadReportsFailure: () => true,
+            },
+        ],
         // How many of the loaded rows this section renders. Reset whenever the list is re-fetched
         // from the top (first load, refresh, any filter change), so a new query starts short again.
         visibleCount: [
@@ -493,11 +506,16 @@ export const reportListLogic = kea<reportListLogicType>([
          * How many matching reports this section is holding back — what "Show more" promises. Reads
          * the loaded response's own total first so it can't disagree with the rows on screen; the
          * separately-loaded header count is the fallback while the first page is still in flight.
+         * Subtract the rows actually on screen (`visibleReports.length`), not the window size
+         * (`visibleCount`): "Show more" widens the window past the loaded rows before the next page
+         * lands, so a page still in flight or one that failed to load leaves `visibleCount` ahead of
+         * `reports.length`. Using the window size there would drive this to 0 and unmount the button,
+         * stranding the unloaded rows with no way to retry.
          */
         hiddenReportCount: [
-            (s) => [s.totalCount, s.count, s.visibleCount],
-            (totalCount: number | null, count: number | null, visibleCount: number): number =>
-                Math.max(0, (totalCount ?? count ?? 0) - visibleCount),
+            (s) => [s.totalCount, s.count, s.visibleReports],
+            (totalCount: number | null, count: number | null, visibleReports: SignalReport[]): number =>
+                Math.max(0, (totalCount ?? count ?? 0) - visibleReports.length),
         ],
         hasMore: [
             (s) => [s.reportsResponse],

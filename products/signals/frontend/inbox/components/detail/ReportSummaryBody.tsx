@@ -66,7 +66,11 @@ export function ReportSummaryBody({
     if (parsed.sections.length === 0) {
         return (
             <div className="flex flex-col gap-6">
-                <SummaryMarkdown markdown={parsed.lead} sourceOffset={0} chartPlacements={chartPlacements} />
+                <SummaryMarkdown
+                    markdown={parsed.lead}
+                    sourceOffset={parsed.leadOffset}
+                    chartPlacements={chartPlacements}
+                />
                 {pullRequestNote}
             </div>
         )
@@ -77,7 +81,7 @@ export function ReportSummaryBody({
             {parsed.lead && (
                 <SummaryMarkdown
                     markdown={parsed.lead}
-                    sourceOffset={0}
+                    sourceOffset={parsed.leadOffset}
                     chartPlacements={chartPlacements}
                     className="text-base text-primary leading-relaxed break-words [&>*+*]:mt-3.5"
                 />

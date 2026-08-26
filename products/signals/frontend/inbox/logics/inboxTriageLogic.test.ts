@@ -117,6 +117,61 @@ describe('inboxTriageLogic', () => {
         expect(requestedOffsets).toEqual(expectedOffsets)
     })
 
+    // Restoring to a spot past the first page means paging forward; if that page request fails, the
+    // view must stop waiting and show the nearest loaded report instead of skeletons forever.
+    it('stops restoring and shows the nearest loaded report when the next page fails', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                [REPORTS_URL]: ({ request }) => {
+                    const { searchParams } = new URL(request.url)
+                    if (searchParams.get('limit') === '1') {
+                        return [
+                            200,
+                            { count: FIRST_PAGE.length + SECOND_PAGE.length, next: null, previous: null, results: [] },
+                        ]
+                    }
+                    const offset = searchParams.get('offset')
+                    if (offset === '0' || offset === null) {
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                next: `http://localhost/api/projects/997/signals/reports/?offset=${PAGE_SIZE}`,
+                                previous: null,
+                                results: FIRST_PAGE,
+                            },
+                        ]
+                    }
+                    return [500, {}]
+                },
+            },
+        })
+
+        await mountAt({ report: `r-${PAGE_SIZE + 5}`, at: PAGE_SIZE + 5 })
+
+        // The remembered spot's page never arrived, so the view falls back to the last loaded report
+        // rather than staying on the restoring skeleton.
+        expect(logic.values.isRestoringPosition).toBe(false)
+        expect(logic.values.currentReport?.id).toBe(`r-${PAGE_SIZE - 1}`)
+    })
+
+    // A failed first load leaves the response null, so `isLoaded` never flips; the view keys the
+    // retry off `reportsLoadFailed` instead of skeletoning forever.
+    it('flags a failed initial load instead of loading forever', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                [REPORTS_URL]: () => [500, {}],
+            },
+        })
+
+        await mountAt({})
+
+        expect(logic.values.isLoaded).toBe(false)
+        expect(logic.values.reportsLoadFailed).toBe(true)
+    })
+
     it('keeps the URL on the current spot and hands it to the report page as the way back', async () => {
         await mountAt({})
         logic.actions.navigate(1)

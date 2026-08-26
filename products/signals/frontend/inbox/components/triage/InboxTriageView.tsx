@@ -37,6 +37,28 @@ function outsideDialogs(action: () => void): HotkeyInterface['action'] {
     }
 }
 
+export type TriageEnterIntent = 'passthrough' | 'open' | 'toggle'
+
+/**
+ * What the Enter chord does in triage, from the focused element and whether a modifier is held.
+ * Command/Ctrl+Enter opens the report from anywhere in the view — even when a just-clicked control
+ * still holds focus — so the modifier is checked before the plain-button guard. A focused link keeps
+ * its own Enter (activate it, or open in a new tab with the modifier), a key inside a dialog belongs
+ * to the dialog, and plain Enter on a focused button activates it rather than toggling the card.
+ */
+export function triageEnterIntent(target: HTMLElement | null, hasModifier: boolean): TriageEnterIntent {
+    if (target?.closest('a, .LemonModal')) {
+        return 'passthrough'
+    }
+    if (hasModifier) {
+        return 'open'
+    }
+    if (target?.closest('button')) {
+        return 'passthrough'
+    }
+    return 'toggle'
+}
+
 function PeekStrip({
     report,
     shortcut,
@@ -219,9 +241,18 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
  * bottom lists them.
  */
 export function InboxTriageView(): JSX.Element {
-    const { reports, isLoaded, isRestoringPosition, currentReport, previousReport, nextReport, expanded, counter } =
-        useValues(inboxTriageLogic)
-    const { navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent } =
+    const {
+        reports,
+        isLoaded,
+        isRestoringPosition,
+        reportsLoadFailed,
+        currentReport,
+        previousReport,
+        nextReport,
+        expanded,
+        counter,
+    } = useValues(inboxTriageLogic)
+    const { navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent, ensureLoaded } =
         useActions(inboxTriageLogic)
 
     useKeyboardHotkeys(
@@ -231,18 +262,17 @@ export function InboxTriageView(): JSX.Element {
             k: { action: outsideDialogs(() => navigate(-1)) },
             arrowup: { action: outsideDialogs(() => navigate(-1)) },
             enter: {
-                // Enter on a focused link or button has to activate it, not toggle the card.
                 action: (event) => {
-                    const target = event.target as HTMLElement | null
-                    if (target?.closest('a, button, .LemonModal')) {
+                    const intent = triageEnterIntent(event.target as HTMLElement | null, event.metaKey || event.ctrlKey)
+                    if (intent === 'passthrough') {
                         return
                     }
                     event.preventDefault()
-                    if (event.metaKey || event.ctrlKey) {
+                    if (intent === 'open') {
                         openCurrent()
-                        return
+                    } else {
+                        toggleExpanded()
                     }
-                    toggleExpanded()
                 },
                 willHandleEvent: true,
             },
@@ -296,7 +326,21 @@ export function InboxTriageView(): JSX.Element {
             </div>
 
             <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-4">
-                {!isLoaded || isRestoringPosition ? (
+                {!isLoaded && reportsLoadFailed ? (
+                    // The first load failed: kea loaders keep the response null, so `isLoaded` never
+                    // flips and the skeleton would otherwise spin forever. Offer a retry instead.
+                    <div className="flex flex-col items-center gap-2 text-center">
+                        <h3 className="m-0 text-base font-semibold">Couldn't load your reports.</h3>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => ensureLoaded()}
+                            data-attr="inbox-triage-retry"
+                        >
+                            Retry
+                        </LemonButton>
+                    </div>
+                ) : !isLoaded || isRestoringPosition ? (
                     <div className="flex w-full max-w-3xl flex-col gap-3" aria-hidden>
                         <LemonSkeleton className="h-8 w-full max-w-2xl self-center rounded" />
                         <LemonSkeleton className="h-48 w-full rounded-lg" />
