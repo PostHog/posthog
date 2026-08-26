@@ -217,6 +217,13 @@ class SkillBundle:
 BundleContent = Literal["stub", "full"]
 
 
+@frozen
+class _BundleWalk:
+    trees: dict[str, FileTree]
+    dropped: list[str]
+    skipped: list[str]
+
+
 def _octet_length(field: str) -> Func:
     return Func(F(field), function="OCTET_LENGTH", output_field=IntegerField())
 
@@ -253,22 +260,22 @@ def build_skill_bundle(
     Scouts are excluded because the scout harness loads its own skill.
     """
     candidates = _bundle_candidates(team, user, readable_skills)
-    trees, dropped, skipped = _walk_stubs(candidates) if content == "stub" else _walk_full(candidates)
+    walk = _walk_stubs(candidates) if content == "stub" else _walk_full(candidates)
 
-    if skipped:
-        logger.warning("skills_bundle_skipped", team_id=team.id, user_id=user.id, skills=skipped)
-    if dropped:
-        logger.warning("skills_bundle_dropped_over_cap", team_id=team.id, user_id=user.id, skills=dropped)
+    if walk.skipped:
+        logger.warning("skills_bundle_skipped", team_id=team.id, user_id=user.id, skills=walk.skipped)
+    if walk.dropped:
+        logger.warning("skills_bundle_dropped_over_cap", team_id=team.id, user_id=user.id, skills=walk.dropped)
 
     return SkillBundle(
-        zip_bytes=build_skills_bundle_zip(trees),
-        included=list(trees),
-        dropped=dropped,
-        skipped=skipped,
+        zip_bytes=build_skills_bundle_zip(walk.trees),
+        included=list(walk.trees),
+        dropped=walk.dropped,
+        skipped=walk.skipped,
     )
 
 
-def _walk_stubs(candidates: QuerySet[LLMSkill]) -> tuple[dict[str, FileTree], list[str], list[str]]:
+def _walk_stubs(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
     trees: dict[str, FileTree] = {}
     dropped: list[str] = []
     skipped: list[str] = []
@@ -282,14 +289,14 @@ def _walk_stubs(candidates: QuerySet[LLMSkill]) -> tuple[dict[str, FileTree], li
             skipped.append(name)
             continue
         trees[name] = build_skill_stub_tree(stub)
-    return trees, dropped, skipped
+    return _BundleWalk(trees=trees, dropped=dropped, skipped=skipped)
 
 
 def _stub_is_spec_valid(stub: SkillStub) -> bool:
     return bool(stub.description.strip()) and len(stub.description) <= SPEC_DESCRIPTION_MAX_LENGTH
 
 
-def _walk_full(candidates: QuerySet[LLMSkill]) -> tuple[dict[str, FileTree], list[str], list[str]]:
+def _walk_full(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
     # Names and column byte counts only. Bodies and files load later, and only for skills that fit,
     # so a user with many or very large skills does not cost the worker more than the bundle cap.
     sized = list(
@@ -338,4 +345,4 @@ def _walk_full(candidates: QuerySet[LLMSkill]) -> tuple[dict[str, FileTree], lis
             continue
         total_bytes += tree_bytes
         trees[name] = tree
-    return trees, dropped, skipped
+    return _BundleWalk(trees=trees, dropped=dropped, skipped=skipped)
