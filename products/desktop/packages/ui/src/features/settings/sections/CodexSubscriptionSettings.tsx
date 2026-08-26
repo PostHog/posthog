@@ -100,30 +100,38 @@ export function CodexSubscriptionSettings() {
   return (
     <SettingsCardRow
       label="Use your ChatGPT subscription"
-      description="Local and worktree Codex sessions run on your ChatGPT plan instead of PostHog credits. Cloud tasks always use PostHog credits"
-    >
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-(--gray-11) text-[12px]">
-            ChatGPT account connected
+      description={
+        <span className="flex flex-col gap-1">
+          <span>
+            Local and worktree Codex sessions run on your ChatGPT plan instead
+            of PostHog credits. Cloud tasks always use PostHog credits
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={signOut.isPending}
-            onClick={() => signOut.mutate()}
-          >
-            Sign out
-          </Button>
-        </div>
-        <Switch
-          size="sm"
-          checked={subscription.subscriptionOn}
-          onCheckedChange={(checked) =>
-            subscription.setSubscriptionOn(checked === true)
-          }
-        />
-      </div>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full bg-(--green-9)"
+              aria-hidden
+            />
+            ChatGPT account connected
+            <span aria-hidden>&middot;</span>
+            <button
+              type="button"
+              className="cursor-pointer hover:underline"
+              disabled={signOut.isPending}
+              onClick={() => signOut.mutate()}
+            >
+              Sign out
+            </button>
+          </span>
+        </span>
+      }
+    >
+      <Switch
+        size="sm"
+        checked={subscription.subscriptionOn}
+        onCheckedChange={(checked) =>
+          subscription.setSubscriptionOn(checked === true)
+        }
+      />
     </SettingsCardRow>
   );
 }
