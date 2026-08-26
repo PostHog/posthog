@@ -18,6 +18,11 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSourceStatus,
+)
 
 # platform -> (schema names, staged state). Only data-preserving states are used
 # (ok / stale / error / tables_disabled) so every platform still shows cost data
@@ -92,7 +97,7 @@ def create_sources(team: Team, *, unconnected: frozenset[str] = UNCONNECTED_PLAT
             team=team,
             source_id=f"marketing-demo-{platform.lower()}",
             connection_id=f"marketing-demo-{platform.lower()}",
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=platform,
             prefix="",
         )
@@ -110,10 +115,10 @@ def stage_schemas_and_jobs(
         if source is None:  # deliberately unconnected
             continue
         for schema_name in schema_names:
-            schema_status: str | None = ExternalDataSchema.Status.COMPLETED
+            schema_status: str | None = ExternalDataSchemaStatus.COMPLETED
             should_sync = True
             if state == "tables_failed" and schema_name == schema_names[-1]:
-                schema_status = ExternalDataSchema.Status.FAILED
+                schema_status = ExternalDataSchemaStatus.FAILED
             if state == "tables_disabled" and schema_name == schema_names[-1]:
                 should_sync = False
             if state == "never":
@@ -128,17 +133,17 @@ def stage_schemas_and_jobs(
                 last_synced_at=None if state == "never" else now - dt.timedelta(hours=1),
             )
         if state == "ok":
-            _create_job(source, status=ExternalDataJob.Status.COMPLETED, age=dt.timedelta(hours=1), rows_synced=5000)
+            _create_job(source, status=ExternalDataJobStatus.COMPLETED, age=dt.timedelta(hours=1), rows_synced=5000)
         elif state == "stale":
-            _create_job(source, status=ExternalDataJob.Status.COMPLETED, age=dt.timedelta(hours=30), rows_synced=4200)
+            _create_job(source, status=ExternalDataJobStatus.COMPLETED, age=dt.timedelta(hours=30), rows_synced=4200)
         elif state == "error":
-            _create_job(source, status=ExternalDataJob.Status.COMPLETED, age=dt.timedelta(days=3), rows_synced=3100)
+            _create_job(source, status=ExternalDataJobStatus.COMPLETED, age=dt.timedelta(days=3), rows_synced=3100)
             _create_job(
                 source,
-                status=ExternalDataJob.Status.FAILED,
+                status=ExternalDataJobStatus.FAILED,
                 age=dt.timedelta(hours=1),
                 latest_error="Authentication failed: refresh token expired",
             )
         elif state in ("tables_missing", "tables_failed", "tables_disabled"):
-            _create_job(source, status=ExternalDataJob.Status.COMPLETED, age=dt.timedelta(hours=2), rows_synced=900)
+            _create_job(source, status=ExternalDataJobStatus.COMPLETED, age=dt.timedelta(hours=2), rows_synced=900)
         # "never": no jobs at all

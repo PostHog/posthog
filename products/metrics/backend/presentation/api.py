@@ -405,6 +405,26 @@ class _MetricValuesParamsSerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max number of names to return. Defaults to 100; maximum 1000.",
     )
+    service = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=None,
+        max_length=1024,
+        help_text=(
+            "Comma-separated services to narrow the list to, e.g. `service=web,worker`. "
+            "Omit for every service. Send it empty to select only series whose sender "
+            "did not set `service.name`. A service name containing a comma cannot be "
+            "selected."
+        ),
+    )
+
+    def validate_service(self, value: str | None) -> list[str]:
+        # Absent and empty mean different things, which is why the default is None
+        # rather than "": omitting the param leaves the picker unscoped, while
+        # sending it empty scopes to the senders that set no service name.
+        if value is None:
+            return []
+        return [service.strip() for service in value.split(",")]
 
 
 class _MetricNameSerializer(serializers.Serializer):
@@ -784,7 +804,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         try:
             results = list_metric_names(
-                team=self.team, search=params.validated_data["value"], limit=params.validated_data["limit"]
+                team=self.team,
+                search=params.validated_data["value"],
+                limit=params.validated_data["limit"],
+                services=params.validated_data["service"],
             )
         except ValueError as exc:
             raise ParseError(str(exc))

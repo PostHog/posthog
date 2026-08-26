@@ -218,16 +218,19 @@ def list_metric_names(
     team: Team,
     search: str = "",
     limit: int = 100,
+    services: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
     Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
     most-recently-seen, with exact-name matches floated to the top.
-    Raises `ValueError` for an out-of-range limit.
+    Passing `services` narrows the list to names those services reported.
+    Raises `ValueError` for an out-of-range limit or too many services.
 
-    The unsearched list is cached per team for a minute; searches are not.
+    The unsearched list is cached per team and service scope for a minute;
+    searches are not.
     """
-    return cached_metric_names(team=team, search=search, limit=limit)
+    return cached_metric_names(team=team, search=search, limit=limit, services=services)
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:

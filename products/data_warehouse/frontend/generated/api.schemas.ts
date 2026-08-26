@@ -3232,6 +3232,11 @@ export interface CredentialApi {
  * * `DatoCMS` - DatoCMS
  * * `WPSOffice` - WPSOffice
  * * `TeraBox` - TeraBox
+ * * `SimonData` - SimonData
+ * * `CommissionJunction` - CommissionJunction
+ * * `Liveblocks` - Liveblocks
+ * * `NationBuilder` - NationBuilder
+ * * `Tana` - Tana
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4549,6 +4554,11 @@ export const ExternalDataSourceTypeEnumApi = {
     DatoCMS: 'DatoCMS',
     WPSOffice: 'WPSOffice',
     TeraBox: 'TeraBox',
+    SimonData: 'SimonData',
+    CommissionJunction: 'CommissionJunction',
+    Liveblocks: 'Liveblocks',
+    NationBuilder: 'NationBuilder',
+    Tana: 'Tana',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -2596,6 +2596,11 @@ class ExternalDataSourceType(StrEnum):
     DATO_CMS = "DatoCMS"
     WPS_OFFICE = "WPSOffice"
     TERA_BOX = "TeraBox"
+    SIMON_DATA = "SimonData"
+    COMMISSION_JUNCTION = "CommissionJunction"
+    LIVEBLOCKS = "Liveblocks"
+    NATION_BUILDER = "NationBuilder"
+    TANA = "Tana"
 
 
 class ExternalQueryErrorCode(StrEnum):
