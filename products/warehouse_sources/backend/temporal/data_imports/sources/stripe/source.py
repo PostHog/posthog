@@ -40,7 +40,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
-    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
@@ -55,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     DEFAULT_OFF_ENDPOINTS as STRIPE_DEFAULT_OFF_ENDPOINTS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
     WEBHOOK_SYNC_ONLY_ENDPOINTS as STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS,
 )
@@ -553,10 +553,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         )
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
-        # CustomerBalanceTransaction drives its sweep from the SDK rather than a
-        # DependentEndpointConfig, so the dependency is declared here rather than derived.
-        # Every other nested resource stays on the parent API — see the verdicts recorded in
-        # `_build_resources`.
-        if schema_name == CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME:
-            return [CUSTOMER_RESOURCE_NAME]
-        return []
+        # These sweeps run from the SDK rather than a DependentEndpointConfig, so the dependency
+        # is read off the same declaration the resolve and the sweep read rather than derived.
+        converted = WAREHOUSE_PARENT_FANOUT.get(schema_name)
+        return [converted[0]] if converted else []

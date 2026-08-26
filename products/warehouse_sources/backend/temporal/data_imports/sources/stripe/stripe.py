@@ -568,8 +568,7 @@ def _nested_checkpoint(
     py_table: pa.Table,
     parent_param: str,
     in_flight_parent: str,
-    position_at_parent: Optional["ScanPosition"],
-    position_after_parent: Optional["ScanPosition"],
+    parent_pages: Optional["_WarehouseParentRows"],
     last_finished_parent: Optional[str],
 ) -> Optional[StripeResumeConfig]:
     """Where to restart after yielding `py_table`, or None when this chunk cannot name a position.
@@ -588,12 +587,31 @@ def _nested_checkpoint(
         # Without an id there is no cursor into the parent's own pages, so the sweep can only move
         # past it. The one resource in this shape returns a single row per parent, which is
         # therefore finished by the time that row is written.
-        return _resume_state(position_after_parent, chunk_parent)
+        return _resume_state(parent_pages.position_after_current if parent_pages else None, chunk_parent)
     return dataclasses.replace(
-        _resume_state(position_at_parent, last_finished_parent),
+        _resume_state(parent_pages.position_at_current if parent_pages else None, last_finished_parent),
         nested_parent_id=chunk_parent,
         nested_starting_after=py_table.column("id")[-1].as_py(),
     )
+
+
+def _trusted_nested_resume(
+    resume_config: Optional[StripeResumeConfig],
+    warehouse_start: Optional["ScanPosition"],
+    from_warehouse: bool,
+) -> Optional[StripeResumeConfig]:
+    """`resume_config` when its nested cursor can still be trusted, else None.
+
+    A nested cursor only means anything beside the parent cursor it was saved with. Whenever that
+    parent cursor is discarded — state from the other coordinate system, or from another table or
+    version — the sweep restarts from the first parent, and a cursor into some parent's pages
+    would then skip rows this run has not written.
+    """
+    if resume_config is None or resume_config.nested_parent_id is None:
+        return None
+    if from_warehouse:
+        return resume_config if warehouse_start is not None else None
+    return resume_config if resume_config.warehouse_fragment_index is None else None
 
 
 def _warehouse_start_position(
@@ -873,9 +891,10 @@ def get_rows(
                 _warehouse_start_position(resume_config, warehouse_parent) if warehouse_parent is not None else None
             )
             if warehouse_parent is not None:
+                _, parent_extra_columns = WAREHOUSE_PARENT_FANOUT[endpoint]
                 parent_pages = _WarehouseParentRows(
                     table=warehouse_parent,
-                    columns=[resource.parent_id, *WAREHOUSE_PARENT_FANOUT[endpoint][1]],
+                    columns=[resource.parent_id, *parent_extra_columns],
                     page_size=DEFAULT_LIMIT,
                     schema_name=endpoint,
                     start_position=warehouse_start,
@@ -897,8 +916,9 @@ def get_rows(
             # checkpoints there rather than back at the first parent.
             last_finished_parent: Optional[str] = resume_config.starting_after if resume_config else None
             last_finished_position: Optional[ScanPosition] = warehouse_start
-            resume_nested_parent = resume_config.nested_parent_id if resume_config else None
-            resume_nested_after = resume_config.nested_starting_after if resume_config else None
+            nested_resume = _trusted_nested_resume(
+                resume_config, warehouse_start, from_warehouse=warehouse_parent is not None
+            )
             for obj in parent_rows:
                 # Checkpoint the sweep's position through the parent list every so often. The only
                 # other checkpoint fires when a chunk fills, which for a sparse nested resource
@@ -916,10 +936,9 @@ def get_rows(
                 parent_obj_id = obj[resource.parent_id]
                 parents_since_checkpoint += 1
                 nested_resume_params: dict[str, Any] = {}
-                if resume_nested_parent is not None and parent_obj_id == resume_nested_parent:
-                    nested_resume_params = {"starting_after": resume_nested_after}
-                    resume_nested_parent = None
-                    resume_nested_after = None
+                if nested_resume is not None and parent_obj_id == nested_resume.nested_parent_id:
+                    nested_resume_params = {"starting_after": nested_resume.nested_starting_after}
+                    nested_resume = None
                 # Skip parents that a cheap signal on the parent object rules out — avoids one empty
                 # nested call per parent (the bulk of Stripe API volume for these resources).
                 if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
@@ -960,8 +979,7 @@ def get_rows(
                                 py_table,
                                 resource.nested_parent_param,
                                 parent_obj_id,
-                                parent_pages.position_at_current if parent_pages else None,
-                                parent_pages.position_after_current if parent_pages else None,
+                                parent_pages,
                                 last_finished_parent,
                             )
                             if checkpoint is not None:

@@ -1786,3 +1786,44 @@ class TestStripeNestedSweepResume:
         resumed_rows, _ = run(restarted)
 
         assert [row["id"] for row in all_rows[:rows_written] + resumed_rows] == expected
+
+    @pytest.mark.parametrize("from_warehouse", [False, True], ids=["api_run", "warehouse_run"])
+    def test_a_nested_cursor_saved_by_the_other_path_is_discarded(self, from_warehouse, tmp_path):
+        customers = [{"id": "cus_1", "balance": -500}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+        nested_params: list[dict] = []
+
+        def nested_method(customer=None, params=None):
+            nested_params.append(params or {})
+            return _list_object([{"id": "txn_1"}])
+
+        stale = (
+            stripe_module.StripeResumeConfig(
+                starting_after="cus_0", nested_parent_id="cus_1", nested_starting_after="txn_9"
+            )
+            if from_warehouse
+            else stripe_module.StripeResumeConfig(
+                nested_parent_id="cus_1",
+                nested_starting_after="txn_9",
+                warehouse_fragment_index=0,
+                warehouse_row_offset=0,
+                warehouse_table_uri="s3://somewhere-else",
+                warehouse_version=0,
+            )
+        )
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = stale
+
+        rows = _run_nested_get_rows(
+            nested_method,
+            parent_objects=customers,
+            warehouse_parent=(
+                ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()) if from_warehouse else None
+            ),
+            resumable_source_manager=manager,
+            can_resume=True,
+        )
+
+        assert "starting_after" not in nested_params[0]
+        assert [row["id"] for row in rows] == ["txn_1"]
