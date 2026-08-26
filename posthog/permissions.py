@@ -864,7 +864,6 @@ class APIScopePermission(ScopeBasePermission):
             return
 
 
-# Standard detail actions fetch their object by URL pk, so has_object_permission can resolve the
 class MCPAccessPermission(ScopeBasePermission):
     """Denies write actions through the MCP server when the organization restricts it.
 
