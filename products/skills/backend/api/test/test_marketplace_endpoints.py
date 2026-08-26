@@ -3,6 +3,7 @@ import json
 import base64
 import zipfile
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -10,6 +11,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.http import HttpResponse
 from django.utils import timezone
 
 from rest_framework import serializers, status
@@ -159,14 +161,14 @@ SANDBOX_FLAG = "posthog.permissions.posthoganalytics.feature_enabled"
 
 
 class TestSkillSandboxBundle(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/llm_skills/sandbox_bundle"
 
-    def _create_skill(self, name: str, *, created_by: User | None = None, **overrides) -> LLMSkill:
+    def _create_skill(self, name: str, *, created_by: User | None = None, **overrides: Any) -> LLMSkill:
         fields = {
             "team": self.team,
             "name": name,
@@ -179,12 +181,14 @@ class TestSkillSandboxBundle(APIBaseTest):
         }
         return LLMSkill.objects.create(**fields)
 
-    def _fetch(self, *, flag: bool | None = True, **headers):
+    def _fetch(self, *, flag: bool | None = True, authorization: str | None = None) -> HttpResponse:
         with patch(SANDBOX_FLAG, return_value=flag):
-            return self.client.get(self._url(), **headers)
+            if authorization:
+                return self.client.get(self._url(), HTTP_AUTHORIZATION=authorization)
+            return self.client.get(self._url())
 
     @staticmethod
-    def _skill_dirs(response) -> set[str]:
+    def _skill_dirs(response: HttpResponse) -> set[str]:
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
             return {name.split("/", 1)[0] for name in archive.namelist()}
 
@@ -201,7 +205,7 @@ class TestSkillSandboxBundle(APIBaseTest):
         self.client.logout()
         _mint_pak(self.user, scopes=["llm_skill:read"])
 
-        response = self._fetch(HTTP_AUTHORIZATION=f"Bearer {_PAK_TOKEN}")
+        response = self._fetch(authorization=f"Bearer {_PAK_TOKEN}")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert self._skill_dirs(response) == {"mine"}
@@ -270,6 +274,51 @@ class TestSkillSandboxBundle(APIBaseTest):
         assert response["X-Skills-Skipped"] == "1"
         assert response["X-Skills-Dropped"] == "0"
 
+    def test_skill_with_an_unsafe_legacy_path_is_skipped(self):
+        self._create_skill("fine")
+        # Bypasses the serializer validation so the row looks like one that predates it.
+        LLMSkillFile.objects.create(skill=self._create_skill("escapes"), path="../escape.md", content="x")
+        self._create_skill("Bad/Name")
+
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._skill_dirs(response) == {"fine"}
+        assert response["X-Skills-Skipped"] == "2"
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert not any(".." in name or name.startswith("/") for name in archive.namelist())
+
+    def test_skill_the_user_is_blocked_from_reading_is_left_out(self):
+        cache.clear()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", None)
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        # Resource default "none": the member reaches a skill only through an explicit object grant.
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
+        allowed = self._create_skill("allowed")
+        self._create_skill("blocked")
+        set_skill_owners(self.team, "allowed", [member])
+        set_skill_owners(self.team, "blocked", [member])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(allowed.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        self.client.force_login(member)
+
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self._skill_dirs(response) == {"allowed"}
+
     def test_no_skills_is_an_empty_zip(self):
         response = self._fetch()
 
@@ -291,6 +340,10 @@ class TestSkillSandboxBundle(APIBaseTest):
 
         second = self._fetch()
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        # The bucket is per user, so one caller's burst does not 429 the rest of the project.
+        self.client.force_login(self.other_user)
+        assert self._fetch().status_code == status.HTTP_200_OK
 
 
 class TestSkillMarketplaceGit(APIBaseTest):

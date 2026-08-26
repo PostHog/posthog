@@ -263,20 +263,34 @@ class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
     rate = "20/day"
 
 
-# The sandbox fetches this bundle over OAuth, which the general BurstRateThrottle/SustainedRateThrottle
-# wave through — they only count personal-API-key traffic. Each call runs the candidate queries, a
-# per-skill file query, and DEFLATE of up to MAX_SANDBOX_BUNDLE_BYTES, so it needs throttles that
-# count OAuth and session callers too. PersonalApiKeyOrUserRateThrottle applies regardless of auth
-# method; the inherited key idents these callers per project, which is what we want to cap.
-class SandboxBundleBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+class _SandboxBundleThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Throttle for the sandbox bundle, which a sandbox fetches over OAuth.
+
+    The general BurstRateThrottle/SustainedRateThrottle only count personal-API-key traffic, so an
+    OAuth or session caller would reach the zip build (candidate queries, a file query per skill,
+    DEFLATE of up to MAX_SANDBOX_BUNDLE_BYTES) unthrottled. PersonalApiKeyOrUserRateThrottle counts
+    every auth method, but its inherited key idents session and OAuth callers by project, so one
+    user's burst would 429 every other sandbox in the project. Those callers get a per-user bucket
+    instead; a personal API key keeps its own.
+    """
+
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        if not request.user.is_authenticated or isinstance(
+            request.successful_authenticator, PersonalAPIKeyAuthentication
+        ):
+            return super().get_cache_key(request, view)
+        return self.cache_format % {"scope": self.scope, "ident": f"user:{request.user.pk}"}
+
+
+class SandboxBundleBurstThrottle(_SandboxBundleThrottle):
     # A sandbox fetches the bundle once at session start, so 30/minute clears a burst of concurrent
-    # starts for a project while still catching a scripted loop hammering the zip build.
+    # starts for one user while still catching a scripted loop hammering the zip build.
     scope = "skills_sandbox_bundle_burst"
     rate = "30/minute"
 
 
-class SandboxBundleSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
-    # A few hundred session starts an hour per project is well beyond normal use and short of what
+class SandboxBundleSustainedThrottle(_SandboxBundleThrottle):
+    # A few hundred session starts an hour per user is well beyond normal use and short of what
     # sustained abuse of the 5 MB zip build could cost unthrottled.
     scope = "skills_sandbox_bundle_sustained"
     rate = "300/hour"
@@ -773,7 +787,12 @@ class LLMSkillViewSet(
         if not flag_value:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        bundle = build_sandbox_skill_bundle(self.team, user)
+        # Same object-level filter the list endpoint applies, so the bundle never carries a skill the
+        # list would hide from this user.
+        readable_skills = self.user_access_control.filter_queryset_by_access_level(
+            LLMSkill.objects.filter(team=self.team), resource="llm_skill"
+        )
+        bundle = build_sandbox_skill_bundle(self.team, user, readable_skills)
         response = HttpResponse(bundle.zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = 'attachment; filename="skills-sandbox-bundle.zip"'
         # Counts only: names are unbounded and would blow past proxy header limits for heavy users.
