@@ -157,7 +157,7 @@ export const getVisualReviewReposFlakinessRetrieveUrl = (projectId: string, id: 
 }
 
 /**
- * Snapshots in a repo whose rendering cannot be trusted: those carrying at least one live tolerated variant against their current baseline, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Variant counts are scoped to the current baseline hash, because a toleration recorded against an earlier baseline can never match again. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
  */
 export const visualReviewReposFlakinessRetrieve = async (
     projectId: string,
