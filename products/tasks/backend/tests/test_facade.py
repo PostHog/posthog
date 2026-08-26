@@ -199,6 +199,40 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
         self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
+class TestBootstrapTaskRun(TestCase):
+    def test_invalid_cloud_origin_returns_validation_error(self) -> None:
+        organization = Organization.objects.create(name="Legacy task org")
+        team = Team.objects.create(organization=organization, name="Legacy task team")
+        user = User.objects.create(email="legacy-task@example.com")
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Legacy task",
+            description="Run later",
+            origin_product="automation",
+        )
+
+        result = facade.bootstrap_task_run(
+            task.id,
+            team.id,
+            user.id,
+            validated_data={"environment": TaskRun.Environment.CLOUD},
+        )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result.error,
+            contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                attr="origin_product",
+            ),
+        )
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+
 class TestFacadeReadsAndMappers(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -291,6 +325,22 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(outcome, "ownership_changed")
         self.assertIsNone(resumed_run)
+
+    def test_resume_in_cloud_rejects_invalid_origin(self):
+        task = self._make_task(origin_product="automation")
+        run = task.create_run(environment=TaskRun.Environment.LOCAL)
+
+        outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+        )
+
+        self.assertEqual(outcome, "invalid_origin")
+        self.assertIsNone(resumed_run)
+        run.refresh_from_db()
+        self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
 
     def test_task_exists_and_visibility(self):
         task = self._make_task()
@@ -754,6 +804,24 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None and result.error is None
         self.assertIsNone(task.runs.get().branch)
+
+    def test_run_task_returns_validation_error_for_invalid_cloud_origin(self):
+        task = self._make_task(origin_product="automation")
+
+        result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={})
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result.error,
+            contracts.TaskValidationError(
+                kind="validation_error",
+                code="invalid_input",
+                detail="This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                attr="origin_product",
+            ),
+        )
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
