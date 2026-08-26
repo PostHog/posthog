@@ -26417,7 +26417,9 @@
                 "CommissionJunction",
                 "Liveblocks",
                 "NationBuilder",
-                "Tana"
+                "Tana",
+                "Zenchef",
+                "Lovable"
             ],
             "type": "string"
         },
