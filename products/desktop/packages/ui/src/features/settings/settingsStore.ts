@@ -279,12 +279,15 @@ interface SettingsStore {
   // sessions, cloud covers cloud runs.
   rtkEnabledLocal: boolean;
   rtkEnabledCloud: boolean;
+  // Prefix prepended to auto-generated branch names (e.g. "posthog/", "feat/").
+  branchPrefix: string;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
   setDebugLogsCloudRuns: (enabled: boolean) => void;
   setAutoPublishCloudRuns: (enabled: boolean) => void;
   setRtkEnabledLocal: (enabled: boolean) => void;
   setRtkEnabledCloud: (enabled: boolean) => void;
+  setBranchPrefix: (prefix: string) => void;
 
   // Terminal
   terminalFont: TerminalFont;
@@ -541,6 +544,7 @@ export const useSettingsStore = create<SettingsStore>()(
       autoPublishCloudRuns: true,
       rtkEnabledLocal: true,
       rtkEnabledCloud: true,
+      branchPrefix: "posthog/",
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -550,6 +554,7 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ autoPublishCloudRuns: enabled }),
       setRtkEnabledLocal: (enabled) => set({ rtkEnabledLocal: enabled }),
       setRtkEnabledCloud: (enabled) => set({ rtkEnabledCloud: enabled }),
+      setBranchPrefix: (prefix) => set({ branchPrefix: prefix }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -699,6 +704,7 @@ export const useSettingsStore = create<SettingsStore>()(
         autoPublishCloudRuns: state.autoPublishCloudRuns,
         rtkEnabledLocal: state.rtkEnabledLocal,
         rtkEnabledCloud: state.rtkEnabledCloud,
+        branchPrefix: state.branchPrefix,
 
         // Terminal
         terminalFont: state.terminalFont,

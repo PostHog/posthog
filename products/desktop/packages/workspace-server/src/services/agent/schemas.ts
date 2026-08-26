@@ -108,6 +108,11 @@ export const startSessionInput = z.object({
    * (headless runs, unresolved flags) leaves the gateway on its default.
    */
   bedrockGatewayVariant: z.enum(BEDROCK_GATEWAY_VARIANTS).optional(),
+  /**
+   * Branch prefix for auto-generated branch names (e.g. "posthog/", "feat/").
+   * Defaults to "posthog/" when absent.
+   */
+  branchPrefix: z.string().optional(),
 });
 
 export type StartSessionInput = z.infer<typeof startSessionInput>;
@@ -269,6 +274,8 @@ export const reconnectSessionInput = z.object({
   spokenNarration: z.boolean().optional(),
   /** See startSessionInput.bedrockGatewayVariant. */
   bedrockGatewayVariant: z.enum(BEDROCK_GATEWAY_VARIANTS).optional(),
+  /** See startSessionInput.branchPrefix. */
+  branchPrefix: z.string().optional(),
 });
 
 export type ReconnectSessionInput = z.infer<typeof reconnectSessionInput>;

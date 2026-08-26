@@ -12,6 +12,7 @@ import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import type { ChangedFile } from "@posthog/shared/domain-types";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef } from "react";
 import { WORKSPACE_QUERY_KEY } from "../workspace/identifiers";
@@ -96,6 +97,7 @@ export function useGitInteraction(
   const { actions: modal } = store;
   const pushAbortRef = useRef<AbortController | null>(null);
   const { isOnline } = useConnectivity();
+  const branchPrefix = useSettingsStore((s) => s.branchPrefix);
 
   const git = useGitQueries(repoPath);
 
@@ -169,6 +171,7 @@ export function useGitInteraction(
             cacheKeyProvider,
             taskId,
             repoPath,
+            branchPrefix,
           )
         : undefined,
       draftKey: createPrDraftKey,
@@ -267,6 +270,7 @@ export function useGitInteraction(
             cacheKeyProvider,
             taskId,
             repoPath,
+            branchPrefix,
           ),
         ),
     };

@@ -11,6 +11,7 @@ export function getSuggestedBranchName(
   provider: GitCacheKeyProvider,
   taskId: string,
   repoPath?: string,
+  branchPrefix?: string,
 ): string {
   const queries = queryClient.getQueriesData<Task[]>({
     queryKey: ["tasks", "list"],
@@ -24,12 +25,13 @@ export function getSuggestedBranchName(
     ? String(task.task_number)
     : (task?.slug ?? taskId);
 
-  if (!repoPath) return deriveBranchName(task?.title ?? "", fallbackId);
+  if (!repoPath)
+    return deriveBranchName(task?.title ?? "", fallbackId, branchPrefix);
 
   const cached =
     queryClient.getQueryData<string[]>(
       provider.gitQueryKey("getAllBranches", { directoryPath: repoPath }),
     ) ?? [];
 
-  return suggestBranchName(task?.title ?? "", fallbackId, cached);
+  return suggestBranchName(task?.title ?? "", fallbackId, cached, branchPrefix);
 }

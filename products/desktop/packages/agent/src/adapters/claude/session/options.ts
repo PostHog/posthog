@@ -123,11 +123,12 @@ export interface BuildOptionsParams {
 
 export function buildSystemPrompt(
   customPrompt?: unknown,
-  opts?: { spokenNarration?: boolean; contextWikiPath?: string },
+  opts?: { spokenNarration?: boolean; contextWikiPath?: string; branchPrefix?: string },
 ): Options["systemPrompt"] {
   const appendedInstructions = buildAppendedInstructions({
     spokenNarration: opts?.spokenNarration === true,
     contextWikiPath: resolveContextWikiPath(opts?.contextWikiPath),
+    branchPrefix: opts?.branchPrefix,
   });
   const defaultPrompt: Options["systemPrompt"] = {
     type: "preset",

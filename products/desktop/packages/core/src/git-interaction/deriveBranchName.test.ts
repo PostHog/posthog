@@ -44,4 +44,14 @@ describe("deriveBranchName", () => {
   it("falls back to task ID when title is only special characters", () => {
     expect(deriveBranchName("!@#$%", "abc123")).toBe("posthog/task-abc123");
   });
+
+  it("uses custom prefix when provided", () => {
+    expect(deriveBranchName("Fix bug", "abc123", "feat/")).toBe(
+      "feat/fix-bug",
+    );
+  });
+
+  it("uses custom prefix for fallback name", () => {
+    expect(deriveBranchName("", "abc123", "feat/")).toBe("feat/task-abc123");
+  });
 });

@@ -511,6 +511,7 @@ export interface SessionServiceDeps {
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
+    branchPrefix?: string;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -2288,6 +2289,7 @@ export class SessionService {
         rtkEnabledLocal,
         spokenNarrationEnabled,
         bedrockGatewayVariant,
+        branchPrefix,
       } = this.d.settings;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
@@ -2296,6 +2298,7 @@ export class SessionService {
         rtkEnabled: rtkEnabledLocal,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
+        branchPrefix,
         apiHost: auth.apiHost,
         projectId: auth.projectId,
         logUrl,
@@ -2645,6 +2648,7 @@ export class SessionService {
       rtkEnabledLocal,
       spokenNarrationEnabled,
       bedrockGatewayVariant,
+      branchPrefix,
     } = this.d.settings;
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
@@ -2659,6 +2663,7 @@ export class SessionService {
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
       bedrockGatewayVariant,
+      branchPrefix,
       effort: effortLevelSchema.safeParse(reasoningLevel).success
         ? (reasoningLevel as EffortLevel)
         : undefined,
