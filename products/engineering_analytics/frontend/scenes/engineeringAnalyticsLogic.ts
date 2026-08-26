@@ -151,7 +151,8 @@ export interface WorkflowFailureSeries {
     labels: string[]
 }
 
-function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
+/** Bucket label per the shared series granularity, for chart tooltips. */
+export function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
     const at = dayjs(bucketStart)
     if (granularity === 'hour') {
         return at.format('MMM D, HH:mm')

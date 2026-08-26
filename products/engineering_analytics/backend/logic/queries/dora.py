@@ -191,6 +191,11 @@ _TEAM_FILTER = (
 )
 
 
+def _date_to_clause(date_to: datetime | None, column: str) -> str:
+    """The optional window-end clause on ``column``; empty when the window is open-ended."""
+    return f"AND {column} <= {{date_to}}" if date_to is not None else ""
+
+
 @frozen
 class _EnvironmentScope:
     # 'production', 'persistent', or the exact environment the caller passed (see DoraOverview).
@@ -223,8 +228,7 @@ class _DoraScan:
         return self.curated.run(sql, query_type=query_type, placeholders=self.placeholders)
 
     def date_to_filter(self, column: str) -> str:
-        """The optional window-end clause on ``column``; empty when the window is open-ended."""
-        return f"AND {column} <= {{date_to}}" if self.date_to is not None else ""
+        return _date_to_clause(self.date_to, column)
 
     def window_buckets(self) -> list[datetime]:
         return window_buckets(self.date_from, self.date_to, self.granularity)
@@ -445,7 +449,7 @@ def query_dora_overview(
         curated,
         deployments_source,
         placeholders=placeholders,
-        date_to_filter="AND d.created_at <= {date_to}" if date_to is not None else "",
+        date_to_filter=_date_to_clause(date_to, "d.created_at"),
     )
     env_scope = _resolve_environment_scope(environment, environments)
     if environment:
