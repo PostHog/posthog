@@ -240,6 +240,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'vision_action', objectName: 'Vision action', objectPlural: 'vision actions' },
+    { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',

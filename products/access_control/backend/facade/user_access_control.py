@@ -119,6 +119,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # scanner's "and then…" automations) — configured via the same single
     # replay_scanner rule rather than a separate resource.
     "vision_action": "replay_scanner",
+    # Vision alerts follow the same rule: configured via the scanner's access level.
+    "vision_alert": "replay_scanner",
 }
 
 # Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
@@ -331,6 +333,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "replay_scanner"
     if name in ("visionaction", "visionactionrun"):
         return "vision_action"
+    if name in ("visionalertconfiguration", "visionalertevent"):
+        return "vision_alert"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
