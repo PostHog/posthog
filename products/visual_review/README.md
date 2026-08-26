@@ -103,7 +103,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 ### Commands
 
-**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (won't block, won't prompt for approval). Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
+**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (no approval prompt). An observe run still exits 1 on snapshot drift, so pass `--tolerate-drift` too where a red job is not wanted. Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
 
 **`vr verify`** — local baseline check without API. Hashes PNGs in a directory and compares against `snapshots.yml`. No backend involvement.
 
@@ -115,7 +115,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
 Pass the same `--purpose` the run was created with.
 On `--purpose observe` the command names the drifted identifiers, emits a `::warning::` annotation, and exits 1.
-Without the flag it reports nothing on such a run: the backend reports zero unresolved for an observe run whatever drifted, so a clean run and a drifting one look identical.
+The CLI has to be the one to say so: the backend reports zero unresolved for an observe run whatever drifted, so a clean run and a drifting one look identical to it.
 Add `--tolerate-drift` to report the drift and still exit 0. Use it on the default branch, where there is no merge left to stop and a red job would block the repair too.
 
 ### Run purposes
