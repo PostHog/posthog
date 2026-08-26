@@ -268,6 +268,7 @@ web_analytics:backend/hogql_queries/ posthog.api.test.test_cohort drives(TrendsQ
 web_analytics:backend/hogql_queries/ posthog.api.test.test_query drives(TrendsQuery) 3
 web_analytics:backend/hogql_queries/ posthog.api.test.test_sharing drives(TrendsQuery) 6
 web_analytics:backend/hogql_queries/ posthog.api.test.test_sharing_access_token_security drives(TrendsQuery) 12
+web_analytics:backend/hogql_queries/ posthog.hogql.database.schema.test.test_persons drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_functions drives(BOT_DEFINITIONS) 7
 web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_functions drives(BOT_IP_DEFINITIONS) 4
 web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_real_ua drives(BOT_DEFINITIONS) 4
@@ -276,6 +277,10 @@ web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_t
 web_analytics:backend/hogql_queries/ posthog.hogql.functions.test.test_traffic_type_real_ua drives(CATEGORY_TO_TRAFFIC_CATEGORY) 2
 web_analytics:backend/hogql_queries/ posthog.hogql.transforms.test.test_preaggregated_table_transformation drives(EVENT_PROPERTY_TO_FIELD) 4
 web_analytics:backend/hogql_queries/ posthog.hogql.transforms.test.test_preaggregated_table_transformation drives(SESSION_PROPERTY_TO_FIELD) 4
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.test.test_insight_actors_query_runner drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.test_trends_data_warehouse_query drives(TrendsQuery) 23
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.test_trends_query_builder drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.test_trends_query_runner drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_query_runner drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(FloatAwareTestCase) 1
 web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(WebAnalyticsPreAggregatedTestBase) 1

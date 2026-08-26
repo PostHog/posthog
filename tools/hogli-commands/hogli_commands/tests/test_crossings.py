@@ -356,6 +356,19 @@ class TestGarageDrives:
                 """,
                 {("product_analytics", "PathsQuery"): 1},
             ),
+            # a HogQL string that embeds the kind in tag syntax and runs through the executor
+            (
+                """
+                class TestActors(ClickhouseTestMixin, APIBaseTest):
+                    def select(self, query):
+                        return execute_hogql_query(query=query, team=self.team)
+
+                    def test_stickiness_actors(self):
+                        hogql = "select * from (<InsightActorsQuery day={2}><PathsQuery series={[]} /></InsightActorsQuery>)"
+                        assert self.select(hogql).results
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
             # a bare string in a test that never executes, or a URL segment, is not a drive
             (
                 """

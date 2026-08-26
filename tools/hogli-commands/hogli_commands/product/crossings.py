@@ -613,8 +613,17 @@ QUERY_WIRING_LOCATION = "backend/hogql_queries/"
 assert QUERY_WIRING_LOCATION in COMPUTED_WIRING_LOCATIONS
 
 # The calls that hand a query to core's dispatcher, and so execute whichever runner owns its kind.
+# `execute_hogql_query` belongs here because a HogQL string can embed a query in tag syntax
+# (`<StickinessQuery ... />`), which the executor dispatches to that kind's runner.
 DISPATCH_CALLS: frozenset[str] = frozenset(
-    {"process_query_dict", "process_query_model", "process_query", "get_query_runner", "get_query_runner_or_none"}
+    {
+        "process_query_dict",
+        "process_query_model",
+        "process_query",
+        "get_query_runner",
+        "get_query_runner_or_none",
+        "execute_hogql_query",
+    }
 )
 
 # The Django test client runs a request in-process, so a query posted to any endpoint that executes
@@ -806,16 +815,22 @@ def _kind_mentions(
     is whether the enclosing test executes, which `kind_drives` decides. A URL segment or a
     substring of a longer string is not a value equal to a kind, so it does not count.
 
+    A HogQL string that embeds a query in tag syntax (`<StickinessQuery ... />`) names the kind
+    too; every tag in the string counts once.
+
     `constructors` maps the local names the module binds to schema classes (`from posthog.schema
     import PathsQuery as Query`) back to their kinds; without it, a constructor counts by its own
     name only."""
     by_local = {kind: kind for kind in kinds.products} | dict(constructors or {})
+    tag = re.compile(r"<(" + "|".join(sorted(re.escape(k) for k in kinds.products)) + r")\b") if kinds else None
     found: list[tuple[ast.AST, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant | ast.Attribute):
             kind = _kind_of(node, kinds)
             if kind is not None:
                 found.append((node, kind))
+            elif tag is not None and isinstance(node, ast.Constant) and isinstance(node.value, str):
+                found.extend((node, match.group(1)) for match in tag.finditer(node.value))
         elif isinstance(node, ast.Call):
             name = _callee_name(node)
             if name in by_local:
@@ -1014,7 +1029,7 @@ class _KindHint:
         alternation = _alternation(names)
         pattern = (
             rb"[\"'](?:" + alternation + rb")[\"']|\b(?:" + alternation + rb")\("
-            rb"|\b(?:" + alternation + rb")\s+as\s"
+            rb"|\b(?:" + alternation + rb")\s+as\s|<(?:" + alternation + rb")\b"
             rb"|NodeKind\.(?:" + _alternation(kinds.members) + rb")\b"
         )
         return cls(reversed_common[::-1].encode(), re.compile(pattern))
