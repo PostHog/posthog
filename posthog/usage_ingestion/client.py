@@ -30,6 +30,11 @@ def team_is_enabled(team_id: int) -> bool:
     return raw == "*" or str(team_id) in {value.strip() for value in raw.split(",") if value.strip()}
 
 
+def _timeout_seconds() -> float:
+    # The env var is milliseconds everywhere else, but grpc takes seconds.
+    return float(os.environ.get("USAGE_INGESTION_TIMEOUT_MS", "5000")) / 1000
+
+
 def report_usage(records: Iterable[UsageRecord], *, site: str) -> None:
     enabled = [record for record in records if team_is_enabled(record.team_id)]
     address = os.environ.get("USAGE_INGESTION_ADDR", "")
@@ -52,8 +57,6 @@ def report_usage(records: Iterable[UsageRecord], *, site: str) -> None:
     )
     try:
         with grpc.insecure_channel(address) as channel:
-            service_pb2_grpc.UsageIngestionStub(channel).IngestBillingUsage(
-                request, timeout=float(os.environ.get("USAGE_INGESTION_TIMEOUT_MS", "5"))
-            )
+            service_pb2_grpc.UsageIngestionStub(channel).IngestBillingUsage(request, timeout=_timeout_seconds())
     except grpc.RpcError:
         logger.warning("usage_ingestion_report_failed", site=site, records=len(enabled))

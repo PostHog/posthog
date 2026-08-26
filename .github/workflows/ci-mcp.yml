@@ -424,6 +424,10 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
+            # feature-flags depends on usage-ingestion-proto, whose build script runs protoc.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
             - name: Build Rust flags service
               working-directory: rust
               env:
