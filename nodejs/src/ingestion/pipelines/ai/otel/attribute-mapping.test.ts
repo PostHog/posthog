@@ -709,6 +709,7 @@ describe('mapOtelAttributes', () => {
             ['llm.provider', '$ai_provider', 'openai'],
             ['llm.token_count.prompt', '$ai_input_tokens', 150],
             ['llm.token_count.completion', '$ai_output_tokens', 50],
+            ['embedding.model_name', '$ai_model', 'text-embedding-3-small'],
         ])('maps %s to %s', (otelKey, phKey, value) => {
             const event = createEvent('$ai_generation', { [otelKey]: value })
             mapOtelAttributes(event)
@@ -716,63 +717,24 @@ describe('mapOtelAttributes', () => {
             expect(event.properties![otelKey]).toBeUndefined()
         })
 
-        it('unwraps {message: ...} wrappers from llm.input_messages into $ai_input', () => {
-            const event = createEvent('$ai_generation', {
-                'llm.input_messages': [
-                    { message: { role: 'user', content: 'Hello' } },
-                    { message: { role: 'assistant', content: 'Hi' } },
-                ],
+        it('maps embedding.model_name to $ai_model on embedding events', () => {
+            const event = createEvent('$ai_embedding', {
+                'embedding.model_name': 'text-embedding-3-small',
+                'llm.token_count.prompt': 8,
             })
             mapOtelAttributes(event)
-            expect(event.properties!.$ai_input).toEqual([
-                { role: 'user', content: 'Hello' },
-                { role: 'assistant', content: 'Hi' },
-            ])
-            expect(event.properties!['llm.input_messages']).toBeUndefined()
+            expect(event.properties!.$ai_model).toBe('text-embedding-3-small')
+            expect(event.properties!.$ai_input_tokens).toBe(8)
         })
 
-        it('unwraps {message: ...} wrappers from JSON-string llm.input_messages', () => {
+        it('prefers llm.model_name over embedding.model_name when both are present', () => {
             const event = createEvent('$ai_generation', {
-                'llm.input_messages': '[{"message": {"role": "user", "content": "Hello"}}]',
+                'llm.model_name': 'gpt-4o',
+                'embedding.model_name': 'text-embedding-3-small',
             })
             mapOtelAttributes(event)
-            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hello' }])
-        })
-
-        it('unwraps {message: ...} wrappers from llm.output_messages into $ai_output_choices', () => {
-            const event = createEvent('$ai_generation', {
-                'llm.output_messages': [{ message: { role: 'assistant', content: 'Hello there' } }],
-            })
-            mapOtelAttributes(event)
-            expect(event.properties!.$ai_output_choices).toEqual([{ role: 'assistant', content: 'Hello there' }])
-            expect(event.properties!['llm.output_messages']).toBeUndefined()
-        })
-
-        it('keeps already-flat llm.input_messages entries as-is', () => {
-            const event = createEvent('$ai_generation', {
-                'llm.input_messages': [{ role: 'user', content: 'Hello' }],
-            })
-            mapOtelAttributes(event)
-            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hello' }])
-        })
-
-        it('keeps original string when llm.input_messages JSON parsing fails', () => {
-            const event = createEvent('$ai_generation', {
-                'llm.input_messages': 'not valid json',
-            })
-            mapOtelAttributes(event)
-            expect(event.properties!.$ai_input).toBe('not valid json')
-            expect(event.properties!['llm.input_messages']).toBeUndefined()
-        })
-
-        it('does not overwrite $ai_input already set from gen_ai attributes', () => {
-            const event = createEvent('$ai_generation', {
-                'gen_ai.input.messages': JSON.stringify([{ role: 'user', content: 'gen-ai' }]),
-                'llm.input_messages': [{ message: { role: 'user', content: 'open-inference' } }],
-            })
-            mapOtelAttributes(event)
-            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'gen-ai' }])
-            expect(event.properties!['llm.input_messages']).toBeUndefined()
+            expect(event.properties!.$ai_model).toBe('gpt-4o')
+            expect(event.properties!['embedding.model_name']).toBeUndefined()
         })
 
         it('falls back to llm.model_name when gen_ai.response.model is absent', () => {

@@ -35,6 +35,10 @@ const FALLBACK_ATTRIBUTE_MAP: Record<string, string> = {
     'llm.provider': '$ai_provider',
     'llm.token_count.prompt': '$ai_input_tokens',
     'llm.token_count.completion': '$ai_output_tokens',
+    // OpenInference embedding spans carry their model on `embedding.model_name`
+    // rather than `llm.model_name` — without it, EMBEDDING spans arrive with
+    // token counts but no $ai_model, and therefore no cost.
+    'embedding.model_name': '$ai_model',
 }
 
 const STRIP_ATTRIBUTES = new Set([
@@ -118,7 +122,6 @@ export function mapOtelAttributes(event: PluginEvent): void {
 
     convertOlderSpecEvents(event)
     convertSystemInstructions(event)
-    mapOpenInferenceMessages(event)
     normalizeGroups(event)
     countUnknownMessageParts(event)
 
@@ -310,49 +313,6 @@ function reconstructOutputChoice(entry: Record<string, unknown>): Record<string,
         return message
     }
     return null
-}
-
-// OpenInference (Arize) wraps each chat message in a `message` object:
-// `llm.input_messages: [{message: {role, content}}, ...]`, unlike the gen_ai
-// spec's flat `[{role, content}, ...]`. Unwrap so `$ai_input` /
-// `$ai_output_choices` keep the shape every other producer emits.
-function unwrapOpenInferenceMessages(value: unknown): unknown {
-    if (typeof value === 'string') {
-        try {
-            value = parseJSON(value)
-        } catch {
-            return value
-        }
-    }
-    if (!Array.isArray(value)) {
-        return value
-    }
-    return value.map((entry) => {
-        if (typeof entry === 'object' && entry !== null && 'message' in entry) {
-            return (entry as { message: unknown }).message
-        }
-        return entry
-    })
-}
-
-// OpenInference LLM spans put their conversation on `llm.input_messages` /
-// `llm.output_messages` instead of the gen_ai attributes, so map them too.
-// Runs after the ATTRIBUTE_MAP and FALLBACK loops so gen_ai values win when
-// both exist.
-function mapOpenInferenceMessages(event: PluginEvent): void {
-    const props = event.properties!
-    for (const [otelKey, phKey] of Object.entries({
-        'llm.input_messages': '$ai_input',
-        'llm.output_messages': '$ai_output_choices',
-    })) {
-        if (props[otelKey] === undefined) {
-            continue
-        }
-        if (props[phKey] === undefined) {
-            props[phKey] = unwrapOpenInferenceMessages(props[otelKey])
-        }
-        delete props[otelKey]
-    }
 }
 
 type SystemInstructionsOutcome =
