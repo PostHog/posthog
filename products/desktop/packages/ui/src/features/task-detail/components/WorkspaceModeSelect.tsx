@@ -20,7 +20,6 @@ import {
   ItemMenuItem,
   ItemTitle,
   MenuLabel,
-  Switch,
 } from "@posthog/quill";
 import type { Adapter, WorkspaceMode } from "@posthog/shared";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -173,24 +172,12 @@ export function WorkspaceModeSelect({
               subscriptionOn: codexSubscription.subscriptionOn,
             }) && (
               <div className="flex items-center gap-1.5">
-                <span
-                  className={
-                    codexSubscription.needsConnection
-                      ? "text-(--amber-11) text-[11px]"
-                      : "text-[11px] text-muted-foreground"
-                  }
-                >
-                  {codexSubscription.needsConnection
-                    ? "Use your subscription · not connected"
-                    : "Use your subscription"}
-                </span>
-                <Switch
-                  size="sm"
-                  checked={codexSubscription.subscriptionOn}
-                  onCheckedChange={(checked) =>
-                    codexSubscription.setSubscriptionOn(checked === true)
-                  }
-                />
+                {codexSubscription.subscriptionOn &&
+                  codexSubscription.loggedIn && (
+                    <span className="text-[11px] text-muted-foreground">
+                      Using Codex subscription
+                    </span>
+                  )}
                 <button
                   type="button"
                   onClick={() => {

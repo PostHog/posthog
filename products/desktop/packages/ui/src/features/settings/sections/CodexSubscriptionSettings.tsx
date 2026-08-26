@@ -4,6 +4,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import {
+  applyCodexModelAccess,
   shouldShowCodexSubscriptionControls,
   useCodexSubscription,
 } from "@posthog/ui/features/settings/useCodexSubscription";
@@ -49,7 +50,11 @@ export function CodexSubscriptionSettings() {
     ...hostTRPC.agent.codexSubscriptionSignOut.mutationOptions(),
     onSuccess: () => {
       track(ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT);
-      registerCodexSubscription({ access: codexModelAccess, connected: false });
+      applyCodexModelAccess("posthog-gateway", false);
+      registerCodexSubscription({
+        access: "posthog-gateway",
+        connected: false,
+      });
     },
     onSettled: () => {
       setAwaitingLogin(false);
@@ -76,11 +81,12 @@ export function CodexSubscriptionSettings() {
         <Switch
           size="sm"
           checked={subscription.subscriptionOn}
+          disabled={!loggedIn && !subscription.subscriptionOn}
           onCheckedChange={(checked) =>
             subscription.setSubscriptionOn(checked === true)
           }
         />
-        {subscription.subscriptionOn && !loggedIn && (
+        {!loggedIn && (
           <div className="flex flex-col items-end gap-1">
             <Button
               variant="outline"
@@ -97,11 +103,11 @@ export function CodexSubscriptionSettings() {
             <span className="text-right text-(--gray-11) text-[12px]">
               {awaitingLogin
                 ? "Finish signing in with your browser. This updates automatically"
-                : "Sessions keep using PostHog credits until you connect"}
+                : "Connect your ChatGPT account before you turn this on"}
             </span>
           </div>
         )}
-        {subscription.subscriptionOn && loggedIn && (
+        {loggedIn && (
           <div className="flex items-center gap-2">
             <span className="text-(--gray-11) text-[12px]">
               ChatGPT account connected
