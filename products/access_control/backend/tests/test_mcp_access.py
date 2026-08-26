@@ -46,7 +46,7 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
         self.client.logout()
 
     def _set_read_only(self, value: bool) -> None:
-        self.organization.mcp_access_read_only = value
+        self.organization.read_only_mcp_access = value
         self.organization.save()
 
     def _request(self, method: str, body: dict | None = None, mcp: bool = True):

@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="organization",
-            name="mcp_access_read_only",
+            name="read_only_mcp_access",
             field=models.BooleanField(
                 blank=True,
                 default=False,
