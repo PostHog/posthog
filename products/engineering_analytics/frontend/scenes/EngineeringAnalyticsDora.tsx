@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { TimeSeriesBarChart, useChartTheme, type TimeInterval } from '@posthog/quill-charts'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { FailureSparkline } from '../components/FailureSparkline'
 import { MergeToDeployBoxPlot } from '../components/MergeToDeployBoxPlot'
+import { MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
-import { WindowComparisonCard } from '../components/WindowComparisonCard'
 import { compactAgeLabel } from '../lib/format'
 import { doraLogic } from './doraLogic'
 
@@ -22,9 +22,10 @@ export function EngineeringAnalyticsDora(): JSX.Element {
         githubTeam,
         boxPlotBuckets,
         frequencyCounts,
-        frequencyLabels,
+        frequencyIsoLabels,
     } = useValues(doraLogic)
     const { setEnvironment, setGithubTeam, loadDora } = useActions(doraLogic)
+    const chartTheme = useChartTheme()
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -90,45 +91,81 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                 </div>
             )}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <WindowComparisonCard
-                    title="Deployment frequency"
-                    value={dora?.deployments_per_day}
-                    previousValue={dora?.deployments_per_day_prev}
-                    formatValue={(value) => `${value.toFixed(1)}/day`}
+                <MetricTile
+                    label="Deployment frequency"
                     tooltip={`Successful deployments per day in the ${scopeLabel} scope: ${dora?.deployment_count ?? 0} in this window.`}
+                    value={dora?.deployments_per_day != null ? `${dora.deployments_per_day.toFixed(1)}/day` : '—'}
+                    delta={{ value: percentChange(dora?.deployments_per_day, dora?.deployments_per_day_prev) }}
+                    sub={
+                        dora && dora.deployments_per_day == null
+                            ? 'No successful deployments in this window.'
+                            : undefined
+                    }
                     loading={firstLoad}
-                    emptyText="No successful deployments in this window."
                 />
-                <WindowComparisonCard
-                    title="Merge to deploy"
-                    value={dora?.median_merge_to_deploy_seconds}
-                    previousValue={dora?.median_merge_to_deploy_seconds_prev}
-                    formatValue={compactAgeLabel}
-                    goodWhenDown
+                <MetricTile
+                    label="Merge to deploy"
                     tooltip={`Median wait from a PR's merge to the first successful deployment after it, over ${dora?.deployed_pr_count ?? 0} deployed PRs (bots and drafts excluded). Not full commit-to-deploy lead time: pre-merge time is on the Overview tab.`}
+                    value={
+                        dora?.median_merge_to_deploy_seconds != null
+                            ? compactAgeLabel(dora.median_merge_to_deploy_seconds)
+                            : '—'
+                    }
+                    delta={{
+                        value: percentChange(
+                            dora?.median_merge_to_deploy_seconds,
+                            dora?.median_merge_to_deploy_seconds_prev
+                        ),
+                        goodWhenDown: true,
+                    }}
+                    sub={
+                        dora && dora.median_merge_to_deploy_seconds == null
+                            ? 'No PRs were deployed in this window.'
+                            : undefined
+                    }
                     loading={firstLoad}
-                    emptyText="No PRs were deployed in this window."
                 />
-                <WindowComparisonCard
-                    title="Failed deployment share"
-                    value={dora?.failed_deployment_share}
-                    previousValue={dora?.failed_deployment_share_prev}
-                    formatValue={(value) => `${(value * 100).toFixed(1)}%`}
-                    deltaUnit="pt"
-                    goodWhenDown
+                <MetricTile
+                    label="Failed deployment share"
                     tooltip={`Deployments with a failure or error status over deployments that reached an outcome (${dora?.failed_deployment_count ?? 0} failed here). A change failure proxy: deploys that succeeded but broke production aren't counted, because no incident data is linked.`}
+                    value={
+                        dora?.failed_deployment_share != null
+                            ? `${(dora.failed_deployment_share * 100).toFixed(1)}%`
+                            : '—'
+                    }
+                    delta={{
+                        value: pointChange(dora?.failed_deployment_share, dora?.failed_deployment_share_prev),
+                        unit: 'pt',
+                        goodWhenDown: true,
+                    }}
+                    sub={
+                        dora && dora.failed_deployment_share == null
+                            ? 'No deployments reached an outcome in this window.'
+                            : undefined
+                    }
                     loading={firstLoad}
-                    emptyText="No deployments reached an outcome in this window."
                 />
-                <WindowComparisonCard
-                    title="Failed deploy to next success"
-                    value={dora?.median_failed_deploy_to_next_success_seconds}
-                    previousValue={dora?.median_failed_deploy_to_next_success_seconds_prev}
-                    formatValue={compactAgeLabel}
-                    goodWhenDown
+                <MetricTile
+                    label="Failed deploy to next success"
                     tooltip="Median wait from a deployment's first failure status to the next successful deployment in the same environment. A time to restore proxy: recovery by anything other than a deploy is invisible, and unrecovered failures are excluded."
+                    value={
+                        dora?.median_failed_deploy_to_next_success_seconds != null
+                            ? compactAgeLabel(dora.median_failed_deploy_to_next_success_seconds)
+                            : '—'
+                    }
+                    delta={{
+                        value: percentChange(
+                            dora?.median_failed_deploy_to_next_success_seconds,
+                            dora?.median_failed_deploy_to_next_success_seconds_prev
+                        ),
+                        goodWhenDown: true,
+                    }}
+                    sub={
+                        dora && dora.median_failed_deploy_to_next_success_seconds == null
+                            ? 'No failed deployment recovered in this window.'
+                            : undefined
+                    }
                     loading={firstLoad}
-                    emptyText="No failed deployment recovered in this window."
                 />
             </div>
             <Section
@@ -158,16 +195,26 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                 busy={doraLoading && !!dora}
             >
                 {firstLoad ? (
-                    <LemonSkeleton className="h-8 w-full" />
+                    <LemonSkeleton className="h-40 w-full" />
                 ) : frequencyCounts.length === 0 ? (
                     <div className="py-8 text-center text-sm text-secondary">No deploy data for this window.</div>
                 ) : (
-                    <FailureSparkline
-                        completed={frequencyCounts}
-                        failures={frequencyCounts.map(() => 0)}
-                        labels={frequencyLabels}
-                        ariaLabel="Successful deployments per bucket"
-                    />
+                    // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column.
+                    <div className="flex h-40 flex-col" data-attr="engineering-analytics-dora-frequency-chart">
+                        <TimeSeriesBarChart
+                            series={[{ key: 'deployments', label: 'Deployments', data: frequencyCounts }]}
+                            labels={frequencyIsoLabels}
+                            theme={chartTheme}
+                            config={{
+                                xAxis: {
+                                    timezone: 'UTC',
+                                    interval: (dora?.series_granularity ?? 'day') as TimeInterval,
+                                },
+                                yAxis: { format: 'numeric', decimalPlaces: 0 },
+                                minBarSize: 2,
+                            }}
+                        />
+                    </div>
                 )}
             </Section>
         </div>

@@ -27,7 +27,7 @@ export interface doraLogicValues {
     doraLoading: boolean
     environment: string | null
     frequencyCounts: number[]
-    frequencyLabels: string[]
+    frequencyIsoLabels: string[]
     githubTeam: string | null
 }
 
@@ -61,7 +61,7 @@ export interface doraLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         boxPlotBuckets: (dora: DoraOverviewApi | null) => BoxPlotBucket[]
         frequencyCounts: (dora: DoraOverviewApi | null) => number[]
-        frequencyLabels: (dora: DoraOverviewApi | null) => string[]
+        frequencyIsoLabels: (dora: DoraOverviewApi | null) => string[]
     }
 }
 
@@ -146,13 +146,12 @@ export const doraLogic = kea<doraLogicType>([
             (dora: DoraOverviewApi | null): number[] =>
                 (dora?.deployment_frequency_series ?? []).map((bucket) => bucket.deployment_count),
         ],
-        frequencyLabels: [
+        // ISO bucket starts for the time-series frequency chart — it formats its own axis and
+        // tooltip labels from the granularity, so it needs the raw timestamps, not display strings.
+        frequencyIsoLabels: [
             (s) => [s.dora],
             (dora: DoraOverviewApi | null): string[] =>
-                (dora?.deployment_frequency_series ?? []).map(
-                    (bucket) =>
-                        `${bucketLabel(bucket.bucket_start, dora?.series_granularity ?? 'day')}: ${bucket.deployment_count} deploy${bucket.deployment_count === 1 ? '' : 's'}`
-                ),
+                (dora?.deployment_frequency_series ?? []).map((bucket) => bucket.bucket_start),
         ],
     }),
 
