@@ -1,4 +1,5 @@
 import uuid
+from typing import NoReturn
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -30,13 +31,12 @@ class ErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField()
 
 
+# Stands in for a DataclassSerializer, which rebuilds its dataclass while parsing and so can
+# raise a non-DRF error for a response that is perfectly valid.
 class RaisingResponseSerializer(serializers.Serializer):
-    """Stands in for a DataclassSerializer, which rebuilds its dataclass while parsing and so can
-    raise a non-DRF error for a response that is perfectly valid."""
-
     value = serializers.CharField()
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data: object) -> NoReturn:
         raise RuntimeError("boom")
 
 
@@ -211,8 +211,6 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.data["wrong_field"] == "value"
 
     def test_response_serializer_that_raises_while_parsing_logs_warning(self):
-        """A response serializer raising during parsing should warn, not fail the request"""
-
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
             responses={
@@ -243,8 +241,6 @@ class TestValidatedRequestDecorator(APIBaseTest):
         assert response.data["value"] == "ok"
 
     def test_strict_response_validation_reraises_a_parsing_exception(self):
-        """Strict mode still surfaces a response serializer that raises while parsing"""
-
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
             responses={
