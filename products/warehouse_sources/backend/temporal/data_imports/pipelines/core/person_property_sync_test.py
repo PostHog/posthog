@@ -125,7 +125,7 @@ class TestRunOrchestration:
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}) as existing,
             patch(f"{_MODULE}._produce_intents", return_value=2) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
-            patch(f"{_MODULE}._stamp_provenance") as stamp,
+            patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
             team_cls.objects.get.return_value = team
@@ -148,7 +148,7 @@ class TestRunOrchestration:
         assert set(written) == {"a", "b"}
 
         existing.assert_called_once()
-        stamp.assert_called_once()
+        reconcile.assert_called_once()
         clear.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -163,6 +163,33 @@ class TestRunOrchestration:
         assert result.sources == 0
         read.assert_not_awaited()
         clear.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reconciles_provenance_before_unchanged_return(self):
+        source = self._source()
+        with (
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={"a": "prior"})),
+            patch(f"{_MODULE}.select_changed", return_value=([], {})),
+            patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
+            patch(f"{_MODULE}._filter_existing_ids") as existing,
+            patch(f"{_MODULE}._produce_intents") as produce,
+        ):
+            result = await pps._process_source_bundles(
+                team_id=1,
+                project_id=7,
+                binding=_SCHEMA,
+                team_api_token="tok",
+                team_uuid="team-uuid",
+                source=source,
+                bundles=[("a", {"plan_tier": "pro"})],
+                rows_read=1,
+                run_token="job-1",
+            )
+
+        reconcile.assert_called_once_with(1, 7, _SCHEMA, source, ["plan_tier"])
+        existing.assert_not_called()
+        produce.assert_not_called()
+        assert result.changed == 0 and result.produced == 0
 
 
 class TestReadDeltaBundles:
@@ -211,7 +238,7 @@ class TestBackfillOrchestration:
 
     @pytest.mark.asyncio
     async def test_reads_once_and_produces_per_source(self):
-        team = MagicMock(api_token="tok")
+        team = MagicMock(api_token="tok", project_id=7)
         schema = MagicMock()
         schema.folder_path.return_value = "team_1_stripe_schema-1"
         # The backfill resolves the Delta folder from the loader's actual folder name, not normalized_name.
@@ -232,7 +259,7 @@ class TestBackfillOrchestration:
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
-            patch(f"{_MODULE}._stamp_provenance"),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
             team_cls.objects.get.return_value = team
             result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
@@ -418,14 +445,14 @@ class TestGroupTarget:
             patch(f"{_MODULE}._group_type_name", return_value=None),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
-            patch(f"{_MODULE}._stamp_provenance") as stamp,
+            patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
         ):
             team_cls.objects.get.return_value = team
             result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
 
         produce.assert_not_called()
-        stamp.assert_not_called()
+        reconcile.assert_called_once()
         write_snapshot.assert_not_awaited()
         assert result.produced == 0
 
@@ -478,9 +505,8 @@ class TestExistenceLookupChunking:
 
 
 @pytest.mark.django_db
-class TestStampProvenance:
-    """`_stamp_provenance` updates existing property definitions with warehouse provenance, folding a
-    per-property description into the origin when the source carries one."""
+class TestReconcilePropertyDefinitions:
+    """Source configuration creates and repairs project-scoped warehouse provenance."""
 
     def _team(self):
         org = Organization.objects.create(name="o")
@@ -488,8 +514,6 @@ class TestStampProvenance:
 
     def test_folds_descriptions_into_provenance_only_where_present(self):
         team = self._team()
-        PropertyDefinition.objects.create(team=team, name="plan_tier", type=PropertyDefinition.Type.PERSON)
-        PropertyDefinition.objects.create(team=team, name="seat_count", type=PropertyDefinition.Type.PERSON)
         source = PersonPropertySyncSource(
             "s1",
             "d1",
@@ -498,10 +522,12 @@ class TestStampProvenance:
             property_descriptions={"plan_tier": "The plan tier"},
         )
 
-        pps._stamp_provenance(team.id, _SCHEMA, source, ["plan_tier", "seat_count"])
+        pps._reconcile_property_definitions(
+            team.id, team.project_id, _SCHEMA, source, ["plan_tier", "seat_count", "plan_tier"]
+        )
 
-        described = PropertyDefinition.objects.get(team=team, name="plan_tier")
-        plain = PropertyDefinition.objects.get(team=team, name="seat_count")
+        described = PropertyDefinition.objects.get(project_id=team.project_id, name="plan_tier")
+        plain = PropertyDefinition.objects.get(project_id=team.project_id, name="seat_count")
         assert described.warehouse_origin is not None
         assert plain.warehouse_origin is not None
         assert described.warehouse_origin["custom_property_source_id"] == "s1"
@@ -515,12 +541,11 @@ class TestStampProvenance:
         # `schema_id` is what rows stamped before views existed carry, so a schema binding must keep
         # writing it; a view has no schema and must not claim one.
         team = self._team()
-        PropertyDefinition.objects.create(team=team, name="plan_tier", type=PropertyDefinition.Type.PERSON)
         source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
 
-        pps._stamp_provenance(team.id, binding, source, ["plan_tier"])
+        pps._reconcile_property_definitions(team.id, team.project_id, binding, source, ["plan_tier"])
 
-        origin = PropertyDefinition.objects.get(team=team, name="plan_tier").warehouse_origin
+        origin = PropertyDefinition.objects.get(project_id=team.project_id, name="plan_tier").warehouse_origin
         assert origin is not None
         assert (origin["binding_kind"], origin["binding_id"]) == (binding.kind, binding.id)
         assert origin.get("schema_id") == expected_schema_id
@@ -535,9 +560,58 @@ class TestStampProvenance:
         )
         source = PersonPropertySyncSource("s1", "d1", "group_key", {"plan": "tier"}, target="group", group_type_index=0)
 
-        pps._stamp_provenance(team.id, _SCHEMA, source, ["tier"])
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["tier"])
 
         assert PropertyDefinition.objects.get(id=other.id).warehouse_origin is None
         stamped = PropertyDefinition.objects.get(team=team, name="tier", group_type_index=0)
         assert stamped.warehouse_origin is not None
         assert stamped.warehouse_origin["custom_property_source_id"] == "s1"
+
+    def test_idempotently_repairs_historical_null_without_replacing_other_fields(self):
+        team = self._team()
+        historical = PropertyDefinition.objects.create(
+            team=team,
+            project_id=team.project_id,
+            name="plan_tier",
+            type=PropertyDefinition.Type.PERSON,
+            property_type="Numeric",
+        )
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
+
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["plan_tier"])
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["plan_tier"])
+
+        historical.refresh_from_db()
+        assert PropertyDefinition.objects.filter(project_id=team.project_id, name="plan_tier").count() == 1
+        assert historical.property_type == "Numeric"
+        assert historical.warehouse_origin is not None
+        assert historical.warehouse_origin["custom_property_source_id"] == "s1"
+
+    @parameterized.expand(
+        [("person", PropertyDefinition.Type.PERSON, None), ("group", PropertyDefinition.Type.GROUP, 0)]
+    )
+    def test_reconciles_same_project_definition_created_by_another_team(self, target, definition_type, group_index):
+        team = self._team()
+        other_team = Team.objects.create(organization=team.organization, name="other", project_id=team.project_id)
+        existing = PropertyDefinition.objects.create(
+            team=other_team,
+            project_id=team.project_id,
+            name="tier",
+            type=definition_type,
+            group_type_index=group_index,
+        )
+        source = PersonPropertySyncSource(
+            "s1",
+            "d1",
+            "key",
+            {"plan": "tier"},
+            target=target,
+            group_type_index=group_index,
+        )
+
+        pps._reconcile_property_definitions(team.id, team.project_id, _SCHEMA, source, ["tier"])
+
+        existing.refresh_from_db()
+        assert PropertyDefinition.objects.filter(project_id=team.project_id, name="tier").count() == 1
+        assert existing.warehouse_origin is not None
+        assert existing.warehouse_origin["custom_property_source_id"] == "s1"
