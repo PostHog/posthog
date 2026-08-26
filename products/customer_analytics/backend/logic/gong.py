@@ -38,7 +38,7 @@ def _gong_calls_tables(team_id: int) -> list[warehouse_contracts.DataWarehouseTa
         if schema.name == "calls" and schema.should_sync and schema.table_id is not None
     }
     tables: list[warehouse_contracts.DataWarehouseTable] = []
-    for table_id in table_ids:
+    for table_id in sorted(table_ids, key=str):
         table = warehouse_sources.get_queryable_table(table_id, team_id)
         if table is not None and {"calendar_event_id", "url"}.issubset(table.columns):
             tables.append(table)

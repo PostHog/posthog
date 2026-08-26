@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.utils import timezone
@@ -3149,7 +3149,9 @@ class TestAccountMeetingViewSet(APIBaseTest):
         )
 
     @patch("products.customer_analytics.backend.logic.gong.execute_hogql_query")
-    def test_list_includes_the_gong_url_for_a_matching_calendar_event(self, mock_execute_hogql_query):
+    def test_list_includes_the_gong_url_for_a_matching_calendar_event(
+        self, mock_execute_hogql_query: MagicMock
+    ) -> None:
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-gong")
         meeting = Meeting.objects.unscoped().create(
             team=self.team,
