@@ -279,39 +279,55 @@ def test_get_batch_export_runs_rejects_unknown_status(client: HttpClient, team, 
 
 
 def test_get_batch_export_runs_date_filter_depends_on_ordering(client: HttpClient, team, user):
-    """`after`/`before` filter on `created_at` unless ordering by `data_interval_start`, in which
-    case `start`/`end` filter the data interval instead, and the other pair has no effect."""
     batch_export = create_batch_export(team, create_destination())
     now = dt.datetime.now(dt.UTC)
 
-    # A backfill run created today for a data interval from a month ago. This is the only way a
-    # run's created_at and data interval genuinely decouple: a run can be created long after the
-    # interval it covers, but never before that interval has occurred.
-    run = create_run(
+    def days_ago(days: float) -> dt.datetime:
+        return now - dt.timedelta(days=days)
+
+    # Backfilled today for a 40-day-old interval
+    run_old_interval = create_run(
         batch_export,
         status=BatchExportRun.Status.COMPLETED,
-        data_interval_start=now - dt.timedelta(days=30, hours=1),
-        data_interval_end=now - dt.timedelta(days=30),
+        data_interval_start=days_ago(40) - dt.timedelta(hours=1),
+        data_interval_end=days_ago(40),
     )
+
+    # Backfilled 10 days ago for a 20-day-old interval.
+    run_mid_interval = create_run(
+        batch_export,
+        status=BatchExportRun.Status.COMPLETED,
+        data_interval_start=days_ago(20) - dt.timedelta(hours=1),
+        data_interval_end=days_ago(20),
+    )
+    BatchExportRun.objects.filter(id=run_mid_interval.id).update(created_at=days_ago(10))
+
+    # A normal, on-schedule run: created right as its 5-day-old interval ended.
+    run_recent_interval = create_run(
+        batch_export,
+        status=BatchExportRun.Status.COMPLETED,
+        data_interval_start=days_ago(5) - dt.timedelta(hours=1),
+        data_interval_end=days_ago(5),
+    )
+    BatchExportRun.objects.filter(id=run_recent_interval.id).update(created_at=days_ago(5))
 
     client.force_login(user)
 
-    # Default ordering filters by created_at (today). `start` is passed too and must have no
-    # effect: if it were also applied, the month-old interval would exclude the run.
-    data = get_batch_export_runs_ok(client, team.pk, batch_export.id, after="-2d", start="-2d")
-    assert {run["id"] for run in data["results"]} == {str(run.id)}
+    # Default ordering sorts and filters by created_at: today (run_old_interval), then 5 days ago
+    # (run_recent_interval); 10 days ago (run_mid_interval) falls outside the 8-day window.
+    # `start` is passed too and must have no effect: applied, it would exclude run_old_interval's
+    # 40-day-old interval.
+    data = get_batch_export_runs_ok(client, team.pk, batch_export.id, after="-8d", start="-25d")
+    assert [run["id"] for run in data["results"]] == [str(run_old_interval.id), str(run_recent_interval.id)]
 
-    # Ordering by data_interval_start filters the interval instead. `before` is passed too and
-    # must have no effect: the run was created today, which `before` alone would exclude.
+    # Ordering by data_interval_start instead sorts and filters by the interval: 5 days ago
+    # (run_recent_interval), then 20 days ago (run_mid_interval); 40 days ago (run_old_interval)
+    # falls outside the 25-day window. `before` is passed too and must have no effect: applied, it
+    # would exclude run_recent_interval, which was created only 5 days ago.
     data = get_batch_export_runs_ok(
-        client, team.pk, batch_export.id, ordering="-data_interval_start", start="-40d", before="-2d"
+        client, team.pk, batch_export.id, ordering="-data_interval_start", start="-25d", before="-8d"
     )
-    assert {run["id"] for run in data["results"]} == {str(run.id)}
-
-    # And under that ordering, `start` genuinely filters the interval: narrowing it to exclude
-    # the month-old interval returns nothing.
-    data = get_batch_export_runs_ok(client, team.pk, batch_export.id, ordering="-data_interval_start", start="-2d")
-    assert data["results"] == []
+    assert [run["id"] for run in data["results"]] == [str(run_recent_interval.id), str(run_mid_interval.id)]
 
 
 def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user):
