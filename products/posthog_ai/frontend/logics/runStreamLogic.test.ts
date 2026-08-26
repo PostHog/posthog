@@ -2912,6 +2912,38 @@ describe('runStreamLogic', () => {
             expect(captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')).toEqual([])
         })
 
+        it('counts a follow-up turn resumed after a reload before its first agent output', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            // Turn 1 completed, the user sent turn 2, then the page reloaded before turn 2 streamed any
+            // output. Replay latches turn 1 as counted; the replayed follow-up message must reopen the
+            // latch so turn 2's first live output still counts. `user_message` is the session/update
+            // form a thread actually reloads from logs.
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    content: { type: 'text', text: 'answer 1' },
+                }) as any,
+                notification('_posthog/turn_complete', {}) as any,
+                sessionUpdate({ sessionUpdate: 'user_message', content: { text: 'follow up' } }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'answer 2' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            }).toFinishAllListeners()
+
+            const chats = captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')
+            expect(chats).toHaveLength(1)
+            expect(chats[0][1]).toEqual(expect.objectContaining({ turn_index: 1, is_new_conversation: false }))
+        })
+
         it.each([
             ['skips a turn on a task with no PostHog AI origin', undefined, 0],
             ['counts a turn on a runner-scene task, which carries no conversation id', OriginProduct.POSTHOG_AI, 1],

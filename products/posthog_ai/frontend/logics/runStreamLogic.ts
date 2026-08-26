@@ -1511,6 +1511,9 @@ export interface runStreamLogicActions {
     markTurnCounted: () => {
         value: true
     }
+    reopenTurnCount: () => {
+        value: true
+    }
     mergeResourcesUsed: (
         products: {
             id?: string
@@ -1836,6 +1839,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
         markTurnComplete: true,
         /** Marks this turn as counted towards `chat with ai`, so it can only be counted once. */
         markTurnCounted: true,
+        /**
+         * Reopens the `chat with ai` latch for a replayed follow-up user message. Replay never routes
+         * through `pushHumanMessage`, and a follow-up on a live run emits no new `_posthog/run_started`,
+         * so neither latch-reopener fires — a reload between a follow-up send and its first agent output
+         * would otherwise leave the prior turn's latch closed and drop the follow-up from the metric.
+         */
+        reopenTurnCount: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
         /**
@@ -2145,13 +2155,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
         // Whether this turn already counted towards `chat with ai`. Set for replayed agent output too,
         // so a reload part-way through a turn doesn't count that turn a second time when live frames
-        // resume. Reopened by the next human message, exactly like `turnComplete`.
+        // resume. Reopened by the next human message, exactly like `turnComplete` — and by
+        // `reopenTurnCount` for a replayed follow-up message, which never reaches `pushHumanMessage`.
         turnCounted: [
             false,
             {
                 markTurnCounted: () => true,
                 markRunStarted: () => false,
                 pushHumanMessage: () => false,
+                reopenTurnCount: () => false,
                 reset: () => false,
             },
         ],
@@ -3323,6 +3335,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // unattached optimistic stream has no task id and records nothing — its send path marks
             // sent keys directly.
             if (isPosthogNotification(notification, '_posthog/user_message')) {
+                // A replayed follow-up starts a fresh turn; reopen the count latch a live send would
+                // have reopened via `pushHumanMessage`, so its first live output still counts.
+                if (isReplay) {
+                    actions.reopenTurnCount()
+                }
                 if (values.bootstrappedTaskId) {
                     const lines = contextBlockLinesFromUserMessage(extractUserMessageText(notification.params?.content))
                     if (lines.length > 0) {
@@ -3366,6 +3383,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
             // Chunked frames are skipped: a partial text could truncate a block mid-line.
             if (isSessionUpdateUserMessage(update)) {
+                // The frame a thread actually reloads from logs is a session/update `user_message` —
+                // reopen the count latch on replay so a follow-up turn resumed mid-flight still counts.
+                if (isReplay) {
+                    actions.reopenTurnCount()
+                }
                 if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
                     const lines = contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
                     if (lines.length > 0) {
