@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Label } from 'lib/ui/Label/Label'
 
-import { LegacyExperimentDate, legacyExperimentLogic } from '~/scenes/experiments/legacy'
+import { LegacyExperimentDate, legacyExperimentLogic } from 'products/experiments/frontend/legacy'
 
 /**
  * @deprecated use the ExperimentDuration component instead
