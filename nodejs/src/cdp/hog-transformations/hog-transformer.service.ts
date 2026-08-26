@@ -259,6 +259,12 @@ export class HogTransformerService implements HogTransformer {
                     },
                     'hog_function'
                 )
+                // The event is dropped here, so invalidTransformations is intentionally not
+                // returned. The transformation_result_invalid warning states that the event
+                // ingested unchanged, which is false for a dropped event, so raising it would
+                // contradict itself. recordInvalidResult already recorded each invalid result on
+                // the Grafana counter and the per-function failure metric, so only the sampled
+                // ingestion warning is skipped for this event.
                 return {
                     event: null,
                     invocationResults: results,
