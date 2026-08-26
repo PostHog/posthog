@@ -2,18 +2,22 @@
 
 The single place where *unparameterized* strings (schema / table / column
 names) are allowed to reach a SQL query. Every SQL source must go through
-an `IdentifierQuoter` implementation so the allowlist check is uniform and
-cannot be bypassed by subclasses. The allowlist is strict (alphanumeric,
-`_`, `-`, `.`, `$`, `@`) — anything else raises `InvalidIdentifierError`.
+an `IdentifierQuoter` implementation so validation is uniform and cannot be
+bypassed by subclasses.
 
-The allowlist is derived from today's `mysql._sanitize_identifier` (the
-only driver that already validated identifiers) but is intentionally a
-superset: the old MySQL helper rejected identifiers that started with a
-digit followed by letters (e.g. `"23abc"`), whereas this allowlist accepts
-any mix of `_ALLOWED_CHARACTERS`. Quoted MySQL identifiers legitimately
-allow digit prefixes, and every other SQL dialect we target treats quoted
-identifiers as opaque strings — so the widening is a correctness
-improvement rather than a behavior regression.
+The backtick quoter (MySQL/MariaDB/ClickHouse) uses a strict allowlist
+(alphanumeric, `_`, `-`, `.`, `$`, `@`) derived from today's
+`mysql._sanitize_identifier` — the only driver that already validated
+identifiers. It's intentionally a superset: the old MySQL helper rejected
+identifiers that started with a digit followed by letters (e.g. `"23abc"`),
+whereas this allowlist accepts any mix of `_ALLOWED_CHARACTERS`. Quoted
+MySQL identifiers legitimately allow digit prefixes, so the widening is a
+correctness improvement rather than a behavior regression.
+
+The bracket quoter (T-SQL) and ANSI quoter (Postgres/Redshift/Snowflake/
+DuckDB) instead escape their dialect's own delimiter, because their delimited
+identifiers legitimately contain spaces and punctuation the allowlist would
+reject — see each class's docstring below.
 """
 
 from __future__ import annotations
@@ -98,10 +102,28 @@ class BacktickIdentifierQuoter(_BaseQuoter):
 
 
 class AnsiIdentifierQuoter(_BaseQuoter):
-    """ANSI SQL quoting with double-quotes (Postgres, Redshift, Snowflake)."""
+    """ANSI SQL quoting with double-quotes (Postgres, Redshift, Snowflake, DuckDB).
+
+    Unlike the backtick quoter, this one does NOT use the strict alphanumeric
+    allowlist. ANSI delimited identifiers legitimately contain spaces and
+    other punctuation that the allowlist rejects (real Snowflake schemas have
+    columns like `Date Established`), and the allowlist crashed the import on
+    them. Double-quote quoting makes any such name safe by doubling a literal
+    embedded `"` — the standard ANSI SQL escaping rule — so that is the actual
+    safety boundary here. Control characters are still rejected since quoting
+    can't neutralise them and they never appear in a real identifier.
+    """
 
     _open = '"'
     _close = '"'
+
+    def quote(self, identifier: str) -> str:
+        if not identifier:
+            raise InvalidIdentifierError("Identifier may not be empty")
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in identifier):
+            raise InvalidIdentifierError(f"Invalid SQL identifier: {identifier!r}")
+        escaped = identifier.replace('"', '""')
+        return f"{self._open}{escaped}{self._close}"
 
 
 class BracketIdentifierQuoter(_BaseQuoter):
