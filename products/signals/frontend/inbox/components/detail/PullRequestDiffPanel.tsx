@@ -232,7 +232,6 @@ function DiffToolbarSummary({
             title={`Comparing ${commit.repository}@${commit.branch} against the default branch`}
         >
             {commit.repository}
-            <span className="opacity-70"> · vs default branch</span>
         </span>
     )
 }

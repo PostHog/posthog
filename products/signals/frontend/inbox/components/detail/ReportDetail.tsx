@@ -1,9 +1,9 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
 import { IconArrowLeft, IconEllipsis, IconExternal, IconSearch } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -34,10 +34,13 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
+import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
+import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
+import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { useReportDetailActions } from './ReportDetailActions'
@@ -254,6 +257,14 @@ interface InboxDetailFrameProps {
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
+    /** Whether the report column gets the Summary / Files changed tab bar. Driven by whether the report has
+     * a PR (known immediately), not by whether the diff has loaded, so the bar doesn't pop in a beat later
+     * and shift the layout. */
+    showFilesTab?: boolean
+    /** Body of the "Files changed" tab (may be a skeleton while the commit artefact loads). */
+    diffSection?: ReactNode
+    /** +/- line-count stat shown in the "Files changed" tab label. */
+    diffStat?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
@@ -266,7 +277,15 @@ interface InboxDetailFrameProps {
  * stay off this header: the inbox section the report came from already says what they said.
  * AgentRunDetail keeps its own layout.
  */
-export function InboxDetailFrame({ report, asideFooter, primaryAction, children }: InboxDetailFrameProps): JSX.Element {
+export function InboxDetailFrame({
+    report,
+    asideFooter,
+    primaryAction,
+    showFilesTab,
+    diffSection,
+    diffStat,
+    children,
+}: InboxDetailFrameProps): JSX.Element {
     const { searchParams } = useValues(router)
     // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
     // feed) redirects the back button there instead of the inbox list tab.
@@ -275,9 +294,9 @@ export function InboxDetailFrame({ report, asideFooter, primaryAction, children 
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
     const backLabel = backOverride ? (backOverride.startsWith(urls.inboxTriage()) ? 'Triage' : 'Back') : 'Inbox'
     const logicProps = { reportId: report.id, report }
-    const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts } = useValues(
-        inboxReportDetailLogic(logicProps)
-    )
+    const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
+        useValues(inboxReportDetailLogic(logicProps))
+    const { setDetailTab } = useActions(inboxReportDetailLogic(logicProps))
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
@@ -312,6 +331,65 @@ export function InboxDetailFrame({ report, asideFooter, primaryAction, children 
         disabledReason: action.loading ? 'Working…' : action.disabledReason,
         onClick: action.onClick,
     }))
+
+    const generatedAt = (
+        <span className="flex items-center gap-1 text-xs text-tertiary">
+            Generated <TZLabel time={report.created_at} />
+        </span>
+    )
+
+    // The report body: title, stats, summary, charts, and the rating. On a PR-bearing report it is the
+    // "Summary" tab; otherwise it sits under the "Report summary" header.
+    const summaryColumn = (
+        <div className="flex flex-1 flex-col gap-6">
+            <header className="flex items-start gap-3 min-w-0">
+                {/* Priority square anchors the title. */}
+                {report.priority && (
+                    <div className="shrink-0 mt-1">
+                        <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
+                    </div>
+                )}
+                <div className="flex flex-col gap-2 min-w-0">
+                    <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
+                        {conventionalTitle && (
+                            <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
+                        )}
+                        {displayTitle}
+                    </h1>
+                    <ReportDetailStats
+                        report={report}
+                        evidenceCount={evidenceCount}
+                        scoutSkillName={report.scout_name}
+                    />
+                </div>
+            </header>
+
+            <div>
+                {report.summary ? (
+                    <ReportSummaryBody
+                        summary={report.summary}
+                        chartPlacements={chartPlacements}
+                        createPrAction={createPrAction}
+                    />
+                ) : (
+                    <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                        No summary yet. An agent is still investigating.
+                    </p>
+                )}
+                {trailingCharts.length > 0 && (
+                    <div className="flex flex-col gap-4 mt-5">
+                        {trailingCharts.map((chart) => (
+                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                        ))}
+                    </div>
+                )}
+            </div>
+            {/* The rating closes out the report body, pinned to the bottom of the column. */}
+            <div className="mt-auto">
+                <ReportFeedbackFooter report={report} align="end" />
+            </div>
+        </div>
+    )
 
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
@@ -355,69 +433,54 @@ export function InboxDetailFrame({ report, asideFooter, primaryAction, children 
                 </aside>
 
                 <main className={DETAIL_MAIN_CLASS}>
-                    <div className="mb-4 flex flex-wrap items-center gap-2.5 border-b border-primary pb-3">
-                        <span className="text-sm font-semibold">Report summary</span>
-                        <SignalReportBillingBadge report={report} />
-                        <span className="flex-1" />
-                        <span className="flex items-center gap-1 text-xs text-tertiary">
-                            Generated <TZLabel time={report.created_at} />
-                        </span>
-                    </div>
-
-                    <div className="flex flex-1 flex-col gap-6">
-                        <header className="flex items-start gap-3 min-w-0">
-                            {/* Priority square anchors the title. */}
-                            {report.priority && (
-                                <div className="shrink-0 mt-1">
-                                    <SignalReportPriorityBadge
-                                        priority={report.priority}
-                                        explanation={priorityExplanation}
-                                    />
-                                </div>
-                            )}
-                            <div className="flex flex-col gap-2 min-w-0">
-                                <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
-                                    {conventionalTitle && (
-                                        <ConventionalCommitScopeTag
-                                            type={conventionalTitle.type}
-                                            scope={conventionalTitle.scope}
-                                        />
-                                    )}
-                                    {displayTitle}
-                                </h1>
-                                <ReportDetailStats
-                                    report={report}
-                                    evidenceCount={evidenceCount}
-                                    scoutSkillName={report.scout_name}
-                                />
+                    {showFilesTab ? (
+                        <LemonTabs
+                            activeKey={detailTab}
+                            onChange={setDetailTab}
+                            // The tab labels carry 12px of padding above the text. Pull the bar up by that
+                            // much so the tab text sits where the "Report summary" header sits, level with
+                            // the "Evidence" header in the rail, and the gap below the bar stays the same.
+                            className="-mt-3"
+                            rightSlotClassName="bg-surface-primary"
+                            rightSlot={
+                                <span className="flex items-center gap-2.5">
+                                    <SignalReportBillingBadge report={report} />
+                                    {generatedAt}
+                                </span>
+                            }
+                            tabs={[
+                                { key: 'summary', label: 'Summary', content: summaryColumn },
+                                {
+                                    key: 'files',
+                                    label: (
+                                        <span className="flex items-center gap-1.5">
+                                            <span>Files changed</span>
+                                            {diffStat}
+                                        </span>
+                                    ),
+                                    // `LemonTabs` renders only the active tab, so the rating row repeats after
+                                    // the diff: reviewing the code and stopping there must still leave a way
+                                    // to rate the report. Both rows read the same report-keyed logic.
+                                    content: (
+                                        <div className="flex flex-col gap-5">
+                                            {diffSection}
+                                            <ReportFeedbackFooter report={report} align="end" />
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : (
+                        <>
+                            <div className="mb-4 flex flex-wrap items-center gap-2.5 border-b border-primary pb-3">
+                                <span className="text-sm font-semibold">Report summary</span>
+                                <SignalReportBillingBadge report={report} />
+                                <span className="flex-1" />
+                                {generatedAt}
                             </div>
-                        </header>
-
-                        <div>
-                            {report.summary ? (
-                                <ReportSummaryBody
-                                    summary={report.summary}
-                                    chartPlacements={chartPlacements}
-                                    createPrAction={createPrAction}
-                                />
-                            ) : (
-                                <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                    No summary yet. An agent is still investigating.
-                                </p>
-                            )}
-                            {trailingCharts.length > 0 && (
-                                <div className="flex flex-col gap-4 mt-5">
-                                    {trailingCharts.map((chart) => (
-                                        <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        {/* The rating closes out the report body, pinned to the bottom of the column. */}
-                        <div className="mt-auto">
-                            <ReportFeedbackFooter report={report} align="end" />
-                        </div>
-                    </div>
+                            {summaryColumn}
+                        </>
+                    )}
                 </main>
             </div>
         </BindLogic>
@@ -502,13 +565,37 @@ function prFilesUrl(prUrl: string): string {
  * report. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
+    const { latestCommitArtefact, reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
 
+    // The branch to diff comes from the latest "Commit pushed" artefact; the diff needs the repo + branch
+    // it carries. A PR-bearing report gets the tab bar right away off `hasPr` (immediate) rather than the
+    // artefact (a beat later), with skeletons in the tab label and body until the artefact loads.
+    const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
+    const canDiff = !!(commit?.repository && commit?.branch)
+    const artefactsLoaded = reportArtefacts !== null
+
     return (
         <InboxDetailFrame
             report={report}
+            showFilesTab={hasPr || canDiff}
+            diffSection={
+                canDiff && commit ? (
+                    <PullRequestFilesChanged report={report} commit={commit} />
+                ) : hasPr ? (
+                    <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
+                ) : undefined
+            }
+            diffStat={
+                canDiff && commit ? (
+                    <PullRequestDiffStat report={report} commit={commit} />
+                ) : hasPr && !artefactsLoaded ? (
+                    <PullRequestDiffStatSkeleton />
+                ) : undefined
+            }
             primaryAction={
                 hasPr ? (
                     <LemonButton

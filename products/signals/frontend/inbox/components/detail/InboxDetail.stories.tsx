@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -18,7 +20,8 @@ import {
     reportTabReports,
     runReportsMany,
 } from '../../__mocks__/inboxMocks'
-import { SignalReportStatus } from '../../types'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
 import { ReportDetail } from './ReportDetail'
 import { ReportDetailLegacy } from './ReportDetailLegacy'
@@ -163,6 +166,21 @@ export const PullRequestChecksPassing: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[1]} />
+        </Frame>
+    ),
+}
+
+// Opens the "Files changed" tab: the file tree beside the branch diff from `mockBranchDiff()`.
+function FilesChangedTab({ report }: { report: SignalReport }): JSX.Element {
+    const { setDetailTab } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    useEffect(() => setDetailTab('files'), [setDetailTab])
+    return <ReportDetail report={report} />
+}
+
+export const PullRequestFilesChanged: Story = {
+    render: () => (
+        <Frame>
+            <FilesChangedTab report={pullRequestReports[0]} />
         </Frame>
     ),
 }
