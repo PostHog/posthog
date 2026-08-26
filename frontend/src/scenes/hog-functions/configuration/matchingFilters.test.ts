@@ -7,7 +7,9 @@ describe('buildEventMatchingFilters', () => {
         const result = buildEventMatchingFilters({
             events: [{ id: '$pageview', type: 'events', properties: [] }],
             actions: [{ id: '1', type: 'actions', properties: [] }],
-            properties: [{ type: PropertyFilterType.Person, key: 'plan', operator: 'exact', value: 'paid' }],
+            properties: [
+                { type: PropertyFilterType.Person, key: 'plan', operator: PropertyOperator.Exact, value: 'paid' },
+            ],
         })
 
         expect(result.type).toEqual(FilterLogicalOperator.And)
@@ -24,7 +26,7 @@ describe('buildEventMatchingFilters', () => {
         })
         expect(globalGroup).toEqual({
             type: FilterLogicalOperator.And,
-            values: [{ type: PropertyFilterType.Person, key: 'plan', operator: 'exact', value: 'paid' }],
+            values: [{ type: PropertyFilterType.Person, key: 'plan', operator: PropertyOperator.Exact, value: 'paid' }],
         })
     })
 
