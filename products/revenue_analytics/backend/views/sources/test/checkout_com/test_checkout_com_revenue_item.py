@@ -48,9 +48,10 @@ class TestRevenueItemCheckoutComBuilder(CheckoutComSourceBaseTest):
 
     @parameterized.expand([(PAYMENT_RESOURCE_NAME,), (PAYMENT_ACTION_RESOURCE_NAME,)])
     def test_build_with_schema_but_no_table_returns_empty_view(self, schema_without_table):
-        self.setup_checkout_com_external_data_source(schemas=[PAYMENT_RESOURCE_NAME, PAYMENT_ACTION_RESOURCE_NAME])
-        schema = self.get_checkout_com_schema_by_name(schema_without_table)
-        schema.table = None
+        self.setup_checkout_com_external_data_source(
+            schemas=[PAYMENT_RESOURCE_NAME, PAYMENT_ACTION_RESOURCE_NAME],
+            schemas_without_tables=[schema_without_table],
+        )
 
         query = build(self.checkout_com_handle)
 

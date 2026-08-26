@@ -52,9 +52,10 @@ class TestCustomerCheckoutComBuilder(CheckoutComSourceBaseTest):
         )
 
     def test_build_with_customers_schema_but_no_table_returns_empty_view(self):
-        self.setup_checkout_com_external_data_source(schemas=[CUSTOMER_RESOURCE_NAME])
-        customer_schema = self.get_checkout_com_schema_by_name(CUSTOMER_RESOURCE_NAME)
-        customer_schema.table = None
+        self.setup_checkout_com_external_data_source(
+            schemas=[CUSTOMER_RESOURCE_NAME],
+            schemas_without_tables=[CUSTOMER_RESOURCE_NAME],
+        )
 
         query = build(self.checkout_com_handle)
 

@@ -26,25 +26,35 @@ ALL_CHECKOUT_COM_RESOURCE_NAMES = [
 ]
 
 
-def create_mock_checkout_com_external_data_source(team, schemas: Optional[list[str]] = None):
+def create_mock_checkout_com_external_data_source(
+    team,
+    schemas: Optional[list[str]] = None,
+    schemas_without_tables: Optional[list[str]] = None,
+):
     """
     Create a mock external data source for Checkout.com with specified schemas.
 
     Args:
         team: The team to associate with the external data source
         schemas: List of schema names to include (defaults to all revenue-relevant schemas)
+        schemas_without_tables: Schema names that are synced but have no table yet
 
     Returns:
         RevenueSource with associated schemas and tables
     """
     if schemas is None:
         schemas = ALL_CHECKOUT_COM_RESOURCE_NAMES
+    without_tables = set(schemas_without_tables or [])
 
     prefix = "checkout_test"
     source_schemas = [
         RevenueSourceSchema(
             name=schema_name,
-            table=RevenueSourceTable(id=uuid4(), name=f"{prefix}_{schema_name.lower()}"),
+            table=(
+                None
+                if schema_name in without_tables
+                else RevenueSourceTable(id=uuid4(), name=f"{prefix}_{schema_name.lower()}")
+            ),
         )
         for schema_name in schemas
     ]
@@ -67,18 +77,25 @@ class CheckoutComSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
     including mock external data sources, schemas, and helper methods.
     """
 
-    def setup_checkout_com_external_data_source(self, schemas: Optional[list[str]] = None):
+    def setup_checkout_com_external_data_source(
+        self,
+        schemas: Optional[list[str]] = None,
+        schemas_without_tables: Optional[list[str]] = None,
+    ):
         """
         Create a mock Checkout.com external data source with specified schemas.
 
         Args:
             schemas: List of schema names to include (defaults to all revenue-relevant schemas)
+            schemas_without_tables: Schema names that are synced but have no table yet
 
         This creates:
         - self.external_data_source: RevenueSource
         - self.checkout_com_handle: SourceHandle for the external data source
         """
-        self.external_data_source = create_mock_checkout_com_external_data_source(team=self.team, schemas=schemas)
+        self.external_data_source = create_mock_checkout_com_external_data_source(
+            team=self.team, schemas=schemas, schemas_without_tables=schemas_without_tables
+        )
         self.checkout_com_handle = SourceHandle(type="checkoutcom", team=self.team, source=self.external_data_source)
 
     def get_checkout_com_schema_by_name(self, schema_name):
