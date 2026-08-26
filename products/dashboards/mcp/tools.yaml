@@ -41,9 +41,8 @@ tools:
             Slack delivery, also set `integration_id`. Find the connected Slack workspace with integrations-list (filter
             kind=slack) and the channel for `target_value` with integrations-channels-retrieve. Ask the user for the
             recipients and the cadence rather than choosing them, since this creates a recurring outbound delivery. If
-            subscriptions-create and subscriptions-list are not available to you in this session, say nothing about
-            subscriptions. If the user already declined a subscription earlier in this conversation, do
-            not offer again.
+            either subscriptions-create or subscriptions-list is not available to you in this session, say nothing about
+            subscriptions. If the user already declined a subscription earlier in this conversation, do not offer again.
         exclude_params:
             - creation_mode
             - effective_restriction_level
