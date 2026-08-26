@@ -665,7 +665,7 @@ class TaskWriteSerializer(serializers.Serializer):
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
     )
     initial_permission_mode = serializers.ChoiceField(
-        choices=INITIAL_PERMISSION_MODE_CHOICES,
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
         required=False,
         default=None,
         allow_null=True,
@@ -3281,7 +3281,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         ),
     )
     initial_permission_mode = serializers.ChoiceField(
-        choices=INITIAL_PERMISSION_MODE_CHOICES,
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
         required=False,
         default=None,
         allow_null=True,

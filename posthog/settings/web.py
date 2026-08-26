@@ -920,6 +920,16 @@ SPECTACULAR_SETTINGS = {
         "TaskExecutionModeEnum": ["interactive", "background"],
         # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
         "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+        "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "auto",
+            "read-only",
+            "full-access",
+            None,
+        ],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
