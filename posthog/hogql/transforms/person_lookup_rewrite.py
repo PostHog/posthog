@@ -10,8 +10,9 @@ fields and filters only on person identity, this pass retargets it.
 `any(person_properties)` on events returns an arbitrary event-time snapshot, so the
 rewrite changes results from "some historical snapshot" to "current properties".
 That is within the contract's slop: with no ORDER BY, no caller can depend on which
-snapshot `any()` picks. A query with a timestamp bound is a deliberate era-scoped
-read and is never rewritten.
+snapshot `any()` picks. Everything with firmer semantics is ineligible: a timestamp
+bound (deliberate era-scoped read), a bare field (one row per event), `argMax(...,
+timestamp)` (deterministically the latest snapshot), and decorated calls.
 
 Exports:
 * rewrite_person_lookups
@@ -27,11 +28,6 @@ _T_AST = TypeVar("_T_AST", bound=AST)
 
 # Person-sourced fields that exist on the persons table under the same name.
 _PERSON_FIELDS = {"properties", "id", "created_at"}
-
-# Aggregate wrappers a lookup query uses to collapse many event rows into one.
-# On a one-person persons read they are harmless, so `any` is kept and `argMax`
-# (whose sort key was an events column) is converted to `any`.
-_LOOKUP_AGGREGATES = {"any", "argMax"}
 
 
 def _events_alias(join: ast.JoinExpr) -> Optional[str]:
@@ -83,25 +79,36 @@ def _flatten_and(node: Optional[ast.Expr]) -> Optional[list[ast.Expr]]:
 
 
 def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
-    """The persons-table version of a select column, or None when ineligible."""
+    """The persons-table version of a select column, or None when ineligible.
+
+    Only an undecorated `any(person_field)` qualifies. A bare field returns one row
+    per matching event, so retargeting it would change cardinality, and `argMax(...,
+    timestamp)` deterministically returns the latest event-time snapshot, which the
+    current-person row does not preserve. Call decorations (DISTINCT, FILTER, ORDER
+    BY, parametric parameters) all change what `any` returns, so their presence
+    disqualifies rather than being silently dropped.
+    """
     if isinstance(expr, ast.Alias):
         inner = _rewrite_select_expr(expr.expr, alias)
         if inner is None:
             return None
         return ast.Alias(alias=expr.alias, expr=inner)
-    if isinstance(expr, ast.Field):
-        subchain = _person_subchain(expr, alias)
-        if subchain is None:
-            return None
-        return ast.Field(chain=subchain)
-    if isinstance(expr, ast.Call) and expr.name in _LOOKUP_AGGREGATES and not expr.distinct and expr.args:
+    if (
+        isinstance(expr, ast.Call)
+        and expr.name == "any"
+        and not expr.distinct
+        and len(expr.args) == 1
+        and not expr.params
+        and not expr.within_group
+        and not expr.order_by
+        and expr.filter_expr is None
+    ):
         first = expr.args[0]
         if not isinstance(first, ast.Field):
             return None
         subchain = _person_subchain(first, alias)
         if subchain is None:
             return None
-        # argMax's sort key was an events column; on a single persons row `any` is equivalent.
         return ast.Call(name="any", args=[ast.Field(chain=subchain)])
     return None
 
@@ -144,6 +151,8 @@ def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
         or node.group_by_mode
         or node.order_by
         or node.limit_by
+        or node.limit_percent
+        or node.limit_with_ties
         or node.view_name
         or node.select_from is None
     ):
@@ -157,15 +166,16 @@ def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
     if not select or any(expr is None for expr in select):
         return None
 
+    # Exactly one identity predicate: conjunctions of identifiers have event-existence
+    # semantics (distinct_id = 'a' AND distinct_id = 'b' matches no event, but both IDs
+    # can resolve to the same current person).
     predicates = _flatten_and(node.where)
-    if predicates is None or not predicates:
+    if predicates is None or len(predicates) != 1:
         return None
-    where = [_rewrite_predicate(expr, alias) for expr in predicates]
-    narrowed_where = [expr for expr in where if expr is not None]
-    if len(narrowed_where) != len(where):
+    rewritten_where = _rewrite_predicate(predicates[0], alias)
+    if rewritten_where is None:
         return None
 
-    rewritten_where: ast.Expr = narrowed_where[0] if len(narrowed_where) == 1 else ast.And(exprs=narrowed_where)
     return ast.SelectQuery(
         select=[expr for expr in select if expr is not None],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),

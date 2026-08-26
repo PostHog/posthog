@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
@@ -22,12 +23,8 @@ class TestPersonLookupRewrite(BaseTest):
                 "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
-                "bare_field_with_alias",
-                "select person.properties as properties from events where person.id = '019cf684-0000-0000-0000-000000000000'",
-            ),
-            (
-                "argmax_by_timestamp",
-                "select argMax(person.properties, timestamp) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+                "aliased_any",
+                "select any(person.properties) as properties from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             ),
             (
                 "property_key_and_created_at",
@@ -53,14 +50,6 @@ class TestPersonLookupRewrite(BaseTest):
         result = self._transform("select any(person.properties) from events where distinct_id = 'abc'")
         assert "FROM persons" in result
         assert "FROM person_distinct_ids" in result
-        assert "FROM events" not in result
-
-    def test_multiple_identity_predicates_all_rewrite(self):
-        result = self._transform(
-            "select any(person.properties) from events "
-            "where person.id = '019cf684-0000-0000-0000-000000000000' and distinct_id = 'abc'"
-        )
-        assert "FROM persons" in result
         assert "FROM events" not in result
 
     def test_rewrites_lookup_nested_in_outer_query(self):
@@ -96,6 +85,26 @@ class TestPersonLookupRewrite(BaseTest):
             (
                 "group_by_all",
                 "select person.properties from events where person.id = '019cf684-0000-0000-0000-000000000000' group by all",
+            ),
+            (
+                "bare_field_changes_cardinality",
+                "select person.properties from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+            ),
+            (
+                "argmax_is_deterministic_latest",
+                "select argMax(person.properties, timestamp) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+            ),
+            (
+                "any_distinct",
+                "select any(distinct person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+            ),
+            (
+                "multiple_identity_predicates",
+                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' and distinct_id = 'abc'",
+            ),
+            (
+                "repeated_distinct_id_equalities",
+                "select any(person.properties) from events where distinct_id = 'a' and distinct_id = 'b'",
             ),
             (
                 "order_by",
@@ -136,13 +145,63 @@ class TestPersonLookupRewrite(BaseTest):
         result = self._transform(query)
         assert result == expected
 
+    def _assert_untouched_events_source(self, node) -> None:
+        rewritten = rewrite_person_lookups(node)
+        assert isinstance(rewritten, ast.SelectQuery)
+        assert rewritten.select_from is not None
+        assert isinstance(rewritten.select_from.table, ast.Field)
+        assert rewritten.select_from.table.chain == ["events"]
+
+    @parameterized.expand(
+        [
+            ("limit_percent", "limit_percent"),
+            ("limit_with_ties", "limit_with_ties"),
+        ]
+    )
+    def test_limit_flags_disqualify(self, _name, attribute):
+        node = parse_select(
+            "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' limit 10"
+        )
+        setattr(node, attribute, True)
+        self._assert_untouched_events_source(node)
+
+    def test_filter_expr_on_any_disqualifies(self):
+        node = parse_select(
+            "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'"
+        )
+        assert isinstance(node, ast.SelectQuery)
+        call = node.select[0]
+        assert isinstance(call, ast.Call)
+        call.filter_expr = ast.Constant(value=True)
+        self._assert_untouched_events_source(node)
+
 
 class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
+    def _lookup(self, person_uuid, rewrite: bool):
+        from posthog.schema import HogQLQueryModifiers
+
+        return execute_hogql_query(
+            f"select any(person.properties.email) from events where person.id = '{person_uuid}'",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(rewritePersonEventLookups=rewrite),
+        ).results
+
+    def test_lookup_parity_when_person_has_events(self):
+        from posthog.test.base import _create_event, flush_persons_and_events
+
+        person = create_person(team=self.team, distinct_ids=["parity-user"], properties={"email": "a@example.com"})
+        _create_event(
+            event="$pageview",
+            distinct_id="parity-user",
+            team=self.team,
+            person_properties={"email": "a@example.com"},
+        )
+        flush_persons_and_events()
+        assert self._lookup(person.uuid, rewrite=True) == self._lookup(person.uuid, rewrite=False)
+
     def test_lookup_serves_current_properties_without_events(self):
         person = create_person(team=self.team, distinct_ids=["lookup-user"], properties={"email": "a@example.com"})
-        response = execute_hogql_query(
-            f"select any(person.properties.email) from events where person.id = '{person.uuid}'",
-            team=self.team,
-        )
-        # The person has no events, so a result proves the query read the persons table.
-        assert response.results == [("a@example.com",)]
+        # The intentional exception: with no events the events scan finds nothing, while
+        # the rewritten lookup still answers from the persons table.
+        assert self._lookup(person.uuid, rewrite=False) == [(None,)]
+        assert self._lookup(person.uuid, rewrite=True) == [("a@example.com",)]

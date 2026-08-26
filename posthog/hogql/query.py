@@ -214,7 +214,9 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
-        if self.query_modifiers.rewritePersonEventLookups:
+        # Direct connections can expose their own `events` table, and this transform
+        # matches `events` by unresolved name, so it must only run on the native schema.
+        if self.query_modifiers.rewritePersonEventLookups and self.connection_id is None:
             with self.timings.measure("person_lookup_rewrite"):
                 transformed_node = rewrite_person_lookups(self.select_query)
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
