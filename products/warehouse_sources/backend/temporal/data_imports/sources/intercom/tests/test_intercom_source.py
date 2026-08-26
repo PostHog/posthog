@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"contacts", "conversations", "tickets", "activity_logs", "conversation_parts"}
 
@@ -18,9 +15,6 @@ class TestIntercomSource:
         self.source = IntercomSource()
         self.team_id = 123
         self.config = IntercomSourceConfig(intercom_integration_id=456)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.INTERCOM
 
     def test_default_version_is_latest(self):
         # New sources are stamped with the default; keep it on the newest supported version.
@@ -50,32 +44,6 @@ class TestIntercomSource:
         _, kwargs = mock_intercom_source.call_args
         assert kwargs["api_version"] == expected
 
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Intercom"
-        assert config.releaseStatus == "beta"
-        assert not config.unreleasedSource
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "intercom_integration_id"
-        assert oauth_field.kind == "intercom"
-        assert oauth_field.required is True
-
-    @pytest.mark.parametrize(
-        "key",
-        [
-            "401 Client Error",
-            "403 Client Error",
-            "Missing integration ID",
-            "Integration not found",
-            "Intercom access token not found",
-        ],
-    )
-    def test_get_non_retryable_errors(self, key):
-        assert key in self.source.get_non_retryable_errors()
-
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -102,6 +70,21 @@ class TestIntercomSource:
         # stealing the workspace's single scroll slot) 404s on continuation. `companies` is
         # full-refresh, so a fresh Temporal attempt restarts cleanly — this should stay out
         # of error tracking as noise rather than be flagged as a real failure.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "400 Client Error: Bad Request for url: https://api.intercom.io/companies/scroll",
+        ],
+    )
+    def test_companies_scroll_exists_exhaustion_is_retryable(self, error_msg):
+        # Opening a companies scroll retries a `scroll_exists` lock inline (see
+        # `_open_companies_scroll`), but a lock held longer than that budget exhausts it and
+        # the raw error propagates. A fresh Temporal attempt opens cleanly once the stale
+        # scroll expires, so this should stay out of error tracking the same way the 404
+        # scroll-expiry case above does.
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 

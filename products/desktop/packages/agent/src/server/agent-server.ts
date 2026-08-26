@@ -28,6 +28,7 @@ import {
   parseMcpToolName,
   readMcpToolDescriptor,
   readPrUrls,
+  sleepWithBackoff,
 } from "@posthog/shared";
 import {
   buildPosthogPropertiesHeaderLines,
@@ -59,6 +60,7 @@ import {
   classifyAgentError,
   isPromptTooLongError,
 } from "../adapters/error-classification";
+import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { appendRtkGuidanceForCodex } from "../adapters/rtk-guidance";
 import {
@@ -108,6 +110,7 @@ import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
+import { AgentBootTracker } from "./boot-phases";
 import {
   normalizeCloudPromptContent,
   promptBlocksToText,
@@ -127,12 +130,14 @@ import {
   validateCommandParams,
 } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
+import { waitForFile } from "./wait-for-file";
 
 const agentErrorClassificationSchema = z.enum([
   "upstream_stream_terminated",
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -334,6 +339,8 @@ interface BuiltPrompt {
   messageId?: string;
 }
 
+export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
+
 function hiddenTextBlock(text: string): ContentBlock {
   return {
     type: "text",
@@ -508,6 +515,7 @@ export class AgentServer {
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
   private barrierReleasedAtMs?: number;
+  private bootTracker: AgentBootTracker;
   private logger: Logger;
   private server: ServerType | null = null;
   private session: ActiveSession | null = null;
@@ -535,6 +543,8 @@ export class AgentServer {
   // CLI flags can't carry the user's choice. Those settings are read from the
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
+  /** Whether the resume git checkpoint has been attempted, and what it answered. See `applyResumeGitCheckpoint`. */
+  private resumeGitCheckpointApplied: boolean | null = null;
   private prewarmedStartupTurnPending = false;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
@@ -638,6 +648,7 @@ export class AgentServer {
 
   constructor(config: AgentServerConfig) {
     this.config = config;
+    this.bootTracker = new AgentBootTracker(config.runId);
     this.posthogExecPermissionRegexSource =
       config.posthogExecPermissionRegex ??
       DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE;
@@ -751,11 +762,15 @@ export class AgentServer {
     const app = new Hono();
 
     app.get("/health", (c) => {
+      const boot = this.bootTracker.snapshot();
       return c.json({
         status: "ok",
         hasSession: !!this.session,
+        readiness: boot.state,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        boot,
+        capabilities: [PREWARMED_RESUME_IDLE_CAPABILITY],
       });
     });
 
@@ -1269,7 +1284,7 @@ export class AgentServer {
             taskId: commandSession.payload.task_id,
             runId: commandSession.payload.run_id,
           });
-          const prompt = builtPrompt.prompt;
+          let prompt = builtPrompt.prompt;
           if (prompt.length === 0) {
             throw new Error("User message cannot be empty");
           }
@@ -1330,11 +1345,22 @@ export class AgentServer {
             return outcome;
           }
 
+          // Read the slash command off what the user actually typed. A deferred summary resume
+          // prepends a hidden history block, and `isManualCompactPrompt` matches on the whole
+          // prompt text, so checking afterwards would stop recognizing `/compact` as the first
+          // message of a resumed session.
+          const manualCompactPrompt = isManualCompactPrompt(prompt);
+
+          const deferredResume = await this.preparePrewarmedResumePrompt(
+            commandSession.payload,
+            prompt,
+          );
+          prompt = deferredResume.prompt;
+
           commandSession.logWriter.resetTurnMessages(
             commandSession.payload.run_id,
           );
 
-          const manualCompactPrompt = isManualCompactPrompt(prompt);
           const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
             this.promptWithUpstreamRetry({
@@ -1369,11 +1395,31 @@ export class AgentServer {
                 }
                 return promptResult;
               };
-              if (this.prewarmedStartupTurnPending) {
-                this.prewarmedStartupTurnPending = false;
-                result = await this.runStartupTurn(runPrompt);
-              } else {
-                result = await this.runOwnedTurn(runPrompt);
+              const runTurn = () => {
+                if (this.prewarmedStartupTurnPending) {
+                  this.prewarmedStartupTurnPending = false;
+                  return this.runStartupTurn(runPrompt);
+                }
+                return this.runOwnedTurn(runPrompt);
+              };
+              try {
+                result = await runTurn();
+              } catch (error) {
+                // A deferred native resume replays the whole prior transcript, which can overflow
+                // the context window. Fall back the way `sendResumeContinuation` does — a fresh
+                // session carrying summarized history — instead of failing the run.
+                const retryPrompt =
+                  deferredResume.consumed && isPromptTooLongError(error)
+                    ? await this.retryOversizedDeferredResume(
+                        commandSession.payload,
+                        builtPrompt.prompt,
+                      )
+                    : null;
+                if (!retryPrompt) {
+                  throw error;
+                }
+                prompt = retryPrompt;
+                result = await runTurn();
               }
 
               if (result.stopReason === "end_turn" && manualCompactPrompt) {
@@ -1401,6 +1447,10 @@ export class AgentServer {
               throw error;
             }
             commitDelivery();
+            if (deferredResume.consumed) {
+              this.resumeState = null;
+              this.nativeResume = null;
+            }
             const outcome = { stopReason: "error_recoverable" };
             resolveDelivery(outcome);
             return outcome;
@@ -1408,6 +1458,10 @@ export class AgentServer {
             this.suppressAdapterTurnComplete = false;
           }
           commitDelivery();
+          if (deferredResume.consumed) {
+            this.resumeState = null;
+            this.nativeResume = null;
+          }
 
           this.logger.debug("User message completed", {
             stopReason: result.stopReason,
@@ -1655,6 +1709,7 @@ export class AgentServer {
       return;
     }
 
+    this.bootTracker = new AgentBootTracker(payload.run_id);
     this.initializationPromise = this._doInitializeSession(
       payload,
       sseController,
@@ -1663,6 +1718,7 @@ export class AgentServer {
     try {
       await this.initializationPromise;
     } catch (error) {
+      this.bootTracker.markFailed();
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
         type: "notification",
@@ -1693,6 +1749,34 @@ export class AgentServer {
     }
   }
 
+  /**
+   * The task's origin decides which origin-gated local tools load, so a transient failure here
+   * would silently drop report_insight from an analysis run. Retry, then give up so a task that
+   * genuinely does not exist still starts the session.
+   */
+  private async fetchTaskForSessionContext(
+    taskId: string,
+  ): Promise<Task | null> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.posthogAPI.getTask(taskId);
+      } catch (err) {
+        if (attempt === 2) {
+          this.logger.warn("Failed to fetch task for session context", {
+            taskId,
+            error: err,
+          });
+          return null;
+        }
+        await sleepWithBackoff(attempt, {
+          initialDelayMs: 250,
+          maxDelayMs: 1000,
+        });
+      }
+    }
+    return null;
+  }
+
   private async _doInitializeSession(
     payload: JwtPayload,
     sseController: SseController | null,
@@ -1703,6 +1787,7 @@ export class AgentServer {
 
     this.resumeState = null;
     this.nativeResume = null;
+    this.resumeGitCheckpointApplied = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
     this.prewarmedStartupTurnPending = false;
@@ -1719,25 +1804,26 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
-    const [preTaskRun, preTask] = await Promise.all([
-      this.posthogAPI
-        .getTaskRun(payload.task_id, payload.run_id)
-        .catch((err) => {
-          this.logger.debug("Failed to fetch task run for session context", {
-            taskId: payload.task_id,
-            runId: payload.run_id,
-            error: err,
-          });
-          return null;
-        }),
-      this.posthogAPI.getTask(payload.task_id).catch((err) => {
-        this.logger.debug("Failed to fetch task for session context", {
-          taskId: payload.task_id,
-          error: err,
-        });
-        return null;
-      }),
-    ]);
+    const [preTaskRun, preTask] = await this.bootTracker.measure(
+      "context_fetch",
+      () =>
+        Promise.all([
+          this.posthogAPI
+            .getTaskRun(payload.task_id, payload.run_id)
+            .catch((err) => {
+              this.logger.debug(
+                "Failed to fetch task run for session context",
+                {
+                  taskId: payload.task_id,
+                  runId: payload.run_id,
+                  error: err,
+                },
+              );
+              return null;
+            }),
+          this.fetchTaskForSessionContext(payload.task_id),
+        ]),
+    );
     this.taskRepositories =
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
@@ -1902,10 +1988,14 @@ export class AgentServer {
       clientStream,
     );
 
-    const initializeResult = await clientConnection.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {},
-    });
+    const initializeResult = await this.bootTracker.measure(
+      "acp_initialize",
+      () =>
+        clientConnection.initialize({
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        }),
+    );
     const steering = extractSteeringCapability(initializeResult);
     const conversationClear =
       extractConversationClearCapability(initializeResult);
@@ -1945,6 +2035,9 @@ export class AgentServer {
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
+      ...(preTask?.origin_product && {
+        taskOriginProduct: preTask.origin_product,
+      }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -1957,7 +2050,9 @@ export class AgentServer {
       ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
     };
 
-    await this.waitForRepoReady();
+    await this.bootTracker.measure("repository_ready", () =>
+      this.waitForRepoReady(),
+    );
     const existingPrCheckoutPromise =
       this.buildExistingPrCheckoutPromise(prUrl);
     // Overlap the best-effort PR checkout with the rest of session setup. The
@@ -1970,86 +2065,96 @@ export class AgentServer {
     // `.posthog/skills/<runId>/...`, which is gitignored (untracked) in target
     // repos, so `git checkout` — which only updates tracked files — cannot
     // conflict with those writes or leave them associated with the wrong branch.
-    let nativeResume: { sessionId: string; warm: boolean } | null;
     let effectiveSessionMeta: typeof sessionMeta & {
       nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
     } = sessionMeta;
-    let sessionMcpServers: McpServerConnection[];
-    try {
-      await this.installSkillBundleArtifacts(
-        payload.task_id,
-        payload.run_id,
-        this.getArtifactsById(preTaskRun?.artifacts, pendingUserArtifactIds),
-      );
+    const [nativeResume, sessionMcpServers] = await this.bootTracker.measure(
+      "session_dependencies",
+      async () => {
+        try {
+          await this.installSkillBundleArtifacts(
+            payload.task_id,
+            payload.run_id,
+            this.getArtifactsById(
+              preTaskRun?.artifacts,
+              pendingUserArtifactIds,
+            ),
+          );
+          const preparedNativeResume = await this.prepareNativeResume(
+            payload,
+            posthogAPI,
+            preTaskRun,
+            runtimeAdapter,
+            sessionCwd,
+            initialPermissionMode,
+          );
+          const preparedMcpServers: McpServerConnection[] = [
+            ...(this.config.mcpServers ?? []),
+            ...(await this.startMcpRelayServer()),
+          ];
+          return [preparedNativeResume, preparedMcpServers] as const;
+        } finally {
+          if (existingPrCheckoutPromise) {
+            this.logExistingPrCheckoutResult(
+              prUrl,
+              await existingPrCheckoutPromise,
+            );
+          }
+        }
+      },
+    );
 
-      nativeResume = await this.prepareNativeResume(
-        payload,
-        posthogAPI,
-        preTaskRun,
-        runtimeAdapter,
-        sessionCwd,
-        initialPermissionMode,
-      );
-
-      sessionMcpServers = [
-        ...(this.config.mcpServers ?? []),
-        ...(await this.startMcpRelayServer()),
-      ];
-    } finally {
-      // Always consume the checkout result — on the success path this is the
-      // intended await; on a throw it ensures the in-flight checkout settles
-      // (and aborts its children) instead of mutating the tree in the
-      // background. checkoutExistingPullRequest never rejects.
-      if (existingPrCheckoutPromise) {
-        this.logExistingPrCheckoutResult(
-          prUrl,
-          await existingPrCheckoutPromise,
-        );
-      }
-    }
-
-    let acpSessionId: string | null = null;
-    if (nativeResume) {
-      try {
-        await clientConnection.resumeSession({
-          sessionId: nativeResume.sessionId,
-          cwd: sessionCwd,
-          mcpServers: sessionMcpServers,
-          _meta: { ...effectiveSessionMeta, sessionId: nativeResume.sessionId },
-        });
-        acpSessionId = nativeResume.sessionId;
-        this.nativeResume = nativeResume;
-        this.logger.debug("ACP session resumed", {
-          acpSessionId,
-          runId: payload.run_id,
-          warm: nativeResume.warm,
-        });
-      } catch (error) {
-        // resumeState is still loaded, so the summary resume path takes over
-        // on the fresh session below.
-        this.logger.warn("Native resume failed; starting a fresh session", {
-          sessionId: nativeResume.sessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    if (!acpSessionId) {
-      const restoredNativeGoal =
-        this.getNativeGoalForFreshSession(runtimeAdapter);
-      effectiveSessionMeta = restoredNativeGoal
-        ? { ...sessionMeta, nativeGoal: restoredNativeGoal }
-        : sessionMeta;
-      const sessionResponse = await clientConnection.newSession({
-        cwd: sessionCwd,
-        mcpServers: sessionMcpServers,
-        _meta: effectiveSessionMeta,
-      });
-      acpSessionId = sessionResponse.sessionId;
-      this.logger.debug("ACP session created", {
-        acpSessionId,
-        runId: payload.run_id,
-      });
-    }
+    const acpSessionId = await this.bootTracker.measure(
+      "session_create",
+      async () => {
+        let sessionId: string | null = null;
+        if (nativeResume) {
+          try {
+            await clientConnection.resumeSession({
+              sessionId: nativeResume.sessionId,
+              cwd: sessionCwd,
+              mcpServers: sessionMcpServers,
+              _meta: {
+                ...effectiveSessionMeta,
+                sessionId: nativeResume.sessionId,
+              },
+            });
+            sessionId = nativeResume.sessionId;
+            this.nativeResume = nativeResume;
+            this.logger.debug("ACP session resumed", {
+              acpSessionId: sessionId,
+              runId: payload.run_id,
+              warm: nativeResume.warm,
+            });
+          } catch (error) {
+            // resumeState is still loaded, so the summary resume path takes over
+            // on the fresh session below.
+            this.logger.warn("Native resume failed; starting a fresh session", {
+              sessionId: nativeResume.sessionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        if (!sessionId) {
+          const restoredNativeGoal =
+            this.getNativeGoalForFreshSession(runtimeAdapter);
+          effectiveSessionMeta = restoredNativeGoal
+            ? { ...sessionMeta, nativeGoal: restoredNativeGoal }
+            : sessionMeta;
+          const sessionResponse = await clientConnection.newSession({
+            cwd: sessionCwd,
+            mcpServers: sessionMcpServers,
+            _meta: effectiveSessionMeta,
+          });
+          sessionId = sessionResponse.sessionId;
+          this.logger.debug("ACP session created", {
+            acpSessionId: sessionId,
+            runId: payload.run_id,
+          });
+        }
+        return sessionId;
+      },
+    );
 
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
@@ -2084,6 +2189,7 @@ export class AgentServer {
       0,
       Date.now() - (this.barrierReleasedAtMs ?? Date.now()),
     );
+    this.bootTracker.markReady();
     this.logger.debug("Session initialized successfully", {
       bootMs: this.sessionReadyBootMs,
       sessionInitMs: this.sessionInitMs,
@@ -2353,12 +2459,19 @@ export class AgentServer {
       });
     }
 
-    if (this.nativeResume) {
-      await this.sendResumeContinuation(payload, taskRun);
-      return;
-    }
+    const taskRunState = taskRun?.state as Record<string, unknown> | undefined;
+    const prewarmed = taskRunState?.prewarmed === true;
+    const hasPendingUserPrompt =
+      (typeof taskRunState?.pending_user_message === "string" &&
+        taskRunState.pending_user_message.trim().length > 0) ||
+      (Array.isArray(taskRunState?.pending_user_artifact_ids) &&
+        taskRunState.pending_user_artifact_ids.length > 0);
 
-    if (!this.resumeState) {
+    // Load the summary fallback before deciding to idle. A prewarmed run that idles here reads
+    // this state when its first message arrives, and initialization may have failed to fetch the
+    // run that `prepareNativeResume` needed — leaving both resume fields empty and starting the
+    // resumed task with none of its prior conversation.
+    if (!this.nativeResume && !this.resumeState) {
       const resumeRunId = this.getResumeRunId(taskRun);
       if (resumeRunId) {
         await this.loadResumeState(
@@ -2367,6 +2480,24 @@ export class AgentServer {
           payload.run_id,
         );
       }
+    }
+
+    // `await_user_message` is the marker the backend clears on activation. `prewarmed` is permanent
+    // provenance that outlives it, so idling on that alone would strand a run whose first message
+    // was already delivered — every later reinitialization would wait for a message nobody sends.
+    const awaitsFirstMessage = taskRunState?.await_user_message === true;
+    if (prewarmed && awaitsFirstMessage && !hasPendingUserPrompt) {
+      this.prewarmedRun = true;
+      this.logger.debug(
+        "Prewarmed run awaits its forwarded first message, skipping initial message",
+      );
+      return;
+    }
+
+    if (this.nativeResume) {
+      if (await this.settleIdleResume(payload, taskRun)) return;
+      await this.sendResumeContinuation(payload, taskRun);
+      return;
     }
 
     if (this.resumeState && this.resumeState.conversation.length > 0) {
@@ -2386,9 +2517,6 @@ export class AgentServer {
       // A prewarmed run gets its first message forwarded as a user_message
       // signal on activation; building one from task.description here too
       // would deliver it twice (and without the forwarded artifacts).
-      const prewarmed = !!(
-        taskRun?.state as Record<string, unknown> | undefined
-      )?.prewarmed;
       let initialPrompt: ContentBlock[] = [];
       let initialPromptMeta: Record<string, unknown> | undefined;
       let initialPromptMessageId: string | undefined;
@@ -2545,6 +2673,169 @@ export class AgentServer {
         messageId: resumePromptMessageId,
       };
     });
+  }
+
+  private async settleIdleResume(
+    payload: JwtPayload,
+    taskRun: TaskRun | null,
+  ): Promise<boolean> {
+    if (!this.session || process.env.POSTHOG_RESUME_IDLE !== "1") return false;
+
+    const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+    if (pendingUserPrompt?.prompt.length) return false;
+
+    const checkpointApplied = this.nativeResume?.warm
+      ? false
+      : await this.applyResumeGitCheckpoint(payload);
+
+    this.logger.debug("Idle resume settled without a turn", {
+      taskId: payload.task_id,
+      runId: payload.run_id,
+      sessionId: this.nativeResume?.sessionId,
+      warm: this.nativeResume?.warm,
+      checkpointApplied,
+    });
+
+    this.resumeState = null;
+    this.nativeResume = null;
+
+    this.broadcastTurnComplete("end_turn");
+    await this.session.logWriter.flushAll();
+    return true;
+  }
+
+  private async preparePrewarmedResumePrompt(
+    payload: JwtPayload,
+    prompt: ContentBlock[],
+  ): Promise<{ prompt: ContentBlock[]; consumed: boolean }> {
+    if (!this.prewarmedRun) {
+      return { prompt, consumed: false };
+    }
+
+    if (this.nativeResume) {
+      const checkpointApplied = this.nativeResume.warm
+        ? false
+        : await this.applyResumeGitCheckpoint(payload);
+      this.logger.debug("Applying deferred native resume to user message", {
+        taskId: payload.task_id,
+        sessionId: this.nativeResume.sessionId,
+        warm: this.nativeResume.warm,
+        checkpointApplied,
+      });
+      return { prompt, consumed: true };
+    }
+
+    if (!this.resumeState?.conversation.length) {
+      return { prompt, consumed: false };
+    }
+
+    const resumeState = this.resumeState;
+    const checkpointApplied = await this.applyResumeGitCheckpoint(payload);
+
+    this.logger.debug("Applying deferred summary resume to user message", {
+      taskId: payload.task_id,
+      conversationTurns: resumeState.conversation.length,
+      checkpointApplied,
+      hasGitCheckpoint: !!resumeState.latestGitCheckpoint,
+    });
+
+    return {
+      prompt: this.wrapPromptWithSummaryResume(
+        resumeState,
+        checkpointApplied,
+        prompt,
+      ),
+      consumed: true,
+    };
+  }
+
+  /** Wrap the user's message in the previous session's conversation, hidden from the transcript. */
+  private wrapPromptWithSummaryResume(
+    resumeState: ResumeState,
+    checkpointApplied: boolean,
+    prompt: ContentBlock[],
+  ): ContentBlock[] {
+    const checkpointContext = checkpointApplied
+      ? "The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint."
+      : "No additional git checkpoint was applied before resuming. Use the current workspace contents together with the preserved conversation history below.";
+    const conversationSummary = formatConversationForResume(
+      resumeState.conversation,
+    );
+    return [
+      hiddenTextBlock(
+        `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+          `Here is the conversation history from the previous session:\n\n` +
+          `${conversationSummary}\n\n` +
+          "The user has sent a new message:\n\n",
+      ),
+      ...prompt,
+      hiddenTextBlock(
+        "\n\nRespond to the user's new message above. You have full context from the previous session.",
+      ),
+    ];
+  }
+
+  /**
+   * Recover a deferred native resume whose transcript overflowed the context window: open a fresh
+   * session and rebuild the prompt around summarized history instead. Returns the replacement
+   * prompt, or null when there is nothing to fall back to.
+   *
+   * `sendResumeContinuation` gets this through `runResumeTurn`'s `retryOnOversizedPrompt`, but a
+   * prewarmed run defers its resume onto the first forwarded `user_message` and never goes through
+   * that path — without this it would fail the run instead of retrying.
+   */
+  private async retryOversizedDeferredResume(
+    payload: JwtPayload,
+    prompt: ContentBlock[],
+  ): Promise<ContentBlock[] | null> {
+    if (this.oversizedResumeRetried || !this.session) {
+      return null;
+    }
+    this.oversizedResumeRetried = true;
+
+    const taskRun = await this.refreshTaskRunForResume(payload, null);
+    const resumeRunId = this.getResumeRunId(taskRun);
+    if (!resumeRunId) return null;
+    if (!this.resumeState) {
+      try {
+        await this.loadResumeState(
+          payload.task_id,
+          resumeRunId,
+          payload.run_id,
+        );
+      } catch (error) {
+        this.logger.warn("Failed to reload resume state for retry", {
+          error: getErrorMessage(error),
+        });
+        return null;
+      }
+    }
+    const resumeState = this.resumeState;
+    if (!resumeState?.conversation.length) return null;
+
+    try {
+      const response = await this.session.clientConnection.newSession({
+        cwd: this.config.repositoryPath ?? "/tmp/workspace",
+        mcpServers: this.config.mcpServers ?? [],
+        _meta: this.session.sessionMeta,
+      });
+      this.session.acpSessionId = response.sessionId;
+    } catch (error) {
+      this.logger.warn("Failed to start fresh session for oversized resume", {
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+
+    this.logger.warn(
+      "Deferred resume prompt exceeded the context window; retrying on a fresh session with summarized history",
+      { taskId: payload.task_id, runId: payload.run_id },
+    );
+    return this.wrapPromptWithSummaryResume(
+      resumeState,
+      await this.applyResumeGitCheckpoint(payload),
+      prompt,
+    );
   }
 
   private async sendResumeContinuation(
@@ -2746,6 +3037,13 @@ export class AgentServer {
   private async applyResumeGitCheckpoint(
     payload: JwtPayload,
   ): Promise<boolean> {
+    // At most once per process, and the answer is replayed afterwards. The checkpoint resets the
+    // workspace to the resumed run's snapshot, so a second application discards everything the
+    // session has written since — including the work of a turn that failed and is being retried.
+    // A failed attempt counts as an attempt: it may have partially applied.
+    if (this.resumeGitCheckpointApplied !== null) {
+      return this.resumeGitCheckpointApplied;
+    }
     if (
       !this.resumeState?.latestGitCheckpoint ||
       !this.config.repositoryPath ||
@@ -2771,12 +3069,14 @@ export class AgentServer {
         indexBytes: metrics.indexBytes,
         totalBytes: metrics.totalBytes,
       });
+      this.resumeGitCheckpointApplied = true;
       return true;
     } catch (error) {
       this.logger.warn("Failed to apply git checkpoint", {
         error: error instanceof Error ? error.message : String(error),
         branch: this.resumeState.latestGitCheckpoint.branch,
       });
+      this.resumeGitCheckpointApplied = false;
       return false;
     }
   }
@@ -3565,40 +3865,28 @@ export class AgentServer {
     }
 
     const REPO_READY_TIMEOUT_MS = 5 * 60_000;
-    const POLL_MS = 100;
-    const startedAt = Date.now();
-    let loggedUnexpectedError = false;
-
-    for (;;) {
-      try {
-        await access(readyFile);
-        this.barrierReleasedAtMs = Date.now();
-        this.logger.debug("Repo-ready barrier released", {
+    const result = await waitForFile(readyFile, {
+      timeoutMs: REPO_READY_TIMEOUT_MS,
+      onError: (error) => {
+        this.logger.debug("Repo-ready barrier check failed", {
           readyFile,
-          waitedMs: Date.now() - startedAt,
+          code: error.code,
+          message: error.message,
         });
-        return;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException)?.code;
-        if (code !== "ENOENT" && !loggedUnexpectedError) {
-          loggedUnexpectedError = true;
-          this.logger.debug("Repo-ready barrier access error; still polling", {
-            readyFile,
-            code,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-      if (Date.now() - startedAt > REPO_READY_TIMEOUT_MS) {
-        this.barrierReleasedAtMs = Date.now();
-        this.logger.warn("Repo-ready barrier timed out; proceeding", {
-          readyFile,
-          waitedMs: Date.now() - startedAt,
-        });
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      },
+    });
+    this.barrierReleasedAtMs = Date.now();
+    if (result.timedOut) {
+      this.logger.warn("Repo-ready barrier timed out; proceeding", {
+        readyFile,
+        waitedMs: result.waitedMs,
+      });
+      return;
     }
+    this.logger.debug("Repo-ready barrier released", {
+      readyFile,
+      waitedMs: result.waitedMs,
+    });
   }
 
   private async autoInitializeSession(): Promise<void> {
@@ -4061,6 +4349,30 @@ we want:
   Generated-By: PostHog Desktop
   Task-Id: ${taskId}`;
 
+    // A stack is several PRs, so this would contradict the review-first modes.
+    const stackInstructions = shouldAutoCreatePr
+      ? `
+## Stacked pull requests
+Stack only when the layers are independently reviewable (schema, then backend, then UI) or the
+user asked for a stack. Keep stacks shallow — 2 to 4 layers. One PR remains the default.
+Do NOT use the \`gh stack\` CLI: its publishing commands (\`submit\`, \`sync\`, \`push\`, \`link\`)
+all run \`git push\`, which is blocked here. Build the stack this way instead:
+1. Commit the bottom layer with \`git_signed_commit\`, passing \`branch\`, then open its pull
+   request based on the base branch.
+2. For each layer above, commit with \`git_signed_commit\` and a new \`branch\` — your checkout
+   already sits on the layer below, so the branch starts there — then open its pull request
+   based on the branch of the layer below (\`--base <that branch>\`).
+3. Link them with the \`gh_stack\` tool (full name \`${GH_STACK_QUALIFIED_TOOL_NAME}\`),
+   operation "create", passing \`pull_requests\` bottom to top. Every layer must target the
+   branch of the one below it, or the link is refused.
+When a lower layer changes, restack the layers above it bottom-first. For each layer: check
+that layer out, \`git rebase <its parent branch>\`, then republish it with
+\`git_signed_rewrite\` passing \`onto\` = the parent branch. Check the layer out every time —
+\`git_signed_rewrite\` replays whatever your local HEAD points at and uses \`branch\` only to
+pick which remote ref moves, so rewriting from the wrong checkout publishes the wrong history
+to that layer.`
+      : "";
+
     const prLinkInstructions = `
 ## Referencing pull requests
 When you mention a pull request in any reply or summary, always hyperlink it to its full URL
@@ -4080,7 +4392,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
@@ -5031,9 +5343,9 @@ ${commonInstructions}
       baseBranch: this.config.baseBranch ?? null,
     });
     if (!owned) {
-      // Info, not debug: a wrongly rejected PR leaves the run with no PR until the
-      // webhook backstop binds it, and this line is the only trace of why.
-      this.logger.info(
+      // Keep the evidence available for diagnosing wrongly rejected PRs without
+      // surfacing every unrelated PR URL found in routine agent output.
+      this.logger.debug(
         "PR seen in output is not this run's, skipping attribution",
         {
           runId: payload.run_id,

@@ -5,7 +5,8 @@ Source of truth for satellite ClickHouse clusters, managed declaratively with
 Schemas are written in HCL, **composed per node** `(env, role)`, verified against
 captured cluster dumps, and used to generate the migration that applies a change.
 
-Covers the satellite roles (ops, logs, aux, `ai_events`, sessions, sessionsv3, `batch_exports`) in the cloud envs (dev, prod-us, prod-eu) where each exists, plus the local `data` node and the three ingestion roles (`events`, `small`, `medium`) the multinode stack runs.
+Covers the satellite roles (logs, aux, `ai_events`, sessions, `batch_exports`) in the cloud envs (dev, prod-us, prod-eu) where each exists, plus the local `data` node and the three ingestion roles (`events`, `small`, `medium`) the multinode stack runs.
+`ops` is local-only here: posthog-cloud-infra authors its cloud env layers and goldens, composing `roles/ops/shared` vendored from this directory.
 The `local-single` env models the plain dev stack, where one server hosts every role's objects under the role `all`, composed as the union of the roles the multinode stack splits across nodes.
 The prod data clusters carry per-env `mat_` columns, so their goldens and per-env override layers live in posthog-cloud-infra (see [The cloud side](#the-cloud-side-posthog-cloud-infra)).
 
@@ -29,7 +30,8 @@ hcl/
   roles/<role>/shared/     # objects on every env of one role
   roles/<role>/prod/       # objects on both prod envs only
   roles/<role>/<env>/      # per-env overlay: env-only objects + patch_* deltas; env ∈ local/dev/prod-us/prod-eu
-  roles/data/shared/       # the events family declared once: the _event_base abstract + the events/sharded_events extenders
+  roles/shared/event_base.hcl  # the _event_base abstract every events copy extends
+  roles/data/shared/       # the events family: the events/sharded_events extenders
   roles/data/local/        # the rest of the local data node (migration-produced schema) + its patch_* deltas
   duplicates-baseline.txt  # objects still declared in >1 composed layer; check.sh gates on it, and it only shrinks
   <layer>/sql/<object>.sql # view/MV query bodies extracted from a layer, referenced as query = file("sql/<object>.sql")
@@ -81,9 +83,9 @@ reconciling a new role.
 Every role `manifest.hcl` composes for the gate's env is dumped and gated — for `local-multi` that is
 each node the multinode stack runs, one per published port in `dump-live.sh`'s `ROLES`, compared
 against its `golden/local-multi/<role>.hcl` (`aux` is filed as `auxiliary`, see `golden_name` in
-`lib.sh`). The local LOGS node runs a partial/newer schema than the cloud logs nodes, so
-`local-multi logs` composes a self-contained `roles/logs/local` (extracted from the live node) rather
-than the shared cloud layers.
+`lib.sh`). Every logs node composes `roles/logs/{base,traces,traces_kafka_metrics}`; the local one
+adds a self-contained `roles/logs/local` (extracted from the live node) for the legacy `logs32`
+family it still runs, and skips the cloud-only metrics ingest in `roles/logs/cloud`.
 
 `node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
 `node_roles` = every role the manifest declares; an object under `roles/ops/` appears only in the ops
@@ -107,7 +109,7 @@ Two consequences:
 - The **Cloud compose gate** job (in `ci-clickhouse-hcl-schema.yml`) dispatches to posthog-cloud-infra and composes the cloud envs against your PR head; it fails when a change breaks composition there (a patch that no longer resolves, a redeclaration, a validation error).
 - A change that composes cleanly may still legitimately _shift_ cloud goldens (say, a new column on `_event_base`) — that regen happens in cloud-infra's next `base-ref` bump PR, not here, and is expected.
 
-The events family is the canonical example: `roles/data/shared/` declares `_event_base` + `sharded_events` + `events` once; cloud env deltas (mat\_ columns, env specs) live as patches in cloud-infra's `overrides/`.
+The events family is the canonical example: `roles/shared/event_base.hcl` declares `_event_base` once, `roles/data/shared/` declares the `sharded_events` and `events` extenders, `roles/sessions/shared/` the sessions replica of the proxy; cloud env deltas (mat\_ columns, env specs) live as patches in cloud-infra's `overrides/`.
 Schema changes to those tables belong in `roles/data/shared/`, never re-declared per env.
 
 ## Making a change (edit HCL → migration)
@@ -134,7 +136,7 @@ build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-
    - an object on every role (the `query_log_archive` path, `custom_metrics_*` sub-views) → `roles/shared/`
    - an object a specific set of roles co-hosts (a data table plus the nodes holding its Distributed proxies) → `roles/coshared/<member-set>/`, and wire a new set into each member's stack in `manifest.hcl`
    - one role → `roles/<role>/shared/` (all its envs), `roles/<role>/prod/` (both prods), or `roles/<role>/<env>/` (one env)
-   - the events family → the `_event_base` abstract + extenders in `roles/data/shared/`
+   - the events family → the `_event_base` abstract in `roles/shared/event_base.hcl`, its extenders in `roles/data/shared/` and `roles/sessions/shared/`
    - a brand-new object → add it to the layer above **and**, if it's on a new role, add that role's
      block to `manifest.hcl` (+ a golden for it).
    - **declare an object once, everywhere it differs use a patch.**

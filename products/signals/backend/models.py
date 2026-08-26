@@ -50,8 +50,9 @@ class SignalSourceConfig(UUIDModel):
     SourceProduct = SignalSourceProduct
 
     # Source-type choices are intentionally a *subset* of the full SignalSourceType taxonomy: only the
-    # types that carry a per-team config row live here (e.g. session_problem / evaluation_report gate via
-    # other configs and are deliberately absent).
+    # types that carry a per-team config row live here. session_problem gates through another config.
+    # evaluation is retired, and stays in the taxonomy only so old signals still resolve to a label.
+    # Every source_type the emission registry emits must appear here, or enabling that source 400s.
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION_REPORT = "evaluation_report", "Evaluation report"
@@ -67,9 +68,12 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
         ANOMALY_INVESTIGATION = "anomaly_investigation", "Anomaly investigation"
+        FEEDBACK = "feedback", "Feedback"
+        REVIEW = "review", "Review"
         CI_FLAKY_CHECK = "ci_flaky_check", "CI flaky check"
         CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch", "CI broken default branch"
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
+        SEARCH_OPPORTUNITY = "search_opportunity", "Search opportunity"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
@@ -254,6 +258,12 @@ class SignalReport(UUIDModel):
     # lands NOT NULL with no Postgres default and any insert from a pre-deploy worker — which omits
     # the column it doesn't know about — fails until the rollout finishes.
     charts = models.JSONField(default=list, db_default=[], blank=True)
+    # Questions this report suggests its reader ask AI about it, each a plain string (see
+    # report_prompts.py). Content rather than log for the same reason `charts` is: a question is
+    # written against the summary it sits under, so a rewrite of that summary replaces it instead of
+    # leaving a stale question beside fresh prose. The inbox offers them above the "Ask AI" box.
+    # `db_default` alongside `default` for the reason spelled out on `charts`.
+    suggested_prompts = models.JSONField(default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -719,97 +729,6 @@ class SignalReport(UUIDModel):
         ).values("report_id")
         legacy_report_ids = SignalReportTask.objects.filter(task_id__in=task_ids).values("report_id")
         return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
-
-
-class SignalReportCanvas(TeamScopedRootMixin, UUIDModel):
-    class GenerationStatus(models.TextChoices):
-        PENDING = "pending", "Pending"
-        GENERATING = "generating", "Generating"
-        READY = "ready", "Ready"
-        FAILED = "failed", "Failed"
-
-    class CollaborationMode(models.TextChoices):
-        MANAGED = "managed", "Managed"
-        COLLABORATIVE = "collaborative", "Collaborative"
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="canvas_session")
-    canvas_id = models.UUIDField(unique=True)
-    discussion_task_id = models.UUIDField(unique=True)
-    generation_task_id = models.UUIDField(null=True, blank=True)
-    generated_fingerprint = models.CharField(max_length=64, blank=True, default="")
-    generation_status = models.CharField(
-        max_length=16,
-        choices=GenerationStatus,
-        default=GenerationStatus.PENDING,
-    )
-    collaboration_mode = models.CharField(
-        max_length=16,
-        choices=CollaborationMode,
-        default=CollaborationMode.MANAGED,
-    )
-    failure_reason = models.TextField(blank=True, default="")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        indexes = [models.Index(fields=["team", "generation_status"], name="signals_rpt_canvas_status_idx")]
-
-
-class SignalReportCanvasGeneration(TeamScopedRootMixin, UUIDModel):
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        GENERATING = "generating", "Generating"
-        READY = "ready", "Ready"
-        FAILED = "failed", "Failed"
-
-    class ValidationStatus(models.TextChoices):
-        PENDING = "pending", "Pending"
-        VALID = "valid", "Valid"
-        INVALID = "invalid", "Invalid"
-
-    class ReviewStatus(models.TextChoices):
-        UNREVIEWED = "unreviewed", "Unreviewed"
-        USEFUL = "useful", "Useful"
-        UNUSABLE = "unusable", "Unusable"
-        EDITED = "edited", "Edited"
-        PUBLISHED = "published", "Published"
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="canvas_generations")
-    status = models.CharField(max_length=16, choices=Status, default=Status.PENDING)
-    validation_status = models.CharField(
-        max_length=16,
-        choices=ValidationStatus,
-        default=ValidationStatus.PENDING,
-    )
-    review_status = models.CharField(
-        max_length=16,
-        choices=ReviewStatus,
-        default=ReviewStatus.UNREVIEWED,
-    )
-    trigger = models.CharField(max_length=64)
-    prompt_version = models.CharField(max_length=64)
-    input_fingerprint = models.CharField(max_length=64)
-    output_source = models.TextField(blank=True, default="")
-    output_storage_key = models.CharField(max_length=512, blank=True, default="")
-    model_metadata = models.JSONField(default=dict)
-    error_category = models.CharField(max_length=64, blank=True, default="")
-    failure_reason = models.TextField(blank=True, default="")
-    duration_ms = models.PositiveIntegerField(null=True, blank=True)
-    generation_task_id = models.UUIDField(null=True, blank=True)
-    generation_run_id = models.UUIDField(null=True, blank=True)
-    canvas_id = models.UUIDField(null=True, blank=True)
-    started_at = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["team", "status", "created_at"], name="signals_canvas_gen_status_idx"),
-            models.Index(fields=["report", "created_at"], name="signals_canvas_gen_report_idx"),
-        ]
 
 
 class SignalEmissionRecord(UUIDModel):
@@ -2008,6 +1927,13 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     embedded snippets, neither of which fits the scout's per-key cross-agent
     read pattern. Kept narrow to the scouts feature on purpose; not a shared
     primitive.
+
+    Most entries are durable, so `expires_at` is nullable and unset by default. It
+    exists for the memories that are true only for a while — a cooldown, a window to
+    watch — which a scout would otherwise have to come back and `forget` by hand.
+    Expiry hides a row from `search_scratchpad`, it does not delete it: the key stays
+    taken (so the upsert keeps working) and a human auditing the fleet's memory can
+    still read it back with `include_expired`.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
@@ -2031,6 +1957,9 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="scratchpads_created",
     )
+    # Null = durable (the default). Set to drop the entry out of scout searches once
+    # its shelf life is up. Mirrors `SignalScoutNote.expires_at`.
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

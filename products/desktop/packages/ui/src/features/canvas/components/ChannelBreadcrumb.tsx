@@ -84,9 +84,7 @@ export function ChannelBreadcrumb({
   const editing = editingScope === currentEditScope;
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const atChannelHome = channelId
-    ? pathname === `/website/${channelId}`
-    : false;
+  const atChannelHome = channelId ? pathname === `/spaces/${channelId}` : false;
 
   const channelSegment = (
     <BreadcrumbSegment
@@ -101,7 +99,7 @@ export function ChannelBreadcrumb({
         channelId && !atChannelHome
           ? () =>
               void navigate({
-                to: "/website/$channelId",
+                to: "/spaces/$channelId",
                 params: { channelId },
               })
           : undefined

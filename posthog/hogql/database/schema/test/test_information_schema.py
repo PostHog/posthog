@@ -1,14 +1,20 @@
+import uuid
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.apps import apps
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.schema.information_schema import (
     _bound_table_names,
+    _certification_key,
+    _classify_table,
     _pushdown_table_filter,
     _warehouse_metadata,
 )
@@ -160,6 +166,34 @@ class TestWarehouseMetadata(APIBaseTest):
         self._table("shared", 7)
         metadata = _warehouse_metadata(self.team.id)
         assert metadata.row_counts["shared"] == 7
+
+    def test_saved_query_id_map_covers_non_materialized_views(self):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="plain_view", query={"query": "SELECT 1"}, columns={}
+        )
+        metadata = _warehouse_metadata(self.team.id)
+        assert metadata.saved_query_ids_by_name["plain_view"] == str(view.id)
+        assert "plain_view" not in metadata.view_row_counts
+
+
+class TestCertificationKey(SimpleTestCase):
+    def test_view_key_prefers_db_saved_query_id_over_object_id(self) -> None:
+        saved_query_id = str(uuid.uuid4())
+        view = SavedQuery(id=str(uuid.uuid4()), name="stripe.mrr_revenue_view", query="select 1", fields={})
+        key = _certification_key("stripe.mrr_revenue_view", view, "view", {"stripe.mrr_revenue_view": saved_query_id})
+        assert key == ("view", saved_query_id)
+
+    def test_view_with_name_shaped_id_and_no_saved_query_has_no_key(self) -> None:
+        name = "revenue_analytics.events.mrr_revenue_view"
+        view = SavedQuery(id=name, name=name, query="select 1", fields={})
+        assert _certification_key(name, view, "view", {}) is None
+
+    def test_resolved_view_classifies_as_view_even_when_a_warehouse_table_shares_its_name(self) -> None:
+        view = SavedQuery(id=str(uuid.uuid4()), name="stripe.mrr_revenue_view", query="select 1", fields={})
+        assert _classify_table("stripe.mrr_revenue_view", view, {"stripe.mrr_revenue_view"}, set()) == (
+            "view",
+            "views",
+        )
 
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):

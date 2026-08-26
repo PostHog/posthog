@@ -203,6 +203,16 @@ class TestFindScannerCandidatesActivity:
             )
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    def test_targeted_scanner_with_no_creator_skips_instead_of_failing(self) -> None:
+        # The exposure filter refuses userless principals, so a deleted creator would otherwise
+        # raise out of the activity and fail every scheduled tick forever. The skip also keeps the
+        # watermark still, so access restored later resumes from where scanning stopped.
+        scanner = _make_scanner(created_by=None, experiment_targeting={"experiment_id": 12345})
+        result = find_scanner_candidates_activity(
+            FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+        )
+        assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
+
     def test_proceeds_when_created_by_is_null(self) -> None:
         scanner = _make_scanner(created_by=None)
         with patch(
@@ -1197,9 +1207,8 @@ def test_limit_notification_excludes_users_denied_on_the_scanner() -> None:
     from posthog.constants import AvailableFeature
     from posthog.models import OrganizationMembership, User
 
+    from products.access_control.backend.models.access_control import AccessControl
     from products.notifications.backend.facade.enums import TargetType
-
-    from ee.models.rbac.access_control import AccessControl
 
     limit = 20 * _OBSERVATION_CREDITS
     scanner = _make_scanner(credit_limit=limit)

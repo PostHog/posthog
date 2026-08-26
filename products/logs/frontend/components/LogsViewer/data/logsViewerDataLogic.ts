@@ -24,7 +24,6 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -39,11 +38,14 @@ import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersG
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
-import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import {
+    logsViewerFiltersLogic,
+    unsetColumnQueryFields,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import type { ProductIntentProperties } from '../../../../../../frontend/src/lib/utils/product-intents'
-import type { DateRange, LogSeverityLevel } from '../../../../../../frontend/src/queries/schema/schema-general'
+import type { DateRange } from '../../../../../../frontend/src/queries/schema/schema-general'
 // TODO: Move to ./types.ts
 import { ParsedLogMessage } from '../../../types'
 import type { LogsOrderBy } from '../../../types'
@@ -184,7 +186,6 @@ export interface logsViewerDataLogicValues {
             values: number[]
         }[]
         dates: string[]
-        labels: string[]
     }
     sparklineIncompleteBarIndices: number[]
     sparklineLoading: boolean
@@ -231,12 +232,6 @@ export interface logsViewerDataLogicActions {
     } // logsViewerFiltersLogic
     setSearchTerm: (searchTerm: string | undefined) => {
         searchTerm: string | undefined
-    } // logsViewerFiltersLogic
-    setServiceNames: (serviceNames: string[]) => {
-        serviceNames: string[]
-    } // logsViewerFiltersLogic
-    setSeverityLevels: (severityLevels: LogSeverityLevel[]) => {
-        severityLevels: LogSeverityLevel[]
     } // logsViewerFiltersLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addLogsToSparkline: (logs: LogMessage[]) => LogMessage[]
@@ -460,7 +455,6 @@ export interface logsViewerDataLogicMeta {
                 values: number[]
             }[]
             dates: string[]
-            labels: string[]
         }
         sparklineIncompleteBarIndices: (
             sparklineData: {
@@ -470,7 +464,6 @@ export interface logsViewerDataLogicMeta {
                     values: number[]
                 }[]
                 dates: string[]
-                labels: string[]
             },
             liveLogsCheckpoint: string | null,
             sparklineLoading: boolean
@@ -496,7 +489,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             teamLogic,
             ['addProductIntent'],
             logsViewerFiltersLogic({ id }),
-            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'setSeverityLevels', 'setServiceNames'],
+            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm'],
             logsViewerConfigLogic({ id }),
             ['setSparklineBreakdownBy', 'setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
@@ -692,8 +685,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
+                            ...unsetColumnQueryFields(),
                             personId: values.personId,
                             customColumns: sentCustomColumns,
                         },
@@ -744,8 +736,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
+                            ...unsetColumnQueryFields(),
                             personId: values.personId,
                             customColumns: values.customColumns,
                             after: values.nextCursor,
@@ -778,8 +769,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
+                            ...unsetColumnQueryFields(),
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
                             personId: values.personId,
                         },
@@ -865,23 +855,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             (s) => [s.sparkline, s.sparklineBreakdownBy],
             (sparkline: any[] | null, sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
                 if (!sparkline) {
-                    return { labels: [], dates: [], data: [] }
+                    return { dates: [], data: [] }
                 }
 
                 const breakdownKey = sparklineBreakdownBy
 
                 let lastTime = ''
                 let i = -1
-                const labels: string[] = []
                 const dates: string[] = []
                 const accumulated = sparkline.reduce(
                     (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(
-                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
-                                    timestampStyle: 'absolute',
-                                })
-                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
@@ -902,6 +886,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     {} as Record<string, number[]>
                 )
 
+                // A key with no rows in the newest buckets stops accumulating early, leaving an array
+                // shorter than `dates`. Quill requires `data.length === labels.length`: a ragged array
+                // desyncs bar positions and clamps `stroke.partial.fromIndex` onto a complete bar,
+                // rendering it as still-ingesting.
+                const padToDatesLength = (values: number[]): number[] => {
+                    while (values.length < dates.length) {
+                        values.push(0)
+                    }
+                    return values
+                }
+
                 // The endpoint folds everything past its top-N into one bucket under a sentinel key.
                 // Left as-is that sorts to the front (it starts with '$') and draws as a breakdown
                 // value literally named "$$_posthog_breakdown_other_$$".
@@ -910,7 +905,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     .sort(([a], [b]) => a.localeCompare(b))
                     .map(([name, values], index) => ({
                         name,
-                        values: values as number[],
+                        values: padToDatesLength(values as number[]),
                         color:
                             sparklineBreakdownBy === 'service'
                                 ? dataColorVars[index % dataColorVars.length]
@@ -926,10 +921,14 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 const otherValues = accumulated[OTHER_BREAKDOWN_VALUE]
                 if (otherValues) {
                     // Last and muted, so it reads as an aggregate rather than as another breakdown value.
-                    data.push({ name: OTHER_BREAKDOWN_LABEL, values: otherValues as number[], color: 'muted' })
+                    data.push({
+                        name: OTHER_BREAKDOWN_LABEL,
+                        values: padToDatesLength(otherValues as number[]),
+                        color: 'muted',
+                    })
                 }
 
-                return { data, labels, dates }
+                return { data, dates }
             },
         ],
         // Sparkline bar indices that are still being ingested (incomplete), to be hatched. A bucket is
@@ -1015,12 +1014,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         },
         setDateRange: () => {
             actions.handleQueryChange('date_range')
-        },
-        setSeverityLevels: ({ severityLevels }) => {
-            actions.handleQueryChange('severity', { severity_levels: severityLevels ?? [] })
-        },
-        setServiceNames: ({ serviceNames }) => {
-            actions.handleQueryChange('service', { service_count: serviceNames?.length ?? 0 })
         },
         setFilters: ({ pushToHistory }) => {
             if (pushToHistory) {
@@ -1165,8 +1158,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         dateRange: values.utcDateRange,
                         searchTerm: values.filters.searchTerm,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                        severityLevels: values.filters.severityLevels,
-                        serviceNames: values.filters.serviceNames,
+                        ...unsetColumnQueryFields(),
                         personId: values.personId,
                         customColumns: values.customColumns,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,

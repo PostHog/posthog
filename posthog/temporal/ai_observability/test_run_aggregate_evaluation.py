@@ -59,15 +59,21 @@ def _insert_ai_event(
     `_timestamp` from the same `timestamp` value it inserts, so tests that need to simulate
     ingestion lag write directly against the columns AI_EVENTS_TABLE_BASE_SQL leaves without
     a default.
+
+    `retention_days` is pinned the same way `bulk_create_ai_events` pins it. ai_events is
+    `TTL drop_date` with `drop_date = toDate(timestamp) + retention_days`, and TTL runs on the
+    server's real clock while these rows carry a frozen `timestamp` — on the column default of 30
+    days, a fixture row silently expires once the frozen date falls more than 30 days behind today
+    and the poll finds nothing.
     """
     sync_execute(
         """
         INSERT INTO sharded_ai_events (
             uuid, event, timestamp, team_id, distinct_id, person_id, properties,
-            trace_id, session_id, is_error, _timestamp, _offset, _partition
+            trace_id, session_id, is_error, retention_days, _timestamp, _offset, _partition
         ) VALUES (
             %(uuid)s, %(event)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(person_id)s, %(properties)s,
-            %(trace_id)s, %(session_id)s, 0, %(_timestamp)s, 0, 0
+            %(trace_id)s, %(session_id)s, 0, %(retention_days)s, %(_timestamp)s, 0, 0
         )
         """,
         {
@@ -80,6 +86,7 @@ def _insert_ai_event(
             "properties": "{}",
             "trace_id": trace_id,
             "session_id": session_id,
+            "retention_days": 10000,
             "_timestamp": arrival.strftime("%Y-%m-%d %H:%M:%S"),
         },
         flush=False,

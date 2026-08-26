@@ -863,6 +863,9 @@ export type EvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -919,6 +922,11 @@ export interface EvaluationApi {
     readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEvaluationListApi {
@@ -992,6 +1000,9 @@ export type PatchedEvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface PatchedEvaluationApi {
     readonly id?: string
     /**
@@ -1048,6 +1059,11 @@ export interface PatchedEvaluationApi {
     readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
@@ -1640,10 +1656,9 @@ export interface EvaluationReportCitationApi {
  * * `completed` - completed
  * * `metrics_unavailable` - metrics_unavailable
  */
-export type EvaluationReportRunContentGenerationStatusEnumApi =
-    (typeof EvaluationReportRunContentGenerationStatusEnumApi)[keyof typeof EvaluationReportRunContentGenerationStatusEnumApi]
+export type GenerationStatusEnumApi = (typeof GenerationStatusEnumApi)[keyof typeof GenerationStatusEnumApi]
 
-export const EvaluationReportRunContentGenerationStatusEnumApi = {
+export const GenerationStatusEnumApi = {
     Completed: 'completed',
     MetricsUnavailable: 'metrics_unavailable',
 } as const
@@ -1727,7 +1742,7 @@ export interface EvaluationReportRunContentApi {
      *
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable */
-    generation_status?: EvaluationReportRunContentGenerationStatusEnumApi
+    generation_status?: GenerationStatusEnumApi
     /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
     metrics?: EvaluationReportMetricsApi | null
 }
