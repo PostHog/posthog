@@ -49,8 +49,21 @@ def _unwrap_type(column_type: str) -> str:
     return column_type
 
 
+def _as_text(value: str | float | bool) -> str:
+    """One value as the string a text column would hold, so an agent's 200 matches the editor's "200".
+
+    An integral number drops its trailing ".0" and a boolean reads as ClickHouse writes it, so the
+    number or boolean an agent sends canonicalizes to the string the editor's control produces.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else str(value)
+    return value
+
+
 def _coerce_value(value: str | float | bool, column_type: str) -> str | float | bool:
-    """One accepted value in the column's own type, or unchanged when the column holds strings."""
+    """One accepted value in the column's own type, coercing to text when the column holds strings."""
     if column_type.startswith("Bool"):
         if isinstance(value, bool):
             return value
@@ -65,6 +78,10 @@ def _coerce_value(value: str | float | bool, column_type: str) -> str | float | 
             return float(value)
         except (TypeError, ValueError):
             raise CheckConfigError(f"{value!r} is not a number, but the column is {column_type}.")
+    # A text column can hold any scalar as a string, so read it as one rather than leaving a number
+    # or boolean to fingerprint apart from the editor's string and compile to a mixed-type NOT IN.
+    if column_type.startswith(("String", "FixedString")):
+        return _as_text(value)
     return value
 
 

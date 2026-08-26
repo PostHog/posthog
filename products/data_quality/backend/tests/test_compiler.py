@@ -278,6 +278,10 @@ class TestCheckSerialization:
             ("bool_column", "Bool", ["true", "FALSE"], [False, True]),
             ("string_column", "String", ["1", "paid"], ["1", "paid"]),
             ("low_cardinality_string_column", "LowCardinality(String)", ["1", "paid"], ["1", "paid"]),
+            ("string_column_reads_a_number_as_text", "String", [200], ["200"]),
+            ("string_column_reads_a_float_as_text", "String", [1.5], ["1.5"]),
+            ("string_column_reads_a_bool_as_text", "String", [True], ["true"]),
+            ("low_cardinality_string_reads_a_number_as_text", "LowCardinality(String)", [200], ["200"]),
             ("unknown_column_type", None, ["1"], ["1"]),
         ]
     )
@@ -306,12 +310,20 @@ class TestCheckSerialization:
         with pytest.raises(CheckConfigError):
             spec.coerce_to_column(parsed, column_type)
 
-    def test_a_string_and_a_number_for_the_same_numeric_value_share_a_fingerprint(self) -> None:
-        # The UI sends "1" and an agent sends 1 for the same check on a numeric column; they must
-        # upsert onto one row rather than becoming twins.
+    @parameterized.expand(
+        [
+            ("numeric_column", "Int64", "1", 1),
+            ("text_column", "String", "200", 200),
+        ]
+    )
+    def test_a_string_and_a_number_for_the_same_value_share_a_fingerprint(
+        self, _name, column_type, ui_value, agent_value
+    ) -> None:
+        # The UI sends a string and an agent sends a bare scalar for the same check; they must upsert
+        # onto one row rather than becoming twins, whether the column reads numbers or text.
         spec = get_spec(CheckType.ACCEPTED_VALUES)
-        from_ui = spec.coerce_to_column(spec.validate({"values": ["1"]}, "status"), "Int64")
-        from_agent = spec.coerce_to_column(spec.validate({"values": [1]}, "status"), "Int64")
+        from_ui = spec.coerce_to_column(spec.validate({"values": [ui_value]}, "status"), column_type)
+        from_agent = spec.coerce_to_column(spec.validate({"values": [agent_value]}, "status"), column_type)
 
         assert _fingerprint_for(from_ui.model_dump(mode="json")) == _fingerprint_for(from_agent.model_dump(mode="json"))
 
