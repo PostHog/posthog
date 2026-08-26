@@ -630,6 +630,18 @@ export namespace Schemas {
       user: number;
     }
 
+    /**
+     * * `tracked` - tracked
+     * * `ignored` - ignored
+     */
+    export type AccountSegmentEnum = typeof AccountSegmentEnum[keyof typeof AccountSegmentEnum];
+
+
+    export const AccountSegmentEnum = {
+      Tracked: 'tracked',
+      Ignored: 'ignored',
+    } as const;
+
     export interface AccountSupportTicketMessage {
       /** UUID of the support ticket message. */
       readonly id: string;
@@ -9341,12 +9353,19 @@ export namespace Schemas {
       display_label: string;
     }
 
+    /**
+     * @nullable
+     */
+    export type AlertCheckError = {[key: string]: string} | null;
+
     export interface AlertCheck {
       readonly id: string;
       readonly created_at: string;
       /** @nullable */
       readonly calculated_value: number | null;
       readonly state: AlertCheckStateEnum;
+      /** @nullable */
+      readonly error: AlertCheckError;
       readonly targets_notified: boolean;
       readonly anomaly_scores: unknown;
       readonly triggered_points: unknown;
@@ -19851,11 +19870,63 @@ export namespace Schemas {
     }
 
     /**
-     * One person- or group-property sync or backfill run. Read-only: runs are created by the
-     * sync/backfill pipeline, never through the API.
+     * * `staging` - staging
+     * * `dispatching` - dispatching
+     * * `syncing` - syncing
+     * * `completed` - completed
+     */
+    export type SyncPhaseEnum = typeof SyncPhaseEnum[keyof typeof SyncPhaseEnum];
+
+
+    export const SyncPhaseEnum = {
+      Staging: 'staging',
+      Dispatching: 'dispatching',
+      Syncing: 'syncing',
+      Completed: 'completed',
+    } as const;
+
+    /**
+     * One warehouse-backed custom property sync run.
      */
     export interface CustomPropertySyncRun {
       readonly id: string;
+      /**
+         * Warehouse import or materialization job associated with the run, if any.
+         * @nullable
+         */
+      readonly job_id: string | null;
+      /** Account segment processed by this run. Person and group property runs return null.
+       *
+       * * `tracked` - tracked
+       * * `ignored` - ignored */
+      readonly account_segment: AccountSegmentEnum | null;
+      /** Current account sync phase. Person and group property runs return null.
+       *
+       * * `staging` - staging
+       * * `dispatching` - dispatching
+       * * `syncing` - syncing
+       * * `completed` - completed */
+      readonly sync_phase: SyncPhaseEnum | null;
+      /**
+         * Latest Temporal activity attempt for the current account sync phase.
+         * @nullable
+         */
+      readonly attempt: number | null;
+      /**
+         * Temporal workflow identifier associated with the current account sync phase.
+         * @nullable
+         */
+      readonly workflow_id: string | null;
+      /**
+         * Temporal run identifier associated with the current account sync phase.
+         * @nullable
+         */
+      readonly workflow_run_id: string | null;
+      /**
+         * Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.
+         * @nullable
+         */
+      readonly temporal_url: string | null;
       /** What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled). */
       readonly trigger: string;
       /** Run status: 'running', 'completed', or 'failed'. */
@@ -19874,11 +19945,11 @@ export namespace Schemas {
       readonly rows_read: number;
       /** Rows whose mapped values changed since the last run. */
       readonly changed: number;
-      /** Person or group profiles updated (changed rows that matched an existing person/group). */
+      /** Changed rows that matched an existing account, person, or group. */
       readonly existing: number;
-      /** Property-update intents produced to the ingestion pipeline. */
+      /** Property updates written or produced to the ingestion pipeline. */
       readonly produced: number;
-      /** Changed rows dropped because no existing person/group matched the key column value. */
+      /** Changed rows skipped because no existing account, person, or group matched the key column value. */
       readonly skipped_missing_person: number;
       /**
          * Error summary if the run failed, else null.
@@ -23709,6 +23780,8 @@ export namespace Schemas {
      * * `Liveblocks` - Liveblocks
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25031,6 +25104,8 @@ export namespace Schemas {
       Liveblocks: 'Liveblocks',
       NationBuilder: 'NationBuilder',
       Tana: 'Tana',
+      Zenchef: 'Zenchef',
+      Lovable: 'Lovable',
     } as const;
 
     /**
@@ -26366,7 +26441,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28390,7 +28467,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -36435,7 +36514,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -37791,7 +37872,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -76929,7 +77012,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -78293,7 +78378,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -79647,7 +79734,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -88881,6 +88970,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.
+     */
+    search?: string;
     };
 
     export type CustomerJourneysListParams = {

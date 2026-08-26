@@ -61,7 +61,8 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.product_analytics.backend.models.insight import InsightViewed
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

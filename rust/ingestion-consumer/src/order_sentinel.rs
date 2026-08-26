@@ -41,7 +41,7 @@
 //! The sentinels are pure observers: they never influence routing or commits.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -563,6 +563,10 @@ impl KeyOrderSentinel {
 pub struct SentinelContext {
     commit_sentinel: Arc<CommitSentinel>,
     key_sentinel: Arc<KeyOrderSentinel>,
+    /// Bumped on every partition assignment; the gRPC transport stamps it on
+    /// sub-batches so the worker's feed-order sentinel rebaselines across
+    /// rebalances. `None` on the HTTP transport.
+    assignment_epoch: Option<Arc<AtomicU64>>,
 }
 
 impl SentinelContext {
@@ -570,7 +574,14 @@ impl SentinelContext {
         Self {
             commit_sentinel,
             key_sentinel,
+            assignment_epoch: None,
         }
+    }
+
+    /// Wire the gRPC transport's assignment-epoch counter. Call before the
+    /// context is handed to the Kafka consumer.
+    pub fn set_assignment_epoch(&mut self, epoch: Arc<AtomicU64>) {
+        self.assignment_epoch = Some(epoch);
     }
 
     /// A context with its own free-standing sentinels, for tests and tools
@@ -620,6 +631,9 @@ impl ConsumerContext for SentinelContext {
         if let Rebalance::Assign(tpl) = rebalance {
             counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
             info!(partitions = tpl.count(), "Rebalance: partitions assigned");
+            if let Some(epoch) = &self.assignment_epoch {
+                epoch.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 
