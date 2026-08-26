@@ -60,11 +60,14 @@ describe("useInboxReportDetailPrefetch", () => {
       { wrapper },
     );
 
-    act(() => result.current.prefetch());
+    act(() => result.current.pointerHandlers.onPointerEnter());
 
     await waitFor(() =>
       expect(getSignalReport).toHaveBeenCalledWith(report.id),
     );
+    expect(preloadRoute).not.toHaveBeenCalled();
+
+    act(() => result.current.prefetch());
     expect(preloadRoute).toHaveBeenCalledWith({
       to: "/inbox/reports/$reportId",
       params: { reportId: report.id },
