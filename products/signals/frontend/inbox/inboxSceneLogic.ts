@@ -177,7 +177,11 @@ function findLoadedReport(id: string): SignalReport | null {
  * Position (1-based) and size of the report's list, for `Inbox report opened`. Searches the mounted
  * per-section lists for the report. Null when the report isn't in a loaded list (e.g. a cold deep-link).
  */
-function findReportRank(id: string): { rank: number | null; listSize: number | null } {
+function findReportRank(id: string): {
+    rank: number | null
+    listSize: number | null
+    section: InboxReportSectionKey | null
+} {
     for (const sectionKey of Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]) {
         const mounted = reportListLogic.findMounted({
             sectionKey,
@@ -189,10 +193,10 @@ function findReportRank(id: string): { rank: number | null; listSize: number | n
         }
         const idx = reports.findIndex((r: SignalReport) => r.id === id)
         if (idx >= 0) {
-            return { rank: idx + 1, listSize: reports.length }
+            return { rank: idx + 1, listSize: reports.length, section: sectionKey }
         }
     }
-    return { rank: null, listSize: null }
+    return { rank: null, listSize: null, section: null }
 }
 
 /**
@@ -757,13 +761,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
                 return
             }
-            const { rank, listSize } = findReportRank(report.id)
+            const { rank, listSize, section } = findReportRank(report.id)
             captureInboxReportOpened({
                 report,
                 openMethod: (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
                 previousReportId: cache.previousReportId ?? null,
                 rank,
                 listSize,
+                section,
             })
             cache.openTracking = { report, openedAt: Date.now(), scrolled: false }
             cache.pendingOpenMethod = undefined

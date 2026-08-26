@@ -582,6 +582,12 @@ export const reportListLogic = kea<reportListLogicType>([
         // The reducer has already widened the window. Only reach for another server page when the
         // window now extends past the rows in hand.
         showMore: () => {
+            // The reducer already widened the window, so `hidden_count` is what is still held back.
+            captureInboxReportAction({
+                actionType: 'show_more',
+                surface: 'list_row',
+                extra: { section: props.sectionKey, hidden_count: values.hiddenReportCount },
+            })
             if (values.visibleCount > values.reports.length) {
                 actions.loadMore()
             }

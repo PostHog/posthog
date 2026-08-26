@@ -1,5 +1,6 @@
-import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { captureInboxSectionToggled } from '../inboxAnalytics'
 import { INBOX_REPORT_SECTION_KEYS, InboxReportSectionKey } from '../types'
 
 /** localStorage key for the per-user collapsed/expanded sections (see `sectionOverrides`). */
@@ -70,6 +71,11 @@ export const inboxReportSectionsLogic = kea<inboxReportSectionsLogicType>([
             },
         ],
     }),
+
+    listeners(({ values }) => ({
+        // Listeners run after reducers, so `openSections` already holds the new state.
+        toggleSection: ({ section }) => captureInboxSectionToggled({ section, isOpen: values.openSections[section] }),
+    })),
 
     selectors({
         openSections: [
