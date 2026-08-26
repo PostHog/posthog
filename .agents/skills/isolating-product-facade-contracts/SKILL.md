@@ -154,10 +154,11 @@ helpers, which no facade re-export naturally covers:
   product. Either way the cross-boundary test import disappears.
 - _Fixtures that need product rows_ — a core test seeds a product model
   (`InsightViewed`, `Account`) to set up its scenario. Seed through a
-  facade write function, or through a product-owned testing module the
-  product exposes in its tach interface for that purpose, with a normal
-  import. If neither exists yet, add the facade function; that is the
-  same move a production caller makes. Never
+  facade write function, with a normal import. If none exists yet, add
+  one; that is the same move a production caller makes. A helper that
+  only fixtures need goes in a `facade/testing.py` submodule: the tach
+  interface already exposes `backend.facade.*`, and any other exposed
+  module counts as a legacy leak and blocks the isolated tests. Never
   `apps.get_model("<label>", "<Model>")` at module scope: it is the same
   dependency with the import edge removed.
   tach, mypy, and LSP stop seeing it, and snob (the PR test selector) does
