@@ -148,6 +148,16 @@ DIFF_CHECKS: list[DiffCheck] = [
         advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
     ),
     DiffCheck(
+        key="review",
+        label="review findings arriving after the PR opens (Greptile)",
+        triggers=["*.py", "*.ts", "*.tsx", "*.rs", "*.go"],
+        # A nudge, not a run: a Greptile review is a paid API call, too much to tax
+        # every push with. The reviewing-before-pr skill runs it once at PR-open time.
+        verify=None,
+        advice="before opening the PR (or marking it ready), consider one `hogli review` — "
+        "a finding caught locally avoids a bot comment round-trip and a CI re-run",
+    ),
+    DiffCheck(
         key="markdown-format",
         label="markdown formatting (oxfmt)",
         triggers=["*.md", "*.mdx"],
