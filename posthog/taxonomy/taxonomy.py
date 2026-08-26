@@ -2721,7 +2721,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_skill_body_offset": {
             "label": "MCP skill body offset",
-            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset. Count calls at offset 0 for loads, or all calls for pages read. Set only on reads that succeeded, like `$mcp_skill_name`. Absent when the caller asked for the whole body, and never set on `skill-file-get`, which does not paginate.",
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset. A first read usually omits the offset, so count the calls where it is absent or 0 to count loads, and count every call to count pages read. Set only on reads that succeeded, like `$mcp_skill_name`, and never set on `skill-file-get`, which does not paginate.",
             "examples": ["0", "5000"],
         },
         "$mcp_resource_name": {
