@@ -544,7 +544,7 @@ export class PiAgentServer {
           return null;
         }),
     ]);
-    const runState = taskRun?.state as Record<string, unknown> | undefined;
+    const runState = taskRun?.state;
     const taskSnapshotKind = taskRun
       ? typeof runState?.snapshot_kind === "string"
         ? runState.snapshot_kind
