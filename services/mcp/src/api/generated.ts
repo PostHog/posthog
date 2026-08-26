@@ -41855,7 +41855,7 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRetentionCell {
-      /** False when this period hasn't fully elapsed within the queried range, so a low cell reads as unfinished rather than as churn. */
+      /** False when this period has not fully elapsed within the queried range, so a low cell reads as unfinished instead of as churn. */
       complete: boolean;
       /** Distinct persons from this cohort active in this period. */
       count: number;
@@ -41869,7 +41869,7 @@ export namespace Schemas {
       cohortDate: string;
       /** 0-based position of this cohort from the range start. */
       cohortIndex: number;
-      /** Persons who started a cohort in this period with this breakdown value. Not derivable from values[0]: with a conversion-goal return event, period 0 counts converters, not starters. */
+      /** Persons acquired in this period under this breakdown value. The denominator for every cell. */
       cohortSize: number;
       /** One per column, index = periods since the cohort started. Always intervalCount long. */
       values: MarketingAnalyticsRetentionCell[];
@@ -41900,7 +41900,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
       totalCohortSize: number;
-      /** Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date range the filter bar shows, which the table has to say out loud. */
+      /** Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date range the filter bar shows, so the table has to say so. */
       truncatedCohorts: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
@@ -41929,7 +41929,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** How far back to look for a prior session. Defaults to 90, clamped to 365. */
       newUserLookbackDays?: number | null;
-      /** Only count persons with no session before the range, so a channel's cohorts aren't inflated by users it acquired long ago. Defaults to true. */
+      /** Only count persons with no session before the range, so a channel's cohorts are not inflated by users it acquired long ago. Defaults to true. */
       onlyNewUsers?: boolean | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: MarketingAnalyticsRetentionQueryResponse | null;
@@ -69251,7 +69251,7 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
       totalCohortSize: number;
-      /** Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date range the filter bar shows, which the table has to say out loud. */
+      /** Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date range the filter bar shows, so the table has to say so. */
       truncatedCohorts: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
