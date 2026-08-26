@@ -221,14 +221,19 @@ def _pi_cloud_runtime_disabled_response() -> Response:
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
-POSTHOG_AI_PREWARM_SANDBOX_FLAG = "posthog-ai-prewarm-sandbox"
 
-# One rollout per origin product — the Code app and PostHog AI reach different populations. An origin
-# missing here cannot warm, which keeps the endpoint fail-closed for products that never opted in.
+# One rollout per origin product — the Code app and PostHog AI reach different populations, so a shared
+# flag would drag one to 100% while rolling out the other.
 WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
     tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
-    tasks_facade.TaskOriginProduct.POSTHOG_AI: POSTHOG_AI_PREWARM_SANDBOX_FLAG,
 }
+
+# Origins that warm for every user, with no flag left to evaluate.
+WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        tasks_facade.TaskOriginProduct.POSTHOG_AI,
+    }
+)
 
 # Detail-route lookup pattern for viewsets keyed on a UUID primary key. Keeps the router from
 # matching an unknown collection path as a pk and passing a non-UUID string to the ORM.
@@ -1090,9 +1095,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _warm_enabled(self, origin_product: str) -> bool:
         """Person + org level gate for the sandbox-warming feature. Fail-closed on any error.
 
-        One flag per origin product: the Code app and PostHog AI are disjoint populations, so a shared
-        flag would drag one to 100% while rolling out the other.
+        An origin in neither the ungated set nor the flag map cannot warm, which keeps the endpoint
+        fail-closed for products that never opted in.
         """
+        if origin_product in WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS:
+            return True
         flag = WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT.get(origin_product)
         if flag is None:
             return False

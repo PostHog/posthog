@@ -118,6 +118,38 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert mock_warm.call_args.kwargs["sandbox_environment_id"] == sandbox_environment.id
         assert mock_warm.call_args.kwargs["custom_image_id"] == custom_image.id
 
+    @parameterized.expand(
+        [
+            ("posthog_ai_warms_with_every_flag_off", facade.TaskOriginProduct.POSTHOG_AI, False, True),
+            ("code_app_stays_gated_when_off", facade.TaskOriginProduct.USER_CREATED, False, False),
+            ("code_app_warms_when_on", facade.TaskOriginProduct.USER_CREATED, True, True),
+        ]
+    )
+    def test_origin_product_decides_whether_a_flag_gates_warming(
+        self, _name: str, origin_product: str, flag_enabled: bool, should_warm: bool
+    ):
+        with (
+            patch("products.tasks.backend.facade.api.warm_task_sandbox") as mock_warm,
+            patch(
+                "products.tasks.backend.presentation.views.api.posthoganalytics.feature_enabled",
+                return_value=flag_enabled,
+            ),
+        ):
+            mock_warm.return_value = None
+            response = self.client.post(
+                "/api/projects/@current/tasks/warm/",
+                {
+                    "repository": "posthog/posthog",
+                    "github_integration": self.integration.id,
+                    "branch": "main",
+                    "origin_product": origin_product,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        assert mock_warm.called is should_warm
+
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_resume_sandbox")
     def test_resume_warm_endpoint_forwards_terminal_run_selection(self, mock_warm, _mock_warm_enabled):
