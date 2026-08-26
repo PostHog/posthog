@@ -97,6 +97,7 @@ jobs:
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
+                        - '.github/actions/setup-protoc/**'
                         # hogli db setup (db:restore-test-db). Scoped to the
                         # modules that command actually imports — framework,
                         # manifest, boot modules, db_schema — so unrelated hogli
@@ -423,6 +424,11 @@ jobs:
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
+
+            # feature-flags depends on usage-ingestion-proto, whose build script
+            # compiles .proto files and needs protoc on PATH.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
 
             - name: Build Rust flags service
               working-directory: rust
