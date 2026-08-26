@@ -45,9 +45,6 @@ tools:
                     - repo_id
         feature_flag: visual-review
         response:
-            # Paths are rooted at the response envelope, not at an entry: this is a
-            # retrieve, so the filter runs once over the whole body rather than per
-            # item. Entry-level paths alone match nothing and return an empty object.
             include:
                 - totals
                 - truncated
