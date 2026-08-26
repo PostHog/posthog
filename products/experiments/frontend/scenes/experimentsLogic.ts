@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
 import { getFlagVariants } from 'scenes/experiments/utils'
@@ -29,9 +29,19 @@ import type { TeamPublicType, TeamType } from '~/types'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
-export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> {
-    /* not in the API response */
+import { experimentsList } from 'products/experiments/frontend/generated/api'
+import type {
+    ExperimentBasicApi,
+    ExperimentsListParams,
+    PaginatedExperimentBasicListApi,
+} from 'products/experiments/frontend/generated/api.schemas'
+
+// The logic exposes local Experiment rows externally. The pagination envelope comes from the
+// generated list response; `results` is mapped to Experiment right after fetch (apiToExperiment).
+export type ExperimentsResult = Omit<PaginatedExperimentBasicListApi, 'results'> & {
+    results: Experiment[]
     filters?: ExperimentsFilters | null
+    offset?: number
 }
 
 export interface ExperimentsFilters {
@@ -70,7 +80,11 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-export function isSingleVariantShipped(experiment: Experiment): boolean {
+// TODO: these read `feature_flag.filters.{groups,multivariate}`, which the list row
+// (ExperimentBasicApi) types as `unknown` because the minimal flag serializer leaves
+// `filters` untyped. Keep them on the local Experiment flag shape until the serializer
+// types `filters`, then accept ExperimentBasicApi and drop the cast at the call sites.
+export function isSingleVariantShipped(experiment: Pick<Experiment, 'feature_flag'>): boolean {
     const filters = experiment.feature_flag?.filters
 
     return (
@@ -83,7 +97,7 @@ export function isSingleVariantShipped(experiment: Experiment): boolean {
     )
 }
 
-export function getShippedVariantKey(experiment: Experiment): string | null {
+export function getShippedVariantKey(experiment: Pick<Experiment, 'feature_flag'>): string | null {
     if (!isSingleVariantShipped(experiment)) {
         return null
     }
@@ -92,6 +106,29 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
         null
     )
 }
+
+const apiToExperiment = (row: ExperimentBasicApi): Experiment => ({
+    ...row,
+    type: row.type ?? undefined,
+    description: row.description ?? undefined,
+    exposure_cohort: row.exposure_cohort ?? undefined,
+    conclusion: (row.conclusion ?? null) as Experiment['conclusion'],
+    user_access_level: row.user_access_level as unknown as Experiment['user_access_level'],
+    filters: {} as Experiment['filters'],
+    metrics: [],
+    metrics_secondary: [],
+    primary_metrics_ordered_uuids: null,
+    secondary_metrics_ordered_uuids: null,
+    saved_metrics_ids: [],
+    saved_metrics: [],
+    secondary_metrics: [],
+    parameters: (row.parameters ?? {}) as unknown as Experiment['parameters'],
+    feature_flag: row.feature_flag as unknown as Experiment['feature_flag'],
+    holdout: row.holdout as unknown as Experiment['holdout'],
+    running_time_calculation: row.running_time_calculation as unknown as Experiment['running_time_calculation'],
+    created_by: row.created_by as unknown as Experiment['created_by'],
+    status: (row.status ?? undefined) as unknown as Experiment['status'],
+})
 
 export function getExperimentStatusLabel(status: ExperimentStatus): string {
     switch (status) {
@@ -215,6 +252,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: Experiment[]
         },
@@ -224,6 +262,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: Experiment[]
         }
@@ -245,6 +284,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: Experiment[]
         },
@@ -257,6 +297,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: Experiment[]
         }
@@ -325,6 +366,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: any[]
         },
@@ -338,6 +380,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: any[]
         }
@@ -434,6 +477,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: Experiment[]
         },
@@ -443,6 +487,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: Experiment[]
         }
@@ -461,6 +506,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: Experiment[]
         },
@@ -470,6 +516,7 @@ export interface experimentsLogicActions {
             count: number
             filters?: ExperimentsFilters | null | undefined
             next?: string | null | undefined
+            offset?: number | undefined
             previous?: string | null | undefined
             results: Experiment[]
         }
@@ -615,15 +662,19 @@ export const experimentsLogic = kea<experimentsLogicType>([
         experiments: [
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
-                loadExperiments: async (_: void, breakpoint) => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get(
-                        `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
+                loadExperiments: async (_: void, breakpoint): Promise<ExperimentsResult> => {
+                    if (!values.currentProjectId) {
+                        return { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 }
+                    }
+                    const response = await experimentsList(
+                        values.currentProjectId.toString(),
+                        values.paramsFromFilters as ExperimentsListParams
                     )
                     // Discard stale responses that resolve after a newer search has fired
                     breakpoint()
                     return {
                         ...response,
+                        results: response.results.map(apiToExperiment),
                         offset: values.paramsFromFilters.offset,
                     }
                 },
