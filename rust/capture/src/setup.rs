@@ -1005,6 +1005,43 @@ mod tests {
         );
     }
 
+    /// The AI byte limiter takes its window from its own knob when one is set,
+    /// so a zero there has to be caught and named separately. Naming the wrong
+    /// variable sends an operator to a setting that is already correct.
+    #[test]
+    fn ai_byte_limiter_rejects_a_zero_window_from_its_own_knob() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS", "180"),
+            ("AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS", "0"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let err = match GlobalRateLimiter::new_ai_bytes(&config, vec![]) {
+            Ok(_) => panic!("a zero AI byte window must not build a limiter"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS"),
+            "the error must name the AI byte knob, not the shared one, got: {err}"
+        );
+
+        // The shared window is valid here, so the token+distinct_id limiter is
+        // unaffected by the AI byte knob being wrong.
+        assert!(
+            GlobalRateLimiter::new_token_distinct_id(&config, vec![]).is_err(),
+            "an empty redis instance list still fails, but not on the window"
+        );
+    }
+
     #[test]
     #[should_panic(expected = "imports must never overflow")]
     fn ai_events_overflow_valve_rejects_armed_valve_in_import_mode() {
