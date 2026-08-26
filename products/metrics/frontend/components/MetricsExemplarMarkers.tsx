@@ -9,7 +9,8 @@ export interface MetricsExemplar {
     /** Emission time of the traced sample, as epoch ms. */
     timeMs: number
     onClick: () => void
-    /** Design-token color name. Defaults to 'link' (a dot that navigates, not a data series). */
+    /** Design-token color name. Defaults to 'brand-blue'; error-spike markers pass 'danger' so the
+     * two kinds sharing this overlay stay distinguishable. */
     color?: string
     /** Shown in a hover tooltip and as the button's aria-label — what this dot is, before
      * the user clicks it. Required: an unlabeled dot on a chart is not self-explanatory. */
@@ -28,11 +29,20 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
     }
 
     const bucketTimes = labels.map((label) => dayjs(label).valueOf())
-    // `link`, not a data color, is the default: a dot navigates somewhere, and it
-    // must not read as a fourth series. Callers override per-marker (e.g. error
-    // spikes use 'danger') to distinguish exemplar kinds sharing this overlay.
-    const defaultColor = getColorVar('link')
     const baseline = dimensions.plotTop + dimensions.plotHeight
+
+    // `getColorVar` reads computed styles (a potential style recalc), so resolve each
+    // distinct token once here rather than per marker — there are only a couple across
+    // the whole overlay (default plus any caller override like 'danger').
+    const resolvedColors = new Map<string, string>()
+    const colorFor = (token: string): string => {
+        let color = resolvedColors.get(token)
+        if (color === undefined) {
+            color = getColorVar(token)
+            resolvedColors.set(token, color)
+        }
+        return color
+    }
 
     return (
         <>
@@ -41,7 +51,7 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
                 if (x === null) {
                     return null
                 }
-                const color = exemplar.color ? getColorVar(exemplar.color) : defaultColor
+                const color = colorFor(exemplar.color ?? 'brand-blue')
                 return (
                     <Tooltip key={`${exemplar.timeMs}-${index}`} title={exemplar.tooltipLabel}>
                         <button

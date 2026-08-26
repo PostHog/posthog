@@ -77,6 +77,8 @@ describe('metricsSamplesLogic', () => {
             resource_access_control: {
                 ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
                 [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+                // The error-spikes loader also requires Error Tracking view access.
+                [AccessControlResourceType.ErrorTracking]: AccessControlLevel.Viewer,
             },
         } as AppContext
         initKeaTests()
@@ -234,25 +236,19 @@ describe('metricsSamplesLogic', () => {
         await expectLogic(logic).delay(10)
 
         expect(mockErrorSpikesRetrieve).not.toHaveBeenCalled()
-        expect(logic.values.errorSpikeExemplars).toEqual([])
+        expect(logic.values.errorSpikes).toEqual([])
     })
 
     // Regression: toggling on must actually fetch immediately, and the chart's
     // ongoing refresh trigger must keep firing it afterwards — the overlay
     // otherwise silently shows stale (or no) spikes once enabled.
-    it('fetches error spikes once the toggle is enabled and derives errorSpikeExemplars', async () => {
+    it('fetches error spikes once the toggle is enabled', async () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
 
         logic.actions.toggleShowErrorSpikes()
         await expectLogic(logic).toDispatchActions(['loadErrorSpikesSuccess'])
         expect(mockErrorSpikesRetrieve).toHaveBeenCalledTimes(1)
-        expect(logic.values.errorSpikeExemplars).toEqual([
-            {
-                timestamp: ERROR_SPIKE.detected_at,
-                issueId: ERROR_SPIKE.issue_id,
-                issueName: ERROR_SPIKE.issue_name,
-            },
-        ])
+        expect(logic.values.errorSpikes).toEqual([ERROR_SPIKE])
 
         metricsViewerLogic.actions.fetchQueryResultsSuccess([])
         await expectLogic(logic).toDispatchActions(['loadErrorSpikesSuccess'])

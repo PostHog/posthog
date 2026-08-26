@@ -22,10 +22,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -149,11 +148,10 @@ export const MetricsViewer = (): JSX.Element => {
         closeAddToDashboardModal,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
-    const { traceExemplars, errorSpikeExemplars, showErrorSpikes } = useValues(metricsSamplesLogic)
+    const { traceExemplars, errorSpikes, showErrorSpikes } = useValues(metricsSamplesLogic)
     const { toggleShowErrorSpikes } = useActions(metricsSamplesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     // Staff-only PoC gate, layered on top of the wider metrics alpha flag.
-    const errorOverlaysEnabled = !!featureFlags[FEATURE_FLAGS.METRICS_ERROR_OVERLAYS]
+    const errorOverlaysEnabled = useFeatureFlag('METRICS_ERROR_OVERLAYS')
     const { exemplarDotClicked } = useActions(metricsUsageTrackingLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
@@ -169,52 +167,40 @@ export const MetricsViewer = (): JSX.Element => {
         AccessControlLevel.Viewer
     )
 
-    // Traced emissions as clickable dots along the bottom of the chart — the
-    // metric->trace pivot without opening the Samples tab. Skipped entirely when
-    // the user can't view traces, so a dot never leads to a dead end.
-    const exemplarMarkers: MetricsExemplar[] = useMemo(
-        () =>
-            tracingDisabledReason
-                ? []
-                : traceExemplars.map((exemplar) => ({
-                      timeMs: dayjs(exemplar.timestamp).valueOf(),
-                      // Explicit, not the component's 'link' default: 'link' resolves to PostHog's
-                      // brand orange (#f54e00), which reads as the same color as 'danger' (#db3707)
-                      // at marker size — indistinguishable from the error-spike dots below.
-                      color: 'brand-blue',
-                      tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).format('D MMM HH:mm:ss')}. Click to view the trace.`,
-                      onClick: () => {
-                          exemplarDotClicked(!!exemplar.spanId)
-                          router.actions.push(
-                              traceUrl({
-                                  traceId: exemplar.traceId,
-                                  spanId: exemplar.spanId || null,
-                                  ts: exemplar.timestamp,
-                              })
-                          )
-                      },
-                  })),
-        [traceExemplars, tracingDisabledReason, exemplarDotClicked]
-    )
-
-    // Error Tracking issue spikes as clickable dots — PoC for the metric->error-spike
-    // pivot. Team-wide (spike events carry no service attribution), toggled
-    // independently of trace exemplars, and skipped entirely without Error Tracking
-    // view access.
-    const errorSpikeMarkers: MetricsExemplar[] = useMemo(
-        () =>
-            !errorOverlaysEnabled || !showErrorSpikes || errorTrackingDisabledReason
-                ? []
-                : errorSpikeExemplars.map((spike) => ({
-                      timeMs: dayjs(spike.timestamp).valueOf(),
-                      color: 'danger',
-                      tooltipLabel: `Error spike at ${dayjs(spike.timestamp).format('D MMM HH:mm:ss')}: ${spike.issueName ?? 'Untitled issue'}. Click to view the issue.`,
-                      onClick: () => {
-                          router.actions.push(urls.errorTrackingIssue(spike.issueId, { timestamp: spike.timestamp }))
-                      },
-                  })),
-        [errorOverlaysEnabled, showErrorSpikes, errorSpikeExemplars, errorTrackingDisabledReason]
-    )
+    // Clickable dots along the bottom of the chart: traced emissions (the
+    // metric->trace pivot) and Error Tracking issue spikes (team-wide — spike
+    // events carry no service attribution). Each kind is skipped entirely when
+    // the user can't view its target product, so a dot never leads to a dead
+    // end. One memo, so the chart prop keeps a stable identity across renders.
+    const chartMarkers: MetricsExemplar[] = useMemo(() => {
+        const traceMarkers: MetricsExemplar[] = tracingDisabledReason
+            ? []
+            : traceExemplars.map((exemplar) => ({
+                  timeMs: dayjs(exemplar.timestamp).valueOf(),
+                  tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).format('D MMM HH:mm:ss')}. Click to view the trace.`,
+                  onClick: () => {
+                      exemplarDotClicked(!!exemplar.spanId)
+                      router.actions.push(
+                          traceUrl({
+                              traceId: exemplar.traceId,
+                              spanId: exemplar.spanId || null,
+                              ts: exemplar.timestamp,
+                          })
+                      )
+                  },
+              }))
+        const spikeMarkers: MetricsExemplar[] = errorTrackingDisabledReason
+            ? []
+            : errorSpikes.map((spike) => ({
+                  timeMs: dayjs(spike.detected_at).valueOf(),
+                  color: 'danger',
+                  tooltipLabel: `Error spike at ${dayjs(spike.detected_at).format('D MMM HH:mm:ss')}: ${spike.issue_name ?? 'Untitled issue'}. Click to view the issue.`,
+                  onClick: () => {
+                      router.actions.push(urls.errorTrackingIssue(spike.issue_id, { timestamp: spike.detected_at }))
+                  },
+              }))
+        return [...traceMarkers, ...spikeMarkers]
+    }, [traceExemplars, tracingDisabledReason, exemplarDotClicked, errorSpikes, errorTrackingDisabledReason])
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
@@ -393,7 +379,7 @@ export const MetricsViewer = (): JSX.Element => {
                             <MetricsSeriesChart
                                 series={chartSeries}
                                 fallbackName={metricName}
-                                exemplars={[...exemplarMarkers, ...errorSpikeMarkers]}
+                                exemplars={chartMarkers}
                             />
                         ) : !queryResultsLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
