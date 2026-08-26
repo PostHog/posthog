@@ -290,10 +290,10 @@ export interface taskTrackerSceneLogicActions {
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
-        request: WarmTaskRequestApi
+        request: import('../../logics/taskWarmLogic').TaskWarmRequest
     ) => {
         hasText: boolean
-        request: WarmTaskRequestApi
+        request: import('../../logics/taskWarmLogic').TaskWarmRequest
     } // taskWarmLogic
     releaseWarm: () => {
         value: true
@@ -399,7 +399,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['overrideHeadlines'],
             modelCatalogueLogic,
             ['catalogue'],
-            taskWarmLogic(props),
+            // Only `panelId`: the scene is mounted with the `/tasks/:taskId` route param in its props, and
+            // this composer always creates a fresh task, so a forwarded `taskId` would point the warm at
+            // the resume endpoint for a task that doesn't exist yet.
+            taskWarmLogic({ panelId: props.panelId }),
             ['warmLease'],
         ],
         actions: [
@@ -415,7 +418,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['claimApplyBackTargets', 'releaseApplyBackTargets'],
             composerSeedLogic(props),
             ['consumeSeed', 'setSeed'],
-            taskWarmLogic(props),
+            taskWarmLogic({ panelId: props.panelId }),
             ['noteDraft', 'consumeWarm', 'releaseWarm'],
         ],
     })),

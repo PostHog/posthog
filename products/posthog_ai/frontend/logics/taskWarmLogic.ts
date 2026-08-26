@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { tasksRunsCancelCreate, tasksWarmCreate } from 'products/tasks/frontend/generated/api'
-import type { WarmTaskRequestApi } from 'products/tasks/frontend/generated/api.schemas'
+import { tasksRunsCancelCreate, tasksWarmCreate, tasksWarmResumeCreate } from 'products/tasks/frontend/generated/api'
+import type { WarmTaskRequestApi, WarmTaskResumeRequestApi } from 'products/tasks/frontend/generated/api.schemas'
 
 /** Debounce before warming, measured from the keystroke that first made the draft non-empty. */
 const WARM_DEBOUNCE_MS = 250
@@ -26,14 +26,26 @@ export interface WarmLease {
 export interface TaskWarmLogicProps {
     /** Matches `taskTrackerSceneLogicProps.panelId` so each composer instance owns its own lease. */
     panelId?: string
+    taskId?: string
+    resumeFromRunId?: string
 }
+
+export type TaskWarmRequest = WarmTaskRequestApi | WarmTaskResumeRequestApi
 
 /**
  * Build the lease key from the fields the backend matches a warm Run on. Reasoning effort is
  * deliberately excluded: activation applies the final effort before the first turn, so changing it must
  * not throw the warm away (`_find_idling_warm_run` omits it from the match for the same reason).
  */
-export function warmLeaseKey(request: WarmTaskRequestApi): string {
+export function warmLeaseKey(request: TaskWarmRequest): string {
+    if ('resume_from_run_id' in request) {
+        return [
+            request.resume_from_run_id,
+            request.runtime_adapter ?? '',
+            request.model ?? '',
+            request.initial_permission_mode ?? '',
+        ].join('|')
+    }
     return [
         request.repository ?? '',
         (request.repositories ?? []).join(','),
@@ -84,13 +96,13 @@ export interface taskWarmLogicActions {
     }
     noteDraft: (
         hasText: boolean,
-        request: WarmTaskRequestApi
+        request: TaskWarmRequest
     ) => {
         hasText: boolean
-        request: WarmTaskRequestApi
+        request: TaskWarmRequest
     }
-    prewarm: (request: WarmTaskRequestApi) => {
-        request: WarmTaskRequestApi
+    prewarm: (request: TaskWarmRequest) => {
+        request: TaskWarmRequest
     }
     releaseWarm: () => {
         value: true
@@ -125,15 +137,15 @@ export type taskWarmLogicType = MakeLogicType<
 export const taskWarmLogic = kea<taskWarmLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'taskWarmLogic']),
     props({} as TaskWarmLogicProps),
-    key((props) => props.panelId ?? 'scene'),
+    key((props) => props.panelId ?? ([props.taskId, props.resumeFromRunId].filter(Boolean).join(':') || 'scene')),
 
     connect({
         values: [projectLogic, ['currentProjectId']],
     }),
 
     actions({
-        noteDraft: (hasText: boolean, request: WarmTaskRequestApi) => ({ hasText, request }),
-        prewarm: (request: WarmTaskRequestApi) => ({ request }),
+        noteDraft: (hasText: boolean, request: TaskWarmRequest) => ({ hasText, request }),
+        prewarm: (request: TaskWarmRequest) => ({ request }),
         releaseWarm: true,
         consumeWarm: true,
         setWarmLease: (lease: WarmLease | null) => ({ lease }),
@@ -148,7 +160,7 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         noteDraft: ({ hasText, request }) => {
             if (!hasText) {
                 // Draft emptied — drop a pending warm and schedule a release, so a user who clears the
@@ -202,6 +214,15 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             if (values.currentProjectId == null || values.warmLease?.key === key) {
                 return
             }
+            // Route on the payload, not on `props.taskId`: the request shape is what each endpoint
+            // accepts, and only a resume request names a source run. The scene composer mounts this logic
+            // under the `/tasks/:taskId` route param, so `props.taskId` can be the `new` sentinel — a
+            // fresh-task body posted to `tasks/new/warm/` is rejected for the missing `resume_from_run_id`
+            // and that composer never warms at all.
+            const resumeRequest = 'resume_from_run_id' in request ? request : null
+            if (resumeRequest && !props.taskId) {
+                return
+            }
             if (cache.warming) {
                 // Only one warm POST runs at a time. A newer selection that arrives mid-flight must not
                 // be dropped, or the completing POST installs a lease on the stale selection and the
@@ -223,7 +244,13 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.pendingWarmRequest = null
             cache.consumedWhileWarming = false
             try {
-                const warm = await tasksWarmCreate(String(values.currentProjectId), request)
+                const warm = resumeRequest
+                    ? await tasksWarmResumeCreate(
+                          String(values.currentProjectId),
+                          props.taskId as string,
+                          resumeRequest
+                      )
+                    : await tasksWarmCreate(String(values.currentProjectId), request as WarmTaskRequestApi)
                 if (cache.consumedWhileWarming) {
                     // A submit consumed the warm while this POST was open. The backend's create may have
                     // matched and activated this very Run for the submit, so installing a lease on it
@@ -236,6 +263,12 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 // full, or the integration didn't resolve. Not an error, just no speedup this time.
                 if (warm?.task_id && warm?.run_id) {
                     actions.setWarmLease({ key, taskId: warm.task_id, runId: warm.run_id })
+                    // The cooldown throttles repeated "not warmed" answers, which leave no lease. This
+                    // warm produced one, so drop the stamp: once a submit consumes the lease or a
+                    // release drops it, the next draft for the same selection must warm again instead
+                    // of waiting out the cooldown.
+                    cache.lastWarmRequestKey = null
+                    cache.lastWarmRequestAt = null
                 }
                 // The user may have abandoned the draft while this POST was in flight, in which case the
                 // release hit the early-exit below with nothing to release. Honor that intent now so the
@@ -290,6 +323,11 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.disposables.dispose('warm-release')
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
+            // A warm fenced below by consumedWhileWarming returns before it installs a lease, so it
+            // never clears the cooldown stamp itself. Clear it here so the next draft in this composer
+            // can warm rather than taking the cold path for the rest of the cooldown.
+            cache.lastWarmRequestKey = null
+            cache.lastWarmRequestAt = null
             // The submit can beat an in-flight warm POST back to the client (the scene consumes only after
             // its create resolves). Fence that response so its completion drops rather than installs a
             // lease — otherwise a stale lease survives the submit and a later selection change cancels a

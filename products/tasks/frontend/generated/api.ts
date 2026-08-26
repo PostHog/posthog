@@ -145,6 +145,8 @@ import type {
     TasksThreadMessagesListParams,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
+    WarmTaskResumeRequestApi,
+    WarmTaskResumeResponseApi,
     WizardCloudRunDTOApi,
 } from './api.schemas'
 
@@ -1584,6 +1586,28 @@ export const tasksUsageRetrieve = async (
     return apiMutator<TaskUsageResponseApi>(getTasksUsageRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksWarmResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/warm/`
+}
+
+/**
+ * Warm an idling successor for the task's latest terminal Run while the user composes the next message. The successor restores the prior snapshot when compatible and waits for the normal run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, or the task advanced to another Run.
+ * @summary Warm a resumed task sandbox
+ */
+export const tasksWarmResumeCreate = async (
+    projectId: string,
+    id: string,
+    warmTaskResumeRequestApi: WarmTaskResumeRequestApi,
+    options?: RequestInit
+): Promise<WarmTaskResumeResponseApi> => {
+    return apiMutator<WarmTaskResumeResponseApi>(getTasksWarmResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warmTaskResumeRequestApi),
     })
 }
 
