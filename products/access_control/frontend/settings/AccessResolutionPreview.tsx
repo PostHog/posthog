@@ -54,7 +54,7 @@ function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {
             {change.subject.type === 'role' ? (
                 <LemonTag size="small">role</LemonTag>
             ) : change.subject.type === 'everyone' ? (
-                <span className="text-muted">(default access)</span>
+                <LemonTag size="small">default</LemonTag>
             ) : null}
         </div>
     )

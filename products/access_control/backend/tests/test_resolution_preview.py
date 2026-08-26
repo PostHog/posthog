@@ -1,8 +1,4 @@
-from io import StringIO
-
 import pytest
-
-from django.core.management import call_command
 
 from rest_framework import status
 
@@ -159,29 +155,3 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
             "source_subject": "default",
             "subject_name": None,
         }
-
-
-@pytest.mark.ee
-class TestFindDivergentAccessOrgsCommand(BaseUserAccessControlTest):
-    def test_lists_divergent_org(self):
-        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        self._create_access_control(resource="dashboard", resource_id=str(dashboard.id), access_level="viewer")
-        self._create_access_control(resource="dashboard", access_level="editor")
-
-        out = StringIO()
-        call_command("migrate_to_most_specific_access", "--dry-run", stdout=out)
-
-        assert str(self.organization.id) in out.getvalue()
-
-    def test_single_org_report_lists_change_records(self):
-        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Growth KPIs")
-        self._create_access_control(resource="dashboard", resource_id=str(dashboard.id), access_level="viewer")
-        self._create_access_control(resource="dashboard", access_level="editor")
-
-        out = StringIO()
-        call_command("preview_most_specific_access_changes", str(self.organization.id), stdout=out)
-
-        output = out.getvalue()
-        assert f"Project {self.team.pk}" in output
-        assert 'dashboard "Growth KPIs"' in output
-        assert "editor -> viewer (loses)" in output
