@@ -105,13 +105,19 @@ async fn test_epoch_key_ttl_expiry() {
     };
 
     let mut config = test_config("ttl_expiry");
+    // `new()` holds global_cache_ttl at 2 x window_interval, so a TTL short
+    // enough to observe inside a test needs an equally short window.
+    config.window_interval = Duration::from_secs(1);
     config.global_cache_ttl = Duration::from_secs(2);
     let redis_arc: Arc<dyn Client + Send + Sync> = Arc::new(redis.clone());
     let limiter = GlobalRateLimiterImpl::new(config.clone(), vec![redis_arc]).unwrap();
 
-    let _ = limiter.check_limit("ttl_key", 10, None).await;
-
+    // Pin the write and the epoch lookup to one timestamp. A one-second window
+    // rolls the epoch between the two otherwise, and the test reads a key the
+    // write never touched.
     let now = Utc::now();
+    let _ = limiter.check_limit("ttl_key", 10, Some(now)).await;
+
     let epoch = epoch_from_timestamp(now, config.window_interval);
     let redis_key = epoch_key(&config.redis_key_prefix, "ttl_key", epoch);
 
