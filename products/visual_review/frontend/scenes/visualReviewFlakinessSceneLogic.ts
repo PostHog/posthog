@@ -369,7 +369,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 }),
                 setSearch: (state, { search }) => ({ ...state, search }),
                 setSort: (state, { sort }) => ({ ...state, sort }),
-                clearAllFilters: () => EMPTY_FILTERS,
+                clearAllFilters: (state) => ({ ...EMPTY_FILTERS, preset: state.preset }),
             },
         ],
     }),
@@ -542,7 +542,10 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             toggleArea: toUrl,
             setSearch: toUrl,
             setSort: toUrl,
-            clearAllFilters: () => [path, {}, {}],
+            // Not an empty hash: the preset survives a clear, and dropping it from
+            // the URL would round-trip through urlToAction as "no preset asked for"
+            // and reset the tile the reader was moved to.
+            clearAllFilters: toUrl,
         }
     }),
     urlToAction(({ actions, values, props }) => ({
@@ -558,7 +561,11 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 search: hash.q ?? '',
                 sort: hash.sort === 'recent' ? 'recent' : 'failures',
             }
-            if (next.preset !== current.preset) {
+            // Dispatch whenever the hash names a preset, even one that already
+            // matches state: `setPreset` is what marks the choice as somebody's,
+            // and a link to the default would otherwise be treated as no choice
+            // and moved off by `landOnSomethingUseful`.
+            if (hash.preset !== undefined || next.preset !== current.preset) {
                 actions.setPreset(next.preset)
             }
             if (next.search !== current.search) {

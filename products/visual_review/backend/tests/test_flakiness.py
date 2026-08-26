@@ -38,6 +38,7 @@ from products.visual_review.backend.facade.contracts import (
 from products.visual_review.backend.facade.enums import (
     ClassificationReason,
     FlakinessState,
+    ReviewState,
     RunStatus,
     RunType,
     SnapshotResult,
@@ -95,6 +96,7 @@ def _mk_snapshot(
     outcome: str = EXACT,
     diff_percentage: float | None = None,
     tolerated_hash_match: ToleratedHash | None = None,
+    review_state: str = "",
 ) -> RunSnapshot:
     result, reason = _OUTCOMES[outcome]
     return RunSnapshot.objects.create(
@@ -106,6 +108,7 @@ def _mk_snapshot(
         classification_reason=reason,
         diff_percentage=diff_percentage,
         tolerated_hash_match=tolerated_hash_match,
+        review_state=review_state,
     )
 
 
@@ -147,6 +150,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         branch: str = "master",
         baseline_hash: str = CURRENT_BASELINE,
         tolerated_hash_match: ToleratedHash | None = None,
+        review_state: str = "",
     ) -> None:
         """`count` default-branch runs that each rendered `identifier` that way.
 
@@ -166,6 +170,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
                 diff_percentage=diff_percentage,
                 baseline_hash=baseline_hash,
                 tolerated_hash_match=tolerated_hash_match,
+                review_state=review_state,
             )
 
     def _mk_variant(
@@ -306,6 +311,27 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry is not None
         assert entry.hard_rate == 1.0
         assert entry.flakiness_state == expected
+
+    @parameterized.expand(
+        [
+            ("approved", ReviewState.APPROVED),
+            ("tolerated", ReviewState.TOLERATED),
+        ]
+    )
+    def test_a_signed_off_default_branch_failure_is_not_a_flake(self, _name: str, review_state: str):
+        # PostHog's own default-branch runs are observe and carry no approvals, but
+        # `purpose` defaults to review, so a repo whose CI omits the flag can land an
+        # approved snapshot on master. Counting it would hold a quarantine open over
+        # a change somebody already accepted.
+        self._render("story", outcome=HARD, count=3, review_state=review_state)
+        self._render("story", outcome=HARD, count=3)
+
+        entry = self._entry("story")
+
+        assert entry is not None
+        # Six runs rendered a hard result; only the three nobody signed off count.
+        assert entry.hard_count == 3
+        assert entry.flakiness_state == FlakinessState.UNSTABLE
 
     @parameterized.expand(
         [

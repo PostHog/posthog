@@ -28,7 +28,7 @@ from ..facade.contracts import (
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
 )
-from ..facade.enums import ClassificationReason, FlakinessState, RunStatus, SnapshotResult, ToleratedReason
+from ..facade.enums import ClassificationReason, FlakinessState, ReviewState, RunStatus, SnapshotResult, ToleratedReason
 from ..models import QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
 from . import run_queries
 
@@ -48,10 +48,15 @@ from . import run_queries
 # every run until somebody acts, and a quarantine hides them exactly as it
 # hides a CHANGED one.
 #
-# Review state is not consulted. It would matter for a snapshot a human
-# tolerated or approved, and nobody reviews default-branch runs: they are
-# `RunPurpose.OBSERVE` and never approvable.
-_HARD = Q(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
+# Mirrors `gating._is_unresolved`: a result other than `unchanged` that nobody
+# has signed off. PostHog's own default-branch runs are `RunPurpose.OBSERVE` and
+# so can never carry an approval, but `purpose` defaults to `REVIEW`, and a repo
+# whose CI omits the flag can land an approved or tolerated snapshot on the
+# default branch. Counting that as a failure would hold a quarantine open over a
+# change somebody already accepted.
+_HARD = Q(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)) & ~Q(
+    review_state__in=(ReviewState.APPROVED, ReviewState.TOLERATED)
+)
 #
 # The matched half is restricted to auto-minted rows. A human or agent
 # toleration can deliberately accept a diff well over the threshold, and the
@@ -241,14 +246,16 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # on the run rather than passed as a list of run ids: an active repo lands
     # hundreds of default-branch runs in a month, and the same predicate
     # already serves the neighbouring queries here.
-    window_start_at = now - timedelta(days=FLAKINESS_WINDOW_DAYS)
     strip_start = today - timedelta(days=FLAKINESS_WINDOW_DAYS - 1)
     rate_start = today - timedelta(days=FLAKINESS_RATE_DAYS - 1)
     in_window = Q(
         run__repo_id=repo_id,
         run__branch__in=run_queries._DEFAULT_BRANCHES,
         run__status=RunStatus.COMPLETED,
-        run__created_at__gte=window_start_at,
+        # Calendar days, matching the strip. A timestamp cutoff would reach into
+        # the day before the first tick, so `last_flaked_at` could name a day the
+        # strip does not draw.
+        run__created_at__date__gte=strip_start,
     )
 
     # The rate denominator, per run type, over the same calendar days the

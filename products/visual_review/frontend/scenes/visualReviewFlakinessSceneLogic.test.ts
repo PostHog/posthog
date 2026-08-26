@@ -116,10 +116,24 @@ describe('visualReviewFlakinessSceneLogic', () => {
             expect(logic.values.filters.preset).toBe('broken')
         })
 
+        it('keeps the landed preset when the filters are cleared', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setSearch('button')
+            logic.actions.clearAllFilters()
+            expect(logic.values.filters.search).toBe('')
+            expect(logic.values.filters.preset).toBe('broken')
+        })
+
         it('leaves a preset the link asked for alone', async () => {
             router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: 'at_risk' })
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.filters.preset).toBe('at_risk')
+        })
+
+        it('leaves the default preset alone when the link names it', async () => {
+            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: 'needs_decision' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.preset).toBe('needs_decision')
         })
     })
 
