@@ -80,7 +80,7 @@ import type { InsightFilterOverrideContextApi } from '../../../../products/produ
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
-import type { QueryStatus } from '../../queries/schema/schema-general'
+import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import type { MathDefinition } from '../trends/mathsLogic'
@@ -208,6 +208,7 @@ export interface insightLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -252,6 +253,7 @@ export interface insightLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -373,6 +375,7 @@ export interface insightLogicActions {
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
@@ -416,6 +419,7 @@ export interface insightLogicActions {
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
