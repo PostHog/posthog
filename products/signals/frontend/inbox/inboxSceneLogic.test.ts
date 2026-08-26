@@ -168,24 +168,66 @@ describe('inboxSceneLogic routing', () => {
         expect(logic.values.activeTab).toBe(expectedTab)
     })
 
-    // A slow flag response (or a bookmarked URL of the other layout) can leave a tab active that the
-    // resolved layout has no panel for. The active tab must fall back to the layout's landing tab
-    // rather than strand the body on a tab that renders nothing.
+    // A flag that flips mid-session leaves the URL addressed to the other layout. The current URL is
+    // routed again for the new layout, so its surface opens rather than a tab body that renders nothing.
     it.each<[boolean, string, string, string]>([
-        [false, '/inbox/runs', 'runs', 'reports'],
-        [true, '/inbox/settings', 'settings', 'pulls'],
-    ])(
-        'a mid-session flag flip (from redesign=%p) via %s strands %s → falls back to %s',
-        (initial, path, strandedTab, expectedTab) => {
-            mountWithRedesign(initial)
-            router.actions.push(path)
-            expect(logic.values.activeTab).toBe(strandedTab)
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: !initial,
-            })
-            expect(logic.values.activeTab).toBe(expectedTab)
-        }
-    )
+        [false, '/inbox/runs', urls.inboxRuns(), 'scouts'],
+        [true, '/inbox/settings', urls.inbox('config'), 'config'],
+    ])('a mid-session flag flip (from redesign=%p) re-routes %s to %s', (initial, path, expectedPath, expectedTab) => {
+        mountWithRedesign(initial)
+        router.actions.push(path)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: !initial,
+        })
+        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
+        expect(logic.values.activeTab).toBe(expectedTab)
+    })
+
+    function mountBeforeFlagsResolve(persistedRedesign: boolean): void {
+        // `featureFlags` persists through kea-localstorage, so a cold load routes against the value the
+        // last visit stored until PostHog answers. Seed that value and leave `receivedFeatureFlags` false.
+        window.localStorage.setItem(
+            'lib.logic.featureFlagLogic.featureFlags',
+            JSON.stringify({ [FEATURE_FLAGS.INBOX_REDESIGN]: persistedRedesign })
+        )
+        initKeaTests()
+        featureFlagLogic.mount()
+        logic = inboxSceneLogic()
+        logic.mount()
+    }
+
+    // On a cold load the route handlers run before PostHog returns flags. A layout redirect issued then
+    // would erase the surface the URL names, so the URL is held and routed again once flags land.
+    it.each<[string, boolean, string, (values: typeof logic.values) => boolean]>([
+        ['/inbox/reports/triage', true, urls.inboxTriage(), (values) => values.isTriageOpen],
+        ['/inbox/scouts/runs', true, urls.inboxRuns(), (values) => values.isRunsOpen],
+        ['/inbox/pulls', true, urls.inbox('reports'), (values) => values.activeTab === 'reports'],
+        ['/inbox/settings', false, urls.inbox('config'), (values) => values.activeTab === 'config'],
+    ])('before flags resolve %s is held, then routed for redesign=%p to %s', (path, redesign, expectedPath, opened) => {
+        mountBeforeFlagsResolve(!redesign)
+        router.actions.push(path)
+        expect(router.values.location.pathname.endsWith(path)).toBe(true)
+        expect(opened(logic.values)).toBe(false)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
+        })
+        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
+        expect(opened(logic.values)).toBe(true)
+    })
+
+    // A held report deep-link still opens the report under the persisted layout, so the page is not
+    // empty while flags load; the replay only settles the tab once the layout is known.
+    it('before flags resolve /inbox/pulls/<id> opens the report and lands on Reports once the redesign resolves', () => {
+        mountBeforeFlagsResolve(true)
+        router.actions.push('/inbox/pulls/report-1')
+        expect(logic.values.selectedReportId).toBe('report-1')
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        })
+        expect(router.values.location.pathname.endsWith(urls.inboxReport('reports', 'report-1'))).toBe(true)
+        expect(logic.values.selectedReportId).toBe('report-1')
+        expect(logic.values.activeTab).toBe('reports')
+    })
 
     // The triage card's "Full report" link opens the report by URL (with a triage `back`), not through
     // `openCurrent`, so the open-method must be recovered from that `back` or triage opens split between
