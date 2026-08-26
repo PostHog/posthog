@@ -25,6 +25,7 @@ import {
     DashboardTile,
     DashboardType,
     DashboardWidgetType,
+    InsightFilterOverrideContext,
     InsightModel,
     QueryBasedInsightModel,
     TileLayout,
@@ -464,6 +465,24 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | undefined
+): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
+    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
+    // fallback has to apply it itself.
+    const dashboardFilters = filterOverrideContext
+        ? filterOverrideContext.dashboard
+        : tileFiltersOverride?.ignoreDashboardFilters
+          ? undefined
+          : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
+    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
 const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
