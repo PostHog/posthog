@@ -42,6 +42,7 @@ import type { StoredEntry, TaskRun } from "../types";
 import {
   AgentServer,
   isTurnCompleteNotification,
+  PREWARMED_RESUME_IDLE_CAPABILITY,
   SSE_KEEPALIVE_INTERVAL_MS,
 } from "./agent-server";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
@@ -555,6 +556,7 @@ describe("AgentServer HTTP Mode", () => {
           totalMs: expect.any(Number),
           phasesMs: expect.any(Object),
         }),
+        capabilities: [PREWARMED_RESUME_IDLE_CAPABILITY],
       });
     }, 30000);
 
@@ -3526,6 +3528,116 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("resume prompt display", () => {
+    it.each(["native", "summary"] as const)(
+      "keeps a prewarmed %s resume idle until the forwarded user message arrives",
+      async (resumeKind) => {
+        const s = createServer();
+        await s.start();
+
+        const prompt = vi.fn(async () => ({ stopReason: "cancelled" }));
+        const payload: JwtPayload = {
+          run_id: "test-run-id",
+          task_id: "test-task-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        };
+        const taskRun = createTaskRun({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: {
+            prewarmed: true,
+            await_user_message: true,
+            resume_from_run_id: "previous-run",
+          },
+        });
+        const internals = s as unknown as {
+          posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+          session: { clientConnection: { prompt: typeof prompt } };
+          resumeState: ResumeState | null;
+          nativeResume: { sessionId: string; warm: boolean } | null;
+          prewarmedRun: boolean;
+          prewarmedStartupTurnPending: boolean;
+          sendInitialTaskMessage(
+            payload: JwtPayload,
+            taskRun: TaskRun | null,
+          ): Promise<void>;
+        };
+        internals.session.clientConnection.prompt = prompt;
+        internals.prewarmedRun = true;
+        internals.prewarmedStartupTurnPending = true;
+        internals.resumeState = {
+          conversation: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "original request" }],
+            },
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "work completed so far" }],
+            },
+          ],
+          latestGitCheckpoint: null,
+          interrupted: false,
+          logEntryCount: 2,
+          sessionId: "prior-session",
+        };
+        internals.nativeResume =
+          resumeKind === "native"
+            ? { sessionId: "prior-session", warm: true }
+            : null;
+        vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(taskRun);
+
+        await internals.sendInitialTaskMessage(payload, taskRun);
+
+        expect(prompt).not.toHaveBeenCalled();
+        expect(internals.resumeState).not.toBeNull();
+
+        const response = await fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${createToken()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: `deferred-${resumeKind}`,
+            method: "user_message",
+            params: { content: "continue with this change" },
+          }),
+        });
+
+        expect(response.status).toBe(200);
+        expect(prompt).toHaveBeenCalledOnce();
+        const [{ prompt: promptBlocks }] = prompt.mock.calls[0] as unknown as [
+          { prompt: ContentBlock[] },
+        ];
+        const visibleText = promptBlocks
+          .filter(
+            (block) =>
+              block.type === "text" &&
+              !(
+                (block as { _meta?: { ui?: { hidden?: boolean } } })._meta?.ui
+                  ?.hidden === true
+              ),
+          )
+          .map((block) => (block as { text: string }).text);
+        expect(visibleText).toEqual(["continue with this change"]);
+        if (resumeKind === "summary") {
+          expect(promptBlocks).toHaveLength(3);
+          expect((promptBlocks[0] as { text: string }).text).toContain(
+            "work completed so far",
+          );
+        } else {
+          expect(promptBlocks).toHaveLength(1);
+        }
+        expect(internals.resumeState).toBeNull();
+        expect(internals.nativeResume).toBeNull();
+      },
+      30000,
+    );
+
     it("hides synthetic resume context while keeping the pending user message visible", async () => {
       const s = createServer() as unknown as {
         resumeState: ResumeState | null;
