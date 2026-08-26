@@ -506,6 +506,8 @@ export interface HogQLQueryModifiersApi {
     personsOnEventsMode?: PersonsOnEventsModeApi | null
     propertyGroupsMode?: PropertyGroupsModeApi | null
     pushDownPredicates?: boolean | null
+    /** Rewrite single-person lookups on events (person-only select, person.id/distinct_id equality filters, no time bound) to read the persons table instead of scanning event history */
+    rewritePersonEventLookups?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
