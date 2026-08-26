@@ -16,7 +16,7 @@ describe('CombinedEventLoader', () => {
         mockedQuery.mockReset()
     })
 
-    it('fetches $screen events and maps them to screenviews with the screen name', async () => {
+    it('fetches $screen events and groups them under views with the screen name', async () => {
         // uuid, event, timestamp, $lib, $current_url, $exception_list, $exception_fingerprint, $exception_issue_id, $screen_name
         mockedQuery.mockResolvedValue({
             results: [
@@ -31,7 +31,7 @@ describe('CombinedEventLoader', () => {
         expect(where).toContain("equals(event, '$screen')")
 
         expect(items).toHaveLength(1)
-        expect(items[0].category).toBe(ItemCategory.SCREEN_VIEWS)
+        expect(items[0].category).toBe(ItemCategory.PAGE_VIEWS)
         expect(items[0].payload.screenName).toBe('Checkout')
     })
 })

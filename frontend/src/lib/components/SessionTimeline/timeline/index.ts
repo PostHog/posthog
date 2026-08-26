@@ -5,8 +5,8 @@ export enum ItemCategory {
     ERROR_TRACKING = 'exceptions',
     EXCEPTION_STEPS = 'exception steps',
     CUSTOM_EVENTS = 'custom events',
+    // Covers web $pageview and mobile $screen — both are "views" and share one lane.
     PAGE_VIEWS = 'pageviews',
-    SCREEN_VIEWS = 'screenviews',
     CONSOLE_LOGS = 'console logs',
 }
 

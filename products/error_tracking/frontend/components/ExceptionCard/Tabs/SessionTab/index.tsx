@@ -22,7 +22,6 @@ import {
 } from 'lib/components/SessionTimeline/timeline/items/exceptionSteps'
 import { ConsoleLogLoader, consoleLogRenderer } from 'lib/components/SessionTimeline/timeline/items/logs'
 import { pageRenderer } from 'lib/components/SessionTimeline/timeline/items/page'
-import { screenRenderer } from 'lib/components/SessionTimeline/timeline/items/screen'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { TabsContent } from 'lib/ui/quill'
 
@@ -206,7 +205,6 @@ function buildSessionCollector({
     const eventLoader = new CombinedEventLoader(sessionId, timestampDayJs)
     collector.addCategory(ItemCategory.ERROR_TRACKING, exceptionRenderer, eventLoader)
     collector.addCategory(ItemCategory.PAGE_VIEWS, pageRenderer, eventLoader)
-    collector.addCategory(ItemCategory.SCREEN_VIEWS, screenRenderer, eventLoader)
     collector.addCategory(ItemCategory.CUSTOM_EVENTS, customItemRenderer, eventLoader)
 
     // Console logs (separate table)

@@ -7,7 +7,7 @@ import { uuid } from 'lib/utils/dom'
 import { SessionTimeline, SessionTimelineHandle } from './SessionTimeline'
 import { ItemCategory, ItemCollector, ItemLoader, ItemRenderer, TimelineItem } from './timeline'
 import { exceptionRenderer } from './timeline/items/exceptions'
-import { screenRenderer } from './timeline/items/screen'
+import { pageRenderer } from './timeline/items/page'
 
 const meta: Meta = {
     title: 'Components/SessionTimeline',
@@ -31,7 +31,6 @@ const ICON_BY_CATEGORY: Record<ItemCategory, string> = {
     [ItemCategory.EXCEPTION_STEPS]: '📋',
     [ItemCategory.CUSTOM_EVENTS]: '📊',
     [ItemCategory.PAGE_VIEWS]: '👁',
-    [ItemCategory.SCREEN_VIEWS]: '📱',
     [ItemCategory.CONSOLE_LOGS]: '🖥',
 }
 
@@ -58,8 +57,6 @@ function getRealisticTypeLabel(category: ItemCategory): string {
             return 'custom event'
         case ItemCategory.PAGE_VIEWS:
             return 'page view'
-        case ItemCategory.SCREEN_VIEWS:
-            return 'screen view'
         case ItemCategory.CONSOLE_LOGS:
             return 'console'
     }
@@ -91,7 +88,6 @@ function getRealisticMessage(category: ItemCategory, i: number): string {
             '/settings/project/error-tracking',
             '/billing',
         ],
-        [ItemCategory.SCREEN_VIEWS]: ['HomeScreen', 'IssueDetailScreen', 'SettingsScreen', 'BillingScreen'],
         [ItemCategory.CONSOLE_LOGS]: [
             'info App initialized',
             'warn Slow network detected',
@@ -333,18 +329,18 @@ export const SingleCategory: StoryFn = () => {
     )
 }
 
-/** Mobile session — screenviews rendered with the real renderer next to an exception. */
+/** Mobile session — $screen views share the pageview lane, rendered by the real renderer next to an exception. */
 export const MobileScreenviews: StoryFn = () => {
     const collector = new ItemCollector('mobile-session', CENTER)
     const screens = ['HomeScreen', 'ProductListScreen', 'ProductDetailScreen', 'CartScreen', 'CheckoutScreen']
 
     collector.addCategory(
-        ItemCategory.SCREEN_VIEWS,
-        screenRenderer as ItemRenderer<TimelineItem>,
+        ItemCategory.PAGE_VIEWS,
+        pageRenderer as ItemRenderer<TimelineItem>,
         new StaticItemLoader(
             screens.map((screenName, i) => ({
                 id: uuid(),
-                category: ItemCategory.SCREEN_VIEWS,
+                category: ItemCategory.PAGE_VIEWS,
                 timestamp: CENTER.subtract(screens.length - i, 'second'),
                 payload: { runtime: 'python', screenName },
             }))

@@ -193,7 +193,7 @@ function buildItem(evt: ParsedCombinedEventRow): TimelineItem {
     if (evt.eventName === '$screen') {
         return {
             id: evt.uuid,
-            category: ItemCategory.SCREEN_VIEWS,
+            category: ItemCategory.PAGE_VIEWS,
             timestamp: ts,
             payload: { runtime, screenName: evt.screenName ?? '' },
         }
