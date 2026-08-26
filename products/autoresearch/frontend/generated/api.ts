@@ -10,10 +10,19 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AutoresearchListParams,
+    AutoresearchModelApi,
+    AutoresearchModelsListParams,
     AutoresearchPipelineApi,
     AutoresearchPipelineCreateApi,
+    AutoresearchRunApi,
+    AutoresearchRunsListParams,
     AutoresearchTemplatesListParams,
+    AutoresearchTrainingRunApi,
+    AutoresearchTrainingRunsListParams,
+    PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
+    PaginatedAutoresearchRunListApi,
+    PaginatedAutoresearchTrainingRunListApi,
     PaginatedTemplateInfoListApi,
     PatchedAutoresearchPipelineCreateApi,
     ResolveTemplateRequestApi,
@@ -21,6 +30,23 @@ import type {
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
 } from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 export const getAutoresearchListUrl = (projectId: string, params?: AutoresearchListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -77,6 +103,212 @@ export const autoresearchCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(autoresearchPipelineCreateApi),
+    })
+}
+
+export const getAutoresearchModelsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchModelsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/models/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/models/`
+}
+
+/**
+ * List and retrieve champion/challenger models for a pipeline.
+ *
+ * Models are the persisted artifacts produced by training runs. Each model
+ * holds a portable recipe (feature SQL, transforms, model class, params) that
+ * the daily inference workflow compiles to score users.
+ */
+export const autoresearchModelsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchModelsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchModelListApi> => {
+    return apiMutator<PaginatedAutoresearchModelListApi>(getAutoresearchModelsListUrl(projectId, pipelineId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchModelsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/models/${id}/`
+}
+
+/**
+ * List and retrieve champion/challenger models for a pipeline.
+ *
+ * Models are the persisted artifacts produced by training runs. Each model
+ * holds a portable recipe (feature SQL, transforms, model class, params) that
+ * the daily inference workflow compiles to score users.
+ */
+export const autoresearchModelsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchModelApi> => {
+    return apiMutator<AutoresearchModelApi>(getAutoresearchModelsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchRunsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/runs/`
+}
+
+/**
+ * List and retrieve inference and validation runs for a pipeline.
+ */
+export const autoresearchRunsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchRunListApi> => {
+    return apiMutator<PaginatedAutoresearchRunListApi>(getAutoresearchRunsListUrl(projectId, pipelineId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchRunsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/runs/${id}/`
+}
+
+/**
+ * List and retrieve inference and validation runs for a pipeline.
+ */
+export const autoresearchRunsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchRunApi> => {
+    return apiMutator<AutoresearchRunApi>(getAutoresearchRunsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchTrainingRunsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/`
+}
+
+/**
+ * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ *
+ * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+ * training run directly — recording each iteration as it completes rather than via a single
+ * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ */
+export const autoresearchTrainingRunsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchTrainingRunListApi> => {
+    return apiMutator<PaginatedAutoresearchTrainingRunListApi>(
+        getAutoresearchTrainingRunsListUrl(projectId, pipelineId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsCreateUrl = (projectId: string, pipelineId: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/`
+}
+
+/**
+ * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ *
+ * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+ * training run directly — recording each iteration as it completes rather than via a single
+ * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ */
+export const autoresearchTrainingRunsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    autoresearchTrainingRunApi: NonReadonly<AutoresearchTrainingRunApi>,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainingRunsCreateUrl(projectId, pipelineId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(autoresearchTrainingRunApi),
+    })
+}
+
+export const getAutoresearchTrainingRunsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/`
+}
+
+/**
+ * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ *
+ * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+ * training run directly — recording each iteration as it completes rather than via a single
+ * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ */
+export const autoresearchTrainingRunsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainingRunsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
