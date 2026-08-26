@@ -10,6 +10,39 @@ describe("PostHogAPIClient", () => {
     vi.clearAllMocks();
   });
 
+  it.each([
+    [
+      "keeps known and backend-only fields",
+      { reasoning_effort: "xhigh", backend_only: "kept" },
+      { reasoning_effort: "xhigh", backend_only: "kept" },
+    ],
+    [
+      "drops an unreadable reasoning effort",
+      { reasoning_effort: 123, initial_prompt_override: "run this" },
+      { initial_prompt_override: "run this" },
+    ],
+    [
+      "drops an unreadable permission mode",
+      { initial_permission_mode: "invented", prewarmed: true },
+      { prewarmed: true },
+    ],
+    ["falls back to an empty state", null, {}],
+  ])("reads task-run state and %s", async (_label, state, expected) => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ id: "run-1", state }),
+    });
+
+    const run = await client.getTaskRun("task-1", "run-1");
+
+    expect(run.state).toEqual(expected);
+  });
+
   it("refreshes once when fetching task run logs gets an auth failure", async () => {
     const getApiKey = vi.fn().mockResolvedValue("stale-token");
     const refreshApiKey = vi.fn().mockResolvedValue("fresh-token");

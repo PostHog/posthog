@@ -157,8 +157,11 @@ export {
   type TaskRunArtifact,
   type TaskRunArtifactMetadata,
   type TaskRunEnvironment,
+  type TaskRunState,
+  type TaskRunStateField,
   type TaskRunStatus,
   TERMINAL_STATUSES,
+  taskRunStateSchema,
 } from "./domain-types";
 export * from "./enrichment";
 export {
