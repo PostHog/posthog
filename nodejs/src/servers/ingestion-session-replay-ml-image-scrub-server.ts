@@ -122,6 +122,7 @@ export class IngestionSessionReplayMlImageScrubServer implements NodeServer {
             Date.now(),
             deadLetters
         )
+        await scrubClient.waitUntilReachable()
         await consumer.connect((messages) => {
             const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
             return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))

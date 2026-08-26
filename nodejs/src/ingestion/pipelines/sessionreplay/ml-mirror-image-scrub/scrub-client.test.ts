@@ -90,6 +90,30 @@ describe('ScrubClient', () => {
         expect(requests).toBe(1)
     })
 
+    it('retries until the sidecar listener accepts connections', async () => {
+        const address = server.address() as AddressInfo
+        const baseUrl = `http://127.0.0.1:${address.port}`
+        await new Promise<void>((resolve, reject) =>
+            server.close((error) => {
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve()
+                }
+            })
+        )
+        let retries = 0
+        const scrubClient = new ScrubClient(baseUrl, 1000)
+
+        await scrubClient.waitUntilReachable(async () => {
+            retries += 1
+            await new Promise<void>((resolve) => server.listen(address.port, '127.0.0.1', resolve))
+        })
+
+        expect(retries).toBe(1)
+        expect(requests).toBe(1)
+    })
+
     it('never dead-letters on saturation alone, however long the sidecar sheds', async () => {
         // The safety property of the whole dead-letter path. Under a backlog every image waits a
         // long time, so anything keyed on waiting or failure count alone would park the entire

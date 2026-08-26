@@ -6,6 +6,7 @@ import { ImageScrubConsumerMetrics } from './metrics'
 
 /** The timeout's own message, matched on rather than duplicated, so the reason label cannot drift. */
 const REQUEST_TIMED_OUT = 'scrub request timed out'
+const REACHABILITY_RETRY_MS = 1_000
 
 /**
  * Why a single attempt did not come back with bytes.
@@ -173,6 +174,19 @@ export class ScrubClient {
         this.url = new URL('/scrub', baseUrl)
     }
 
+    public async waitUntilReachable(
+        sleepBeforeRetry: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    ): Promise<void> {
+        for (;;) {
+            try {
+                await this.probe()
+                return
+            } catch {
+                await sleepBeforeRetry(REACHABILITY_RETRY_MS)
+            }
+        }
+    }
+
     /**
      * Scrubbed bytes, or null when the sidecar permanently rejected the content (422/413).
      *
@@ -324,6 +338,18 @@ export class ScrubClient {
                 }
             }
             req.end(bytes)
+        })
+    }
+
+    private probe(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const req = request(this.url, { method: 'GET' }, (res) => {
+                res.resume()
+                resolve()
+            })
+            req.setTimeout(this.timeoutMs, () => req.destroy(new Error(REQUEST_TIMED_OUT)))
+            req.on('error', reject)
+            req.end()
         })
     }
 }
