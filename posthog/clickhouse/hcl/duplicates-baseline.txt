@@ -7,5 +7,12 @@
 #     channel_definition inverts that on prod-eu. One declaration cannot hold both
 #     shapes, so these resolve when the sessions env layers move to
 #     posthog-cloud-infra, not by a restructure here.
+#   - kafka_logs_avro, kafka_logs34_avro_mv: the logs Kafka ingest moved to the
+#     ingestion-events nodes. In-repo that puts them on ingestion_events/local (local
+#     stacks) while dev/prod keep the logs-role copy via roles/logs/cloud until their
+#     events layers land in posthog-cloud-infra. Same name, two clusters — resolves
+#     when that cloud move lands, not by a restructure here.
 posthog.channel_definition
+posthog.kafka_logs34_avro_mv
+posthog.kafka_logs_avro
 posthog.raw_sessions_v3
