@@ -125,7 +125,8 @@
   WHERE ("posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe',
+                                                            'CheckoutCom'))
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.11

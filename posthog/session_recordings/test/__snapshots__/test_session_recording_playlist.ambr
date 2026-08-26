@@ -1283,7 +1283,8 @@
   WHERE ("posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe',
+                                                            'CheckoutCom'))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.31
