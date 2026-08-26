@@ -110,8 +110,7 @@ export function RetentionTab(): JSX.Element {
     )
 
     return (
-        // Rebinds the collection inside the tab, shadowing the scene-level binding on purpose: the
-        // refresh button reloads the retention query, not the dashboard tiles.
+        // Shadows the scene-level binding on purpose. See MARKETING_ANALYTICS_RETENTION_COLLECTION_ID.
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_RETENTION_COLLECTION_ID }}>
             <div className="flex flex-col">
                 <FilterBar
