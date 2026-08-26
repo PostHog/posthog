@@ -62,6 +62,28 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_to(), parser.isoparse(earliest_timestamp) - timedelta(microseconds=1))
         self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_date_from))
 
+    @parameterized.expand(
+        [
+            # A day-anchored range at hour granularity used to size the previous period from the
+            # elapsed part of today (ending 12:59), truncating it. It now spans the full previous
+            # day, matching how day/week/month intervals already behave.
+            ("today_hour", "dStart", IntervalType.HOUR, "2021-08-24T00:00:00Z", "2021-08-24T23:59:59.999999Z"),
+            ("today_minute", "dStart", IntervalType.MINUTE, "2021-08-24T00:00:00.000001Z", "2021-08-25T00:00:00Z"),
+            ("last_7d_hour", "-7d", IntervalType.HOUR, "2021-08-10T00:00:00Z", "2021-08-17T23:59:59.999999Z"),
+            # A rolling sub-day window is unchanged: its previous period is just the window before it.
+            ("last_24h_hour", "-24h", IntervalType.HOUR, "2021-08-23T12:00:00Z", "2021-08-24T12:59:59.999999Z"),
+        ]
+    )
+    def test_previous_period_hourly_range_sizing(
+        self, _name: str, date_from: str, interval: IntervalType, expected_from: str, expected_to: str
+    ):
+        now = parser.isoparse("2021-08-25T12:34:00.000Z")
+        query_date_range = QueryPreviousPeriodDateRange(
+            team=self.team, date_range=DateRange(date_from=date_from), interval=interval, now=now
+        )
+        self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_from))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_to))
+
     def test_explicit_timezone_info_overrides_team_timezone(self):
         # The previous-period delta parsing used to read directly from
         # `self._team.timezone_info`, so a `timezone_info=UTC` override on the constructor

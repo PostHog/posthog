@@ -13,7 +13,6 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
-from uuid import UUID
 
 from django.db import InterfaceError, OperationalError, router, transaction
 from django.utils import timezone
@@ -31,7 +30,7 @@ from .channel_resolution import (
     build_routing_context,
     resolve_destination,
 )
-from .digest import pr_key, summarize_merged_prs
+from .digest import summarize_merged_prs
 from .slack_digest import post_digest_details, post_digest_lead
 
 logger = structlog.get_logger(__name__)
@@ -43,8 +42,8 @@ DIGEST_LOOKBACK_DAYS = 7
 # Per-audience claim ceiling. An unbounded claim grows the LLM prompt, the stored summary, and the
 # Slack payload with the burst size — and if either rejects the oversized payload, the failure
 # handler unlinks the same PRs and every later run retries the identical oversized batch forever.
-# Capping the claim drains a backlog across daily runs instead; each digest renders at most
-# MAX_DIGEST_PRS of whatever its own destination group received.
+# Merges above the ceiling stay unclaimed rather than claimed and dropped, so the next run picks
+# them up. This is the one place a merge can still wait for a later digest.
 DIGEST_MAX_PRS_PER_RUN = 100
 
 # A PENDING DigestRun older than this had its worker die between claiming its PRs and posting (or
@@ -112,18 +111,25 @@ def _claim_floor(audience_key: str, now: datetime, established: set[str]) -> dat
     return _previous_run_slot(now)
 
 
-def _finalize_empty_run(team_id: int, run_id: str, audience_ids: list[UUID], summary_dict: dict) -> None:
-    """The model kept nothing, so release the claim rather than consume it.
+def _finalize_empty_run(team_id: int, run_id: str, pr_count: int, summary_dict: dict) -> None:
+    """The model kept nothing, so record the decision and leave the claim consumed.
 
-    The summarizer reads contributor-authored text, so a single injected or degenerate answer must
-    not be the last word on a whole batch. Genuinely irrelevant PRs are re-evaluated tomorrow and
-    age out of the claim floor on their own.
+    An empty answer is a judgment like any other, not a failure worth retrying. Releasing the claim
+    put the same merges in front of the same prompt the next morning, and the same text produced
+    the same answer, so a batch grew instead of draining and merges reached a channel days after
+    they landed.
+
+    The prompt injection this once guarded against is handled where it starts instead. The author's
+    body never reaches the prompt, and the values that do cannot close their own tag and continue as
+    instructions (see logic/digest.py), so one PR's text can no longer answer for the batch around
+    it.
     """
-    with transaction.atomic(using=router.db_for_write(DigestRun)):
-        DigestRun.objects.for_team(team_id).filter(id=run_id).update(
-            status=DigestRunStatus.COMPLETED, summary=summary_dict, posted_at=timezone.now()
-        )
-        PullRequestAudience.objects.for_team(team_id).filter(id__in=audience_ids).update(digest_run=None)
+    DigestRun.objects.for_team(team_id).filter(id=run_id).update(
+        status=DigestRunStatus.COMPLETED,
+        pr_count=pr_count,
+        summary=summary_dict,
+        posted_at=timezone.now(),
+    )
 
 
 def _write_proof_of_post(team_id: int, run_id: str, message_ts: str | None, pr_count: int, summary_dict: dict) -> None:
@@ -160,7 +166,7 @@ def _post_group(team_id: int, group: _ClaimedGroup) -> None:
 
     if not summary.prs:
         logger.info("stamphog_digest_nothing_relevant", run_id=str(run.id), pr_count=len(prs))
-        _finalize_empty_run(team_id, str(run.id), audience_ids, summary.to_dict())
+        _finalize_empty_run(team_id, str(run.id), len(prs), summary.to_dict())
         return
 
     try:
@@ -183,27 +189,16 @@ def _post_group(team_id: int, group: _ClaimedGroup) -> None:
     # worker that dies inside it leaves a run the sweeper finalizes rather than one it re-sends.
     post_digest_details(team_id, destination, summary, message_ts)
 
-    with transaction.atomic(using=write_db):
-        DigestRun.objects.for_team(team_id).filter(id=run.id).update(
-            status=DigestRunStatus.COMPLETED,
-            pr_count=len(prs),
-            summary=summary.to_dict(),
-            slack_message_ts=message_ts or "",
-            posted_at=timezone.now(),
-        )
-        # Release the PRs the digest kept but had no room for, so the next run posts them. Every
-        # other claimed PR stays linked: the model saw it and left it out, which is a decision and
-        # not a backlog. Runs after the proof-of-post write, so a crash here loses a day for those
-        # PRs rather than re-sending the whole digest.
-        if summary.deferred_prs:
-            deferred = set(summary.deferred_prs)
-            PullRequestAudience.objects.for_team(team_id).filter(
-                id__in=[
-                    a.id
-                    for a in audiences
-                    if pr_key(a.pull_request.repo_config.repository, a.pull_request.pr_number) in deferred
-                ]
-            ).update(digest_run=None)
+    # Every claimed merge stays consumed, including the ones the model left out and the ones the
+    # rail cut. Each of those got a decision, and a run that hands them back re-summarizes the same
+    # merges tomorrow rather than draining them.
+    DigestRun.objects.for_team(team_id).filter(id=run.id).update(
+        status=DigestRunStatus.COMPLETED,
+        pr_count=len(prs),
+        summary=summary.to_dict(),
+        slack_message_ts=message_ts or "",
+        posted_at=timezone.now(),
+    )
 
     logger.info(
         "stamphog_digest_posted",
