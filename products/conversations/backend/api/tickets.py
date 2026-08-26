@@ -901,13 +901,14 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         # Assignee is not a serializer field, so take it out of the payload. The ... sentinel
         # separates "no assignee in the request" from an explicit null, which unassigns.
         assignee = request.data.get("assignee", ...)
+        assignee_submitted = assignee is not ...
         data = {k: v for k, v in request.data.items() if k != "assignee"}
 
         serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self._save_ticket_fields(serializer, instance, before, explicit_status="status" in data)
 
-        if assignee is not ...:
+        if assignee_submitted:
             assign_ticket(
                 instance,
                 assignee,
@@ -921,7 +922,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         diff = _TicketUpdateDiff(
             before=before,
             after=_TicketFields.read_from(instance),
-            assignee_submitted=assignee is not ...,
+            assignee_submitted=assignee_submitted,
         )
         self._emit_update_side_effects(request, instance, diff)
 
