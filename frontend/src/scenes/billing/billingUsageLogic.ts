@@ -633,7 +633,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             }
             if (params.team_ids) {
                 const teamIds = sanitizeTeamIds(params.team_ids)
-                if (!equal(teamIds, values.filters.team_ids)) {
+                if (!equal(params.team_ids, teamIds) || !equal(teamIds, values.filters.team_ids)) {
                     filtersFromUrl.team_ids = teamIds
                 }
             }
