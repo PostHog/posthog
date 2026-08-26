@@ -39,6 +39,7 @@ import {
   rememberStartupLocation,
   resolveStartupLocation,
 } from "@posthog/ui/shell/startupLocation";
+import { useAppLoadingGateTelemetry } from "@posthog/ui/shell/useAppLoadingGateTelemetry";
 import { useAppVisibilityWatchdog } from "@posthog/ui/shell/useAppVisibilityWatchdog";
 import { RouterProvider } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
@@ -182,6 +183,16 @@ function App({ devToolbar }: AppProps) {
   // Mirrors the "main" branch of renderContent() below; keep the two in sync.
   const showingMainApp = readyForMainApp && initialRouteLoaded;
   useAppVisibilityWatchdog(mainRef, showingMainApp);
+  useAppLoadingGateTelemetry(showingMainApp, {
+    isBootstrapped,
+    isCheckingAccess,
+    readyForMainApp,
+    initialRouteLoaded,
+    authStatus: authState.status,
+    desktopAccessStatus: desktopAccess.status,
+    desktopAccessIsCurrent,
+    consentStatus: consent.status,
+  });
 
   // Single gate for every state where the whole app is still loading.
   if (

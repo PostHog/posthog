@@ -36,6 +36,7 @@ from posthog.settings import (
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
@@ -45,8 +46,6 @@ from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, 
 from products.exports.backend.tasks.image_exporter import export_image
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import InsightSerializer
-
-from ee.models.rbac.access_control import AccessControl
 
 TEST_ROOT_BUCKET = "test_exports"
 
@@ -462,6 +461,22 @@ class TestExports(APIBaseTest):
                 "type": "validation_error",
             },
         )
+
+    def test_errors_if_the_request_picks_its_own_limit_context(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                    "limit_context": "posthog_ai",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "export_context")
+        self.assertEqual(response.json()["detail"], "limit_context is not supported for exports.")
 
     @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
     def test_errors_if_bad_format(self, export_format: str) -> None:

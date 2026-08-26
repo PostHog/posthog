@@ -317,6 +317,12 @@ describe("AgentService", () => {
       path: "/mock/appData/context-wiki/org-1/head1",
       commitsPath: "/api/organizations/org-1/context_layer/commits/",
     };
+    const mountContextWiki = () =>
+      (
+        service as unknown as {
+          mountContextWiki: (value: unknown) => Promise<unknown>;
+        }
+      ).mountContextWiki(credentials);
 
     const ENV_KEYS = [
       "POSTHOG_API_KEY",
@@ -351,7 +357,7 @@ describe("AgentService", () => {
         }
         mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-        const wiki = await service["mountContextWiki"](credentials);
+        const wiki = await mountContextWiki();
 
         expect(wiki).toEqual({
           path: mount.path,
@@ -368,7 +374,7 @@ describe("AgentService", () => {
       process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-      await service["mountContextWiki"](credentials);
+      await mountContextWiki();
 
       expect(process.env.POSTHOG_CONTEXT_LAYER_PATH).toBeUndefined();
       expect(process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBeUndefined();
@@ -1239,6 +1245,7 @@ describe("AgentService", () => {
           buildSystemPrompt: (
             credentials: { apiHost: string; projectId: number },
             taskId: string,
+            cwd: string,
             customInstructions?: string,
             additionalDirectories?: string[],
             systemPromptOverride?: string,
@@ -1248,6 +1255,7 @@ describe("AgentService", () => {
       ).buildSystemPrompt(
         credentials,
         "task-1",
+        "/tmp/task-1",
         undefined,
         undefined,
         systemPromptOverride,
@@ -1292,11 +1300,13 @@ describe("AgentService", () => {
           buildSystemPrompt: (
             credentials: { apiHost: string; projectId: number },
             taskId: string,
+            cwd: string,
           ) => { append: string };
         }
       ).buildSystemPrompt(
         { apiHost: "https://app.posthog.com", projectId: 1 },
         "task-1",
+        "/tmp/task-1",
       ).append;
 
       expect(prompt).toContain(

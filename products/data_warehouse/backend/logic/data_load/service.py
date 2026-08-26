@@ -625,6 +625,25 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
 
 
 @async_to_sync
+async def cdc_extraction_schedule_has_running_action(source_id: str) -> bool:
+    """Whether an extraction run started by the source's schedule is still executing.
+
+    Pausing a schedule stops future firings but not a workflow already running — anything that
+    must not race an in-flight extraction (the buffered-ingress rollback) has to wait on this
+    after pausing. A missing schedule has nothing running.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = await async_connect()
+    try:
+        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return bool(desc.info.running_actions)
+
+
+@async_to_sync
 async def bulk_sync_cdc_extraction_schedules(
     source_intervals: list[tuple[ExternalDataSource, timedelta]],
 ) -> list[tuple[str, BaseException]]:
