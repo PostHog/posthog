@@ -863,3 +863,22 @@ export type LlmSkillsResolveNameRetrieveParams = {
      */
     version_id?: string
 }
+
+export type LlmSkillsSandboxBundleRetrieveParams = {
+    /**
+     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
+     *
+     * * `stub` - stub
+     * * `full` - full
+     * @minLength 1
+     */
+    content?: LlmSkillsSandboxBundleRetrieveContent
+}
+
+export type LlmSkillsSandboxBundleRetrieveContent =
+    (typeof LlmSkillsSandboxBundleRetrieveContent)[keyof typeof LlmSkillsSandboxBundleRetrieveContent]
+
+export const LlmSkillsSandboxBundleRetrieveContent = {
+    Stub: 'stub',
+    Full: 'full',
+} as const

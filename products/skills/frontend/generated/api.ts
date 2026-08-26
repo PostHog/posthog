@@ -31,6 +31,7 @@ import type {
     LlmSkillsNameFilesRetrieveParams,
     LlmSkillsNameRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
+    LlmSkillsSandboxBundleRetrieveParams,
     PaginatedCommunitySkillListListApi,
     PaginatedLLMSkillListListApi,
     PatchedLLMSkillPublishApi,
@@ -502,15 +503,34 @@ export const llmSkillsResolveNameRetrieve = async (
     })
 }
 
-export const getLlmSkillsSandboxBundleRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_skills/sandbox_bundle/`
+export const getLlmSkillsSandboxBundleRetrieveUrl = (
+    projectId: string,
+    params?: LlmSkillsSandboxBundleRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/sandbox_bundle/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/sandbox_bundle/`
 }
 
 /**
  * One zip of the requesting user's store skills, for a sandbox to unpack into its skill dirs.
  */
-export const llmSkillsSandboxBundleRetrieve = async (projectId: string, options?: RequestInit): Promise<Blob> => {
-    return apiMutator<Blob>(getLlmSkillsSandboxBundleRetrieveUrl(projectId), {
+export const llmSkillsSandboxBundleRetrieve = async (
+    projectId: string,
+    params?: LlmSkillsSandboxBundleRetrieveParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getLlmSkillsSandboxBundleRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -94,6 +94,44 @@ def render_skill_md(skill: SkillExport) -> str:
     return render_frontmatter(skill) + "\n" + skill.body
 
 
+@dataclass(frozen=True)
+class SkillStub:
+    """The discovery half of a skill: enough for a harness to list and invoke it by name."""
+
+    name: str
+    description: str
+    version: int
+
+
+# The stub must read as a pointer, not as the skill. An agent that treats it as the skill's body
+# improvises instead of fetching the real instructions, so the first line says what the file is
+# and the steps say exactly which MCP calls to make.
+_STUB_BODY = """\
+This skill lives in the PostHog skills store. This file is a pointer for discovery, not the skill itself.
+
+Before you act on it:
+
+1. Run `call skill-get {{"skill_name": "{name}"}}` with the PostHog MCP `exec` tool.
+2. Follow the returned `body` as the instructions for this skill.
+3. If the body references bundled files, fetch each one with `call skill-file-get {{"skill_name": "{name}", "file_path": "<path>"}}` and write it into this directory before you use it.
+"""
+
+
+def render_skill_stub_md(stub: SkillStub) -> str:
+    document: dict[str, object] = {
+        "name": stub.name,
+        "description": stub.description,
+        "metadata": {"version": str(stub.version), "source": "posthog-skills-store"},
+    }
+    frontmatter = yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return f"---\n{frontmatter}---\n\n" + _STUB_BODY.format(name=stub.name)
+
+
+def build_skill_stub_tree(stub: SkillStub) -> FileTree:
+    """A one-file skill directory whose SKILL.md tells the agent to fetch the real skill over MCP."""
+    return {"SKILL.md": render_skill_stub_md(stub)}
+
+
 def validate_for_export(skill: SkillExport) -> list[str]:
     """Return spec-compliance problems that should block or warn on export. Empty == clean."""
     problems: list[str] = []

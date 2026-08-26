@@ -14,6 +14,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpResponse
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
@@ -181,11 +182,14 @@ class TestSkillSandboxBundle(APIBaseTest):
         }
         return LLMSkill.objects.create(**fields)
 
-    def _fetch(self, *, flag: bool | None = True, authorization: str | None = None) -> HttpResponse:
+    def _fetch(
+        self, *, flag: bool | None = True, authorization: str | None = None, content: str | None = None
+    ) -> HttpResponse:
+        query = {"content": content} if content else {}
         with patch(SANDBOX_FLAG, return_value=flag):
             if authorization:
-                return self.client.get(self._url(), HTTP_AUTHORIZATION=authorization)
-            return self.client.get(self._url())
+                return self.client.get(self._url(), query, HTTP_AUTHORIZATION=authorization)
+            return self.client.get(self._url(), query)
 
     @staticmethod
     def _skill_dirs(response: HttpResponse) -> set[str]:
@@ -225,7 +229,7 @@ class TestSkillSandboxBundle(APIBaseTest):
         self._create_skill("created-by-other-edited-by-me", created_by=self.other_user, is_latest=False)
         self._create_skill("created-by-other-edited-by-me", version=2)
 
-        response = self._fetch()
+        response = self._fetch(content="full")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response["Content-Type"] == "application/zip"
@@ -238,14 +242,15 @@ class TestSkillSandboxBundle(APIBaseTest):
             assert "with-file/agents/openai.yaml" in archive.namelist()
             assert "name: mine" in archive.read("mine/SKILL.md").decode()
 
-    def test_over_cap_keeps_newest_and_drops_the_rest(self):
+    @parameterized.expand(["stub", "full"])
+    def test_over_cap_keeps_newest_and_drops_the_rest(self, content: str):
         base = timezone.now()
         for index, name in enumerate(["oldest", "middle", "newest"]):
             skill = self._create_skill(name)
             LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
 
         with patch.object(adapters, "MAX_SANDBOX_BUNDLE_SKILLS", 2):
-            response = self._fetch()
+            response = self._fetch(content=content)
 
         assert response.status_code == status.HTTP_200_OK
         assert self._skill_dirs(response) == {"newest", "middle"}
@@ -258,16 +263,17 @@ class TestSkillSandboxBundle(APIBaseTest):
             LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
 
         with patch.object(adapters, "MAX_SANDBOX_BUNDLE_BYTES", 5_000):
-            response = self._fetch()
+            response = self._fetch(content="full")
 
         assert self._skill_dirs(response) == {"newest-small"}
         assert response["X-Skills-Dropped"] == "2"
 
-    def test_spec_invalid_skill_is_skipped_not_fatal(self):
+    @parameterized.expand(["stub", "full"])
+    def test_spec_invalid_skill_is_skipped_not_fatal(self, content: str):
         self._create_skill("fine")
         self._create_skill("too-long", description="x" * 1025)
 
-        response = self._fetch()
+        response = self._fetch(content=content)
 
         assert response.status_code == status.HTTP_200_OK
         assert self._skill_dirs(response) == {"fine"}
@@ -280,7 +286,7 @@ class TestSkillSandboxBundle(APIBaseTest):
         LLMSkillFile.objects.create(skill=self._create_skill("escapes"), path="../escape.md", content="x")
         self._create_skill("Bad/Name")
 
-        response = self._fetch()
+        response = self._fetch(content="full")
 
         assert response.status_code == status.HTTP_200_OK
         assert self._skill_dirs(response) == {"fine"}
@@ -318,6 +324,30 @@ class TestSkillSandboxBundle(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert self._skill_dirs(response) == {"allowed"}
+
+    def test_default_bundle_is_stubs_that_point_at_the_mcp(self):
+        skill = self._create_skill("mine", description="Forecast quota usage.", body="# The real instructions\n")
+        LLMSkillFile.objects.create(skill=skill, path="scripts/run.py", content="print(1)\n")
+        self._create_skill("Bad/Name")
+
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response["X-Skills-Included"] == "1"
+        assert response["X-Skills-Skipped"] == "1"
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.namelist() == ["mine/SKILL.md"]
+            stub = archive.read("mine/SKILL.md").decode()
+        assert "name: mine" in stub
+        assert "description: Forecast quota usage." in stub
+        assert "source: posthog-skills-store" in stub
+        assert 'call skill-get {"skill_name": "mine"}' in stub
+        assert "The real instructions" not in stub
+
+    def test_unknown_content_is_400(self):
+        self._create_skill("mine")
+
+        assert self._fetch(content="partial").status_code == status.HTTP_400_BAD_REQUEST
 
     def test_no_skills_is_an_empty_zip(self):
         response = self._fetch()

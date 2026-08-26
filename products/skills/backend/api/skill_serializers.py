@@ -123,6 +123,18 @@ class LLMSkillFetchQuerySerializer(serializers.Serializer):
     )
 
 
+class LLMSkillSandboxBundleQuerySerializer(serializers.Serializer):
+    content = serializers.ChoiceField(
+        choices=["stub", "full"],
+        default="stub",
+        help_text=(
+            "What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, "
+            "description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes "
+            "the rendered SKILL.md, every bundled file and the Codex sidecar."
+        ),
+    )
+
+
 class LLMSkillBodyFetchQuerySerializer(LLMSkillFetchQuerySerializer):
     """Fetch-by-name query params plus optional body paging — only the body-returning endpoint uses these."""
 

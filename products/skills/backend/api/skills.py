@@ -76,6 +76,7 @@ from .skill_serializers import (
     LLMSkillPublishToCommunitySerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
+    LLMSkillSandboxBundleQuerySerializer,
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
     validate_allowed_tool,
@@ -763,12 +764,17 @@ class LLMSkillViewSet(
         response["Content-Disposition"] = f'attachment; filename="{skill.name}.zip"'
         return response
 
-    @extend_schema(responses={(200, "application/zip"): OpenApiTypes.BINARY})
+    @extend_schema(
+        parameters=[LLMSkillSandboxBundleQuerySerializer],
+        responses={(200, "application/zip"): OpenApiTypes.BINARY},
+    )
     @action(methods=["GET"], detail=False, url_path="sandbox_bundle", required_scopes=["llm_skill:read"])
     @llma_track_latency("llma_skills_sandbox_bundle")
     @monitor(feature=None, endpoint="llma_skills_sandbox_bundle", method="GET")
     def sandbox_bundle(self, request: Request, **kwargs) -> Response | HttpResponse:
         """One zip of the requesting user's store skills, for a sandbox to unpack into its skill dirs."""
+        query = LLMSkillSandboxBundleQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,
@@ -792,7 +798,7 @@ class LLMSkillViewSet(
         readable_skills = self.user_access_control.filter_queryset_by_access_level(
             LLMSkill.objects.filter(team=self.team), resource="llm_skill"
         )
-        bundle = build_sandbox_skill_bundle(self.team, user, readable_skills)
+        bundle = build_sandbox_skill_bundle(self.team, user, readable_skills, content=query.validated_data["content"])
         response = HttpResponse(bundle.zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = 'attachment; filename="skills-sandbox-bundle.zip"'
         # Counts only: names are unbounded and would blow past proxy header limits for heavy users.
