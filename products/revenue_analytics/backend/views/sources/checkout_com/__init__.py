@@ -14,17 +14,3 @@ kinds present in this dict. Settlement-level figures (fees, payouts) exist in th
 `financial_actions_report` table at (`action_id`, `breakdown_type`) grain, but its
 column set is account-configurable, so no managed view is built on it.
 """
-
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
-from products.revenue_analytics.backend.views.core import Builder
-
-from .charge import build as charge_builder
-from .customer import build as customer_builder
-from .revenue_item import build as revenue_item_builder
-
-BUILDER: Builder = {
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE: charge_builder,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER: customer_builder,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM: revenue_item_builder,
-}
