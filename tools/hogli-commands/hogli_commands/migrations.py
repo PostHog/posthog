@@ -341,16 +341,16 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
         return False
 
 
-def _fetch_uncached_from_git(uncached: list[MigrationInfo], cached: list[MigrationInfo]) -> list[MigrationInfo]:
+def _fetch_uncached_from_git(uncached: list[MigrationInfo]) -> tuple[list[MigrationInfo], list[MigrationInfo]]:
     """Try to fetch uncached migrations from git history.
 
-    Moves successfully fetched migrations from uncached to cached list.
-    Returns the list of migrations that are still uncached.
+    Returns the migrations that are now cached, and the ones that are still uncached.
     """
     if not uncached:
-        return []
+        return [], []
 
     click.echo("Attempting to fetch uncached migrations from git…\n")
+    newly_cached: list[MigrationInfo] = []
     still_uncached: list[MigrationInfo] = []
 
     for m in uncached:
@@ -359,7 +359,7 @@ def _fetch_uncached_from_git(uncached: list[MigrationInfo], cached: list[Migrati
             click.echo(f"  Fetching {m.app}.{m.name} from {branch}…")
             if _fetch_and_cache_migration_from_git(m.app, m.name, branch):
                 click.secho(f"  ✓ Cached {m.app}.{m.name}", fg="green")
-                cached.append(m)
+                newly_cached.append(m)
             else:
                 click.secho(f"  ✗ Could not fetch {m.app}.{m.name}", fg="red")
                 still_uncached.append(m)
@@ -368,7 +368,7 @@ def _fetch_uncached_from_git(uncached: list[MigrationInfo], cached: list[Migrati
             still_uncached.append(m)
 
     click.echo()
-    return still_uncached
+    return newly_cached, still_uncached
 
 
 def _show_manual_rollback_instructions(uncached: list[MigrationInfo], command_name: str) -> None:
@@ -598,13 +598,14 @@ def _echo_step_header(title: str, color: str) -> None:
 
 def _classify_orphans(orphaned: list[MigrationInfo]) -> OrphanRollbackPlan:
     """Split orphaned migrations by whether their file is in the migration cache."""
-    plan = OrphanRollbackPlan(cached=[], uncached=[])
+    cached: list[MigrationInfo] = []
+    uncached: list[MigrationInfo] = []
     for m in orphaned:
         if _get_cached_migration(m.app, m.name):
-            plan.cached.append(m)
+            cached.append(m)
         else:
-            plan.uncached.append(m)
-    return plan
+            uncached.append(m)
+    return OrphanRollbackPlan(cached=cached, uncached=uncached)
 
 
 def _echo_orphaned_migrations(orphaned: list[MigrationInfo], plan: OrphanRollbackPlan) -> None:
@@ -637,7 +638,8 @@ def _recover_uncached_orphans(plan: OrphanRollbackPlan, force: bool, command_nam
     if force or not plan.uncached:
         return plan
 
-    plan = replace(plan, uncached=_fetch_uncached_from_git(plan.uncached, plan.cached))
+    newly_cached, still_uncached = _fetch_uncached_from_git(plan.uncached)
+    plan = replace(plan, cached=[*plan.cached, *newly_cached], uncached=still_uncached)
     if plan.uncached:
         _show_manual_rollback_instructions(plan.uncached, command_name)
     return plan

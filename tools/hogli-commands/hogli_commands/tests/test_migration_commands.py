@@ -24,6 +24,8 @@ class Harness:
         self.orphaned: list[migrations.MigrationInfo] = []
         self.pending: list[migrations.MigrationInfo] = []
         self.cached: set[str] = set()
+        # Uncached orphans that the git search can recover into the cache
+        self.git_recovered: set[str] = set()
         self.rollback_failures: set[str] = set()
         self.apply_results: list[migrations.MigrationResult] = []
         # What the command asked the boundaries to do, with the dry-run flag it passed
@@ -65,7 +67,15 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> Harness:
     monkeypatch.setattr(migrations, "_rollback_migration_with_cache", rollback)
     monkeypatch.setattr(migrations, "_remove_orphaned_migrations", remove)
     monkeypatch.setattr(migrations, "_apply_migrations", apply)
-    monkeypatch.setattr(migrations, "_fetch_uncached_from_git", lambda uncached, cached: list(uncached))
+
+    def fetch_from_git(
+        uncached: list[migrations.MigrationInfo],
+    ) -> tuple[list[migrations.MigrationInfo], list[migrations.MigrationInfo]]:
+        recovered = [m for m in uncached if _label(m) in h.git_recovered]
+        still_uncached = [m for m in uncached if _label(m) not in h.git_recovered]
+        return recovered, still_uncached
+
+    monkeypatch.setattr(migrations, "_fetch_uncached_from_git", fetch_from_git)
     monkeypatch.setattr(migrations, "_find_migration_branch", lambda app, name: None)
     monkeypatch.setattr(migrations, "_fake_migration", lambda app, name: True)
     monkeypatch.setattr(migrations, "get_managed_app_paths", lambda root: {})
@@ -133,6 +143,28 @@ def test_force_removes_records_for_uncached_orphans_only(harness: Harness) -> No
     assert result.exit_code == 0
     assert harness.rollbacks == [("posthog.0002_orphan", False)]
     assert harness.removals == [(["posthog.0004_gone"], False)]
+
+
+def test_force_dry_run_plans_the_record_removal_without_doing_it(harness: Harness) -> None:
+    harness.set_state(orphaned=["posthog.0004_gone"])
+
+    result = CliRunner().invoke(migrations.migrations_down, ["--force", "--dry-run"])
+
+    assert result.exit_code == 0
+    assert harness.removals == [(["posthog.0004_gone"], True)]
+    assert harness.rollbacks == []
+
+
+def test_git_recovered_orphan_is_rolled_back_not_record_deleted(harness: Harness) -> None:
+    harness.set_state(orphaned=["posthog.0002_orphan", "posthog.0004_gone"])
+    harness.cached = {"posthog.0002_orphan"}
+    harness.git_recovered = {"posthog.0004_gone"}
+
+    result = CliRunner().invoke(migrations.migrations_down, ["--yes"])
+
+    assert result.exit_code == 0
+    assert harness.rollbacks == [("posthog.0002_orphan", False), ("posthog.0004_gone", False)]
+    assert harness.removals == []
 
 
 def test_failed_rollback_stops_before_applying_pending(harness: Harness) -> None:
