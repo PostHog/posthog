@@ -3,6 +3,7 @@ import type { UserBasicType } from '~/types'
 import {
     type ReportChartApi,
     type SignalReportRefundApi,
+    type SignalReportStateRequestApi,
     type SignalScoutRunSummaryApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
@@ -456,10 +457,6 @@ export interface SignalScoutEmissionReportLink {
 
 // ── Report state transitions (backend `state` action: dismiss / snooze / resolve) ──────
 
-export interface SignalReportStateRequest {
-    state: 'suppressed' | 'potential' | 'resolved'
-    dismissal_reason?: string
-    dismissal_note?: string
-    /** Only honored for state === 'potential' (snooze): re-promote after N more signals. */
-    snooze_for?: number
-}
+// Generated from the serializer, so the state and reason enums stay in sync with the backend.
+// Re-exported under the domain name so consumers don't carry the `Api` suffix.
+export type SignalReportStateRequest = SignalReportStateRequestApi
