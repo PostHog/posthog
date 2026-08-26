@@ -282,9 +282,80 @@ describe('expandScheduleOccurrences', () => {
             overrides: { change_request: { id: 'cr-3', state: ScheduledChangeRequestState.Expired } },
         },
         { name: 'unparseable scheduled_at', overrides: { scheduled_at: 'not-a-date' } },
+        {
+            // A recoverable failure leaves executed_at null with a now-past scheduled_at
+            // (process_scheduled_changes: "leave executed_at=NULL to allow retries").
+            name: 'past-due one-time',
+            overrides: { scheduled_at: NOW.subtract(2, 'day').toISOString() },
+        },
+        {
+            name: 'past-due cron',
+            overrides: {
+                scheduled_at: NOW.subtract(2, 'day').toISOString(),
+                is_recurring: true,
+                cron_expression: '0 9 * * 1-5',
+            },
+        },
+        {
+            name: 'recurring past its end date',
+            overrides: {
+                scheduled_at: NOW.subtract(10, 'day').toISOString(),
+                is_recurring: true,
+                recurrence_interval: RecurrenceInterval.Daily,
+                end_date: NOW.subtract(5, 'day').toISOString(),
+            },
+        },
+        {
+            // The sweep advances scheduled_at without reading end_date, so a closed window can
+            // hold a future date until the sweep reaches it and stamps executed_at.
+            name: 'recurring past its end date with a future scheduled_at',
+            overrides: {
+                scheduled_at: NOW.add(1, 'day').toISOString(),
+                is_recurring: true,
+                recurrence_interval: RecurrenceInterval.Daily,
+                end_date: NOW.subtract(1, 'day').toISOString(),
+            },
+        },
     ])('excludes $name schedules', ({ overrides }) => {
         const schedules = [change({ payload: STATUS_ON, ...overrides })]
 
         expect(expandScheduleOccurrences(schedules, flag(), NOW)).toEqual([])
+    })
+
+    it('catches a stalled recurring schedule up to its next fire, and re-gates it', () => {
+        // The sweep leaves scheduled_at in the past when it defers on a conflicting approval, then
+        // skips the missed fires. An approved request covered the fire that never happened, so the
+        // caught-up occurrence must still read as needing approval.
+        const schedules = [
+            change({
+                payload: STATUS_ON,
+                is_recurring: true,
+                recurrence_interval: RecurrenceInterval.Daily,
+                scheduled_at: NOW.subtract(3, 'day').add(9, 'hour').toISOString(),
+                change_request: { id: 'cr-1', state: ScheduledChangeRequestState.Approved },
+            }),
+        ]
+
+        const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
+
+        expect(occurrences[0].timestamp).toEqual(NOW.add(9, 'hour').toISOString())
+        expect(occurrences[0].needsApproval).toBe(true)
+    })
+
+    it('clamps a stalled monthly schedule along the path the sweep took', () => {
+        // Oct 31 monthly gives Nov 30, then Dec 30, then Jan 30. Adding three months to the origin
+        // would restore the 31st and paint a date the flag never fires on.
+        const schedules = [
+            change({
+                payload: STATUS_ON,
+                is_recurring: true,
+                recurrence_interval: RecurrenceInterval.Monthly,
+                scheduled_at: dayjs('2025-10-31T09:00:00Z').toISOString(),
+            }),
+        ]
+
+        const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
+
+        expect(occurrences[0].timestamp).toEqual('2026-01-30T09:00:00.000Z')
     })
 })

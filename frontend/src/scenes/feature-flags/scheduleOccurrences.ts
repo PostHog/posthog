@@ -40,6 +40,24 @@ const INTERVAL_UNIT: Record<RecurrenceInterval, 'day' | 'week' | 'month' | 'year
     [RecurrenceInterval.Yearly]: 'year',
 }
 
+/** Matches MAX_CATCHUP_ITERATIONS in posthog/tasks/process_scheduled_changes.py. */
+const CATCHUP_CAP = 1000
+
+/**
+ * Advances a stalled recurring date to its first fire after `now`, as the sweep's catch-up loop
+ * does. The sweep skips the missed fires instead of replaying them, so this projects one date.
+ */
+function catchUpToFuture(from: Dayjs, unit: 'day' | 'week' | 'month' | 'year', now: Dayjs): Dayjs {
+    // Step from the previous date rather than add N intervals to the origin, because month-end
+    // clamping is path dependent: a monthly schedule from Oct 31 gives Nov 30, then Dec 30.
+    let next = from
+    for (let step = 0; step < CATCHUP_CAP && !next.isAfter(now); step++) {
+        next = next.add(1, unit)
+    }
+    // The sweep gives up the same way at its own cap and computes the next run from now.
+    return next.isAfter(now) ? next : now.add(1, unit)
+}
+
 /** Null/undefined rollout means the condition set matches 100% of its targets. */
 export function maxRolloutPercentage(groups: FeatureFlagGroupType[] | undefined): number | null {
     if (!groups?.length) {
@@ -79,34 +97,62 @@ export function expandScheduleOccurrences(
     now: Dayjs
 ): ScheduleOccurrence[] {
     const horizon = now.add(OCCURRENCE_HORIZON_DAYS, 'day')
-    // isFirst distinguishes the occurrence the schedule's current change request covers from the
-    // later ones the backend will re-gate. See needsApproval below.
     const raw: { at: Dayjs; schedule: ScheduledChangeType; isFirst: boolean }[] = []
 
     for (const schedule of schedules) {
         if (schedule.executed_at || isSchedulePaused(schedule)) {
             continue
         }
-        // Denied one-time schedules end up with no occurrence at all: the push below is skipped
-        // and the recurrence expansion requires is_recurring.
-        const denied = hasDeniedApprovalRequest(schedule)
         // Parse in UTC so recurrence arithmetic below adds fixed 24h days/weeks, matching the
         // backend's relativedelta on the stored UTC instant. Browser-local .add() would preserve
         // wall-clock across a DST transition and drift the projected fire time by an hour.
-        const first = dayjs.utc(schedule.scheduled_at)
-        if (!first.isValid()) {
+        const parsed = dayjs.utc(schedule.scheduled_at)
+        if (!parsed.isValid()) {
             continue
         }
-        // Skip a denied recurring change's current occurrence; the backend re-gates the next, which
-        // the recurrence expansion below still projects. A denied recurring cron schedule
-        // contributes nothing, because its next run is not computed client-side.
-        if (!denied) {
-            raw.push({ at: first, schedule, isFirst: true })
+        const end = schedule.end_date ? dayjs.utc(schedule.end_date) : null
+        // The sweep closes out a recurring window whose end_date has passed, and it fires nothing
+        // (process_scheduled_changes stamps executed_at when end_date <= now). Such a row can still
+        // hold a future scheduled_at, because the sweep advances that date without reading end_date
+        // and closes the row only once the date arrives.
+        if (end && !end.isAfter(now) && (schedule.recurrence_interval || schedule.cron_expression)) {
+            continue
+        }
+        // Only a fixed-interval recurrence expands here. A cron schedule contributes its stored
+        // next run alone, because the client does not evaluate cron expressions.
+        const unit =
+            schedule.is_recurring && schedule.recurrence_interval && !schedule.cron_expression
+                ? INTERVAL_UNIT[schedule.recurrence_interval]
+                : null
+
+        let first = parsed
+        // isFirst distinguishes the occurrence the schedule's current change request covers from
+        // the later ones the backend will re-gate. See needsApproval below.
+        let isFirst = true
+        if (!first.isAfter(now)) {
+            // A stalled schedule keeps a past scheduled_at with executed_at still null: the sweep
+            // defers on ApprovalRequired, and a recoverable failure retries in place. Projecting
+            // that instant as upcoming clamps it to the axis origin and labels it "now".
+            if (!unit) {
+                continue
+            }
+            first = catchUpToFuture(first, unit, now)
+            // The bound request covered the fire that never happened, so the sweep re-gates this
+            // one and it must not read as certain.
+            isFirst = false
+        }
+        if (end && first.isAfter(end)) {
+            continue
+        }
+        // Skip a denied change's current occurrence; the backend re-gates the next, which the
+        // recurrence expansion below still projects. A denied one-time schedule then ends up with
+        // no occurrence at all, and so does a denied recurring cron schedule, because its next run
+        // is not computed client-side.
+        if (!(isFirst && hasDeniedApprovalRequest(schedule))) {
+            raw.push({ at: first, schedule, isFirst })
         }
 
-        if (schedule.is_recurring && schedule.recurrence_interval && !schedule.cron_expression) {
-            const unit = INTERVAL_UNIT[schedule.recurrence_interval]
-            const end = schedule.end_date ? dayjs.utc(schedule.end_date) : null
+        if (unit) {
             // Derive each occurrence from the previous one, as the backend does when it advances
             // scheduled_at (process_scheduled_changes.compute_next_run). A month-end start then stays
             // clamped (Jan 31 -> Feb 28 -> Mar 28); adding from the origin each step would restore the
