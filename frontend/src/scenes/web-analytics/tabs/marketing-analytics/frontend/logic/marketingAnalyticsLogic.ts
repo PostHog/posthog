@@ -579,7 +579,7 @@ export interface marketingAnalyticsLogicMeta {
             compareFilter: CompareFilter,
             draftConversionGoal: ConversionGoalFilter | null,
             integrationFilter: IntegrationFilter,
-            shouldFilterTestAccounts: any
+            shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsAggregatedQuery
     }
 }

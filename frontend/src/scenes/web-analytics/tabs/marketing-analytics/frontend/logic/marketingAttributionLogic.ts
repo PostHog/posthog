@@ -159,7 +159,7 @@ export interface marketingAttributionLogicMeta {
                 dateTo: string | null
                 interval: IntervalType
             },
-            shouldFilterTestAccounts: any
+            shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsAttributionQuery | null
         pathsQuery: (
             query: MarketingAnalyticsAttributionQuery | null,

@@ -107,7 +107,7 @@ export interface marketingAnalyticsTilesLogicMeta {
             },
             draftConversionGoal: ConversionGoalFilter | null,
             integrationFilter: IntegrationFilter,
-            shouldFilterTestAccounts: any
+            shouldFilterTestAccounts: boolean
         ) => QueryTile
         marketingChartTile: (
             compareFilter: CompareFilter,
@@ -145,7 +145,7 @@ export interface marketingAnalyticsTilesLogicMeta {
             compareFilter: CompareFilter,
             integrationFilter: IntegrationFilter,
             drillDownLevel: MarketingAnalyticsDrillDownLevel,
-            shouldFilterTestAccounts: any
+            shouldFilterTestAccounts: boolean
         ) => DataTableNode | null
     }
 }
