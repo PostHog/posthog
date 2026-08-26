@@ -1,4 +1,10 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import {
+    ApiError,
+    NetworkError,
+    isTransientServerError,
+    shouldReportApiFailure,
+    shouldReportManualCapture,
+} from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -117,6 +123,21 @@ describe('api-error', () => {
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
 
             expect(shouldReportApiFailure(error)).toBe(false)
+        })
+    })
+
+    describe('shouldReportManualCapture', () => {
+        it.each([
+            // A request that never reached the server is not a defect, whether it arrives classified
+            // as a `NetworkError` or as the raw browser fetch failure that escaped classification.
+            ['a classified network failure', new NetworkError('network'), false],
+            ['a raw browser fetch failure', new TypeError('Failed to fetch'), false],
+            ['an ApiError wrapping a fetch failure', new ApiError('TypeError: Failed to fetch'), false],
+            // Everything else defers to the central policy.
+            ['a handled 401', { status: 401 }, false],
+            ['a 500 backend exception', { status: 500 }, true],
+        ])('decides whether to report %s', (_, error, expected) => {
+            expect(shouldReportManualCapture(error)).toBe(expected)
         })
     })
 })

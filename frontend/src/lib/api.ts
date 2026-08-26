@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import { ApiError, NetworkError, type NetworkFailureReason, isBrowserFetchFailure } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -7486,31 +7486,6 @@ function requestPathname(url: string): string {
     } catch {
         return url
     }
-}
-
-/**
- * The browser rejects a fetch that never reached the server with a `TypeError`, but `instanceof
- * TypeError` alone misses two real cases: an error thrown in another realm (an iframe, a worker)
- * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
- * its own error shape. Both keep the class name and the engine-specific message, so we match those
- * as well before a connectivity failure falls through to an unclassified `ApiError`.
- */
-const BROWSER_FETCH_FAILURE_MESSAGES = [
-    'Failed to fetch',
-    'Load failed',
-    'NetworkError when attempting to fetch resource',
-]
-
-function isBrowserFetchFailure(error: unknown): boolean {
-    if (error instanceof TypeError) {
-        return true
-    }
-    const candidate = error as { name?: unknown; message?: unknown } | null
-    if (candidate?.name === 'TypeError') {
-        return true
-    }
-    const message = candidate?.message
-    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
 }
 
 function classifyNetworkFailure(): NetworkFailureReason {

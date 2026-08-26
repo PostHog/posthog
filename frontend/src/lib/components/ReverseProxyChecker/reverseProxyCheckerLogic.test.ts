@@ -3,6 +3,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api, { ApiConfig } from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -115,6 +117,30 @@ describe('reverseProxyCheckerLogic', () => {
         )
 
         toastErrorSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+    })
+
+    it('should not run the query before the team id is known', async () => {
+        // The check runs on mount, which can happen before the team id resolves. Querying then
+        // throws `Team ID is not known.`, a startup race that used to file an error tracking issue.
+        ApiConfig.setCurrentTeamId(null as unknown as number)
+        const querySpy = jest.spyOn(api, 'queryHogQL')
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                hasReverseProxy: null,
+            })
+
+        expect(querySpy).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+
+        querySpy.mockRestore()
         captureExceptionSpy.mockRestore()
     })
 })

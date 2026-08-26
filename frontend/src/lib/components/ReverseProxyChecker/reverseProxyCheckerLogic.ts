@@ -2,7 +2,8 @@ import { MakeLogicType, afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+import { shouldReportManualCapture } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -49,6 +50,13 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
             null as boolean | null,
             {
                 loadHasReverseProxy: async () => {
+                    // This advisory check runs on mount, so it can fire before the team id resolves.
+                    // Querying then throws `Team ID is not known.`, a startup race rather than a
+                    // defect. Skip until the id is known; a later mount re-runs the check.
+                    if (!ApiConfig.hasCurrentTeamId()) {
+                        return values.hasReverseProxy
+                    }
+
                     if (cache.lastCheckedTimestamp > Date.now() - CHECK_INTERVAL_MS) {
                         return values.hasReverseProxy
                     }
@@ -76,14 +84,20 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         // Swallow errors so kea-loaders does not surface a user-visible toast
                         // on every scene that mounts ProductSetupButton.
                         //
+                        // The manual capture bypasses the central kea-loaders handler, so it
+                        // re-applies the same policy: skip connectivity failures and responses
+                        // the app already recovers from, which otherwise bury genuine failures.
+                        //
                         // Capturing the original `error` directly (rather than wrapping it
                         // in `new Error('...', { cause })`) keeps the error type at the top
                         // of `$exception_list`, so the central `before_send` filter in
                         // `selfReadOnlyModeLogic` can drop `ReadOnlyModeError` without
                         // assuming posthog-js serialises the cause chain.
-                        posthog.captureException(error, {
-                            posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
-                        })
+                        if (shouldReportManualCapture(error)) {
+                            posthog.captureException(error, {
+                                posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
+                            })
+                        }
                         return values.hasReverseProxy
                     }
                 },

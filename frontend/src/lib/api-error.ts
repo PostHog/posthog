@@ -180,6 +180,45 @@ export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set(
 ])
 
 /**
+ * The browser rejects a fetch that never reached the server with a `TypeError`, but `instanceof
+ * TypeError` alone misses two real cases: an error thrown in another realm (an iframe, a worker)
+ * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
+ * its own error shape. Both keep the class name and the engine-specific message, so we match those
+ * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ */
+export const BROWSER_FETCH_FAILURE_MESSAGES = [
+    'Failed to fetch',
+    'Load failed',
+    'NetworkError when attempting to fetch resource',
+]
+
+export function isBrowserFetchFailure(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    const candidate = error as { name?: unknown; message?: unknown } | null
+    if (candidate?.name === 'TypeError') {
+        return true
+    }
+    const message = candidate?.message
+    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+}
+
+/**
+ * Whether a manual `posthog.captureException` at an app call site should fire. A manual capture
+ * bypasses the central kea-loaders handler in `initKea.ts`, so it must re-apply the same policy or
+ * it files the noise that handler drops. A connectivity failure that never reached the server is
+ * not a defect (`NetworkError`, or the raw browser fetch failure that escapes classification), and
+ * neither is any response `shouldReportApiFailure` rejects.
+ */
+export function shouldReportManualCapture(error: unknown): boolean {
+    if (error instanceof NetworkError || isBrowserFetchFailure(error)) {
+        return false
+    }
+    return shouldReportApiFailure(error)
+}
+
+/**
  * A request the browser never completed, so there is no HTTP status to react to. `status` is left
  * undefined on purpose: recovery paths across the app read `status === undefined` as "transient,
  * may be retried" (for example `inviteSignupLogic` and `sourcesDataLogic`), and a placeholder like
