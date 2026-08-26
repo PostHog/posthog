@@ -34,12 +34,22 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    run_started_floor_constant,
+    window_pair_predicates,
+)
+from products.engineering_analytics.backend.logic.queries.merge_queue_overview import (
+    query_merge_queue_overview,
+    query_merge_queue_trunk_outcomes,
+)
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
     query_workflow_window_costs_with_prev,
 )
-from products.engineering_analytics.backend.logic.queries.workflow_health import query_time_to_green_series
+from products.engineering_analytics.backend.logic.queries.workflow_health import (
+    query_time_to_green_series,
+    query_time_to_green_window,
+)
 
 _RUNS_SELECT = """
     SELECT
@@ -327,8 +337,7 @@ def query_repo_overview(
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
-    cur = "(run_started_at >= {date_from}" + (" AND run_started_at <= {date_to})" if date_to is not None else ")")
-    prev = "(run_started_at >= {prev_from} AND run_started_at < {date_from})"
+    run_windows = window_pair_predicates("run_started_at", date_to=date_to)
 
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
@@ -341,8 +350,8 @@ def query_repo_overview(
         placeholders["date_to"] = ast.Constant(value=date_to)
 
     runs_sql = (
-        _RUNS_SELECT.replace("__CUR__", cur)
-        .replace("__PREV__", prev)
+        _RUNS_SELECT.replace("__CUR__", run_windows.current)
+        .replace("__PREV__", run_windows.previous)
         .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
     )
@@ -353,15 +362,14 @@ def query_repo_overview(
     run_count, run_count_prev, success_rate, success_rate_prev, reruns, reruns_prev, master_runs, main_runs = row
     default_branch = "main" if (main_runs or 0) > (master_runs or 0) else "master"
 
-    pr_cur = "(merged_at >= {date_from}" + (" AND merged_at <= {date_to})" if date_to is not None else ")")
-    pr_prev = "(merged_at >= {prev_from} AND merged_at < {date_from})"
+    merge_windows = window_pair_predicates("merged_at", date_to=date_to)
     ready = curated.ready_to_merge_sql()
     pr_sql = ready.with_clause + (
-        _PR_SELECT.replace("__READY_MEDIAN_CUR__", ready.median(scope=f"{pr_cur} AND {_HUMAN_MERGES}"))
-        .replace("__READY_MEDIAN_PREV__", ready.median(scope=f"{pr_prev} AND {_HUMAN_MERGES}"))
+        _PR_SELECT.replace("__READY_MEDIAN_CUR__", ready.median(scope=f"{merge_windows.current} AND {_HUMAN_MERGES}"))
+        .replace("__READY_MEDIAN_PREV__", ready.median(scope=f"{merge_windows.previous} AND {_HUMAN_MERGES}"))
         .replace("__READY_JOIN__", ready.join)
-        .replace("__CUR_MERGED__", pr_cur)
-        .replace("__PREV_MERGED__", pr_prev)
+        .replace("__CUR_MERGED__", merge_windows.current)
+        .replace("__PREV_MERGED__", merge_windows.previous)
         .replace("__PR_SOURCE__", curated.pr_source())
     )
     pr_response = curated.run(pr_sql, query_type="engineering_analytics.repo_overview_prs", placeholders=placeholders)
@@ -370,6 +378,11 @@ def query_repo_overview(
     )
 
     jobs_available = curated.jobs_source() is not None
+    queue = query_merge_queue_overview(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
+    trunk = query_merge_queue_trunk_outcomes(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
+    time_to_green = query_time_to_green_window(
+        curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+    )
     costs = query_workflow_window_costs_with_prev(
         curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
     )
@@ -382,6 +395,8 @@ def query_repo_overview(
     # The queue slice mirrors billable_minutes' null gating so both go null together.
     queue_minutes = costs.merge_queue_billable_seconds / 60 if cost_cur else None
     queue_minutes_prev = costs.merge_queue_billable_seconds_prev / 60 if cost_prev else None
+    cost_per_merge = cost_usd / int(merged_cur) if cost_usd is not None and merged_cur else None
+    cost_per_merge_prev = cost_usd_prev / int(merged_prev) if cost_usd_prev is not None and merged_prev else None
 
     return RepoOverview(
         run_count=run_count,
@@ -400,8 +415,33 @@ def query_repo_overview(
         billable_minutes_prev=billable_seconds_prev / 60 if billable_seconds_prev is not None else None,
         estimated_cost_usd=opt_float(cost_usd),
         estimated_cost_usd_prev=opt_float(cost_usd_prev),
+        cost_per_merge_usd=opt_float(cost_per_merge),
+        cost_per_merge_usd_prev=opt_float(cost_per_merge_prev),
         merge_queue_billable_minutes=queue_minutes,
         merge_queue_billable_minutes_prev=queue_minutes_prev,
+        merge_queue_merged_pr_count=queue.merged_pr_count,
+        merge_queue_merged_pr_count_prev=queue.merged_pr_count_prev,
+        merge_queue_median_first_gate_to_merge_seconds=queue.median_first_gate_to_merge_seconds,
+        merge_queue_median_first_gate_to_merge_seconds_prev=queue.median_first_gate_to_merge_seconds_prev,
+        merge_queue_p90_first_gate_to_merge_seconds=queue.p90_first_gate_to_merge_seconds,
+        merge_queue_p90_first_gate_to_merge_seconds_prev=queue.p90_first_gate_to_merge_seconds_prev,
+        merge_queue_p95_first_gate_to_merge_seconds=queue.p95_first_gate_to_merge_seconds,
+        merge_queue_p95_first_gate_to_merge_seconds_prev=queue.p95_first_gate_to_merge_seconds_prev,
+        merge_queue_p99_first_gate_to_merge_seconds=queue.p99_first_gate_to_merge_seconds,
+        merge_queue_p99_first_gate_to_merge_seconds_prev=queue.p99_first_gate_to_merge_seconds_prev,
+        merge_queue_avg_attempts_per_merge=queue.avg_attempts_per_merge,
+        merge_queue_avg_attempts_per_merge_prev=queue.avg_attempts_per_merge_prev,
+        merge_queue_multi_attempt_merge_share=queue.multi_attempt_merge_share,
+        merge_queue_multi_attempt_merge_share_prev=queue.multi_attempt_merge_share_prev,
+        merge_queue_failed_gate_merge_share=queue.failed_gate_merge_share,
+        merge_queue_failed_gate_merge_share_prev=queue.failed_gate_merge_share_prev,
+        merge_queue_trunk_available=trunk.available,
+        merge_queue_failed_or_cancelled_share=trunk.failed_or_cancelled_share,
+        merge_queue_failed_or_cancelled_share_prev=trunk.failed_or_cancelled_share_prev,
+        merge_queue_skip_the_line_count=trunk.skip_the_line_count,
+        merge_queue_skip_the_line_count_prev=trunk.skip_the_line_count_prev,
+        median_time_to_green_seconds=time_to_green.median_seconds,
+        median_time_to_green_seconds_prev=time_to_green.median_seconds_prev,
         jobs_available=jobs_available,
         default_branch=default_branch,
         cost_series=series.cost,

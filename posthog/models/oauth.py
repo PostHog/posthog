@@ -526,15 +526,7 @@ class OAuthAccessToken(AbstractAccessToken):
         verbose_name_plural = "OAuth Access Tokens"
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
         indexes = [
-            # Pending-list merges make one token write absorb batched GIN maintenance.
-            # Direct updates keep that work incremental for both scope indexes.
-            GinIndex(
-                fields=["scope"],
-                name="oauthaccesstoken_scope_trgm",
-                opclasses=["gin_trgm_ops"],
-                condition=Q(application__isnull=False),
-                fastupdate=False,
-            ),
+            # Direct updates avoid pending-list merges that make one token write absorb batched GIN maintenance.
             GinIndex(
                 oauth_scope_tokens_expression(),
                 name="oauthaccesstoken_scopes_gin",

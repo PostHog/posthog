@@ -309,6 +309,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebAgentAnalyticsQuery]: {
+        name: 'Agent analytics',
+        description: 'View AI agent demand, request failures, and content readiness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.WebVitalsQuery]: {
         name: 'Web vitals',
         description: 'View web vitals.',
