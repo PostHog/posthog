@@ -4325,8 +4325,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 discard()
                 return
             }
+            // One discard prompt at a time — repeated Escape presses must not stack dialogs.
+            if (cache.discardPromptOpen) {
+                return
+            }
+            cache.discardPromptOpen = true
             eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
             LemonDialog.open({
+                onAfterClose: () => {
+                    cache.discardPromptOpen = false
+                },
                 title: 'Discard unsaved changes?',
                 description:
                     'You have unsaved layout or color changes. If you discard now, the dashboard will revert to its last saved state.',

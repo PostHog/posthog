@@ -1340,6 +1340,21 @@ describe('dashboardLogic', () => {
                     logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
             })
+
+            it('opens only one discard prompt when cancel fires repeatedly', async () => {
+                setDiscardPromptFlag(true)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelEditMode()
+                    logic.actions.cancelEditMode()
+                    logic.actions.cancelEditMode()
+                }).toFinishAllListeners()
+
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            })
         })
 
         describe('openAddInsightModal action', () => {
