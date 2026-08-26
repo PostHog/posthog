@@ -103,14 +103,17 @@ describe('ScrubClient', () => {
             })
         )
         let retries = 0
+        const failedProbesBeforeListen = 3
         const scrubClient = new ScrubClient(baseUrl, 1000)
 
         await scrubClient.waitUntilReachable(async () => {
             retries += 1
-            await new Promise<void>((resolve) => server.listen(address.port, '127.0.0.1', resolve))
+            if (retries === failedProbesBeforeListen) {
+                await new Promise<void>((resolve) => server.listen(address.port, '127.0.0.1', resolve))
+            }
         })
 
-        expect(retries).toBe(1)
+        expect(retries).toBe(failedProbesBeforeListen)
         expect(requests).toBe(1)
     })
 
