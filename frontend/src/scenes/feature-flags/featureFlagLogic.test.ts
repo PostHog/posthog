@@ -391,6 +391,41 @@ describe('featureFlagLogic', () => {
             }
         })
 
+        it('skips a stale retry after the flag was re-baselined by a later save', async () => {
+            // The retry re-sends the submit-time payload. If a later save re-baselines the flag first,
+            // re-sending would silently revert the newer server state, so the retry must skip it.
+            const updateSpy = jest.spyOn(api, 'update').mockRejectedValue(new NetworkError('network'))
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                })
+                    .toDispatchActions(['saveFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                const [, options] = toastSpy.mock.calls[0] as [
+                    string,
+                    { button?: { label: string; action: () => void } } | undefined,
+                ]
+
+                // A later save re-baselines the flag, so the armed retry now holds a stale payload.
+                logic.actions.setOriginalFeatureFlag({
+                    ...(logic.values.originalFeatureFlag as FeatureFlagType),
+                    name: 'saved again after the retry was armed',
+                })
+
+                updateSpy.mockClear()
+                options?.button?.action()
+
+                // The stale payload must not reach the server; the user gets a message instead.
+                expect(updateSpy).not.toHaveBeenCalled()
+                expect(toastSpy).toHaveBeenCalledTimes(2)
+            } finally {
+                updateSpy.mockRestore()
+                toastSpy.mockRestore()
+            }
+        })
+
         it('links the duplicate-key toast to the flag already using that key', async () => {
             useMocks({
                 patch: {

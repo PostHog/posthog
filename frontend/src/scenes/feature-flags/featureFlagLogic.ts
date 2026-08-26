@@ -2867,6 +2867,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const flag = cleanFlag(updatedFlag)
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
+                // Snapshot the baseline this save races against. The retry button re-sends this
+                // same payload, so if a later save re-baselines the flag first, the payload is
+                // stale and re-sending it would silently revert the newer server state.
+                const baselineAtSave = values.originalFeatureFlag
+
                 // Bound the request so a hung save releases the loading skeleton instead of
                 // leaving the form blank until the user reloads the page.
                 const controller = new AbortController()
@@ -2921,7 +2926,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             {
                                 button: {
                                     label: 'Retry',
-                                    action: () => actions.saveFeatureFlag(updatedFlag),
+                                    action: () => {
+                                        // A later save may have re-baselined the flag while this toast
+                                        // stayed open. Re-sending the captured payload would overwrite
+                                        // that newer version, so skip the stale retry and say why.
+                                        if (
+                                            updatedFlag.id &&
+                                            !objectsEqual(values.originalFeatureFlag, baselineAtSave)
+                                        ) {
+                                            lemonToast.error(
+                                                'This flag was saved again after the failed attempt. Retry was skipped to keep the newer version. Open the flag to make your change again.'
+                                            )
+                                            return
+                                        }
+                                        actions.saveFeatureFlag(updatedFlag)
+                                    },
                                 },
                             }
                         )
