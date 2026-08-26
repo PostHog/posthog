@@ -231,6 +231,41 @@ describe('taskWarmLogic', () => {
         expect(cancelledRuns).toEqual([])
     })
 
+    it('drops a warm that resolves after the submit consumed it mid-flight', async () => {
+        // The scene consumes the warm only after its create resolves, so a create round trip that beats
+        // the slower warm POST leaves the warm still in flight at consume time. Without a fence the
+        // completing POST installs a lease on a Run the create may have already activated, and a later
+        // selection change would then cancel that live Run.
+        let resolveHeldWarm: () => void = () => {}
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': async () => {
+                    await new Promise<void>((resolve) => {
+                        resolveHeldWarm = resolve
+                    })
+                    return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
+                },
+                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                    cancelledRuns.push(params.runId as string)
+                    return [200, {}]
+                },
+            },
+        })
+
+        logic.actions.prewarm(WARM_REQUEST)
+        await expectLogic(logic).toMount()
+        // The submit consumes the warm while the POST is still open.
+        logic.actions.consumeWarm()
+
+        resolveHeldWarm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // No lease is installed, so a later selection change (noteDraft only releases when a lease is
+        // held) has nothing to cancel — the activated Run is safe. And the Run itself was not cancelled.
+        expect(logic.values.warmLease).toBeNull()
+        expect(cancelledRuns).toEqual([])
+    })
+
     it('releases a held warm when the composer unmounts', async () => {
         // Navigating away is the common way to leave the composer. Without an unmount release, the warm
         // sandbox idles until the server reaper while holding a scarce per-user warm-pool slot.
