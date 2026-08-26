@@ -135,7 +135,8 @@ export function useOnboardingFlow() {
     ],
   );
 
-  const { data: githubUserIntegrations } = useUserGithubIntegrations();
+  const { data: githubUserIntegrations, isPending: githubIntegrationsPending } =
+    useUserGithubIntegrations();
   // The install-cli step only offers git and gh, so a ready toolchain skips it.
   // InstallCliStep reuses these cached results when the step does render.
   const trpc = useHostTRPC();
@@ -166,9 +167,12 @@ export function useOnboardingFlow() {
       gitStatus.installed && ghStatus.installed && ghStatus.authenticated,
     );
   }, [cliReady, localWorkspaces, gitStatus, ghStatus]);
-  const hasGithubIntegration = githubUserIntegrations
-    ? githubUserIntegrations.length > 0
-    : undefined;
+  // Read the pending state, not the data: the query retries and then leaves
+  // `data` undefined, which would hold the install-cli gate open for the rest
+  // of the session. A failed lookup keeps the step, same as an unanswered one.
+  const hasGithubIntegration = githubIntegrationsPending
+    ? undefined
+    : (githubUserIntegrations?.length ?? 0) > 0;
   // Counted off the store rather than through useProjects, whose auto-select
   // effect would then run in a second place and re-clear the query cache.
   const orgProjectsMap = useAuthStateValue((state) => state.orgProjectsMap);
