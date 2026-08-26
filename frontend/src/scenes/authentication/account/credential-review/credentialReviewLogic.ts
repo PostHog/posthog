@@ -1,8 +1,9 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 import { urls } from 'scenes/urls'
@@ -17,9 +18,16 @@ export interface credentialReviewLogicActions {
     markComplete: () => {
         value: true
     }
+    setSubmitting: (submitting: boolean) => {
+        submitting: boolean
+    }
 }
 
-export type credentialReviewLogicType = MakeLogicType<{}, credentialReviewLogicActions>
+export interface credentialReviewLogicValues {
+    submitting: boolean
+}
+
+export type credentialReviewLogicType = MakeLogicType<credentialReviewLogicValues, credentialReviewLogicActions>
 
 export const credentialReviewLogic = kea<credentialReviewLogicType>([
     path(['scenes', 'authentication', 'account', 'credential-review', 'credentialReviewLogic']),
@@ -32,13 +40,24 @@ export const credentialReviewLogic = kea<credentialReviewLogicType>([
     })),
     actions({
         markComplete: true,
+        setSubmitting: (submitting: boolean) => ({ submitting }),
     }),
-    listeners({
+    reducers({
+        submitting: [
+            false,
+            {
+                setSubmitting: (_, { submitting }) => submitting,
+            },
+        ],
+    }),
+    listeners(({ actions }) => ({
         markComplete: async () => {
+            actions.setSubmitting(true)
             try {
                 await api.create('api/users/@me/credentials_review_complete/')
             } catch {
                 lemonToast.error('Could not save your review. Try again.')
+                actions.setSubmitting(false)
                 return
             }
             // Flip the local user state's requires_credential_review via reducer before
@@ -46,9 +65,12 @@ export const credentialReviewLogic = kea<credentialReviewLogicType>([
             // the post-login redirect from userLogic.loadUserSuccess.
             userLogic.actions.credentialReviewDismissed()
             userLogic.actions.loadUser()
-            router.actions.push(urls.projectHomepage())
+            // Return the user to where they were headed before the interstitial, falling
+            // back to the project home page.
+            const nextPath = getRelativeNextPath(router.values.searchParams.next, window.location)
+            router.actions.replace(nextPath || urls.projectHomepage())
         },
-    }),
+    })),
     afterMount(({ actions }) => {
         // Neither logic auto-loads its list on mount, so trigger both here. Otherwise
         // the review screen would render empty until the user hit the settings page.

@@ -22,6 +22,7 @@ const HedgehogHeart = pngHoggie(heartPng)
 
 export function CredentialReview(): JSX.Element {
     const { markComplete } = useActions(credentialReviewLogic)
+    const { submitting } = useValues(credentialReviewLogic)
     const { keysLoading } = useValues(personalAPIKeysLogic)
     const { passkeysLoading } = useValues(passkeySettingsLogic)
     const { connectedAppsLoading } = useValues(connectedAppsLogic)
@@ -47,6 +48,7 @@ export function CredentialReview(): JSX.Element {
                     type="primary"
                     size="large"
                     onClick={() => markComplete()}
+                    loading={submitting}
                     disabledReason={loading ? 'Loading your credentials…' : null}
                 >
                     Continue to PostHog

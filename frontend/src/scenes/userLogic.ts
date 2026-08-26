@@ -11,6 +11,7 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { getRelativeNextPath } from 'lib/utils/url'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -717,7 +718,12 @@ export const userLogic = kea<userLogicType>([
                     !values.credentialReviewDismissedInSession &&
                     !router.values.location.pathname.startsWith('/account/credential-review')
                 ) {
-                    router.actions.push(urls.credentialReview())
+                    // Carry the destination so Continue can return the user there, and
+                    // replace rather than push so the interstitial stays out of history
+                    // and cannot re-appear on a back navigation.
+                    const { pathname, search, hash } = router.values.location
+                    const next = getRelativeNextPath(`${pathname}${search}${hash}`, window.location)
+                    router.actions.replace(urls.credentialReview(), next ? { next } : {})
                 }
             }
         },
