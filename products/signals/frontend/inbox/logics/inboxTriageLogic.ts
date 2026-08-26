@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { canCreateImplementationPr } from '../components/detail/ReportDetailActions'
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
+import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
@@ -68,7 +69,7 @@ export interface inboxTriageLogicActions {
     createPrFromReport: (report: SignalReport) => {
         report: SignalReport
     } // inboxTaskKickoffLogic
-    archiveReport: (
+    dismissReport: (
         reportId: string,
         reason:
             | 'already_fixed'
@@ -87,6 +88,15 @@ export interface inboxTriageLogicActions {
             | 'report_unclear'
             | 'wontfix_intentional'
             | 'wontfix_irrelevant'
+        reportId: string
+    } // reportListLogic
+    resolveReport: (
+        reportId: string,
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other',
+        note: string
+    ) => {
+        note: string
+        reason: 'already_fixed' | 'fixed_outside_posthog' | 'other'
         reportId: string
     } // reportListLogic
     ensureLoaded: () => {
@@ -119,7 +129,10 @@ export interface inboxTriageLogicActions {
     removeReport: (reportId: string) => {
         reportId: string
     } // reportListLogic
-    archiveCurrent: () => {
+    dismissCurrent: () => {
+        value: true
+    }
+    resolveCurrent: () => {
         value: true
     }
     createPrForCurrent: () => {
@@ -198,7 +211,8 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             [
                 'ensureLoaded',
                 'loadMore',
-                'archiveReport',
+                'dismissReport',
+                'resolveReport',
                 'removeReport',
                 'loadReportsSuccess',
                 'loadMoreReportsSuccess',
@@ -218,13 +232,14 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
         focusReport: (reportId: string | null, index: number) => ({ reportId, index }),
         toggleExpanded: true,
         setExpanded: (expanded: boolean) => ({ expanded }),
-        archiveCurrent: true,
+        dismissCurrent: true,
+        resolveCurrent: true,
         createPrForCurrent: true,
         openCurrent: true,
     }),
 
     reducers({
-        // The index the user asked for. It can point past the end once archiving shrinks the list,
+        // The index the user asked for. It can point past the end once a verdict shrinks the list,
         // so `currentIndex` clamps it against what is loaded rather than trusting it directly.
         requestedIndex: [
             0,
@@ -234,7 +249,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             },
         ],
         // The report the URL says the user is on. It wins over the index while it is still in the
-        // queue, so rows archived above it don't shift the user onto a different report.
+        // queue, so rows dismissed above it don't shift the user onto a different report.
         requestedReportId: [
             null as string | null,
             {
@@ -348,7 +363,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                     actions.loadMore()
                 }
             },
-            archiveCurrent: () => {
+            dismissCurrent: () => {
                 const report = values.currentReport
                 if (!report) {
                     return
@@ -356,7 +371,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 openDismissReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
                     onConfirm: ({ reason, note }) => {
-                        // The structured reason plus the user's note, matching the list-card archive
+                        // The structured reason plus the user's note, matching the list-card dismiss
                         // path so the dismiss analytics read the same from every surface.
                         captureInboxReportAction({
                             report,
@@ -365,7 +380,26 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                             extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
                         })
                         // The list logic drops the row optimistically, so the next report takes this index.
-                        actions.archiveReport(report.id, reason, note)
+                        actions.dismissReport(report.id, reason, note)
+                    },
+                })
+            },
+            resolveCurrent: () => {
+                const report = values.currentReport
+                if (!report) {
+                    return
+                }
+                // Triage walks Needs a PR, so no report here has an open PR to close.
+                openResolveReportDialog({
+                    reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    onConfirm: ({ reason, note }) => {
+                        captureInboxReportAction({
+                            report,
+                            actionType: 'resolve',
+                            surface: 'triage_mode',
+                            extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
+                        })
+                        actions.resolveReport(report.id, reason, note)
                     },
                 })
             },

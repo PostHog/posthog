@@ -21,9 +21,9 @@ const REFUND_DISABLED_REASONS: Record<string, string> = {
 }
 
 /**
- * Shared refund handler for the inbox cards and the detail pane, mirroring `useReportArchive`.
+ * Shared refund handler for the inbox cards and the detail pane, mirroring `useReportDismiss`.
  * Opens the refund dialog and posts to the refund endpoint; the backend freezes the billing path,
- * archives the report, and (when needed) kicks off the billing credit. Offered only when the flag
+ * dismisses the report, and (when needed) kicks off the billing credit. Offered only when the flag
  * is on and the report has a billable PR that hasn't been refunded — the server enforces the same
  * rules, so `canRefund` is purely a display gate.
  */
@@ -35,7 +35,7 @@ export function useReportRefund({
     report: SignalReport
     /** Which surface the refund was triggered from, for the `refund` analytics. */
     surface?: InboxReportActionSurface
-    /** Fired once the refund API call succeeds (the report is archived server-side by then). */
+    /** Fired once the refund API call succeeds (the report is dismissed server-side by then). */
     onRefunded?: () => void
 }): {
     canRefund: boolean

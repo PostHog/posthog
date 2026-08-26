@@ -29,14 +29,14 @@ const REFUND_REASON_OPTIONS: LemonRadioOption<SignalReportRefundReasonEnumApi>[]
 /**
  * Opens the refund dialog (mirrors {@link openDismissReportDialog}): pick a required reason plus an
  * optional note, then refund. The caller wires `onConfirm` to the refund API call; refunding also
- * archives the report, so the copy says both. `shouldAwaitSubmit` keeps the primary button in a
+ * dismisses the report, so the copy says both. `shouldAwaitSubmit` keeps the primary button in a
  * loading state while the request is in flight, so it can't be double-submitted.
  */
 export function openRefundReportDialog({ reportTitle, onConfirm }: OpenRefundReportDialogParams): void {
     LemonDialog.openForm({
         title: `Refund the PR for "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`,
         description:
-            "You won't pay for this PR and it won't count toward your included PRs. The report is archived as part of the refund and can't be restored.",
+            "You won't pay for this PR and it won't count toward your included PRs. The report is dismissed as part of the refund and can't be restored.",
         maxWidth: '30rem',
         initialValues: { reason: null as SignalReportRefundReasonEnumApi | null, note: '' },
         content: (

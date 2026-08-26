@@ -8,33 +8,33 @@ import { DismissalReasonValue } from '../../utils/dismissalReasons'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 
 /**
- * Shared archive handler for the inbox cards (Report / Pull request). Opens the dismissal
- * dialog and either delegates to the bound list logic via `onArchive` (optimistic) or, when
- * used standalone (e.g. stories), falls back to a direct `signalReports.setState` call. The
- * single-report `dismiss` analytics fire here so both the list card and the detail pane are
- * covered from one place.
+ * Shared dismiss handler for the inbox cards and the detail pane. Opens the dismiss dialog and
+ * either delegates to the bound list logic via `onDismiss` (optimistic) or, when used standalone
+ * (e.g. stories), falls back to a direct `signalReports.setState` call. The single-report
+ * `dismiss` analytics fire here so both the list card and the detail pane are covered from one
+ * place.
  */
-export function useReportArchive({
+export function useReportDismiss({
     reportId,
     cardTitle,
     report,
     surface,
-    onArchive,
-    onArchived,
+    onDismiss,
+    onDismissed,
 }: {
     reportId: string
     cardTitle: string
-    /** The report being archived, used to enrich the `dismiss` analytics. */
+    /** The report being dismissed, used to enrich the `dismiss` analytics. */
     report?: SignalReport | null
-    /** Which surface the archive was triggered from, for the `dismiss` analytics. */
+    /** Which surface the dismiss was triggered from, for the `dismiss` analytics. */
     surface?: InboxReportActionSurface
-    onArchive?: (reason: DismissalReasonValue, note: string) => void
-    /** Fired once the report is archived (after `onArchive`, or after the fallback API call succeeds). */
-    onArchived?: () => void
-}): { isArchiving: boolean; onArchiveClick: (event: React.MouseEvent) => void } {
-    const [isArchiving, setIsArchiving] = useState(false)
+    onDismiss?: (reason: DismissalReasonValue, note: string) => void
+    /** Fired once the report is dismissed (after `onDismiss`, or after the fallback API call succeeds). */
+    onDismissed?: () => void
+}): { isDismissing: boolean; onDismissClick: (event: React.MouseEvent) => void } {
+    const [isDismissing, setIsDismissing] = useState(false)
 
-    const onArchiveClick = (event: React.MouseEvent): void => {
+    const onDismissClick = (event: React.MouseEvent): void => {
         event.preventDefault()
         event.stopPropagation()
         openDismissReportDialog({
@@ -48,26 +48,26 @@ export function useReportArchive({
                     surface: surface ?? 'list_row',
                     extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
                 })
-                if (onArchive) {
-                    onArchive(reason, note)
-                    onArchived?.()
+                if (onDismiss) {
+                    onDismiss(reason, note)
+                    onDismissed?.()
                     return
                 }
                 // Fallback for standalone usage (e.g. stories) without a bound list logic.
-                setIsArchiving(true)
+                setIsDismissing(true)
                 try {
                     await api.signalReports.setState(reportId, {
                         state: 'suppressed',
                         dismissal_reason: reason,
                         ...(note ? { dismissal_note: note } : {}),
                     })
-                    onArchived?.()
+                    onDismissed?.()
                 } finally {
-                    setIsArchiving(false)
+                    setIsDismissing(false)
                 }
             },
         })
     }
 
-    return { isArchiving, onArchiveClick }
+    return { isDismissing, onDismissClick }
 }

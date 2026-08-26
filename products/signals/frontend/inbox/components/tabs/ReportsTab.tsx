@@ -33,7 +33,7 @@ import { InboxScopeSelect } from '../shell/InboxScopeSelect'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the sections the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
@@ -44,7 +44,7 @@ interface SectionListState {
 }
 
 /**
- * Every section's header count and rendered rows, keyed by section. All four logics are mounted
+ * Every section's header count and rendered rows, keyed by section. All five logics are mounted
  * regardless of who is looking, so the hooks never change shape when the staff flag resolves;
  * callers decide which sections matter to them.
  *
@@ -62,6 +62,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
         listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring,
     }
     const resolvedProps = { sectionKey: 'resolved' as const, listParams: INBOX_REPORT_SECTION_LIST_PARAMS.resolved }
+    const dismissedProps = { sectionKey: 'dismissed' as const, listParams: INBOX_REPORT_SECTION_LIST_PARAMS.dismissed }
     const notActionableProps = {
         sectionKey: 'not-actionable' as const,
         listParams: INBOX_REPORT_SECTION_LIST_PARAMS['not-actionable'],
@@ -83,6 +84,11 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
         visibleReports: resolvedReports,
     } = useValues(reportListLogic(resolvedProps))
     const {
+        count: dismissedCount,
+        countLoading: dismissedCountLoading,
+        visibleReports: dismissedReports,
+    } = useValues(reportListLogic(dismissedProps))
+    const {
         count: notActionableCount,
         countLoading: notActionableCountLoading,
         visibleReports: notActionableReports,
@@ -103,6 +109,11 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
             count: resolvedCount,
             countLoading: resolvedCountLoading,
             visibleReports: resolvedReports,
+        },
+        dismissed: {
+            count: dismissedCount,
+            countLoading: dismissedCountLoading,
+            visibleReports: dismissedReports,
         },
         'not-actionable': {
             count: notActionableCount,
@@ -184,7 +195,7 @@ function ReportsEmptyState(): JSX.Element {
 
 /**
  * The Reports tab: one toolbar over a single column of collapsible sections (Needs a PR / Review and
- * merge / Resolved, plus Not actionable for staff). Each section owns its own filtered request,
+ * merge / Resolved / Dismissed, plus Not actionable for staff). Each section owns its own filtered request,
  * count, and paging via the keyed `reportListLogic`, while the toolbar, reviewer scope, and bulk
  * selection are shared across all of them.
  */
