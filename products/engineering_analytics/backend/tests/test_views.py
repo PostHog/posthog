@@ -6,9 +6,14 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
-from posthog.rbac.user_access_control import UserAccessControl
 
-from products.engineering_analytics.backend.logic.sources import list_github_sources
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
+from products.engineering_analytics.backend.logic.sources import (
+    TRUNK_MERGE_QUEUE_SCHEMA,
+    list_github_sources,
+    resolve_trunk_merge_queue_table,
+)
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
@@ -19,12 +24,13 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _run_row,
     create_github_source,
     create_github_warehouse_table,
+    create_trunk_source,
+    create_warehouse_table_row,
+    link_schema,
     pr_association,
     pr_association_entry,
     repo_id,
 )
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestListGithubSourcesAccessControl(BaseTest):
@@ -36,9 +42,9 @@ class TestListGithubSourcesAccessControl(BaseTest):
         self.organization.save()
 
     def test_none_resource_access_fails_closed_to_self_created_sources(self) -> None:
-        # filter_queryset_by_access_level returns the queryset UNFILTERED for a user with "none"
-        # resource access and no object grants — without the guard, such a user enumerates every
-        # GitHub source on the team.
+        # A user with "none" resource access and no object grants must not enumerate the
+        # team's sources. The product surface relies on filter_queryset_by_access_level to
+        # fail closed here.
         mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
         mine.created_by = self.user
         mine.save()
@@ -53,20 +59,42 @@ class TestListGithubSourcesAccessControl(BaseTest):
         )
         assert [source.id for source in visible] == [str(mine.id)]
 
-        # An explicit object grant survives the fail-closed guard.
+        # An explicit object grant survives the fail-closed guard. The filter counts only member
+        # and role rows as grants. A default ("everyone") object row does not count.
         AccessControl.objects.create(
-            team=self.team, resource="external_data_source", resource_id=str(theirs.id), access_level="editor"
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(theirs.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
         )
         visible = list_github_sources(
             team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
         )
         assert {source.id for source in visible} == {str(mine.id), str(theirs.id)}
 
+    def test_trunk_resolver_denied_user_resolves_none(self) -> None:
+        # The trunk resolver feeds team-scoped HogQL that enforces no per-user ACL, so it must apply
+        # the same source RBAC as the GitHub path: a user denied every TrunkIo source resolves None
+        # (consumers degrade to the failed-gate proxy) instead of reading the queue table.
+        source = create_trunk_source(self.team)
+        table = create_warehouse_table_row(
+            self.team, name="trunkprefix_trunk_io_merge_queue_pull_requests", source=source
+        )
+        link_schema(self.team, source, name=TRUNK_MERGE_QUEUE_SCHEMA, table=table)
+
+        assert resolve_trunk_merge_queue_table(self.team) == table.name
+        assert (
+            resolve_trunk_merge_queue_table(self.team, UserAccessControl(user=self.user, team=self.team)) == table.name
+        )
+
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+        assert resolve_trunk_merge_queue_table(self.team, UserAccessControl(user=self.user, team=self.team)) is None
+
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
     """The curated query builders, exercised as inline subqueries over real
-    warehouse tables. Skips when object storage is unreachable so the suite still
-    runs without the dev stack."""
+    warehouse tables."""
 
     def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
         return create_github_warehouse_table(self, base_name, columns, rows)

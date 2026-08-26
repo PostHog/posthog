@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -139,9 +140,9 @@ function isStaffOnlyTab(tab: string | undefined): boolean {
  * detail instantly from the list row instead of waiting on a fresh
  * `GET`. The background fetch still runs to converge on the authoritative record.
  */
-// The Fleet memory callout reads the same singleton `scratchpadLogic` the panel filters, so a
-// leftover search (especially a no-match one) would make it count zero and hide itself. Clear the
-// search whenever the scratchpad closes — by any path (close button, report/scout open, Back nav).
+// A search typed into the scratchpad is transient: reopening the panel later should show the whole
+// window again, not the last query. Clear it whenever the scratchpad closes — by any path (close
+// button, report/scout open, Back nav).
 function clearScratchpadSearch(): void {
     const mounted = scratchpadLogic.findMounted()
     if (mounted?.values.searchText) {
@@ -390,7 +391,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         // Runs tab: a newest-first list of scout + signals-pipeline runs, composed from two existing
         // endpoints, scout runs (clean `skill_name`) and signal-pipeline tasks (whose title is the
         // originating report's title). Merged client-side; there is no unified backend "runs" resource
@@ -418,7 +419,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     }
                     const scoutRuns = scoutResult.status === 'fulfilled' ? scoutResult.value : []
                     const signalTasks = signalResult.status === 'fulfilled' ? signalResult.value.results : []
-                    return mergeSignalRuns(scoutRuns, signalTasks)
+                    // The tab polls every 5s and both endpoints return freshly parsed objects each
+                    // time. Reconcile the merged list so a no-change poll keeps every reference —
+                    // otherwise all ~100 run cards re-render every 5s on an idle tab. (No
+                    // wall-clock exception needed: a run whose status flips deep-compares
+                    // different and swaps identity on its own; timestamps self-update in TZLabel.)
+                    return reconcileById(
+                        values.signalRunsResponse ?? [],
+                        mergeSignalRuns(scoutRuns, signalTasks),
+                        (run) => run.task_id
+                    )
                 },
             },
         ],
@@ -642,6 +652,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (values.selectedReportId !== null) {
                     actions.setSelectedReportId(null)
                 }
+                // A scout page is a Scouts-tab surface even when reached from a report or a cold
+                // deep link, so anything that closes back to "the tab" returns to the roster. After
+                // the report clear, so the tab change resolves to this scout's URL, not the report's.
+                if (values.activeTab !== 'scouts') {
+                    actions.setActiveTab('scouts')
+                }
             }
         },
         setScratchpadOpen: ({ open }) => {
@@ -654,6 +670,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (values.selectedScoutSkillName !== null) {
                     actions.setSelectedScoutSkillName(null)
                 }
+                // Same as opening a scout: the panel's Back control returns to the Scouts tab.
+                if (values.activeTab !== 'scouts') {
+                    actions.setActiveTab('scouts')
+                }
             } else {
                 clearScratchpadSearch()
             }
@@ -661,13 +681,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setFindingsOpen: ({ open }) => {
             if (open) {
                 // Same dwell-tracking-preserving close as the scratchpad path; clear its transient
-                // search so the memory callout isn't left hidden behind a stale filter on the way back.
+                // search so the panel doesn't reopen behind a stale filter on the way back.
                 clearScratchpadSearch()
                 if (values.selectedReportId !== null) {
                     actions.setSelectedReportId(null)
                 }
                 if (values.selectedScoutSkillName !== null) {
                     actions.setSelectedScoutSkillName(null)
+                }
+                if (values.activeTab !== 'scouts') {
+                    actions.setActiveTab('scouts')
                 }
             }
         },
@@ -698,16 +721,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
+        // Each action resolves to whichever full-width view is left open (or the list), so clearing one
+        // because another opened honors that surface's URL rather than bouncing to the list — and a
+        // tab change made while a scout surface is open leaves that surface's URL alone.
         setActiveTab: () => [
-            values.selectedReportId
-                ? urls.inboxReport(values.activeTab, values.selectedReportId)
-                : urls.inbox(values.activeTab),
+            inboxSurfaceUrl(values),
             router.values.searchParams,
             router.values.hashParams,
             { replace: false },
         ],
-        // Each toggle resolves to whichever full-width view is left open (or the list), so clearing one
-        // because another opened honors that surface's URL rather than bouncing to the list.
         setSelectedReportId: () => [
             inboxSurfaceUrl(values),
             router.values.searchParams,

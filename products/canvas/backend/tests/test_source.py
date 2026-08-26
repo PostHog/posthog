@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -6,6 +8,7 @@ from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.source import (
     CANVAS_COMPONENT_PATH,
     CANVAS_ENTRY_HTML,
+    MAX_CONFIG_SCHEMA_DEPTH,
     has_errors,
     synthetic_source_project,
     validate_source_project,
@@ -190,6 +193,57 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         self.assertFalse(has_errors(diagnostics))
         self.assertIn("network_fetch", [d["code"] for d in diagnostics])
 
+    @parameterized.expand(
+        [
+            ("http", "http://api.example.com"),
+            ("path", "https://api.example.com/v1"),
+            ("credentials", "https://user:secret@api.example.com"),
+            ("wildcard", "https://*.example.com"),
+            # Origins land in the viewer's connect-src, so private and local
+            # destinations would let a canvas probe the viewer's machine or LAN.
+            ("loopback_ipv4", "https://127.0.0.1:8443"),
+            ("private_ipv4", "https://192.168.1.1"),
+            ("cgnat_ipv4", "https://100.64.0.1"),
+            ("loopback_ipv6", "https://[::1]"),
+            ("localhost", "https://localhost:8010"),
+            ("single_label", "https://intranet"),
+            ("mdns_suffix", "https://printer.local"),
+            # Bypass spellings from the security review: browsers resolve these
+            # to loopback/LAN targets even though the strict IP parse rejects them.
+            ("trailing_dot_localhost", "https://localhost."),
+            ("trailing_dot_metadata", "https://169.254.169.254."),
+            ("trailing_dot_public", "https://api.example.com."),
+            ("ipv4_shorthand", "https://127.1"),
+            ("ipv4_octal", "https://0177.0.0.1"),
+            ("ipv4_leading_zero", "https://192.168.01.1"),
+            ("ipv4_hex_label", "https://1.2.3.0x10"),
+            ("ipv6_scope_id", "https://[fe80::1%eth0]"),
+            ("ipv6_global_scope_id", "https://[2606:4700:4700::1111%foo; img-src evil.example]"),
+            # A delimiter in the hostname would break out of the connect-src it is
+            # spliced into. This form carries no wildcard, so only the hostname
+            # charset check rejects it.
+            ("csp_directive_injection", "https://example.com; img-src evil.example.net"),
+        ]
+    )
+    def test_rejects_network_origins_that_are_not_exact_https_origins(self, _name, origin):
+        candidate = project(
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+                "network": {"origins": [origin]},
+            }
+        )
+        diagnostics = validate_source_project(candidate)
+        self.assertIn("invalid_network_origin", [d["code"] for d in diagnostics])
+
+    def test_accepts_exact_https_network_origin(self):
+        candidate = project(
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+                "network": {"origins": ["https://api.example.com:8443"]},
+            }
+        )
+        self.assertFalse(has_errors(validate_source_project(candidate)))
+
     def test_import_diagnostics_carry_file_and_line(self):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE + 'import _ from "lodash";'})
         entry = next(d for d in validate_source_project(candidate) if d["code"] == "import_not_allowed")
@@ -213,3 +267,93 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         diagnostics = validate_source_project(candidate)
 
         self.assertIn("capability_missing_agent_requests", [entry["code"] for entry in diagnostics])
+
+
+def component_meta(**overrides):
+    meta = {
+        "size": {"defaultW": 2, "defaultH": 1, "minW": 1, "minH": 1},
+        "configSchema": {"type": "object", "properties": {"location": {"type": "string"}}},
+    }
+    meta.update(overrides)
+    return meta
+
+
+def deeply_nested_config_schema(levels):
+    schema: dict[str, Any] = {"type": "object"}
+    for _ in range(levels):
+        schema = {"type": "object", "items": schema}
+    return schema
+
+
+class TestComponentMetaValidation(SimpleTestCase):
+    def test_valid_component_project_has_no_errors(self):
+        candidate = project(component=component_meta())
+        self.assertFalse(has_errors(validate_source_project(candidate, kind="component")))
+
+    def test_component_meta_is_rejected_outside_component_kind(self):
+        diagnostics = validate_source_project(project(component=component_meta()))
+        self.assertIn("component_meta_not_allowed", [entry["code"] for entry in diagnostics])
+
+    @parameterized.expand(
+        [
+            ("missing_meta", None, "component_meta_missing"),
+            ("meta_not_object", "big", "component_meta_missing"),
+            ("missing_size", {"configSchema": {"type": "object"}}, "component_size_invalid"),
+            (
+                "size_not_ints",
+                component_meta(size={"defaultW": "2", "defaultH": 1, "minW": 1, "minH": 1}),
+                "component_size_invalid",
+            ),
+            (
+                "min_above_default",
+                component_meta(size={"defaultW": 1, "defaultH": 1, "minW": 2, "minH": 1}),
+                "component_size_invalid",
+            ),
+            (
+                "default_above_max",
+                component_meta(size={"defaultW": 4, "defaultH": 1, "minW": 1, "minH": 1, "maxW": 3}),
+                "component_size_invalid",
+            ),
+            (
+                "width_above_grid_cap",
+                component_meta(size={"defaultW": 13, "defaultH": 1, "minW": 1, "minH": 1}),
+                "component_size_invalid",
+            ),
+            (
+                "zero_height",
+                component_meta(size={"defaultW": 1, "defaultH": 0, "minW": 1, "minH": 0}),
+                "component_size_invalid",
+            ),
+            (
+                "config_schema_not_object_type",
+                component_meta(configSchema={"type": "array"}),
+                "component_config_schema_invalid",
+            ),
+            (
+                "config_schema_malformed",
+                component_meta(configSchema={"type": "object", "properties": 5}),
+                "component_config_schema_invalid",
+            ),
+            (
+                "config_schema_ref_not_allowlisted",
+                component_meta(configSchema={"type": "object", "properties": {"a": {"$ref": "#/defs/a"}}}),
+                "component_config_schema_invalid",
+            ),
+            (
+                "config_schema_pattern_not_allowlisted",
+                component_meta(
+                    configSchema={"type": "object", "properties": {"a": {"type": "string", "pattern": "^a"}}}
+                ),
+                "component_config_schema_invalid",
+            ),
+            (
+                "config_schema_too_deeply_nested",
+                component_meta(configSchema=deeply_nested_config_schema(MAX_CONFIG_SCHEMA_DEPTH + 200)),
+                "component_config_schema_invalid",
+            ),
+        ]
+    )
+    def test_invalid_component_meta_produces_error(self, _name, meta, expected_code):
+        candidate = project() if meta is None else project(component=meta)
+        diagnostics = validate_source_project(candidate, kind="component")
+        self.assertIn(expected_code, [entry["code"] for entry in diagnostics])

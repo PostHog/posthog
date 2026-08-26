@@ -239,6 +239,52 @@ describeWithGrammars("PostHogEnricher", () => {
       expect(enriched.events[0].verified).toBe(true);
     });
 
+    test("omits descriptions from inline comments when requested", async () => {
+      const code = `posthog.capture('purchase');`;
+      const result = await enricher.parse(code, "javascript");
+
+      mockApiResponses({
+        eventDefs: [
+          makeEventDef("purchase", {
+            description: "Project-controlled event description",
+          }),
+        ],
+      });
+      const enriched = await result.enrichFromApi(API_CONFIG);
+
+      expect(enriched.events[0].definition?.description).toBe(
+        "Project-controlled event description",
+      );
+      expect(enriched.toInlineComments()).toContain(
+        "Project-controlled event description",
+      );
+      expect(
+        enriched.toInlineComments({ includeEventDescriptions: false }),
+      ).not.toContain("Project-controlled event description");
+    });
+
+    test("omits experiment names from inline comments when requested", async () => {
+      const code = `posthog.getFeatureFlag('experiment-flag');`;
+      const result = await enricher.parse(code, "javascript");
+
+      mockApiResponses({
+        flags: [makeFlag("experiment-flag")],
+        experiments: [
+          makeExperiment("experiment-flag", {
+            name: "Project-controlled experiment name",
+          }),
+        ],
+      });
+      const enriched = await result.enrichFromApi(API_CONFIG);
+
+      expect(enriched.toInlineComments()).toContain(
+        "Project-controlled experiment name",
+      );
+      expect(
+        enriched.toInlineComments({ includeExperimentNames: false }),
+      ).not.toContain("Project-controlled experiment name");
+    });
+
     test("toList returns enriched items", async () => {
       const code = [
         `posthog.capture('purchase');`,
@@ -341,6 +387,13 @@ describeWithGrammars("PostHogEnricher", () => {
       });
       const enriched = await result.enrichFromApi(API_CONFIG);
 
+      const eventDefinitionCall = vi
+        .mocked(fetch)
+        .mock.calls.find(([url]) =>
+          String(url).includes("/event_definitions/"),
+        );
+      expect(String(eventDefinitionCall?.[0])).toContain("names=a%2Cb");
+
       const annotated = enriched.toInlineComments();
       const lines = annotated.split("\n");
 
@@ -348,6 +401,40 @@ describeWithGrammars("PostHogEnricher", () => {
       expect(lines[0]).toContain(`Event: "a"`);
       expect(lines[0]).toContain(`Event: "b"`);
       expect(lines[0]).toContain(" | ");
+    });
+
+    test("falls back to exact searches when a multi-name response omits definitions", async () => {
+      const code = `posthog.capture('a');\nposthog.capture('b');\nposthog.capture('c');`;
+      const result = await enricher.parse(code, "javascript");
+      const definitions = new Map([
+        ["a", makeEventDef("a", { verified: true })],
+        ["b", makeEventDef("b", { verified: true })],
+      ]);
+      const mockFetch = vi.fn(async (input: string | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/event_definitions/")) {
+          const search = url.searchParams.get("search");
+          if (search === "c") {
+            return new Response("unavailable", { status: 503 });
+          }
+          const definition = search ? definitions.get(search) : undefined;
+          return Response.json({ results: definition ? [definition] : [] });
+        }
+        return Response.json({ results: [] });
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const enriched = await result.enrichFromApi(API_CONFIG);
+      const annotated = enriched.toInlineComments();
+
+      expect(annotated).toContain(`Event: "a" \u2014 (verified)`);
+      expect(annotated).toContain(`Event: "b" \u2014 (verified)`);
+      expect(annotated).toContain(`Event: "c"`);
+      expect(
+        mockFetch.mock.calls.filter(([input]) =>
+          String(input).includes("/event_definitions/"),
+        ),
+      ).toHaveLength(4);
     });
 
     test("enrichedEvents surfaces stats, lastSeenAt, and tags", async () => {
@@ -411,6 +498,22 @@ describeWithGrammars("PostHogEnricher", () => {
         uniqueUsers: 230,
         windowDays: 7,
       });
+    });
+
+    test("uses the public host for flag links", async () => {
+      const code = `posthog.getFeatureFlag('my-flag');`;
+      const result = await enricher.parse(code, "javascript");
+
+      mockApiResponses({ flags: [makeFlag("my-flag", { id: 42 })] });
+      const enriched = await result.enrichFromApi({
+        ...API_CONFIG,
+        host: "http://127.0.0.1:1234/private-token",
+        publicHost: "https://test.posthog.com",
+      });
+
+      expect(enriched.flags[0].url).toBe(
+        "https://test.posthog.com/project/1/feature_flags/42",
+      );
     });
 
     test("toComments renders rich flag line with url, active, rollout, evals", async () => {

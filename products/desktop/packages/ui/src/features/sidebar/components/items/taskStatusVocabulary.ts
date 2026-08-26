@@ -24,6 +24,7 @@ import { SlackMark } from "@posthog/ui/primitives/SlackMark";
  */
 export type TaskStatusInput = TaskIconProps & {
   prUrl?: string | null;
+  isAgentSessionStarting?: boolean;
 };
 
 /**
@@ -146,13 +147,14 @@ export function taskDot(props: TaskStatusInput): TaskDot {
   // status, so it can sit there for hours after the agent is done with it.
   const isStartingCloudRun =
     props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
-  if (props.isGenerating || isStartingCloudRun) {
+  const isStarting = props.isAgentSessionStarting || isStartingCloudRun;
+  if (props.isGenerating || isStarting) {
     return {
       tone: "yellow",
       style: "solid",
       pulse: false,
       spinner: true,
-      label: props.isGenerating ? "Working" : "Starting",
+      label: props.isGenerating && !isStarting ? "Working" : "Starting",
     };
   }
   // Only a background run's status is a claim about work. An interactive run is
@@ -223,6 +225,75 @@ export interface TaskBadge {
 }
 
 /**
+ * The PR the task opened, if it has one. Merged / ready / closed is the outcome
+ * people actually scan a task list for, and it is a three-value vocabulary on a
+ * glyph that already means "pull request", so this is the one badge with
+ * colour.
+ */
+function pullRequestBadge(
+  props: TaskStatusInput,
+  hideResolved: boolean,
+): TaskBadge | null {
+  const prUrl = props.prUrl ?? undefined;
+  // A surface that draws PR state itself only draws it once the state has
+  // resolved, so the url-only badge below still has to speak for the window
+  // before that — and for the lookups that never resolve at all.
+  if (hideResolved && props.prState != null) return null;
+  if (props.prState === "merged") {
+    return {
+      key: "pr",
+      Icon: GitMerge,
+      label: "Merged",
+      tone: "purple",
+      url: prUrl,
+    };
+  }
+  if (props.prState === "open") {
+    return {
+      key: "pr",
+      Icon: GitPullRequest,
+      label: "PR ready for review",
+      tone: "green",
+      url: prUrl,
+    };
+  }
+  if (props.prState === "closed") {
+    return {
+      key: "pr",
+      Icon: GitPullRequest,
+      label: "PR closed unmerged",
+      tone: "red",
+      url: prUrl,
+    };
+  }
+  if (props.prState === "draft") {
+    // Mid grey: a draft is a real PR, so it earns a solid glyph, but it isn't
+    // asking for anything yet — grey is the "exists, no verdict" slot.
+    return {
+      key: "pr",
+      Icon: GitPullRequest,
+      label: "Draft PR",
+      tone: "gray",
+      url: prUrl,
+    };
+  }
+  if (props.prUrl) {
+    // A PR we know exists but haven't resolved the state of. Uncoloured on
+    // purpose: colour here is a verdict, and inventing one would be worse than
+    // saying "there's a PR, go look". Showing the badge is not optional — a
+    // task that opened a PR and shows no sign of it reads as having done
+    // nothing.
+    return {
+      key: "pr",
+      Icon: GitPullRequest,
+      label: "Pull request",
+      url: props.prUrl,
+    };
+  }
+  return null;
+}
+
+/**
  * Identity → badges, widest context first so the stack reads left-to-right as
  * "who asked, where it runs, what came out of it".
  *
@@ -239,11 +310,20 @@ export interface TaskBadge {
  * it. Slack keeps its own mark because it's the one origin where the row came
  * from a person in a thread, and readers already know that logo on sight.
  *
- * The PR badge is the exception that gets colour: merged / ready / closed is the
- * outcome people actually scan a task list for, and it's a three-value
- * vocabulary on a glyph that already means "pull request".
+ * The PR badge is the exception that gets colour, and lives in
+ * {@link pullRequestBadge}.
  */
-export function taskBadges(props: TaskStatusInput): TaskBadge[] {
+export function taskBadges(
+  props: TaskStatusInput,
+  {
+    /**
+     * Off where the surface draws PR state itself — the session header, whose
+     * git control sits at the end of the same row. Only the states that
+     * control renders are dropped.
+     */
+    includePr = true,
+  }: { includePr?: boolean } = {},
+): TaskBadge[] {
   const badges: TaskBadge[] = [];
   const origin = getOriginProductMeta(props.originProduct);
   const isSlack = props.originProduct === "slack";
@@ -257,53 +337,12 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       url: isSlack ? (props.slackThreadUrl ?? undefined) : undefined,
     });
   }
-  const prUrl = props.prUrl ?? undefined;
-  if (props.prState === "merged") {
-    badges.push({
-      key: "pr",
-      Icon: GitMerge,
-      label: "Merged",
-      tone: "purple",
-      url: prUrl,
-    });
-  } else if (props.prState === "open") {
-    badges.push({
-      key: "pr",
-      Icon: GitPullRequest,
-      label: "PR ready for review",
-      tone: "green",
-      url: prUrl,
-    });
-  } else if (props.prState === "closed") {
-    badges.push({
-      key: "pr",
-      Icon: GitPullRequest,
-      label: "PR closed unmerged",
-      tone: "red",
-      url: prUrl,
-    });
-  } else if (props.prState === "draft") {
-    // Mid grey: a draft is a real PR, so it earns a solid glyph, but it isn't
-    // asking for anything yet — grey is the "exists, no verdict" slot.
-    badges.push({
-      key: "pr",
-      Icon: GitPullRequest,
-      label: "Draft PR",
-      tone: "gray",
-      url: prUrl,
-    });
-  } else if (props.prUrl) {
-    // A PR we know exists but haven't resolved the state of. Uncoloured on
-    // purpose: colour here is a verdict, and inventing one would be worse than
-    // saying "there's a PR, go look". Showing the badge is not optional — a
-    // task that opened a PR and shows no sign of it reads as having done
-    // nothing.
-    badges.push({
-      key: "pr",
-      Icon: GitPullRequest,
-      label: "Pull request",
-      url: props.prUrl,
-    });
+  // Asking here rather than filtering the result keeps the rest of the stack
+  // intact: a filtered list loses the "Local" badge, which only appears when
+  // nothing else does.
+  const pr = pullRequestBadge(props, !includePr);
+  if (pr) {
+    badges.push(pr);
   } else if (props.hasDiff) {
     badges.push({
       key: "branch",

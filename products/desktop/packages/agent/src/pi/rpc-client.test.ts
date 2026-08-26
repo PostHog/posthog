@@ -8,6 +8,17 @@ import {
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
 } from "./rpc-client";
+import type { TaskContext } from "./task-system-prompt";
+
+function taskContext(cwd: string): TaskContext {
+  return {
+    taskId: "task-1",
+    cwd,
+    projectId: 2,
+    apiHost: "https://us.posthog.com",
+    environment: "local",
+  };
+}
 
 describe("createRuntimeMcpServers", () => {
   it("maps agent-server HTTP and SSE servers to Harness configuration", () => {
@@ -66,7 +77,7 @@ describe("createRuntimeMcpServers", () => {
 describe("createPiRpcClient", () => {
   it("does not put provider credentials in the child environment", () => {
     const client = createPiRpcClient({
-      cwd: "/workspace",
+      taskContext: taskContext("/workspace"),
       model: "claude-opus-4-8",
       providerOptions: {
         region: "us",
@@ -104,10 +115,16 @@ process.stdin.resume();
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       projectTrusted: true,
       extensions: ["auto-publish"],
       providerOptions: { apiKey: "proxy-key" },
+      enrichment: {
+        apiUrl: "http://127.0.0.1:5678",
+        publicApiUrl: "https://us.posthog.com",
+        projectId: 2,
+        apiKey: "enrichment-proxy-key",
+      },
     });
 
     try {
@@ -116,7 +133,14 @@ process.stdin.resume();
         await expect(readFile(capturePath, "utf8")).resolves.toBe(
           JSON.stringify({
             providerOptions: { apiKey: "proxy-key" },
+            enrichment: {
+              apiUrl: "http://127.0.0.1:5678",
+              publicApiUrl: "https://us.posthog.com",
+              projectId: 2,
+              apiKey: "enrichment-proxy-key",
+            },
             projectTrusted: true,
+            taskContext: taskContext(directory),
             extensions: ["auto-publish"],
           }),
         );
@@ -148,7 +172,7 @@ process.stdin.resume();
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
       extensions: ["repository-tools"],
     });
@@ -194,7 +218,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
     const request = new Promise<unknown>((resolve) => client.onEvent(resolve));
@@ -242,7 +266,7 @@ process.stdin.resume();
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
       runtimeMcpServers: {
         posthog: {
@@ -299,7 +323,7 @@ process.on("message", (response) => {
     const requestMcpToolPermission = vi.fn();
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
     client.onMcpToolPermissionRequest((request) => {
@@ -343,7 +367,7 @@ process.on("message", (request) => {
     );
     const client = createPiRpcClient({
       cliPath: hostPath,
-      cwd: directory,
+      taskContext: taskContext(directory),
       providerOptions: { apiKey: "proxy-key" },
     });
 

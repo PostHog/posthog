@@ -9,8 +9,12 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
+from products.tasks.backend.exceptions import RepositoryCloneError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
+from products.tasks.backend.models import Task
+from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -19,13 +23,16 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CreateSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
     _prepare_posthog_desktop_cloud_task,
+    _prewarmed_resume_needs_fresh_agent,
     _sandbox_image_kind,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
 )
 
 
-def _context_for_desktop_bootstrap(*, image_name: str | None = "posthog-dev-stack") -> TaskProcessingContext:
+def _context_for_desktop_bootstrap(
+    *, image_name: str | None = "posthog-dev-stack", warm_enabled: bool = True
+) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -37,6 +44,7 @@ def _context_for_desktop_bootstrap(*, image_name: str | None = "posthog-dev-stac
         distinct_id="distinct-id",
         state={},
         custom_image_name=image_name,
+        desktop_workspace_warm_enabled=warm_enabled,
     )
 
 
@@ -81,6 +89,19 @@ def test_skips_desktop_workspace_preparation_for_other_images_repositories_and_f
     sandbox.execute.assert_not_called()
 
 
+def test_skips_desktop_workspace_preparation_when_warm_flag_is_off(mocker):
+    sandbox = mocker.Mock()
+    sandbox.config.image_fallback = None
+
+    _prepare_posthog_desktop_cloud_task(
+        _context_for_desktop_bootstrap(warm_enabled=False),
+        sandbox,
+        "posthog/posthog",
+    )
+
+    sandbox.execute.assert_not_called()
+
+
 def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
     from temporalio.exceptions import ApplicationError
 
@@ -111,6 +132,79 @@ def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
 )
 def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, expected: str) -> None:
     assert _sandbox_image_kind(image_source, custom_image_name) == expected
+
+
+@pytest.mark.parametrize(
+    "snapshot_kind, state, capability, expected",
+    [
+        (
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            True,
+        ),
+        (
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            True,
+            False,
+        ),
+        (
+            SNAPSHOT_KIND_DIRECTORY,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
+        (SNAPSHOT_KIND_FILESYSTEM, {"resume_from_run_id": "previous-run"}, False, False),
+    ],
+)
+def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
+    mocker, snapshot_kind, state, capability, expected
+):
+    context = _context_for_desktop_bootstrap()
+    context.state = state
+    prepared = PrepareSandboxForRepositoryOutput(
+        sandbox_name="task-sandbox-task-id",
+        repository="posthog/posthog",
+        github_token="",
+        branch=None,
+        environment_variables={},
+        snapshot_id=None,
+        snapshot_external_id="snapshot-1",
+        used_snapshot=True,
+        should_create_snapshot=False,
+        shallow_clone=True,
+        image_source="resume_snapshot",
+        image_source_label="resume snapshot snapshot-1",
+        snapshot_kind=snapshot_kind,
+    )
+    sandbox = mocker.Mock()
+    sandbox.agent_server_supports_prewarmed_resume_idle.return_value = capability
+
+    assert _prewarmed_resume_needs_fresh_agent(context, prepared, sandbox, used_snapshot=True) is expected
+
+
+@pytest.mark.parametrize(("value", "expected"), [(None, "v1"), ("0", "v1"), ("1", "v2")])
+def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str | None, expected: str) -> None:
+    if value is None:
+        monkeypatch.delenv("MODAL_SANDBOX_V2", raising=False)
+    else:
+        monkeypatch.setenv("MODAL_SANDBOX_V2", value)
+
+    assert modal_sandbox_backend_label() == expected
+
+
+@pytest.mark.parametrize(
+    ("handoff_resumed", "using_modal_snapshot", "expected"),
+    [
+        (True, False, "handoff"),
+        (True, True, "handoff_and_snapshot"),
+        (False, True, "snapshot_only"),
+        (False, False, "neither"),
+    ],
+)
+def test_resume_mode_label(handoff_resumed: bool, using_modal_snapshot: bool, expected: str) -> None:
+    assert resume_mode_label(handoff_resumed=handoff_resumed, using_modal_snapshot=using_modal_snapshot) == expected
 
 
 @pytest.mark.asyncio
@@ -197,12 +291,17 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         github_integration_id=123,
         repository="posthog/posthog",
         distinct_id="distinct-id",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
         state=state,
         _branch="feature-branch",
     )
     sandbox = mocker.Mock()
     sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
 
     async_to_sync(activity_environment.run)(
         clone_repository_in_sandbox,
@@ -220,6 +319,7 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         github_token="github-token",
         shallow=True,
         branch=expected_branch,
+        blobless=True,
     )
 
 
@@ -267,11 +367,69 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             github_token="github-token",
             shallow=True,
             branch="branch-from-a-sibling-repository",
+            blobless=False,
         ),
         mocker.call(
             "posthog/posthog",
             github_token="github-token",
             shallow=True,
             branch=None,
+            blobless=False,
         ),
     ]
+
+
+def test_clone_failure_records_failed_latency_and_captures_command_result(mocker, activity_environment):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={},
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(
+        stdout="clone output",
+        stderr="",
+        exit_code=124,
+        error="execution stopped",
+    )
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
+    capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(RepositoryCloneError) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            CloneRepositoryInSandboxInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                repository="posthog/posthog",
+                github_token="github-token",
+                shallow_clone=True,
+            ),
+        )
+
+    assert "exit code 124" in str(error.value)
+    assert error.value.context == {
+        "repository": "posthog/posthog",
+        "sandbox_id": "sandbox-id",
+        "exit_code": 124,
+        "stderr": "",
+        "stdout": "clone output",
+        "error": "execution stopped",
+        "team": "array",
+    }
+    metric_meter.assert_called_once_with(
+        {
+            "step": "repository_clone",
+            "used_snapshot": "false",
+            "status": "FAILED",
+            "runtime": "gvisor",
+        }
+    )
+    assert str(capture_exception.call_args.args[0]) == "clone output"

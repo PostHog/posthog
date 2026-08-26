@@ -1,17 +1,20 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { createContext, type ReactNode, useContext, useEffect } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
+import { type TurnTrailer } from '../utils/turnTrailers'
 import { ContextUsageBar } from './ContextUsageBar'
+import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
 import { ResourcesBar } from './ResourcesBar'
 import { RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
+import { TurnFeedbackActions } from './TurnFeedbackActions'
 
 export interface RunSurfaceProps {
     taskId: string
@@ -49,6 +52,8 @@ interface RunSurfaceContextValue {
     rawRunId: string | null
     /** Logic key (used for child stream keys). */
     runId: string
+    taskId: string
+    conversationId?: string
     interaction: 'live' | 'read-only'
     /** Run created by a Signals scout — the context-usage line is suppressed for these. */
     isScout: boolean
@@ -124,6 +129,8 @@ function RunSurfaceRoot({
                 value={{
                     rawRunId: runId,
                     runId: logicKey,
+                    taskId,
+                    conversationId,
                     interaction,
                     isScout,
                 }}
@@ -191,20 +198,50 @@ function RunSurfaceThread({
     listClassName,
     rowClassName,
 }: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
-    const { interaction, isScout } = useRunSurfaceContext()
+    const { interaction, isScout, taskId, conversationId, runId } = useRunSurfaceContext()
     const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
+    // Feedback identity: the conversation where one exists (Max chats), else the task.
+    const feedbackSessionId = conversationId ?? taskId
+    const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
+    // Memoized so the footer keeps a stable element identity across streamed frames.
+    const feedbackPrompt = useMemo(
+        () =>
+            collectsFeedback ? (
+                <FeedbackPromptTrailer
+                    sessionId={feedbackSessionId}
+                    sessionKind={conversationId ? 'conversation' : 'task'}
+                    streamKey={runId}
+                />
+            ) : undefined,
+        [collectsFeedback, feedbackSessionId, conversationId, runId]
+    )
+    const renderTurnTrailer = useCallback(
+        (trailer: TurnTrailer): JSX.Element | null =>
+            feedbackSessionId ? (
+                <TurnFeedbackActions
+                    sessionId={feedbackSessionId}
+                    turnIndex={trailer.turnIndex}
+                    isLastTurn={trailer.isLastTurn}
+                    turnText={trailer.turnText}
+                />
+            ) : null,
+        [feedbackSessionId]
+    )
     const showSkeleton = bootstrapLoading && threadItems.length === 0
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
     // Context usage rides the thread footer for live runs (the meta bars are live-only), but never for a
     // scout run. An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
+    // Turn feedback follows the same gate: only interactive, non-scout surfaces collect ratings.
     return (
         <ThreadView
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
             showContextUsage={interaction === 'live' && !isScout}
+            renderTurnTrailer={collectsFeedback ? renderTurnTrailer : undefined}
+            footerExtra={feedbackPrompt}
         />
     )
 }

@@ -89,8 +89,6 @@ from posthog.permissions import (
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlSettingsViewSetMixin, AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -109,6 +107,11 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
+from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
@@ -149,10 +152,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text=(
             "Ordered list of log attribute keys whose values hold the PostHog session ID. "
-            "Detection checks keys in order; the first key with a value wins. Defaults to "
-            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
-            "auto-attach. Add keys only if your pipeline emits the session ID under "
-            "different attributes."
+            "Detection checks keys in order, then falls back to common session ID attribute "
+            "conventions; the first key with a value wins. Defaults to ['sessionId'] — the "
+            "convention documented at https://posthog.com/docs/logs/link-session-replay and "
+            "the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only "
+            "if your pipeline emits the session ID under different attributes."
         ),
     )
 

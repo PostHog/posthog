@@ -39,11 +39,13 @@ from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.sql_v2 import (
     DELIVERY_INLINE,
     DELIVERY_OBJECT_RELAY,
+    DataPlaneClaims,
     is_frame_store_ch_writes_enabled,
     is_frame_store_enabled,
     verify_data_plane_token,
 )
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
+from products.notebooks.backend.sql_v2_runs import touch_run_progress
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -85,7 +87,7 @@ def _rows_to_arrow_bytes(
     return sink.getvalue().to_pybytes()
 
 
-def _verify_request_token(request: HttpRequest) -> tuple[str, int, int | None] | JsonResponse:
+def _verify_request_token(request: HttpRequest) -> DataPlaneClaims | JsonResponse:
     authorization = request.headers.get("Authorization", "")
     token = authorization[len("Bearer ") :].strip() if authorization.startswith("Bearer ") else ""
     if not token:
@@ -120,7 +122,6 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     claims = _verify_request_token(request)
     if isinstance(claims, JsonResponse):
         return claims
-    notebook_short_id, team_id, user_id = claims
 
     try:
         body = json.loads(request.body)
@@ -136,10 +137,17 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         return JsonResponse({"error": f"Invalid request body — {detail}", "detail": serializer.errors}, status=400)
     data = serializer.validated_data
 
-    if not Notebook.objects.filter(team_id=team_id, short_id=notebook_short_id).exists():
+    if not Notebook.objects.filter(team_id=claims.team_id, short_id=claims.notebook_short_id).exists():
         return JsonResponse({"error": "Notebook not found"}, status=404)
-    team = Team.objects.get(id=team_id)
-    user = User.objects.filter(id=user_id).first() if user_id else None
+
+    # This request is the kernel's only observable sign of life during a run, so it resets the
+    # run's watchdog clock. A python cell materializes one input per upstream node, one after
+    # another, and without this the watchdog would count that whole sequence against a single
+    # budget and fail a cell that is working correctly.
+    if claims.run_id:
+        touch_run_progress(claims.team_id, claims.run_id)
+    team = Team.objects.get(id=claims.team_id)
+    user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
 
     try:
         # Validate the user's HogQL up front so syntax errors fail here with a clear
@@ -172,13 +180,15 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                     status = enqueue_frame_materialization(
                         team=team,
                         user_id=user.id if user else None,
-                        notebook_short_id=notebook_short_id,
+                        notebook_short_id=claims.notebook_short_id,
                         query=bounded,
                         ch_writes=is_frame_store_ch_writes_enabled(user),
                         _test_only_inline=settings.TEST,
                     )
             except Exception:
-                logger.exception("notebook_frame_materialize_enqueue_failed", notebook_short_id=notebook_short_id)
+                logger.exception(
+                    "notebook_frame_materialize_enqueue_failed", notebook_short_id=claims.notebook_short_id
+                )
                 return JsonResponse({"error": "Query could not be scheduled."}, status=500)
             return JsonResponse({"query_id": status.id, "delivery": DELIVERY_OBJECT_RELAY}, status=202)
         if frame_store_configured:
@@ -193,8 +203,8 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
             FRAME_STORE_FALLBACK_COUNTER.labels(reason="not_configured").inc()
             logger.warning(
                 "notebook_frame_store_fallback_inline",
-                notebook_short_id=notebook_short_id,
-                team_id=team_id,
+                notebook_short_id=claims.notebook_short_id,
+                team_id=claims.team_id,
                 object_storage_enabled=settings.OBJECT_STORAGE_ENABLED,
             )
 
@@ -209,7 +219,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                 _test_only_bypass_celery=settings.TEST,
             )
     except Exception:
-        logger.exception("notebook_sql_v2_data_plane_enqueue_failed", notebook_short_id=notebook_short_id)
+        logger.exception("notebook_sql_v2_data_plane_enqueue_failed", notebook_short_id=claims.notebook_short_id)
         return JsonResponse({"error": "Query could not be scheduled."}, status=500)
 
     # Reached either because the caller wanted inline delivery or because an object request
@@ -242,10 +252,9 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
     claims = _verify_request_token(request)
     if isinstance(claims, JsonResponse):
         return claims
-    _notebook_short_id, team_id, _user_id = claims
 
     try:
-        status = get_query_status(team_id=team_id, query_id=query_id)
+        status = get_query_status(team_id=claims.team_id, query_id=query_id)
     except QueryNotFoundError:
         return JsonResponse({"error": "Query not found or expired"}, status=404)
 
@@ -267,10 +276,10 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
             # would 404 every frame materialized in the window before that deploy.
             recorded_bucket = results.get("bucket")
             presigned_url = frame_store.presign_get(
-                str(object_key), team_id, bucket=str(recorded_bucket) if recorded_bucket else None
+                str(object_key), claims.team_id, bucket=str(recorded_bucket) if recorded_bucket else None
             )
         except frame_store.FrameStoreError:
-            logger.exception("notebook_frame_presign_failed", team_id=team_id, query_id=query_id)
+            logger.exception("notebook_frame_presign_failed", team_id=claims.team_id, query_id=query_id)
             return JsonResponse({"error": "The frame download could not be prepared. Try re-running."}, status=500)
         return HttpResponseRedirect(presigned_url)
 

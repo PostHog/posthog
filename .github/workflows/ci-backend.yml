@@ -13,11 +13,16 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
-        # Draft PRs run the snob-selected Django subset (≤3 shards) for fast feedback;
-        # turbo-tests (product tests) still skip drafts. Ready PRs run the full
-        # matrices — that full run is the merge gate, and ready_for_review re-triggers
-        # it when a PR leaves draft. To force the full matrices on a draft, add the
-        # `run-ci-backend` label. Cheap checks still run on drafts.
+        # PRs run the snob-selected Django subset (one shard per active segment)
+        # for fast feedback, draft or ready. When selection can't be trusted, a
+        # ready PR falls back to the full matrices and a draft skips them instead,
+        # deferring to its ready run. turbo-tests (product tests) still skip drafts.
+        # On a legacy diff the product matrix is narrowed the same way: the products the
+        # selector reached plus the ones Turbo saw change (see turbo-discover).
+        # The merge queue's trunk-merge/** run and master pushes always run the full
+        # matrices, and the queue run is what actually gates master. To force the
+        # full matrices on a PR, add the `run-ci-backend` label. Cheap checks still
+        # run on drafts.
         # The `no-ci` label does the opposite: it silences this workflow on a draft
         # entirely (prototypes/spikes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
@@ -39,8 +44,12 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
-    # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
+    # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
+    # Hypothesis constants cache epoch. Bump to abandon every shared entry at once
+    # (key is posthog-hypothesis-constants-<version>-<epoch>-<isoyear>-<isoweek>); used by
+    # the Django test shards below.
+    HYPOTHESIS_CONSTANTS_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -75,6 +84,7 @@ env:
 
 permissions:
     contents: read
+    actions: read
     pull-requests: write
 
 jobs:
@@ -94,7 +104,11 @@ jobs:
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.filter.outputs.backend || 'true' }}
+            # run-ci-backend is documented as forcing the full matrices, but every
+            # gate reads this output, so the label cannot reach them while the paths
+            # filter says false. Nothing under .github/ is in the backend filter, so
+            # a sharding or timing script change was untestable on its own PR.
+            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.backend || 'true') }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
@@ -102,7 +116,10 @@ jobs:
             persons_sql: ${{ steps.filter.outputs.persons_sql || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
-            legacy: ${{ steps.filter.outputs.legacy || 'true' }}
+            # The label has to reach discovery as well: `backend` alone only starts the
+            # discover job, which then sees no legacy change and no affected product and
+            # emits an empty matrix. A forced legacy change makes it test everything.
+            legacy: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.legacy || 'true') }}
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
@@ -113,6 +130,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -174,7 +193,6 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
-                        - .test_durations # Used for pytest-split sharding
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
                         # turbo-discover reads the module graph for the dependent
                         # cascade, and `tach check` validates it — a graph-only PR
@@ -200,6 +218,13 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
+                        # product:lint --all checks these generated files against the tree,
+                        # so a baseline-only edit must run it too. The crossings baseline is
+                        # also what product:lint reads to let a wiring location leave a
+                        # product's turbo.json inputs, so both edits must run the checks.
+                        - products/isolation_baseline.txt
+                        - products/model_crossing_uses_baseline.txt
+                        - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -248,7 +273,6 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
-                        - .test_durations
                         - .test_quarantine.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
@@ -267,11 +291,27 @@ jobs:
                         # so they shouldn't trigger the Django/turbo-discover path either.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Generated from frontend/src/queries/schema.json (see the `schema`
+                        # filter below). Excluding them here routes schema-only PRs into
+                        # turbo-discover's schema-impact narrowing instead of the
+                        # all-products legacy path. This cannot skip Django: the
+                        # schemaChanged branch hard-sets run_legacy=true. It also cannot
+                        # hide a hand-edit to the generated files — ci-python.yml
+                        # regenerates schema.py and fails on any diff, and both files stay
+                        # in the `schema` (and `backend`) filters so turbo-discover still
+                        # takes the schema path for them.
+                        - '!posthog/schema.py'
+                        - '!posthog/schema_enums.py'
                       schema:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to
                         # products that import the changed types.
                         - frontend/src/queries/schema.json
+                        # The generated outputs are excluded from `legacy` above; listing
+                        # them here keeps run_legacy=true (full Django) for any schema
+                        # change, including a stray hand-edit to a generated file.
+                        - posthog/schema.py
+                        - posthog/schema_enums.py
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
@@ -372,12 +412,27 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
+        env:
+            # Whether this run selects backend tests at all: a PR, off the merge queue's
+            # trunk-merge/** run (that run is the merge gate and stays full), and without
+            # the run-ci-backend label. turbo-discover.js reads it too, so a run that never
+            # selects reports an empty mode rather than a selector error.
+            SELECTION_APPLIES: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && needs.changes.outputs.backend == 'true' }}
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
+            run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
             django_shards: ${{ steps.discover.outputs.django_shards }}
+            # Which Django tests this PR runs. Empty mode = this run does not select.
+            mode: ${{ steps.discover.outputs.mode }}
+            # The rest of that decision (segment file lists, run_poe, run_temporal,
+            # segment_shards) as one JSON object; consumers read it with fromJSON.
+            selection: ${{ steps.discover.outputs.selection }}
+            # The posthog-ci-test-selection event properties, as one JSON object.
+            telemetry: ${{ steps.discover.outputs.telemetry }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -421,6 +476,16 @@ jobs:
                   fi
                   # Exact branch-point key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
                   # apply as the pytest delta. uv.lock covers third-party migration changes; the
                   # postgres image is folded in so a server-version bump invalidates the key.
@@ -463,9 +528,8 @@ jobs:
 
             - name: Restore test durations from cache
               # Shard counts are derived from .test_durations (Amdahl). Restore the newest
-              # cache (refreshed daily by ci-backend-update-test-timing.yml) over the
-              # committed file so counts track current timings; on a miss the committed file
-              # is the fallback. turbo-discover.js disables sharding gracefully if it's absent.
+              # cache (refreshed by ci-backend-update-test-timing.yml several times a day);
+              # the fallback step below covers a miss.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -473,6 +537,27 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
 
             - name: Restore per-segment test durations from cache
               # Also restored here so the snapshot below covers the per-segment plan files.
@@ -507,12 +592,57 @@ jobs:
                   # GitHub allows re-runs for 30 days.
                   retention-days: 30
 
+            # The backend test selector picks the Django tests this PR needs, and on a legacy
+            # diff its product list narrows the product matrix too: turbo-discover.js cannot
+            # see which products a posthog/ or ee/ edit reaches, and the selector can, because
+            # it follows the import graph into products/. Both matrices read one verdict, so
+            # they can never disagree about whether the selection is trustworthy.
+            # Only on a legacy diff: turbo-discover.js trusts the selection only when the paths
+            # filter saw a legacy edit, and falls back without a selector run otherwise. The
+            # DISABLE_BACKEND_TEST_SELECTION kill switch skips the run too; the script still
+            # reports the `disabled` reason from its own env.
+            - name: Install uv
+              # Optional setup: a failure here must fall back to the full matrices like a
+              # selector failure does, not fail the job that gates every test job.
+              continue-on-error: true
+              if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
+
+            - name: Run the backend test selector
+              id: select
+              # A selector failure or hang must not fail this job, which gates every test job
+              # in the workflow — turbo-discover.js falls back to the full matrices instead.
+              # The step timeout bounds a hang well inside the job's, so the fallback still
+              # reaches the matrices rather than taking the whole job down with it.
+              continue-on-error: true
+              timeout-minutes: 8
+              if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  uv run tools/snob_backend_test_selection_shadow.py \
+                      --base-ref "origin/$BASE_REF" \
+                      > /tmp/selection.json
+
             - name: Discover products to test
               id: discover
               env:
                   # On pushes to master, always run everything.
                   # On PRs, use the path filter to detect legacy changes.
                   LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
+                  # Empty when the selector did not run or failed, which falls back to the
+                  # full matrices on a ready PR and skips them on a draft.
+                  SELECTION_JSON: ${{ steps.select.outcome == 'success' && '/tmp/selection.json' || '' }}
+                  # Kill switch — set the DISABLE_BACKEND_TEST_SELECTION repo variable to put
+                  # every PR back on the full matrices without a code change.
+                  SELECTION_DISABLED: ${{ vars.DISABLE_BACKEND_TEST_SELECTION || 'false' }}
+                  # A draft has a later ready run to defer to, so an untrusted selection skips
+                  # the heavy matrices there instead of running all of them.
+                  PR_DRAFT: ${{ github.event.pull_request.draft }}
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
@@ -526,206 +656,14 @@ jobs:
                   echo "Result: $RESULT"
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
+                  echo "run_legacy_reason=$(echo "$RESULT" | jq -r '.run_legacy_reason // empty')" >> "$GITHUB_OUTPUT"
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
-
-    # Pick which Django tests to run on draft PRs. Drafts get the snob-selected
-    # subset for fast feedback; the full matrix runs once the PR is marked ready
-    # for review, and that ready run is the merge gate. When selection can't be
-    # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
-    # a selector full-run signal), the draft skips the heavy matrices entirely —
-    # the pre-selection draft behavior — and defers to the ready full run.
-    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
-    select-tests:
-        name: Select tests
-        needs: [changes, turbo-discover]
-        # Only draft PRs do selective runs; ready PRs and pushes always run full,
-        # which build_django_matrix falls back to
-        # when select-tests is skipped (empty MODE). The run-ci-backend label
-        # forces the full matrices on a draft.
-        # Trunk's merge-queue branches open as draft PRs, but their run IS the
-        # merge gate, so they must never get the narrowed selection.
-        if: |
-            github.event_name == 'pull_request' &&
-            github.event.pull_request.draft == true &&
-            !startsWith(github.head_ref, 'trunk-merge/') &&
-            !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
-            needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        outputs:
-            mode: ${{ steps.classify.outputs.mode }}
-            core_files: ${{ steps.classify.outputs.core_files }}
-            poe_files: ${{ steps.classify.outputs.poe_files }}
-            temporal_files: ${{ steps.classify.outputs.temporal_files }}
-            run_poe: ${{ steps.classify.outputs.run_poe }}
-            run_temporal: ${{ steps.classify.outputs.run_temporal }}
-            # Telemetry for the capture-test-selection job below.
-            narrowed: ${{ steps.classify.outputs.narrowed }}
-            skip_reason: ${{ steps.classify.outputs.skip_reason }}
-            changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
-            selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
-            full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
-            run_legacy: ${{ steps.fallback.outputs.run_legacy }}
-            turbo_result: ${{ steps.fallback.outputs.turbo_result }}
-            selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
-            skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28'
-
-            - name: Decide whether selection can be trusted
-              id: fallback
-              env:
-                  RUN_LEGACY: ${{ needs.turbo-discover.outputs.run_legacy }}
-                  TURBO_RESULT: ${{ needs.turbo-discover.result }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  skip=false
-                  if [[ "$RUN_LEGACY" == "true" ]]; then
-                      # turbo-discover detected product->legacy graph impact; the
-                      # diff-based selector can't see this, so its subset would be
-                      # incomplete. Skip the draft matrices; the ready run is full.
-                      skip=true
-                  elif [[ "$TURBO_RESULT" != "success" && "$TURBO_RESULT" != "skipped" ]]; then
-                      # Conservative — turbo-discover failed.
-                      skip=true
-                  fi
-                  echo "skip=$skip" >> "$GITHUB_OUTPUT"
-                  # Surface the inputs behind an untrusted skip so the telemetry can
-                  # tell legacy-graph impact apart from a turbo-discover failure.
-                  echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
-                  echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
-
-            - name: Run shadow selector
-              id: select
-              # continue-on-error so a selector or git fetch failure doesn't fail this
-              # job — a failed select-tests would leave MODE empty and build_django_matrix
-              # would fall back to an expensive full matrix on a draft. Classify reads
-              # steps.select.outcome (pre-continue-on-error) and emits mode=skip instead.
-              continue-on-error: true
-              if: steps.fallback.outputs.skip == 'false'
-              env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-                  uv run tools/snob_backend_test_selection_shadow.py \
-                      --base-ref "origin/$BASE_REF" \
-                      > /tmp/selection.json
-
-            - name: Classify selection into segments
-              id: classify
-              env:
-                  FALLBACK_SKIP: ${{ steps.fallback.outputs.skip }}
-                  SELECT_OUTCOME: ${{ steps.select.outcome }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  # Selection telemetry (see the capture-test-selection job). Best-effort
-                  # from the selector JSON when it exists; narrowed=false marks a fallback.
-                  emit_metrics() {
-                      local changed="" selected="" reasons="" selected_seconds="" skipped_seconds=""
-                      if [[ -s /tmp/selection.json ]]; then
-                          changed=$(jq -r '.changed_file_count // empty' /tmp/selection.json)
-                          selected=$(jq -r '.combined.count // empty' /tmp/selection.json)
-                          reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
-                          selected_seconds=$(jq -r '.durations.selected_seconds // empty' /tmp/selection.json)
-                          skipped_seconds=$(jq -r '.durations.skipped_seconds // empty' /tmp/selection.json)
-                      fi
-                      {
-                          echo "narrowed=$1"
-                          echo "skip_reason=$2"
-                          echo "changed_file_count=$changed"
-                          echo "selected_test_count=$selected"
-                          echo "full_run_reasons_count=$reasons"
-                          echo "selected_test_seconds=$selected_seconds"
-                          echo "skipped_test_seconds=$skipped_seconds"
-                      } >> "$GITHUB_OUTPUT"
-                  }
-
-                  # Untrusted selection on a draft skips the heavy matrices (the
-                  # pre-selection draft behavior); the ready-for-review run is full.
-                  fall_back_to_skip() {
-                      echo "mode=skip" >> "$GITHUB_OUTPUT"
-                      echo "core_files=" >> "$GITHUB_OUTPUT"
-                      echo "poe_files=" >> "$GITHUB_OUTPUT"
-                      echo "temporal_files=" >> "$GITHUB_OUTPUT"
-                      echo "run_poe=false" >> "$GITHUB_OUTPUT"
-                      echo "run_temporal=false" >> "$GITHUB_OUTPUT"
-                      emit_metrics false "$1"
-                  }
-
-                  if [[ "$FALLBACK_SKIP" == "true" ]]; then
-                      fall_back_to_skip untrusted
-                      exit 0
-                  fi
-
-                  if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
-                      echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
-                      fall_back_to_skip selector_error
-                      exit 0
-                  fi
-
-                  full_run_reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
-                  if [[ "$full_run_reasons" -gt 0 ]]; then
-                      echo "Selector requested a full run; draft defers it to ready for review:"
-                      jq -r '.ast.full_run_reasons[]' /tmp/selection.json
-                      fall_back_to_skip full_run_requested
-                      exit 0
-                  fi
-
-                  # Partition selected files by the Django segment that owns them.
-                  # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
-                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags)
-                  #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
-                  #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
-                  #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
-                  #                   products/signals/backend/emission
-                  # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
-                  # their own temporal suites there.
-                  core=()
-                  poe=()
-                  temporal=()
-                  while IFS= read -r f; do
-                      [[ -z "$f" ]] && continue
-                      case "$f" in
-                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
-                              temporal+=("$f")
-                              ;;
-                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
-                              poe+=("$f")
-                              core+=("$f")
-                              ;;
-                          posthog/dags/*|common/hogvm/python/test/*)
-                              # Explicitly --ignore'd by the Core invocation; nothing to do.
-                              ;;
-                          posthog/*|ee/*)
-                              core+=("$f")
-                              ;;
-                      esac
-                  done < <(jq -r '.combined.tests[]?' /tmp/selection.json)
-
-                  echo "mode=selected" >> "$GITHUB_OUTPUT"
-                  echo "core_files=${core[*]:-}" >> "$GITHUB_OUTPUT"
-                  echo "poe_files=${poe[*]:-}" >> "$GITHUB_OUTPUT"
-                  echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
-                  echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-                  echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-                  emit_metrics true ""
-
-                  echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
+                  echo "$RESULT" | jq -r '"mode=\(.selection.mode)", "selection=\(.selection | tojson)", "telemetry=\(.telemetry | tojson)"' >> "$GITHUB_OUTPUT"
 
             - name: Upload selection artifact
+              # test-selection-verdict reads it instead of running the selector again. An
+              # upload failure must not fail this job; the verdict regenerates the selection.
+              continue-on-error: true
               if: always() && steps.select.outcome == 'success'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
@@ -901,10 +839,15 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
+                  # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
 
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
@@ -959,8 +902,8 @@ jobs:
 
             - name: Restore test durations from cache
               # pytest-split distributes this product's tests across shards using
-              # .test_durations. Restore the newest cache (refreshed daily) over the committed
-              # file; a miss leaves the committed fallback and pytest-split still runs.
+              # .test_durations. Restore the newest cache; the fallback step below covers
+              # a miss.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -968,6 +911,27 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
 
             - name: Download the run's sharding plan snapshot
               # Same pinning as the Django job; falls back to the floating cache.
@@ -1004,6 +968,12 @@ jobs:
               # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  # products/tasks/backend/temporal moved here from the Django Temporal
+                  # segment, and its conftest and workflows talk to Modal. Injected only
+                  # when that directory changed, matching the gate the Django job used.
+                  MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
+                  MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
@@ -1037,7 +1007,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -1046,12 +1016,9 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: products/*/junit-product.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -1131,11 +1098,20 @@ jobs:
             - name: Generate snapshot patch
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
+              env:
+                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   mkdir -p /tmp/patches
                   git add -N '*.ambr' || true
-                  if ! git diff --quiet '*.ambr' 2>/dev/null; then
-                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-Products-${{ strategy.job-index }}.patch
+                  # Same leg scoping as the django job: a leg may only ship its own
+                  # schema mode's snapshot files (see the comment there).
+                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                    ambr_pathspec=('*.new_events_schema.ambr')
+                  else
+                    ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
+                  fi
+                  if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
+                    git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-Products-${{ strategy.job-index }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-Products-${{ strategy.job-index }}.patch) lines"
                   else
                     echo "No snapshot changes to patch"
@@ -1247,6 +1223,20 @@ jobs:
 
                   - name: Check product facade enforcement (import-linter)
                     run: lint-imports
+
+                  # These guards take the whole repo as input (import graph after
+                  # django.setup(), signal registries, repo-wide AST scans), so diff-based
+                  # test selection can't pick them and the Django matrix skips them on
+                  # products-only diffs and drafts. They need no service containers.
+                  # Branches that predate the directory still carry the guards at their
+                  # old paths, so fall back to those rather than failing on a missing arg.
+                  - name: Run repo invariants (whole-repo pytest guards)
+                    run: |
+                        if [ -d posthog/test/repo_invariants ]; then
+                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                        else
+                            pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
+                        fi
 
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
@@ -1360,7 +1350,11 @@ jobs:
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true'
-        timeout-minutes: 20
+        # On master this job replays the full migration history from scratch to
+        # produce the schema dump every PR job restores. That replay grows with
+        # every merged migration, so the limit needs headroom over it: it is
+        # there to cancel a hang, not to cap how long the history takes.
+        timeout-minutes: 40
         outputs:
             mig_schema_key: ${{ steps.mig-schema-key.outputs.key }}
         # The "Publish Migration risk check" step posts the check via the
@@ -1458,8 +1452,7 @@ jobs:
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
-              # that "Run migrations up to master" would build from scratch; any
-              # difference in the migration set is a cache miss, never a stale hit.
+              # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
               run: |
@@ -1484,6 +1477,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
+                  # The exact key misses in the minutes between a master migration
+                  # landing and its dump being saved. The PR base commit's dump is
+                  # always older than the checkout, so migrate just tops it up.
+                  restore-keys: |
+                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
 
             - name: Wait for Docker services
               env:
@@ -1916,9 +1914,20 @@ jobs:
                   python manage.py makemigrations --check --dry-run
 
             - name: Check CH migrations
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
+                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
+                  DIFF_BASE=origin/master
+                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
+                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                          DIFF_BASE="origin/$BASE_REF"
+                      else
+                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
+                      fi
+                  fi
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+                  git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
             - name: Render CH migration SQL per cloud environment
               # CH migrations can build different `operations` lists at import time depending on
@@ -2284,7 +2293,7 @@ jobs:
 
     build_django_matrix:
         name: Build Django matrix
-        needs: [changes, get_clickhouse_versions, turbo-discover, select-tests]
+        needs: [changes, get_clickhouse_versions, turbo-discover]
         if: |
             !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
@@ -2300,17 +2309,20 @@ jobs:
                   OLDEST_SUPPORTED_IMAGE: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   COMPAT_MATRIX_JSON: ${{ needs.get_clickhouse_versions.outputs.compat_matrix }}
                   DJANGO_SHARDS_JSON: ${{ needs.turbo-discover.outputs.django_shards }}
-                  MODE: ${{ needs.select-tests.outputs.mode }}
-                  RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
-                  RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
-                  CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
+                  MODE: ${{ needs.turbo-discover.outputs.mode }}
+                  RUN_POE: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').run_poe }}
+                  RUN_TEMPORAL: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').run_temporal }}
+                  CORE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').core_files }}
+                  COMPAT_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').compat_files }}
+                  SEGMENT_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').segment_shards }}
                   # A trunk-merge/** PR opens as a draft but is the merge gate, and
-                  # select-tests deliberately does not run for it. Reporting it as a
+                  # turbo-discover deliberately does not select for it. Reporting it as a
                   # draft here would turn that empty MODE into "skip" and build an
                   # empty matrix, so the queue would merge having run no Django tests
                   # at all. Not-draft makes the empty MODE fall through to the full
                   # matrix, which is what the queue has to run.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # The new-events-schema variants double the matrix, so they only run on
                   # PRs opted in via the test-new-events-schema label and on manual dispatch.
@@ -2321,8 +2333,8 @@ jobs:
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
 
-                  # A draft PR must never fall back to the full matrix. select-tests only
-                  # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
+                  # A draft PR must never fall back to the full matrix. turbo-discover sets
+                  # MODE to "skip"/"full"/"selected"; an empty MODE on a
                   # draft means it was cancelled or failed (typically ready_for_review
                   # superseding it mid-flight). Without this, the draft builds the full
                   # matrix and holds the per-branch concurrency slot for the whole run, so the
@@ -2343,10 +2355,16 @@ jobs:
                   fi
 
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: collapse to one shard per active segment, skip
-                      # segments with no selected files, drop compat entirely.
+                      # Selected mode: run only the segments that have selected files. Shard
+                      # counts come from turbo-discover, which applies its per-shard budget to
+                      # the selected tests' recorded seconds. A wide selection therefore
+                      # spreads over several jobs instead of running to the job timeout in
+                      # one. No counts means one shard per segment.
+                      segment_shards="${SEGMENT_SHARDS:-}"
+                      [[ -z "$segment_shards" ]] && segment_shards='{"core": 1, "poe": 1, "temporal": 1}'
+
                       core_count=0
-                      [[ -n "$CORE_FILES" ]] && core_count=1
+                      [[ -n "$CORE_FILES" ]] && core_count=$(jq -r '.core' <<< "$segment_shards")
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2354,9 +2372,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2367,14 +2385,14 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=1
+                      [[ "$IS_PR_RUN" != "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2382,9 +2400,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-poe-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2395,14 +2413,14 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-poe-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
                       temporal_count=0
-                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=$(jq -r '.temporal' <<< "$segment_shards")
                       temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
                         [range(1; $n + 1) | {
                           segment: "Temporal",
@@ -2410,9 +2428,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "temporal-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("temporal-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2423,13 +2441,37 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "temporal-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("temporal-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
-                      compat="[]"
+                      # Compat covers the older supported ClickHouse versions over
+                      # CLICKHOUSE_COMPAT_PYTEST_TARGETS. Selection can drop it only when the
+                      # diff touches none of those paths — otherwise a narrowed run would
+                      # silently lose the one signal the full matrix has about old servers.
+                      # One unsharded entry per version, over the selected compat files.
+                      if [[ -n "$COMPAT_FILES" ]]; then
+                          compat=$(jq -cn --argjson compat "${COMPAT_MATRIX_JSON:-[]}" '
+                            [ $compat
+                              | map(."clickhouse-server-image") | unique | to_entries[]
+                              | {
+                                  "clickhouse-server-image": .value,
+                                  segment: "Core",
+                                  "person-on-events": false,
+                                  "new-events-schema": false,
+                                  "python-version": "3.13.13",
+                                  concurrency: 1,
+                                  group: 1,
+                                  compat: true,
+                                  artifact_key: ("compat-" + ((.key + 1)|tostring))
+                                }
+                            ]
+                          ')
+                      else
+                          compat="[]"
+                      fi
                   else
                       # Full run: auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
                       # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
@@ -2443,6 +2485,16 @@ jobs:
                         echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
                       else
                         echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                      fi
+
+                      # The legacy-mode safeguard leg runs only where a regression must not
+                      # land: merge queue and master. Ordinary PR lanes run the
+                      # customer-default mode only, so a PR pays no shards for the legacy
+                      # mode. The queue's trunk-merge/** run is a pull_request event as well,
+                      # so it is exempted by branch. Compat keeps its own legacy-mode rows in
+                      # every lane, because it guards old servers, not this.
+                      if [[ "$IS_PR_RUN" == "true" ]]; then
+                          CORE_POE_SHARDS=0
                       fi
 
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
@@ -2547,9 +2599,9 @@ jobs:
                   fi
 
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
-                      # Unlabeled PRs skip the doubled schema matrix; note their snapshot
-                      # bot commits then leave [new_events_schema] .ambr blocks untouched,
-                      # so those blocks only refresh on labeled PRs and stay stale between.
+                      # Unlabeled PRs skip the doubled schema matrix; their snapshot
+                      # bot commits leave *.new_events_schema.ambr files untouched, so
+                      # those only refresh on labeled PRs / dispatch and stay stale between.
                       echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
                       core_new_events_schema="[]"
                       core_persons_on_events_new_schema="[]"
@@ -2570,8 +2622,7 @@ jobs:
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
 
     django:
-        needs:
-            [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix, select-tests]
+        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
@@ -2592,7 +2643,7 @@ jobs:
         # 45 for slow Temporal shards on master; keep <= deploy gate wait (container-images-cd.yml)
         timeout-minutes: 45
 
-        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
         runs-on: depot-ubuntu-24.04
 
@@ -2774,8 +2825,10 @@ jobs:
               # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
+                      || "${fetch[@]}" https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -2820,10 +2873,15 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
+                  # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
 
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
@@ -2867,8 +2925,8 @@ jobs:
 
             - name: Restore test durations from cache
               # pytest-split distributes Core/Temporal tests across shards using
-              # .test_durations. Restore the newest cache (refreshed daily) over the committed
-              # file; a miss leaves the committed fallback and pytest-split still runs.
+              # .test_durations. Restore the newest cache; the fallback step below covers
+              # a miss.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -2877,10 +2935,31 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
+
             - name: Restore per-segment test durations from cache
               # File-granularity sharding plans from a per-segment file (.test_durations.core /
               # .test_durations.temporal) scoped to exactly what the segment runs, avoiding the
-              # union file's cross-segment contamination. These are cache-only (NOT committed),
+              # union file's cross-segment contamination. These are cache-only as well,
               # written by the daily timing-update job on master so PR runs can restore them.
               # On a miss the file is simply absent and the "Run … tests" step omits
               # --split-plan-path, falling back to scoping the union (still correct, pre-fix
@@ -2894,6 +2973,39 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
+
+            - name: Compute hypothesis constants cache key
+              # hypothesis builds its constants pool of property-test inputs by
+              # AST-parsing every local module in sys.modules. It caches the result
+              # in .hypothesis/constants under a hash of each source file, so the
+              # pool is content-addressed: restoring a stale copy is safe, because a
+              # changed file reads as a miss and rebuilds. CI otherwise pays the full
+              # parse on every shard's pytest collection (about 10 s per shard).
+              id: hyp-constants-key
+              shell: bash
+              run: |
+                  # The key includes the installed hypothesis version because the
+                  # entry format is an implementation detail, and rotates weekly so
+                  # entries for deleted or rewritten files expire. The restore prefix
+                  # covers the gap until the first master run of a new week saves.
+                  hyp_version=$(python -c "import hypothesis; print(hypothesis.__version__)")
+                  prefix="posthog-hypothesis-constants-${hyp_version}-${HYPOTHESIS_CONSTANTS_EPOCH}-"
+                  {
+                      echo "key=${prefix}$(date -u +%G-%V)"
+                      echo "restore_prefix=${prefix}"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Restore hypothesis constants cache
+              id: hyp-constants
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  # Constants only. Do NOT add .hypothesis/examples: the example
+                  # database decides which inputs property tests replay, so reusing
+                  # one across runs changes what the tests check.
+                  path: .hypothesis/constants
+                  key: ${{ steps.hyp-constants-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.hyp-constants-key.outputs.restore_prefix }}
 
             - name: Download the run's sharding plan snapshot
               # Pin every attempt to the plan turbo-discover snapshotted (rationale on
@@ -2929,13 +3041,15 @@ jobs:
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
-              # persons-on-events: always update (we ignore snapshot divergence there)
+              # safeguard allowlist leg (matrix.person-on-events): always update, because it
+              # runs a subset under the non-default mode and so does not own snapshots
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
               # --snapshot-warn-unused: pytest-split shards individual tests across
-              # runners, so each shard only exercises a subset of snapshots per file.
-              # Without this flag, --snapshot-update deletes "unused" snapshots that
-              # belong to other shards, causing cross-shard data loss.
+              # runners, so a shard reports other shards' snapshots as "unused". The flag
+              # downgrades that from a failure to a warning. It does NOT prevent deletion:
+              # --snapshot-update only spares a snapshot when syrupy matches it to a test
+              # (by file and name) that did not run on this shard.
               run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
             - name: Add snapshot flags for compat subset runs
@@ -2999,14 +3113,28 @@ jobs:
               continue-on-error: true
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
-                  PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  # Person-on-events v2 reads are the production default for every
+                  # project created since 2024-06-14, so the full Core rows run with the
+                  # mode on. matrix.person-on-events marks the safeguard allowlist leg
+                  # that keeps the legacy joined mode covered, not the mode itself: every
+                  # other condition keyed on it (targets, snapshot ownership, timing
+                  # artifacts) selects the leg. Compat rows run the legacy mode as well,
+                  # as the old-server safeguard.
+                  # marker: person-on-events-default. The run block below greps the
+                  # checked-out workflow for this token to tell a head that carries the
+                  # flip from one that predates it.
+                  PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-                  MODE: ${{ needs.select-tests.outputs.mode }}
-                  CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
+                  MODE: ${{ needs.turbo-discover.outputs.mode }}
+                  CORE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').core_files }}
+                  POE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_files }}
+                  COMPAT_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').compat_files }}
                   # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
                   COVERAGE_CORE: sysmon
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
+                  # backend-coverage-report skips narrowed runs (patch coverage would read
+                  # as false gaps), so instrumenting one just costs time and uploads an
+                  # artifact nothing reads.
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
               # Wrap bash with signal-fanout so the runner's cancel signal is
               # propagated to the entire process tree (incl. pytest). Without
               # this, GHA only signals the top-level bash and pytest survives
@@ -3019,6 +3147,14 @@ jobs:
                   # pointing at a missing file is a hard error, so drop coverage rather than fail.
                   if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
                       COV_ARGS=""
+                  fi
+                  # The job checks out the PR head while this workflow runs merged with
+                  # master. A head that predates the person-on-events default lacks the
+                  # test pins that came with it, so keep it on the legacy mode until it
+                  # rebases. The marker sits on this step's env line in the checked-out copy.
+                  if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: person-on-events-default" .github/workflows/ci-backend.yml; then
+                      echo "::notice::Checked-out revision predates the person-on-events default, running Core in legacy mode"
+                      export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
                   # file granularity only when the installed pytest-split offers them, else
@@ -3043,17 +3179,30 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
-                      # No --splits/--group (no sharding), no --store-durations (don't pollute timing
-                      # data with a partial run), and no --reruns (fail loud on the narrow subset).
+                      # Sharded only when build_django_matrix sized the segment above one shard,
+                      # no --store-durations (don't pollute timing data with a partial run), and
+                      # no --reruns (fail loud on the narrow subset).
                       # The full run below also runs without --reruns: retries mask the raw flake
                       # signal Trunk needs, and the quarantine gate is the flake net instead.
-                      if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                      if [[ "${{ matrix.compat }}" == "true" ]]; then
+                          targets="$COMPAT_FILES"
+                      elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
                           targets="$CORE_FILES"
                       fi
+                      # A selection wide enough to need more than one shard is split like a
+                      # full run. Item granularity on purpose: the target list is already
+                      # narrow, so pre-import file skipping saves nothing, and the per-segment
+                      # plan file describes a different run-set than the selected subset.
+                      SELECTED_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
+                          "${SELECTED_SPLIT[@]}" \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
@@ -3064,7 +3213,7 @@ jobs:
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
-                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/tests/api/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086
@@ -3072,6 +3221,7 @@ jobs:
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
+                        --ignore=posthog/test/repo_invariants \
                         "${full_ignores[@]}" \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 --store-durations \
@@ -3094,7 +3244,7 @@ jobs:
 
             - name: Upload core coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ always() && github.event_name == 'pull_request' && matrix.segment == 'Core' }}
+              if: ${{ always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
                   path: coverage-core.xml
@@ -3144,8 +3294,8 @@ jobs:
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-                  MODE: ${{ needs.select-tests.outputs.mode }}
-                  TEMPORAL_FILES: ${{ needs.select-tests.outputs.temporal_files }}
+                  MODE: ${{ needs.turbo-discover.outputs.mode }}
+                  TEMPORAL_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').temporal_files }}
               run: |
                   set +e
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
@@ -3158,21 +3308,32 @@ jobs:
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
-                      # Scope the file-mode plan to this segment's clean per-segment durations
-                      # (restored from the daily master cache) when the pinned pytest-split
-                      # supports it, so the plan isn't poisoned by the union .test_durations —
-                      # see AGENTS.md (CI). A missing file (cache miss, no fallback) is omitted
-                      # and the plugin falls back to scoping the union.
-                      if [ -f .test_durations.temporal ] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
-                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.temporal)
-                      fi
+                      # No --split-plan-path here for now: the cached plan describes
+                      # master's Temporal run-set, which still contains the batch-exports
+                      # and tasks temporal suites this branch moved to their product jobs.
+                      # Cuts drawn around those phantom files starve two shards and
+                      # overload the third (observed 4/6/20 min on a 3-shard split).
+                      # Scoping the union instead intersects with what actually collects.
+                      # Restore the plan path after the timing workflow has rebuilt
+                      # .test_durations.temporal from post-merge junit.
+                      :
                   fi
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no sharding, no --store-durations (don't pollute
-                      # timing data with a partial run), no --reruns. See the core selected branch;
-                      # the full run also skips --reruns so raw flake signal reaches Trunk.
+                      # Selected mode: no --store-durations (don't pollute timing data with a
+                      # partial run), no --reruns. See the core selected branch; the full run
+                      # also skips --reruns so raw flake signal reaches Trunk.
+                      # A selection wide enough to need more than one shard is split like a
+                      # full run. Item granularity on purpose: the target list is already
+                      # narrow, so pre-import file skipping saves nothing, and the per-segment
+                      # plan file describes a different run-set than the selected subset.
+                      SELECTED_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                          "${SELECTED_SPLIT[@]}" \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
@@ -3183,7 +3344,7 @@ jobs:
                       # anyway, so the shard dies either way) and was the reason the
                       # transaction=True overhead in async tests looked like "the
                       # timeout problem" instead of a per-test cost worth fixing.
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/signals/backend/emission -m "not async_migrations" \
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
@@ -3201,6 +3362,28 @@ jobs:
                   else
                       exit $exit_code
                   fi
+
+            - name: Save hypothesis constants cache
+              # One Core shard per master run writes the weekly entry: a save from
+              # every shard would race on the same key and churn the shared cache
+              # budget. cache-hit != 'true' skips the save once this week's entry
+              # exists, which keeps later master runs cheap.
+              # continue-on-error: overlapping master runs at week rollover fail its
+              # reservation check when an earlier run has saved the same key, and a
+              # cache miss must never red a green run.
+              continue-on-error: true
+              if: |
+                  github.ref == 'refs/heads/master' &&
+                  matrix.segment == 'Core' &&
+                  matrix.group == 1 &&
+                  !matrix.person-on-events &&
+                  !matrix.new-events-schema &&
+                  !matrix.compat &&
+                  steps.hyp-constants.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .hypothesis/constants
+                  key: ${{ steps.hyp-constants-key.outputs.key }}
 
             # Post tests
             - name: Show docker compose logs on failure
@@ -3229,13 +3412,24 @@ jobs:
               # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
+              env:
+                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   mkdir -p /tmp/patches
                   # Stage any new/modified .ambr files so they appear in git diff
                   git add -N '*.ambr' || true
+                  # Each schema leg may only ship its own snapshot files. A leg still
+                  # *claims* the other schema mode's snapshot names without writing them,
+                  # so syrupy deletes them from the working tree as unused; scoping the
+                  # patch keeps those deletions out of the committed diff.
+                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                    ambr_pathspec=('*.new_events_schema.ambr')
+                  else
+                    ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
+                  fi
                   # Generate patch if there are changes
-                  if ! git diff --quiet '*.ambr' 2>/dev/null; then
-                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
+                  if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
+                    git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.artifact_key }}.patch) lines"
                   else
                     echo "No snapshot changes to patch"
@@ -3275,6 +3469,9 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # Inlined rather than ./.github/actions/trunk-quarantine-gate, and so without its retry:
+            # this job checks out the PR head ref, which cannot resolve a local action that only
+            # exists on master until the branch rebases.
             - name: Quarantine gate (Core)
               id: quarantine_gate_core
               continue-on-error: true
@@ -3644,7 +3841,7 @@ jobs:
                   echo "All backend and product checks passed."
 
     test-selection-verdict:
-        needs: [django, turbo-tests, changes, select-tests]
+        needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
         # changes is skipped on no-ci drafts — no tests ran, nothing to verdict.
         if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result != 'skipped' }}
@@ -3684,9 +3881,9 @@ jobs:
                       [[ "$d" == "$latest" ]] || rm -rf "$d"
                   done
 
-            # Reuse the selection artifact from the select-tests job rather than
+            # Reuse the selection artifact from the turbo-discover job rather than
             # re-running the snob script. Falls through if the artifact wasn't
-            # produced (select-tests forced full mode or failed) — the next step
+            # produced (the selector did not run or failed) — the next step
             # regenerates it so we still get a shadow verdict for those PRs.
             - name: Download selection artifact
               id: download-selection
@@ -3695,6 +3892,15 @@ jobs:
               with:
                   name: select-tests-output
                   path: /tmp/verdict/
+
+            - name: Download the run's sharding plan snapshot
+              # The verdict reports selected seconds per segment from .test_durations,
+              # which is not in the repo; use the union turbo-discover snapshotted.
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: .
 
             - name: Run test selection and verdict
               env:
@@ -3779,18 +3985,18 @@ jobs:
 
     capture-test-selection:
         name: Capture test selection
-        needs: [select-tests]
+        needs: [turbo-discover]
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # select-tests only runs on internal draft PRs; fire only when it actually
-        # produced a decision. DevEx project only, mirroring monitor-github-rate-limit;
-        # continue-on-error so telemetry never reds CI. Skipped on forks/Dependabot,
-        # which never have the secret (and where select-tests didn't run anyway).
+        # An empty mode means this run never selected, so there is no decision to report.
+        # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
+        # telemetry never reds CI. Skipped on forks/Dependabot, which never have the secret.
         if: |
             !cancelled() && github.run_attempt == '1'
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
-            && needs.select-tests.result == 'success'
+            && needs.turbo-discover.result == 'success'
+            && needs.turbo-discover.outputs.mode != ''
         steps:
             - name: Capture test selection to DevEx PostHog
               continue-on-error: true
@@ -3798,27 +4004,7 @@ jobs:
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-test-selection'
-                  properties: |
-                      {
-                        "suite": "backend",
-                        "mode": ${{ toJSON(needs.select-tests.outputs.mode) }},
-                        "narrowed": ${{ needs.select-tests.outputs.narrowed || 'false' }},
-                        "skip_reason": ${{ toJSON(needs.select-tests.outputs.skip_reason || '') }},
-                        "changed_file_count": ${{ needs.select-tests.outputs.changed_file_count || 'null' }},
-                        "selected_test_count": ${{ needs.select-tests.outputs.selected_test_count || 'null' }},
-                        "full_run_reasons_count": ${{ needs.select-tests.outputs.full_run_reasons_count || 'null' }},
-                        "run_legacy": ${{ toJSON(needs.select-tests.outputs.run_legacy || '') }},
-                        "turbo_result": ${{ toJSON(needs.select-tests.outputs.turbo_result || '') }},
-                        "selected_test_seconds": ${{ needs.select-tests.outputs.selected_test_seconds || 'null' }},
-                        "skipped_test_seconds": ${{ needs.select-tests.outputs.skipped_test_seconds || 'null' }},
-                        "run_poe": ${{ needs.select-tests.outputs.run_poe || 'false' }},
-                        "run_temporal": ${{ needs.select-tests.outputs.run_temporal || 'false' }},
-                        "event_type": ${{ toJSON(github.event_name) }},
-                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
-                        "sha": ${{ toJSON(github.sha) }},
-                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
-                        "run_id": ${{ toJSON(github.run_id) }}
-                      }
+                  properties: ${{ needs.turbo-discover.outputs.telemetry }}
 
     report-test-timings:
         name: Report per-test traces
@@ -3887,7 +4073,7 @@ jobs:
 
     backend-coverage-report:
         name: Backend coverage report
-        needs: [turbo-tests, django_tests]
+        needs: [turbo-tests, django_tests, turbo-discover]
         runs-on: ubuntu-latest
         continue-on-error: true # report-only, never block a PR
         timeout-minutes: 10
@@ -3899,7 +4085,8 @@ jobs:
         # In-repo PRs only — fork PRs get a read-only token that can't comment. Runs when either
         # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
         # gets a comment; both skip on drafts, leaving nothing to report.
-        # drafts run a partial test selection — patch coverage would report false gaps
+        # A narrowed run measures only the selected tests, so patch coverage would report
+        # gaps that the full suite covers. Report only when the Django matrix ran full.
         # Security invariant: this job runs PR-head-controlled scripts (coverage_report.py,
         # post-coverage-section.mjs) — never add secrets beyond github.token to this job
         # (report-test-timings checks out the base ref for exactly this reason).
@@ -3907,6 +4094,7 @@ jobs:
             !cancelled() &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == false &&
+            needs.turbo-discover.outputs.mode != 'selected' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
         steps:

@@ -114,6 +114,21 @@ describe("loopModelOptions", () => {
     ).toContainEqual({ value: "claude-opus-4-6", label: "claude-opus-4-6" });
   });
 
+  it("gates GLM 5.3 independently from GLM 5.2", () => {
+    const options = modelConfigOption([
+      { value: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
+      { value: "zai-org/glm-5.3", name: "GLM-5.3" },
+    ]);
+
+    expect(
+      loopModelOptions("claude", options, {
+        glmEnabled: false,
+        glm53Enabled: true,
+        pinnedModel: "",
+      }),
+    ).toEqual([{ value: "zai-org/glm-5.3", label: "GLM-5.3" }]);
+  });
+
   it.each<{
     name: string;
     adapter: LoopSchemas.LoopRuntimeAdapterEnum;

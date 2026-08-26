@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -12,12 +12,12 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
-import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
+import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
-import type { RedisLike } from './cache/RedisCache'
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
+import type { RedisLike } from './cache/RedisCache'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -35,6 +35,7 @@ export interface ResolvedState {
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
     apiKeyScopes: string[]
+    oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
     sessionContext: MCPSessionContext | null
@@ -59,6 +60,12 @@ export interface ResolvedState {
     // the model like Codex, or ignore it like Claude web/desktop) the exec command
     // reference. Resolved once here so every render path reads the same source.
     metadata: string | undefined
+    // Variant of `metadata` without the product/integration context lines, for the
+    // claude.ai exec command reference: that surface counts against the ~16 KiB
+    // connector-registry cap on the serialized inputSchema, which already sits
+    // within tens of characters of the worst-case env context. Every uncapped
+    // surface renders the full `metadata`.
+    metadataCompact: string | undefined
     groupTypes: GroupType[] | undefined
 }
 
@@ -142,10 +149,9 @@ export class RequestStateResolver {
         ])
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
-        // Neither of these gates a catalog tool, so the tool-definition scan can't discover
-        // them: PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery
-        // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_GATEWAY_FLAG])]
+        // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
+        // resolves — so the tool-definition scan can't discover it; join it in explicitly.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), MCP_GATEWAY_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -167,6 +173,7 @@ export class RequestStateResolver {
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
+        const oauthClientId = (await reqCtx.tokenCache.get('oauthClientId')) || undefined
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
@@ -223,11 +230,12 @@ export class RequestStateResolver {
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
 
-        const [groupTypes, metadata] = await Promise.all([
+        const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
                 : undefined,
             context.stateManager.getEnvironmentPrompt(),
+            context.stateManager.getEnvironmentPrompt({ includeProductContext: false }),
         ])
 
         return {
@@ -236,6 +244,7 @@ export class RequestStateResolver {
             useSingleExec,
             toolFeatureFlags,
             apiKeyScopes,
+            oauthClientId,
             clientProfile,
             requestContext,
             sessionContext,
@@ -245,6 +254,7 @@ export class RequestStateResolver {
             distinctId,
             renderUiEnabled,
             metadata,
+            metadataCompact,
             groupTypes,
         }
     }

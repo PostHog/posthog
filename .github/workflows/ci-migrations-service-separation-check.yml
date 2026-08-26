@@ -21,6 +21,9 @@ jobs:
         timeout-minutes: 5
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             # Author-attested escape hatch for DB-noop migrations (e.g. SeparateDatabaseAndState
             # state-only renames) that ship safely alongside service code. The check is path-only
@@ -60,7 +63,6 @@ jobs:
                       sqlx_migrations:
                           - 'rust/persons_migrations/*.sql'
                           - 'rust/behavioral_cohorts_migrations/*.sql'
-                          - 'rust/cyclotron-core/migrations/*.sql'
                           - 'rust/cyclotron-node-migrations/*.sql'
                       nodejs:
                           - 'nodejs/**'
@@ -77,7 +79,6 @@ jobs:
                           - 'rust/**'
                           - '!rust/persons_migrations/**'
                           - '!rust/behavioral_cohorts_migrations/**'
-                          - '!rust/cyclotron-core/migrations/**'
                           - '!rust/cyclotron-node-migrations/**'
 
             - name: Check for conflicting changes

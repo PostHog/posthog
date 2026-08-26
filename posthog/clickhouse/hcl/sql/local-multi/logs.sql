@@ -181,6 +181,8 @@ CREATE TABLE posthog.logs34 (
   _bytes_uncompressed UInt64,
   _bytes_compressed UInt64,
   _record_count UInt64,
+  pattern String,
+  pattern_version UInt8,
   INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -247,7 +249,9 @@ CREATE TABLE posthog.logs_distributed (
   _offset UInt64,
   _bytes_uncompressed UInt64,
   _bytes_compressed UInt64,
-  _record_count UInt64
+  _record_count UInt64,
+  pattern String,
+  pattern_version UInt8
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs34');
 CREATE TABLE posthog.logs_kafka_metrics (
   _partition UInt32,
@@ -270,22 +274,20 @@ CREATE TABLE posthog.logs_kafka_metrics_distributed (
 CREATE TABLE posthog.logs_volume_buckets (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
-  generation UInt64,
   service_name LowCardinality(String),
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
-  log_count UInt64
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, generation, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+  log_count SimpleAggregateFunction(sum, UInt64)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.logs_volume_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
-  generation UInt64,
   service_name LowCardinality(String),
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
-  log_count UInt64
+  log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_volume_buckets');
 CREATE TABLE posthog.metric_samples1 (
   team_id Int32,
@@ -501,6 +503,8 @@ CREATE TABLE posthog.trace_spans (
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
   INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
   INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+  PROJECTION projection_index_span_id (SELECT _part_offset
+ORDER BY span_id),
   PROJECTION projection_aggregate_counts (SELECT
   team_id,
   time_bucket,
@@ -511,8 +515,6 @@ CREATE TABLE posthog.trace_spans (
   count() AS event_count
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span),
-  PROJECTION projection_index_span_id (SELECT _part_offset
-ORDER BY span_id),
   PROJECTION projection_index_trace_id (SELECT _part_offset
 ORDER BY trace_id)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS allow_part_offset_column_in_projections = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1;
@@ -812,6 +814,39 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
+CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text
+    FROM posthog.logs34
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text;
 CREATE MATERIALIZED VIEW posthog.trace_span_to_attributes TO posthog.trace_attributes (team_id Int32, original_expiry_time_bucket DateTime64(0), time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   original_expiry_time_bucket,

@@ -219,6 +219,7 @@ export interface accessDetailLogicActions {
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
+            | 'billing'
             | 'business_knowledge'
             | 'canvas'
             | 'clickhouse_test_cluster_perf'

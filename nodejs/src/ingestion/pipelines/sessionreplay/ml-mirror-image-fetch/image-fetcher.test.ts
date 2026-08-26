@@ -1,6 +1,7 @@
 import { ResolutionError, SecureRequestError, StreamedResponse, fetchStreamed } from '~/common/utils/request'
 
 import { HttpImageFetcher, ImageFetchOptions, RedirectPolicy } from './image-fetcher'
+import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 jest.mock('~/common/utils/request', () => ({
     ...jest.requireActual('~/common/utils/request'),
@@ -16,8 +17,10 @@ const OPTIONS: ImageFetchOptions = {
     maxBytes: 1000,
     timeoutMs: 5000,
     maxRedirects: 3,
-    isOffsite: () => false,
-    authorizeRedirect: () => Promise.resolve('allow' as const),
+    isDifferentOrigin: () => false,
+    scheduleRequest: async (_url, _deadlineMs, request) => ({ ran: true as const, value: await request() }),
+    checkRedirectPolicy: () => Promise.resolve({ allowed: true as const, tdmrepReservation: false }),
+    tdmrepReservation: false,
 }
 
 function respond(
@@ -28,6 +31,7 @@ function respond(
     return {
         status,
         headers,
+        headerLines: Object.entries(headers).map(([name, value]) => ({ name, value })),
         read: jest.fn().mockResolvedValue(body),
         discard: jest.fn(),
     }
@@ -37,13 +41,33 @@ function image(bytes: Buffer, contentType: string, extraHeaders: Record<string, 
     return respond(200, { 'content-type': contentType, ...extraHeaders }, { bytes, overLimit: false })
 }
 
+const NOOP_SIGNER: WebBotAuthRequestSigner = { headersForGet: () => ({}) }
 /** Everything public by default, so a test that cares about the policy says so. */
-const fetcher = (policy: Partial<RedirectPolicy> = {}): HttpImageFetcher =>
-    new HttpImageFetcher({ maxUrlLength: 2048, isPublicHost: () => true, ...policy })
+const fetcher = (
+    policy: Partial<RedirectPolicy> = {},
+    webBotAuthSigner: WebBotAuthRequestSigner = NOOP_SIGNER
+): HttpImageFetcher =>
+    new HttpImageFetcher({ maxUrlLength: 2048, isPublicHost: () => true, ...policy }, webBotAuthSigner)
 
 describe('HttpImageFetcher', () => {
     beforeEach(() => {
         fetchStreamedMock.mockReset()
+    })
+
+    it('identifies every request as PostHogImageFetcherBot', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(fetchStreamedMock).toHaveBeenCalledWith(
+            'https://cdn.example.com/a.png',
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    'user-agent':
+                        'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)',
+                }),
+            })
+        )
     })
 
     it('returns the bytes of an image whose payload matches its declared type', async () => {
@@ -51,20 +75,68 @@ describe('HttpImageFetcher', () => {
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
 
-        expect(result).toEqual({ outcome: 'ok', status: 200, bytes: PNG, contentType: 'image/png', redirects: 0 })
+        expect(result).toMatchObject({
+            outcome: 'ok',
+            status: 200,
+            bytes: PNG,
+            contentType: 'image/png',
+            redirects: 0,
+            currentUrl: 'https://cdn.example.com/a.png',
+        })
+    })
+
+    it('uses an ETag validator and accepts the resulting 304', async () => {
+        fetchStreamedMock.mockResolvedValue(respond(304, { etag: '"v1"' }))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', {
+            ...OPTIONS,
+            cache: {
+                requestTimeMs: Date.now() - 1_000,
+                responseTimeMs: Date.now() - 500,
+                etag: '"v1"',
+                lastModified: 'yesterday',
+            },
+        })
+
+        expect(fetchStreamedMock.mock.calls[0][1].headers).toMatchObject({ 'if-none-match': '"v1"' })
+        expect(fetchStreamedMock.mock.calls[0][1].headers).not.toHaveProperty('if-modified-since')
+        expect(result).toMatchObject({ outcome: 'not_modified', status: 304 })
+    })
+
+    it('does not accept an unsolicited 304', async () => {
+        fetchStreamedMock.mockResolvedValue(respond(304, {}))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result).toMatchObject({ outcome: 'unexpected_status', status: 304 })
+    })
+
+    it('does not send an original URL validator to a redirect target', async () => {
+        fetchStreamedMock
+            .mockResolvedValueOnce(respond(302, { location: '/moved.png' }))
+            .mockResolvedValueOnce(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', {
+            ...OPTIONS,
+            cache: { requestTimeMs: Date.now() - 1_000, responseTimeMs: Date.now() - 500, etag: '"v1"' },
+        })
+
+        expect(fetchStreamedMock.mock.calls[0][1].headers).toMatchObject({ 'if-none-match': '"v1"' })
+        expect(fetchStreamedMock.mock.calls[1][1].headers).not.toHaveProperty('if-none-match')
     })
 
     it.each([
-        ['a type that is not an image', 'text/html', PNG],
-        ['a type outside the raster set', 'image/svg+xml', PNG],
-        ['a payload that is not the declared format', 'image/gif', PNG],
-        ['a payload of the wrong raster format', 'image/png', GIF],
-    ])('refuses %s', async (_name, contentType, bytes) => {
+        ['a type that is not an image', 'text/html', PNG, 'not_image'],
+        ['a type outside the raster set', 'image/svg+xml', PNG, 'not_image'],
+        ['the BMP format', 'image/bmp', Buffer.from('BM'), 'not_image'],
+        ['a payload that is not the declared format', 'image/gif', PNG, 'ok'],
+        ['a payload of the wrong raster format', 'image/png', GIF, 'ok'],
+    ])('handles %s', async (_name, contentType, bytes, outcome) => {
         fetchStreamedMock.mockResolvedValue(image(bytes, contentType))
 
         const result = await fetcher().fetch('https://cdn.example.com/a', OPTIONS)
 
-        expect(result).toMatchObject({ outcome: 'not_image' })
+        expect(result).toMatchObject({ outcome })
     })
 
     it('refuses a declared size over the limit without reading the body', async () => {
@@ -118,6 +190,29 @@ describe('HttpImageFetcher', () => {
         expect(result.retryAfterMs).toBeLessThanOrEqual(expectedMs)
     })
 
+    it('uses the longest valid value from repeated Retry-After field lines', async () => {
+        const response = respond(429, {})
+        response.headerLines = [
+            { name: 'retry-after', value: '10' },
+            { name: 'retry-after', value: 'invalid' },
+            { name: 'retry-after', value: '30' },
+        ]
+        fetchStreamedMock.mockResolvedValue(response)
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result.retryAfterMs).toBe(30_000)
+    })
+
+    it.each([408, 425])('ignores Retry-After on status %s', async (status) => {
+        fetchStreamedMock.mockResolvedValue(respond(status, { 'retry-after': '120' }))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result).toMatchObject({ outcome: 'rate_limited', status })
+        expect(result.retryAfterMs).toBeUndefined()
+    })
+
     it('follows a redirect and reports how many hops it took', async () => {
         fetchStreamedMock
             .mockResolvedValueOnce(respond(302, { location: '/moved.png' }))
@@ -129,18 +224,47 @@ describe('HttpImageFetcher', () => {
         expect(fetchStreamedMock.mock.calls[1][0]).toBe('https://cdn.example.com/moved.png')
     })
 
+    it('refuses a redirect with repeated Location field lines', async () => {
+        const response = respond(302, {})
+        response.headerLines = [
+            { name: 'location', value: '/first.png' },
+            { name: 'location', value: '/second.png' },
+        ]
+        fetchStreamedMock.mockResolvedValue(response)
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result).toMatchObject({ outcome: 'bad_redirect' })
+        expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('signs each redirect hop for its target URL', async () => {
+        fetchStreamedMock
+            .mockResolvedValueOnce(respond(302, { location: 'https://images.example.net/moved.png' }))
+            .mockResolvedValueOnce(image(PNG, 'image/png'))
+        const headersForGet = jest
+            .fn()
+            .mockReturnValueOnce({ signature: 'first-hop-signature' })
+            .mockReturnValueOnce({ signature: 'second-hop-signature' })
+
+        await fetcher({}, { headersForGet }).fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(headersForGet.mock.calls).toEqual([
+            ['https://cdn.example.com/a.png'],
+            ['https://images.example.net/moved.png'],
+        ])
+        expect(fetchStreamedMock.mock.calls[0][1].headers).toMatchObject({ signature: 'first-hop-signature' })
+        expect(fetchStreamedMock.mock.calls[1][1].headers).toMatchObject({ signature: 'second-hop-signature' })
+    })
+
     it.each([
-        ['the target is one this lane never follows', 'https://other.example/a.png', 'refuse' as const],
-        ['it leaves HTTP for another scheme', 'javascript:alert(1)', 'allow' as const],
-        ['it carries credentials for the next hop', 'https://user:pw@other.example/a.png', 'allow' as const],
-        ['it downgrades from HTTPS to plain HTTP', 'http://other.example/a.png', 'allow' as const],
-    ])('refuses a redirect when %s', async (_name, location, decision) => {
+        ['it leaves HTTP for another scheme', 'javascript:alert(1)'],
+        ['it carries credentials for the next hop', 'https://user:pw@other.example/a.png'],
+        ['it downgrades from HTTPS to plain HTTP', 'http://other.example/a.png'],
+    ])('refuses a redirect when %s', async (_name, location) => {
         fetchStreamedMock.mockResolvedValue(respond(302, { location }))
 
-        const result = await fetcher().fetch('https://cdn.example.com/a.png', {
-            ...OPTIONS,
-            authorizeRedirect: () => Promise.resolve(decision),
-        })
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
 
         expect(result).toMatchObject({ outcome: 'bad_redirect' })
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
@@ -182,7 +306,7 @@ describe('HttpImageFetcher', () => {
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
             ...OPTIONS,
             maxRedirects: 0,
-            isOffsite: () => true,
+            isDifferentOrigin: () => true,
         })
 
         expect(result).toMatchObject({
@@ -191,12 +315,15 @@ describe('HttpImageFetcher', () => {
         })
     })
 
-    it('stops at the redirect limit for a target on the same domain', async () => {
+    it('stops at the redirect limit for a target on the same origin', async () => {
         fetchStreamedMock.mockResolvedValue(respond(302, { location: 'https://cdn.example.com/b.png' }))
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, maxRedirects: 0 })
 
-        expect(result).toMatchObject({ outcome: 'too_many_redirects' })
+        expect(result).toMatchObject({
+            outcome: 'redirect_continuation',
+            redirectTarget: { url: 'https://cdn.example.com/b.png', host: 'cdn.example.com' },
+        })
     })
 
     it('defers a redirect whose target has no budget left, so nothing is written to the crawl history for it', async () => {
@@ -205,73 +332,237 @@ describe('HttpImageFetcher', () => {
         // the URL.
         fetchStreamedMock.mockResolvedValue(respond(302, { location: 'https://cdn.example.net/a.png' }))
 
+        let requestNumber = 0
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
             ...OPTIONS,
-            authorizeRedirect: () => Promise.resolve('defer' as const),
+            scheduleRequest: async (_url, _deadlineMs, request) => {
+                requestNumber += 1
+                return requestNumber === 1
+                    ? { ran: true as const, value: await request() }
+                    : { ran: false as const, reason: 'backoff' as const, waitMs: 90_000 }
+            },
         })
 
-        expect(result).toMatchObject({ outcome: 'redirect_deferred' })
+        expect(result).toMatchObject({
+            outcome: 'request_deferred',
+            redirects: 1,
+            currentUrl: 'https://cdn.example.net/a.png',
+            schedulingReason: 'backoff',
+            schedulingWaitMs: 90_000,
+        })
+        expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
     })
 
-    it('refuses a response that arrives compressed, under its own outcome', async () => {
-        // The byte limit counts bytes on the wire, and a compressed body expands past it. The image
-        // may be perfectly good, so the lane must not report it, or record it, as "not an image".
+    it('keeps an accepted response coding for the scrubber', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png', { 'content-encoding': 'gzip' }))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result).toMatchObject({ outcome: 'ok', contentEncoding: 'gzip' })
+    })
+
+    it('keeps repeated content codings in received order', async () => {
+        const response = image(PNG, 'image/png')
+        response.headerLines = [
+            { name: 'content-type', value: 'image/png' },
+            { name: 'content-encoding', value: 'gzip' },
+            { name: 'content-encoding', value: 'br, zstd' },
+        ]
+        fetchStreamedMock.mockResolvedValue(response)
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result).toMatchObject({ outcome: 'ok', contentEncoding: 'gzip, br, zstd' })
+    })
+
+    it('refuses conflicting repeated Content-Type field lines', async () => {
+        const response = image(PNG, 'image/png')
+        response.headerLines = [
+            { name: 'content-type', value: 'image/png' },
+            { name: 'content-type', value: 'image/jpeg' },
+        ]
+        fetchStreamedMock.mockResolvedValue(response)
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result).toMatchObject({ outcome: 'not_image' })
+    })
+
+    it('combines repeated Cache-Control field lines in received order', async () => {
+        const response = image(PNG, 'image/png')
+        response.headerLines.push(
+            { name: 'cache-control', value: 'public, max-age=86400' },
+            { name: 'cache-control', value: 'no-store' }
+        )
+        fetchStreamedMock.mockResolvedValue(response)
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result.cache?.cacheControl).toBe('public, max-age=86400, no-store')
+    })
+
+    it('refuses an unsupported response coding', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png', { 'content-encoding': 'compress' }))
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
 
         expect(result).toMatchObject({ outcome: 'unsupported_encoding' })
     })
 
-    it('defers a redirect whose politeness wait would outlive the request', async () => {
-        // The wait comes out of this request's clock. A wait that cannot land would report the site
-        // as slow when our own budget ran out.
-        fetchStreamedMock.mockResolvedValue(respond(302, { location: '/moved.png' }))
-        const authorizeRedirect = jest.fn().mockResolvedValue('allow')
+    it.each(['gzip,', 'gzip, br, deflate, zstd, identity'])(
+        'refuses a malformed or excessive response coding list: %s',
+        async (contentEncoding) => {
+            fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png', { 'content-encoding': contentEncoding }))
 
-        await fetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, authorizeRedirect })
+            const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
 
-        const remainingMs = authorizeRedirect.mock.calls[0][1]
-        expect(remainingMs).toBeGreaterThan(0)
-        expect(remainingMs).toBeLessThanOrEqual(OPTIONS.timeoutMs)
+            expect(result).toMatchObject({ outcome: 'unsupported_encoding' })
+        }
+    )
+
+    it('applies a refusal from any repeated opt-out field line', async () => {
+        const response = image(PNG, 'image/png')
+        response.headerLines = [
+            { name: 'content-type', value: 'image/png' },
+            { name: 'x-robots-tag', value: 'all' },
+            { name: 'x-robots-tag', value: 'PostHogImageFetcherBot: noimageai' },
+        ]
+        fetchStreamedMock.mockResolvedValue(response)
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result).toMatchObject({ outcome: 'opt_out', refusalReason: 'x_robots_tag' })
+    })
+
+    it('lets a response header override a TDMRep reservation', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png', { 'tdm-reservation': '0' }))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', {
+            ...OPTIONS,
+            tdmrepReservation: true,
+        })
+
+        expect(result).toMatchObject({ outcome: 'ok' })
+    })
+
+    it('applies a TDMRep reservation when the response does not override it', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', {
+            ...OPTIONS,
+            tdmrepReservation: true,
+        })
+
+        expect(result).toMatchObject({ outcome: 'opt_out', refusalReason: 'tdm_reservation' })
+    })
+
+    it('checks path policy again before a same-origin redirect target is requested', async () => {
+        fetchStreamedMock.mockResolvedValue(respond(302, { location: '/private/image.png' }))
+
+        const result = await fetcher().fetch('https://cdn.example.com/public/image.png', {
+            ...OPTIONS,
+            checkRedirectPolicy: () =>
+                Promise.resolve({ allowed: false as const, transient: false, reason: 'robots_disallow' }),
+        })
+
+        expect(result).toMatchObject({
+            outcome: 'redirect_policy_refused',
+            redirects: 1,
+            currentUrl: 'https://cdn.example.com/private/image.png',
+            refusalReason: 'robots_disallow',
+            policyTransient: false,
+        })
+        expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('applies the redirected path TDM policy to the next response', async () => {
+        fetchStreamedMock
+            .mockResolvedValueOnce(respond(302, { location: '/reserved/image.png' }))
+            .mockResolvedValueOnce(image(PNG, 'image/png'))
+
+        const result = await fetcher().fetch('https://cdn.example.com/public/image.png', {
+            ...OPTIONS,
+            checkRedirectPolicy: () => Promise.resolve({ allowed: true as const, tdmrepReservation: true }),
+        })
+
+        expect(result).toMatchObject({ outcome: 'opt_out', refusalReason: 'tdm_reservation', redirects: 1 })
+    })
+
+    it('uses one request deadline for every redirect hop', async () => {
+        fetchStreamedMock
+            .mockResolvedValueOnce(respond(302, { location: '/moved.png' }))
+            .mockResolvedValueOnce(image(PNG, 'image/png'))
+        const deadlines: number[] = []
+
+        await fetcher().fetch('https://cdn.example.com/a.png', {
+            ...OPTIONS,
+            scheduleRequest: async (_url, deadlineMs, request) => {
+                deadlines.push(deadlineMs)
+                return { ran: true as const, value: await request() }
+            },
+        })
+
+        expect(deadlines).toHaveLength(2)
+        expect(new Set(deadlines).size).toBe(1)
+        expect(deadlines[0] - Date.now()).toBeGreaterThan(0)
+        expect(deadlines[0] - Date.now()).toBeLessThanOrEqual(OPTIONS.timeoutMs)
     })
 
     it('gives up on a redirect chain longer than the limit', async () => {
         fetchStreamedMock.mockResolvedValue(respond(302, { location: '/again.png' }))
-        const authorizeRedirect = jest.fn().mockResolvedValue('allow')
+        let scheduledRequests = 0
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
             ...OPTIONS,
             maxRedirects: 2,
-            authorizeRedirect,
+            scheduleRequest: async (_url, _deadlineMs, request) => {
+                scheduledRequests += 1
+                return { ran: true as const, value: await request() }
+            },
         })
 
-        expect(result).toEqual({ outcome: 'too_many_redirects', redirects: 2, status: 302 })
+        expect(result).toMatchObject({
+            outcome: 'redirect_continuation',
+            redirects: 2,
+            status: 302,
+            redirectTarget: { url: 'https://cdn.example.com/again.png' },
+        })
         // Three requests carry two redirects. The third response is read and refused, and the
         // budget of whatever it points at is never asked for a token.
         expect(fetchStreamedMock).toHaveBeenCalledTimes(3)
-        expect(authorizeRedirect).toHaveBeenCalledTimes(2)
+        expect(scheduledRequests).toBe(3)
     })
 
-    it('reports a redirect authorizer that threw rather than letting it escape', async () => {
-        // The authorizer reaches into the host budget, which the fetcher does not own. A throw there
-        // would leave the sibling domains of the batch running while the partition replayed them.
-        fetchStreamedMock.mockResolvedValue(respond(302, { location: '/moved.png' }))
-
+    it('reports a request scheduler that threw rather than letting it escape', async () => {
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
             ...OPTIONS,
-            authorizeRedirect: () => Promise.reject(new Error('budget exploded')),
+            scheduleRequest: () => Promise.reject(new Error('budget exploded')),
         })
 
-        expect(result).toEqual({ outcome: 'error', redirects: 0 })
+        expect(result).toEqual({
+            outcome: 'error',
+            redirects: 0,
+            currentUrl: 'https://cdn.example.com/a.png',
+        })
+    })
+
+    it('accepts a Retry-After period of zero as a non-negative integer', async () => {
+        fetchStreamedMock.mockResolvedValue(respond(429, { 'retry-after': '0' }))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(result.retryAfterMs).toBe(0)
     })
 
     it.each([
-        ['a period of zero', '0'],
         ['a negative period', '-5'],
+        ['a decimal period', '1.5'],
+        ['an exponent', '1e3'],
+        ['a signed period', '+5'],
+        ['an unsafe period', '9007199254740991'],
         ['whitespace', '   '],
         ['a date already past', new Date(Date.now() - 60_000).toUTCString()],
-    ])('reports no Retry-After period for %s, so the caller applies its own default', async (_name, header) => {
+    ])('reports no Retry-After period for %s, so exponential backoff has no minimum', async (_name, header) => {
         fetchStreamedMock.mockResolvedValue(respond(429, { 'retry-after': header }))
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
@@ -289,6 +580,6 @@ describe('HttpImageFetcher', () => {
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
 
-        expect(result).toEqual({ outcome, redirects: 0 })
+        expect(result).toMatchObject({ outcome, redirects: 0, currentUrl: 'https://cdn.example.com/a.png' })
     })
 })

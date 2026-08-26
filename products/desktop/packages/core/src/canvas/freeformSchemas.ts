@@ -31,6 +31,7 @@ export const canvasDataQueryInput = z
     hogql: z.string().min(1).max(20_000).optional(),
     // Reserved for bound parameters (Phase 3 named queries). Edit mode ignores it.
     params: z.record(z.string().max(128), z.unknown()).optional(),
+    refresh: z.number().int().min(30).max(86_400).optional(),
   })
   .refine((v) => v.query != null || v.hogql != null, {
     message: "ph.query requires a query node or a HogQL string",
@@ -77,6 +78,7 @@ export const canvasLoadInsightInput = z.object({
   // Keyed by the variable's `code_name`, not its uuid — the host resolves ids
   // server-side, so canvas code never carries a variable uuid.
   variables: z.record(z.string().min(1).max(128), z.unknown()).optional(),
+  refresh: z.number().int().min(30).max(86_400).optional(),
 });
 export type CanvasLoadInsightInput = z.infer<typeof canvasLoadInsightInput>;
 
@@ -335,6 +337,16 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("comment-activate"),
     id: z.string().min(1).max(128),
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("keydown"),
+    key: z.string().min(1).max(32),
+    code: z.string().max(32),
+    metaKey: z.boolean(),
+    ctrlKey: z.boolean(),
+    shiftKey: z.boolean(),
+    altKey: z.boolean(),
   }),
 ]);
 export type CanvasToHostMessage = z.infer<typeof canvasToHostMessageSchema>;

@@ -1,24 +1,15 @@
-from importlib import import_module
-from types import SimpleNamespace
-
-from django.apps import apps
-from django.db import connection
-
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
-
-backfill_scim_provisioned_user_config = import_module(
-    "ee.migrations.0058_backfill_scim_provisioned_user_config"
-).backfill_scim_provisioned_user_config
 
 
 class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
@@ -41,8 +32,9 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.provisioned = User.objects.create_user(
@@ -52,10 +44,10 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
             user=self.provisioned, organization=self.organization, level=OrganizationMembership.Level.MEMBER
         )
         self.legacy_record = self._provision_keyed_on_domain(self.provisioned, "already.okta.username", self.domain)
-        backfill_scim_provisioned_user_config(apps, SimpleNamespace(connection=connection))
+        SCIMProvisionedUser.objects.filter(pk=self.legacy_record.pk).update(identity_provider_config=self.config)
 
-        # The IdP keeps calling the URL it was configured with, which is the domain's id.
-        self.scim_url = f"/scim/v2/{self.domain.id}"
+        assert self.config.scim_slug != self.domain.id
+        self.scim_url = f"/scim/v2/{self.config.scim_slug}"
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.plain}")
 
     def _provision_keyed_on_domain(self, user: User, username: str, domain: OrganizationDomain) -> SCIMProvisionedUser:
@@ -67,8 +59,7 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
             active=True,
         )
 
-    def test_the_url_the_idp_was_configured_with_still_authenticates(self):
-        assert self.config.scim_slug == str(self.domain.id)
+    def test_the_config_url_authenticates(self):
         assert self.client.get(f"{self.scim_url}/Users").status_code == status.HTTP_200_OK
 
     def test_record_keeps_its_username(self):
@@ -179,15 +170,15 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
             organization=self.organization,
             scim_enabled=True,
             scim_bearer_token=second_token.hashed,
-            scim_slug="second-config-slug",
-            saml_relay_state="second-config-relay",
         )
-        self.domain.identity_provider_config = second_config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.filter(organization_domain=self.domain).delete()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=second_config
+        )
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {second_token.plain}")
 
-        read = self.client.get(f"/scim/v2/second-config-slug/Users/{self.provisioned.id}")
-        deprovision = self.client.delete(f"/scim/v2/second-config-slug/Users/{self.provisioned.id}")
+        read = self.client.get(f"/scim/v2/{second_config.scim_slug}/Users/{self.provisioned.id}")
+        deprovision = self.client.delete(f"/scim/v2/{second_config.scim_slug}/Users/{self.provisioned.id}")
 
         assert read.json()["userName"] == "already@example.com"  # its own view of the user, not the other config's
         assert deprovision.status_code == status.HTTP_204_NO_CONTENT
@@ -202,7 +193,9 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
             organization=self.organization,
             domain="partner.example.com",
             verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=second_domain, identity_provider_config=self.config
         )
         sibling = self._provision_keyed_on_domain(self.provisioned, "already.partner.username", second_domain)
         SCIMProvisionedUser.objects.filter(pk=self.legacy_record.pk).update(identity_provider_config=self.config)
@@ -233,7 +226,9 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
             organization=self.organization,
             domain="partner.example.com",
             verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=second_domain, identity_provider_config=self.config
         )
         skipped = self._provision_keyed_on_domain(self.provisioned, "already.partner.username", second_domain)
 
