@@ -27,7 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionFormat,
     PartitionMode,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import (
+    ExternalDataSchemaStatus,
+    ExternalDataSchemaSyncFrequency,
+    ExternalDataSchemaSyncType,
+    IncrementalFieldType,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -151,26 +156,10 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
 
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        PAUSED = "Paused", "Paused"
-        FAILED = "Failed", "Failed"
-        COMPLETED = "Completed", "Completed"
-        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
-        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
-
-    class SyncType(models.TextChoices):
-        FULL_REFRESH = "full_refresh", "full_refresh"
-        INCREMENTAL = "incremental", "incremental"
-        APPEND = "append", "append"
-        WEBHOOK = "webhook", "webhook"
-        CDC = "cdc", "cdc"
-        XMIN = "xmin", "xmin"
-
-    class SyncFrequency(models.TextChoices):
-        DAILY = "day", "Daily"
-        WEEKLY = "week", "Weekly"
-        MONTHLY = "month", "Monthly"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    Status = ExternalDataSchemaStatus
+    SyncType = ExternalDataSchemaSyncType
+    SyncFrequency = ExternalDataSchemaSyncFrequency
 
     name = models.CharField(max_length=400)
     label = models.CharField(max_length=400, null=True, blank=True)
