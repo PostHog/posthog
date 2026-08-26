@@ -29498,6 +29498,10 @@ export namespace Schemas {
     export interface EndpointMaterialization {
       /** URL-safe endpoint name. */
       name: string;
+      /** Whether materialization is enabled for this endpoint version. */
+      enabled: boolean;
+      /** Whether a successful materialization is available to serve. */
+      ready: boolean;
       /** Current materialization status (e.g. 'Completed', 'Running'). */
       status?: string;
       /** Whether this endpoint query can be materialized. */
