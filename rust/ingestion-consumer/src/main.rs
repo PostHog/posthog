@@ -24,7 +24,7 @@ use ingestion_consumer::debug_recorder::{DebugLoad, DebugRecorder, DebugState, W
 use ingestion_consumer::discovery::{
     DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
 };
-use ingestion_consumer::dispatcher::Dispatcher;
+use ingestion_consumer::dispatcher::{ChunkConfig, Dispatcher};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
@@ -219,6 +219,18 @@ async fn async_main(config: Config) -> Result<()> {
         };
 
     let mut dispatcher = Dispatcher::with_strategy(Arc::clone(&registry), config.routing_strategy);
+    // An unset byte cap follows the transport's, so a chunk the dispatcher
+    // builds is never one the transport has to split again.
+    let sub_batch_max_bytes = if config.sub_batch_max_bytes > 0 {
+        config.sub_batch_max_bytes
+    } else {
+        config.transport_max_body_bytes
+    };
+    let chunking = ChunkConfig::new(config.sub_batch_max_events, sub_batch_max_bytes);
+    if chunking.enabled() {
+        info!(?chunking, "Sub-batch chunking enabled");
+    }
+    dispatcher.set_chunking(chunking);
     if let Some(recorder) = &debug_recorder {
         dispatcher.set_debug_recorder(Arc::clone(recorder));
     }

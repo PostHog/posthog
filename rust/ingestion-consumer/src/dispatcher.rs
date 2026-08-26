@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use k8s_awareness::PeerTracker;
@@ -12,6 +12,7 @@ use crate::debug_recorder::{
 use crate::order_sentinel::{KeyOrderSentinel, SendKind};
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::stash::{DeferredGroup, Stash};
+use crate::transport::approx_message_size;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::{WorkerId, WorkerRegistry};
 
@@ -90,6 +91,77 @@ pub struct EagerFlush {
     pub sub_batch: SubBatch,
 }
 
+/// Caps for splitting a worker's share of a batch into several sub-batches
+/// ("chunks") rather than one. A chunk closes when the next key-group would
+/// push it past either cap. A key-group is never split across chunks — that is
+/// what keeps per-key ordering intact — so a group over a cap becomes an
+/// over-sized chunk of its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ChunkConfig {
+    /// Cap on events per chunk, honored except by a single over-sized
+    /// key-group. `0` disables chunking, giving each worker exactly one
+    /// sub-batch per batch.
+    max_events: usize,
+    /// Cap on a chunk's estimated serialized body size, measured the same way
+    /// the transport measures it. Set to the transport's body cap so the
+    /// transport never has to re-split a chunk. `0` leaves size unbounded here
+    /// and hands the whole job back to the transport.
+    max_bytes: usize,
+}
+
+impl ChunkConfig {
+    pub fn new(max_events: usize, max_bytes: usize) -> Self {
+        Self {
+            max_events,
+            max_bytes,
+        }
+    }
+
+    pub fn disabled() -> Self {
+        Self::new(0, 0)
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.max_events > 0
+    }
+
+    /// Whether a sub-batch holding `open` still has room for `group`.
+    fn fits(&self, open: ChunkSize, group: ChunkSize) -> bool {
+        if !self.enabled() {
+            return true;
+        }
+        open.events + group.events <= self.max_events
+            && (self.max_bytes == 0 || open.bytes + group.bytes <= self.max_bytes)
+    }
+
+    /// Whether a sub-batch of `size` has reached a cap and must take no more.
+    fn is_full(&self, size: ChunkSize) -> bool {
+        self.enabled()
+            && (size.events >= self.max_events
+                || (self.max_bytes > 0 && size.bytes >= self.max_bytes))
+    }
+
+    /// Sizing a group walks every message for the byte estimate, so it is
+    /// skipped unless a byte cap is actually in force.
+    fn size_of(&self, messages: &[SerializedKafkaMessage]) -> ChunkSize {
+        ChunkSize {
+            events: messages.len(),
+            bytes: if self.enabled() && self.max_bytes > 0 {
+                messages.iter().map(approx_message_size).sum()
+            } else {
+                0
+            },
+        }
+    }
+}
+
+/// What a chunk (or a group about to join one) costs against both caps.
+#[derive(Clone, Copy, Debug, Default)]
+struct ChunkSize {
+    events: usize,
+    bytes: usize,
+}
+
 struct MessageGroup {
     routing_key: String,
     messages: Vec<SerializedKafkaMessage>,
@@ -99,9 +171,21 @@ struct WorkerSubBatchBuilder {
     messages: Vec<SerializedKafkaMessage>,
     routing_keys: Vec<String>,
     key_offsets: Vec<KeyOffset>,
+    /// Running byte estimate of the messages held, `0` when no byte cap is in
+    /// force and nothing measured them.
+    bytes: usize,
 }
 
 impl WorkerSubBatchBuilder {
+    fn new() -> Self {
+        Self {
+            messages: Vec::new(),
+            routing_keys: Vec::new(),
+            key_offsets: Vec::new(),
+            bytes: 0,
+        }
+    }
+
     fn is_empty(&self) -> bool {
         self.messages.is_empty()
     }
@@ -109,28 +193,15 @@ impl WorkerSubBatchBuilder {
     fn message_count(&self) -> usize {
         self.messages.len()
     }
-}
 
-#[derive(Default)]
-struct WorkerAssignments {
-    by_worker: HashMap<WorkerId, WorkerSubBatchBuilder>,
-}
-
-impl WorkerAssignments {
-    fn new() -> Self {
-        Self::default()
+    fn size(&self) -> ChunkSize {
+        ChunkSize {
+            events: self.messages.len(),
+            bytes: self.bytes,
+        }
     }
 
-    fn add_group(&mut self, worker: WorkerId, group: MessageGroup) {
-        let builder = self
-            .by_worker
-            .entry(worker)
-            .or_insert_with(|| WorkerSubBatchBuilder {
-                messages: Vec::new(),
-                routing_keys: Vec::new(),
-                key_offsets: Vec::new(),
-            });
-
+    fn push(&mut self, group: MessageGroup, size: ChunkSize) {
         // Only keyed messages participate in the key-order sentinel: a
         // null-key message lives on an arbitrary partition, so its offset
         // must not advance the key's ACK watermark.
@@ -141,17 +212,103 @@ impl WorkerAssignments {
             .map(|m| m.offset)
             .max()
         {
-            builder.key_offsets.push(KeyOffset {
+            self.key_offsets.push(KeyOffset {
                 routing_key: group.routing_key.clone(),
                 max_offset,
             });
         }
-        builder.messages.extend(group.messages);
-        builder.routing_keys.push(group.routing_key);
+        self.messages.extend(group.messages);
+        self.routing_keys.push(group.routing_key);
+        self.bytes += size.bytes;
+    }
+}
+
+/// The sub-batches a single assignment round produces.
+///
+/// Every group — pinned or freshly routed — is added under its target worker,
+/// and each worker has one sub-batch still taking groups. With chunking off
+/// that sub-batch never closes, so the worker gets everything routed to it in
+/// one request. With it on, the sub-batch closes at a cap and the next group
+/// starts another, so one worker may appear several times. Because a worker
+/// keeps only one open sub-batch, its pinned groups and the fresh keys routed
+/// to it in the same batch share a request rather than each getting their own.
+struct WorkerAssignments {
+    sub_batches: Vec<(WorkerId, WorkerSubBatchBuilder)>,
+    /// Index into `sub_batches` of the sub-batch each worker is still filling.
+    open: HashMap<WorkerId, usize>,
+    chunking: ChunkConfig,
+}
+
+impl WorkerAssignments {
+    fn new(chunking: ChunkConfig) -> Self {
+        Self {
+            sub_batches: Vec::new(),
+            open: HashMap::new(),
+            chunking,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.sub_batches.iter().all(|(_, b)| b.is_empty())
+    }
+
+    /// Add a group to the worker's open sub-batch, starting a new one when
+    /// either cap would be exceeded. The group itself is never split.
+    fn add_group(&mut self, worker: WorkerId, group: MessageGroup) {
+        let size = self.chunking.size_of(&group.messages);
+
+        if let Some(idx) = self.open.get(&worker).copied() {
+            if self.chunking.fits(self.sub_batches[idx].1.size(), size) {
+                self.sub_batches[idx].1.push(group, size);
+                self.close_if_full(&worker, idx);
+                return;
+            }
+            self.open.remove(&worker);
+        }
+
+        self.push_sub_batch(worker, group, size);
+    }
+
+    /// Start a sub-batch for `worker` holding `group`, and leave it open for
+    /// later groups unless it already fills a cap.
+    fn push_sub_batch(&mut self, worker: WorkerId, group: MessageGroup, size: ChunkSize) {
+        let mut builder = WorkerSubBatchBuilder::new();
+        builder.push(group, size);
+        self.sub_batches.push((worker.clone(), builder));
+        let idx = self.sub_batches.len() - 1;
+        self.open.insert(worker.clone(), idx);
+        self.close_if_full(&worker, idx);
+    }
+
+    /// Stop filling a sub-batch that has reached a cap, so the next group
+    /// starts a fresh one.
+    fn close_if_full(&mut self, worker: &WorkerId, idx: usize) {
+        if self.chunking.is_full(self.sub_batches[idx].1.size()) {
+            self.open.remove(worker);
+        }
+    }
+
+    /// A routing key must land in exactly one of the round's sub-batches.
+    /// Chunking only preserves per-key ordering because of it: two groups for
+    /// the same key in one round would be packed into different chunks and sent
+    /// concurrently, with nothing left to order them.
+    fn debug_assert_unique_routing_keys(&self) {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        let mut seen = HashSet::new();
+        for (_, builder) in &self.sub_batches {
+            for key in &builder.routing_keys {
+                assert!(
+                    seen.insert(key),
+                    "routing key {key} landed in two sub-batches of one round"
+                );
+            }
+        }
     }
 
     fn sub_batch_infos(&self) -> Vec<SubBatchInfo> {
-        self.by_worker
+        self.sub_batches
             .iter()
             .filter(|(_, builder)| !builder.is_empty())
             .map(|(worker, builder)| SubBatchInfo {
@@ -162,15 +319,17 @@ impl WorkerAssignments {
             .collect()
     }
 
+    /// One entry per sub-batch, so a worker split across chunks appears once
+    /// per chunk. Callers accumulate per worker.
     fn routed_counts(&self) -> impl Iterator<Item = (WorkerId, usize)> + '_ {
-        self.by_worker
+        self.sub_batches
             .iter()
             .filter(|(_, builder)| !builder.is_empty())
             .map(|(worker, builder)| (worker.clone(), builder.message_count()))
     }
 
     fn into_sub_batches(self) -> Vec<SubBatch> {
-        self.by_worker
+        self.sub_batches
             .into_iter()
             .filter(|(_, builder)| !builder.is_empty())
             .map(|(worker, builder)| SubBatch {
@@ -187,7 +346,8 @@ impl WorkerAssignments {
 ///
 /// **Assignment** (`assign`): groups messages by `token:distinct_id`, honors
 /// existing pins for live workers, routes new keys onto a healthy worker via the
-/// configured [`RoutingStrategy`], and returns one `SubBatch` per worker.
+/// configured [`RoutingStrategy`], and returns the `SubBatch`es to send — one
+/// per worker, or several when [`ChunkConfig`] caps their event count.
 ///
 /// **Stickiness**: a routing key stays on the same worker across batches
 /// (ref-counted pin). Pins are dropped when a worker is declared dead (or leaves
@@ -210,6 +370,9 @@ pub struct Dispatcher {
     /// dispatcher's ring slice is derived from its agreed peer index. `None`
     /// (or a not-yet-known peer index) falls back to the full healthy pool.
     aperture: Option<(Arc<PeerTracker>, usize)>,
+    /// Caps for splitting a batch into several sub-batches per worker.
+    /// Disabled by default — one sub-batch per worker per batch.
+    chunking: ChunkConfig,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// Channel to the consumer's eager-flush send task. `None` disables eager
@@ -231,6 +394,7 @@ impl Dispatcher {
             router: Mutex::new(Router::new(strategy)),
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
             aperture: None,
+            chunking: ChunkConfig::disabled(),
             debug_recorder: None,
             eager_flush_tx: Mutex::new(None),
         }
@@ -249,6 +413,7 @@ impl Dispatcher {
             router: Mutex::new(Router::with_seed(strategy, seed)),
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
             aperture: None,
+            chunking: ChunkConfig::disabled(),
             debug_recorder: None,
             eager_flush_tx: Mutex::new(None),
         }
@@ -266,6 +431,13 @@ impl Dispatcher {
     /// dispatcher is shared.
     pub fn set_aperture(&mut self, tracker: Arc<PeerTracker>, min_aperture: usize) {
         self.aperture = Some((tracker, min_aperture.max(1)));
+    }
+
+    /// Split each batch into capped sub-batches instead of one per worker, so a
+    /// large batch can be worked by several workers in parallel. Call before
+    /// the dispatcher is shared.
+    pub fn set_chunking(&mut self, chunking: ChunkConfig) {
+        self.chunking = chunking;
     }
 
     /// Inject the debug UI recorder. Call before the dispatcher is shared.
@@ -335,8 +507,9 @@ impl Dispatcher {
     ///   group when no worker is routable at all, so a transient full-pool
     ///   outage holds messages instead of failing the batch.
     ///
-    /// Returns one `SubBatch` per worker to send now. Deferred groups stay in
-    /// the stash and are flushed later via [`Dispatcher::flush_deferred`].
+    /// Returns the `SubBatch`es to send now: one per worker, or several per
+    /// worker when [`ChunkConfig`] caps their event count. Deferred groups stay
+    /// in the stash and are flushed later via [`Dispatcher::flush_deferred`].
     pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
         let mut table = self.pin_table.lock().unwrap();
 
@@ -353,7 +526,7 @@ impl Dispatcher {
         let distinct_ids = key_groups.len();
         histogram!("ingestion_consumer_distinct_ids_per_batch").record(distinct_ids as f64);
 
-        let mut assignments = WorkerAssignments::new();
+        let mut assignments = WorkerAssignments::new(self.chunking);
 
         // Candidate workers and their working load for this round. `working_load`
         // starts from each candidate's outstanding load and is bumped as groups
@@ -490,8 +663,12 @@ impl Dispatcher {
         }
         drop(router);
 
-        // Add each worker's message volume to its outstanding load.
+        // Add each worker's message volume to its outstanding load. A worker
+        // split across chunks yields one entry per chunk, so the counters see
+        // every sub-batch and the load accumulates over all of them.
+        let mut chunk_count = 0u64;
         for (worker, message_count) in assignments.routed_counts() {
+            chunk_count += 1;
             *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
             counter!(
                 "ingestion_consumer_dispatcher_sub_batches_assigned_total",
@@ -503,6 +680,13 @@ impl Dispatcher {
                 "worker" => worker.clone(),
             )
             .increment(message_count as u64);
+            histogram!("ingestion_consumer_sub_batch_events").record(message_count as f64);
+        }
+        if self.chunking.enabled() {
+            // Only a chunk count while chunking is on. With it off the same
+            // number would read as "workers touched by this batch", which is a
+            // different quantity under the same name.
+            histogram!("ingestion_consumer_chunks_per_batch").record(chunk_count as f64);
         }
 
         if drain_deferred_count > 0 {
@@ -719,7 +903,7 @@ impl Dispatcher {
             .iter()
             .map(|w| (w.clone(), table.in_flight.get(w).copied().unwrap_or(0)))
             .collect();
-        let mut assignments = WorkerAssignments::new();
+        let mut assignments = WorkerAssignments::new(self.chunking);
 
         let mut router = self.router.lock().unwrap();
         for group in groups {
@@ -776,6 +960,7 @@ impl Dispatcher {
             );
         }
         drop(router);
+        assignments.debug_assert_unique_routing_keys();
 
         for (worker, message_count) in assignments.routed_counts() {
             *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
@@ -784,11 +969,12 @@ impl Dispatcher {
                 "worker" => worker.to_string(),
             )
             .increment(message_count as u64);
+            histogram!("ingestion_consumer_sub_batch_events").record(message_count as f64);
         }
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
         record_stash_gauges(&table.stash);
 
-        if !assignments.by_worker.is_empty() {
+        if !assignments.is_empty() {
             record_if(&self.debug_recorder, || DebugEventKind::DeferredFlushed {
                 batch_id: batch_id.to_string(),
                 sub_batches: assignments.sub_batch_infos(),
@@ -977,7 +1163,8 @@ impl Dispatcher {
             }
             self.key_sentinel
                 .note_sent(key, &messages, SendKind::Resend);
-            let mut assignments = WorkerAssignments::new();
+            // One group, so this is a single sub-batch whatever the caps are.
+            let mut assignments = WorkerAssignments::new(self.chunking);
             assignments.add_group(
                 worker.clone(),
                 MessageGroup {
@@ -1271,7 +1458,7 @@ mod tests {
 
     #[test]
     fn test_worker_assignments_merges_groups_for_same_worker() {
-        let mut assignments = WorkerAssignments::new();
+        let mut assignments = WorkerAssignments::new(ChunkConfig::disabled());
 
         assignments.add_group(
             wid(1),
@@ -1319,7 +1506,7 @@ mod tests {
             ..make_msg("tok", "user-1")
         };
 
-        let mut assignments = WorkerAssignments::new();
+        let mut assignments = WorkerAssignments::new(ChunkConfig::disabled());
         assignments.add_group(
             wid(1),
             MessageGroup {
@@ -1333,7 +1520,7 @@ mod tests {
         assert_eq!(sub_batches[0].key_offsets[0].max_offset, 100);
 
         // An all-unkeyed group produces no ACK watermark at all.
-        let mut assignments = WorkerAssignments::new();
+        let mut assignments = WorkerAssignments::new(ChunkConfig::disabled());
         assignments.add_group(
             wid(1),
             MessageGroup {
@@ -1342,6 +1529,403 @@ mod tests {
             },
         );
         assert!(assignments.into_sub_batches()[0].key_offsets.is_empty());
+    }
+
+    // ---- sub-batch chunking ----
+
+    fn group(routing_key: &str, events: usize) -> MessageGroup {
+        MessageGroup {
+            routing_key: routing_key.to_string(),
+            messages: (0..events).map(|_| make_msg("t", routing_key)).collect(),
+        }
+    }
+
+    /// A key-group carrying `value_bytes` of payload per message, so the byte
+    /// cap has something to weigh. Keep routing keys the same length across a
+    /// case: they contribute to the size estimate too.
+    fn sized_group(routing_key: &str, events: usize, value_bytes: usize) -> MessageGroup {
+        MessageGroup {
+            routing_key: routing_key.to_string(),
+            messages: (0..events)
+                .map(|_| SerializedKafkaMessage {
+                    value: Some("x".repeat(value_bytes)),
+                    ..make_msg("t", routing_key)
+                })
+                .collect(),
+        }
+    }
+
+    /// What the byte cap weighs a group as — the transport's own estimate, so a
+    /// case can state its cap in whole groups.
+    fn group_bytes(group: &MessageGroup) -> usize {
+        group.messages.iter().map(approx_message_size).sum()
+    }
+
+    fn sub_batch_sizes(assignments: WorkerAssignments) -> Vec<usize> {
+        assignments
+            .into_sub_batches()
+            .iter()
+            .map(|sub_batch| sub_batch.messages.len())
+            .collect()
+    }
+
+    /// Event count of each sub-batch produced by adding `group_events` worth of
+    /// key-groups to one worker.
+    fn packed_sizes(group_events: &[usize], chunking: ChunkConfig) -> Vec<usize> {
+        let mut assignments = WorkerAssignments::new(chunking);
+        for (i, events) in group_events.iter().enumerate() {
+            assignments.add_group(wid(0), group(&format!("k{i}"), *events));
+        }
+        sub_batch_sizes(assignments)
+    }
+
+    fn chunked_dispatcher(workers: usize, max_events: usize) -> Dispatcher {
+        let mut dispatcher = Dispatcher::new(healthy_registry(workers));
+        dispatcher.set_chunking(ChunkConfig::new(max_events, 0));
+        dispatcher
+    }
+
+    /// Distinct-id of every message in a sub-batch, as routing keys.
+    fn keys_in(sub_batch: &SubBatch) -> Vec<String> {
+        sub_batch
+            .messages
+            .iter()
+            .map(|m| format!("t:{}", m.headers["distinct_id"]))
+            .collect()
+    }
+
+    struct PackCase {
+        name: &'static str,
+        /// Event count of each key-group, in the order they reach the worker.
+        group_events: &'static [usize],
+        max_events: usize,
+        /// Expected event count of each sub-batch the worker ends up with.
+        expected_sub_batches: &'static [usize],
+    }
+
+    #[test]
+    fn test_sub_batch_packing() {
+        let cases = [
+            PackCase {
+                name: "no cap merges everything into one sub-batch",
+                group_events: &[2, 2, 2],
+                max_events: 0,
+                expected_sub_batches: &[6],
+            },
+            PackCase {
+                name: "fills to the cap",
+                group_events: &[2, 2, 2, 2],
+                max_events: 4,
+                expected_sub_batches: &[4, 4],
+            },
+            PackCase {
+                name: "the tail ships as a smaller sub-batch",
+                group_events: &[4, 1],
+                max_events: 4,
+                expected_sub_batches: &[4, 1],
+            },
+            PackCase {
+                name: "a whole share under the cap is one sub-batch",
+                group_events: &[1, 1, 1],
+                max_events: 100,
+                expected_sub_batches: &[3],
+            },
+            PackCase {
+                name: "a group over the cap stays whole",
+                group_events: &[9, 1],
+                max_events: 4,
+                expected_sub_batches: &[9, 1],
+            },
+            PackCase {
+                name: "a group that doesn't fit closes the open sub-batch",
+                group_events: &[30, 90, 30, 30],
+                max_events: 100,
+                expected_sub_batches: &[30, 90, 60],
+            },
+        ];
+
+        for case in cases {
+            let sizes = packed_sizes(case.group_events, ChunkConfig::new(case.max_events, 0));
+
+            assert_eq!(sizes, case.expected_sub_batches, "{}", case.name);
+        }
+    }
+
+    #[test]
+    fn test_byte_cap_closes_a_chunk_the_event_cap_would_not() {
+        // An event cap of 100 can never split six events, so every split here
+        // is the byte cap's. Three messages fit in a chunk and the groups hold
+        // two, so a second group always overshoots rather than filling exactly
+        // — the case that separates the cap from a post-hoc "is it full" check.
+        let one_message = group_bytes(&sized_group("k0", 1, 4096));
+        let chunking = ChunkConfig::new(100, 3 * one_message);
+
+        let mut assignments = WorkerAssignments::new(chunking);
+        for i in 0..3 {
+            assignments.add_group(wid(0), sized_group(&format!("k{i}"), 2, 4096));
+        }
+
+        assert_eq!(sub_batch_sizes(assignments), vec![2, 2, 2]);
+    }
+
+    #[test]
+    fn test_a_group_over_the_byte_cap_stays_whole() {
+        // A key-group is never split, so the byte cap yields to it and the
+        // transport's serial split handles the over-sized request.
+        let heavy = sized_group("k0", 4, 4096);
+        let chunking = ChunkConfig::new(100, group_bytes(&heavy) / 2);
+
+        let mut assignments = WorkerAssignments::new(chunking);
+        assignments.add_group(wid(0), sized_group("k0", 4, 4096));
+        assignments.add_group(wid(0), sized_group("k1", 1, 0));
+
+        assert_eq!(sub_batch_sizes(assignments), vec![4, 1]);
+    }
+
+    #[test]
+    fn test_sub_batches_come_out_in_add_group_order() {
+        // Chunks leave in the order they were packed. Sends are concurrent, so
+        // nothing downstream can restore an order lost here.
+        let mut assignments = WorkerAssignments::new(ChunkConfig::new(2, 0));
+        for i in 0..6 {
+            assignments.add_group(wid(i % 2), group(&format!("k{i}"), 2));
+        }
+
+        let order: Vec<(WorkerId, String)> = assignments
+            .into_sub_batches()
+            .iter()
+            .map(|sub_batch| (sub_batch.worker.clone(), sub_batch.routing_keys[0].clone()))
+            .collect();
+
+        let expected: Vec<(WorkerId, String)> =
+            (0..6).map(|i| (wid(i % 2), format!("k{i}"))).collect();
+        assert_eq!(order, expected);
+    }
+
+    #[test]
+    fn test_a_workers_pinned_and_fresh_groups_share_a_sub_batch() {
+        // The reason routing is per group: a worker keeps one open sub-batch,
+        // so a small pinned remainder is topped up by fresh keys routed to the
+        // same worker instead of going out as a request of its own.
+        let dispatcher = chunked_dispatcher(1, 10);
+
+        // Pin "a" and leave it in flight so the next batch honors the pin.
+        dispatcher.assign("batch-1", make_msgs(&[("t", "a")]));
+
+        let second = dispatcher.assign("batch-2", make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
+
+        assert_eq!(
+            second.len(),
+            1,
+            "the pinned group and the fresh keys must share one request"
+        );
+        assert_eq!(second[0].routing_keys.len(), 3);
+    }
+
+    #[test]
+    fn test_chunking_splits_a_batch_into_capped_sub_batches() {
+        // One worker, so every chunk lands on it: the split is the dispatcher's,
+        // not the router's.
+        let dispatcher = chunked_dispatcher(1, 3);
+        let specs: Vec<(&str, &str)> = vec![
+            ("t", "a"),
+            ("t", "b"),
+            ("t", "c"),
+            ("t", "d"),
+            ("t", "e"),
+            ("t", "f"),
+            ("t", "g"),
+        ];
+
+        let sub_batches = dispatcher.assign("b", make_msgs(&specs));
+
+        let mut sizes: Vec<usize> = sub_batches.iter().map(|b| b.messages.len()).collect();
+        sizes.sort_unstable();
+        assert_eq!(sizes, vec![1, 3, 3]);
+        assert!(sub_batches.iter().all(|b| b.worker == wid(0)));
+    }
+
+    #[test]
+    fn test_disabled_chunking_keeps_one_sub_batch_per_worker() {
+        // The default, and the rollout's starting state: a worker receives all
+        // of its share of the batch as a single request.
+        let dispatcher = Dispatcher::new(healthy_registry(2));
+        let specs: Vec<(String, String)> = (0..20)
+            .map(|i| ("t".to_string(), format!("u{i}")))
+            .collect();
+        let specs: Vec<(&str, &str)> = specs
+            .iter()
+            .map(|(t, d)| (t.as_str(), d.as_str()))
+            .collect();
+
+        let sub_batches = dispatcher.assign("b", make_msgs(&specs));
+
+        let workers: std::collections::HashSet<WorkerId> =
+            sub_batches.iter().map(|b| b.worker.clone()).collect();
+        assert_eq!(
+            workers.len(),
+            sub_batches.len(),
+            "no worker may get more than one sub-batch"
+        );
+        assert_eq!(
+            sub_batches.iter().map(|b| b.messages.len()).sum::<usize>(),
+            20
+        );
+    }
+
+    #[test]
+    fn test_chunking_keeps_each_key_in_exactly_one_sub_batch() {
+        // The ordering invariant: a key-group is never split, so all of a
+        // distinct_id's messages ride one chunk to one worker.
+        let dispatcher = chunked_dispatcher(3, 4);
+        let specs: Vec<(&str, &str)> = ["a", "b", "c", "d", "e"]
+            .iter()
+            .flat_map(|d| std::iter::repeat_n(("t", *d), 3))
+            .collect();
+
+        let sub_batches = dispatcher.assign("b", make_msgs(&specs));
+
+        let mut owner: HashMap<String, usize> = HashMap::new();
+        for (index, sub_batch) in sub_batches.iter().enumerate() {
+            assert!(sub_batch.messages.len() <= 4, "sub-batch over the cap");
+            for key in keys_in(sub_batch) {
+                let previous = owner.insert(key.clone(), index);
+                assert!(
+                    previous.is_none_or(|prev| prev == index),
+                    "key {key} split across sub-batches"
+                );
+            }
+        }
+        assert_eq!(owner.len(), 5);
+        assert_eq!(
+            sub_batches.iter().map(|b| b.messages.len()).sum::<usize>(),
+            15
+        );
+    }
+
+    #[test]
+    fn test_chunked_pinned_groups_stay_on_their_pinned_worker() {
+        let dispatcher = chunked_dispatcher(2, 2);
+        let specs: Vec<(&str, &str)> = vec![("t", "a"), ("t", "b"), ("t", "c"), ("t", "d")];
+
+        // First batch pins the four keys; leave it in flight so the pins live.
+        let first = dispatcher.assign("batch-1", make_msgs(&specs));
+        let mut pinned: HashMap<String, WorkerId> = HashMap::new();
+        for sub_batch in &first {
+            for key in keys_in(sub_batch) {
+                pinned.insert(key, sub_batch.worker.clone());
+            }
+        }
+
+        let second = dispatcher.assign("batch-2", make_msgs(&specs));
+
+        for sub_batch in &second {
+            assert!(sub_batch.messages.len() <= 2, "pinned chunk over the cap");
+            for key in keys_in(sub_batch) {
+                assert_eq!(
+                    pinned.get(&key),
+                    Some(&sub_batch.worker),
+                    "key {key} left its pinned worker"
+                );
+            }
+        }
+        assert_eq!(second.iter().map(|b| b.messages.len()).sum::<usize>(), 4);
+    }
+
+    #[test]
+    fn test_chunk_resolution_drains_load_and_pins() {
+        // Commit accounting is per chunk: the batch's messages are spread over
+        // several sub-batches, and resolving each must leave nothing behind.
+        let dispatcher = chunked_dispatcher(1, 3);
+        let specs: Vec<(String, String)> = (0..10)
+            .map(|i| ("t".to_string(), format!("u{i}")))
+            .collect();
+        let specs: Vec<(&str, &str)> = specs
+            .iter()
+            .map(|(t, d)| (t.as_str(), d.as_str()))
+            .collect();
+
+        let sub_batches = dispatcher.assign("b", make_msgs(&specs));
+        assert!(sub_batches.len() > 1, "batch should have been chunked");
+        assert_eq!(
+            sub_batches.iter().map(|b| b.messages.len()).sum::<usize>(),
+            10
+        );
+        assert_eq!(in_flight_of(&dispatcher, &wid(0)), 10);
+
+        for sub_batch in &sub_batches {
+            dispatcher.on_sub_batch_resolved(
+                &sub_batch.worker,
+                sub_batch.messages.len(),
+                &sub_batch.routing_keys,
+                false,
+                false,
+            );
+        }
+
+        assert_eq!(dispatcher.total_in_flight(), 0);
+        assert_eq!(dispatcher.pin_count(), 0);
+    }
+
+    #[test]
+    fn test_flushing_a_deferred_backlog_chunks_it_too() {
+        // A stash drained onto one survivor is the largest share a worker ever
+        // receives, so the flush path has to honor the caps the assign path does.
+        let registry = healthy_registry(2);
+        let mut dispatcher = Dispatcher::new(Arc::clone(&registry));
+        dispatcher.set_chunking(ChunkConfig::new(2, 0));
+
+        let specs: Vec<(String, String)> = (0..12)
+            .map(|i| ("t".to_string(), format!("u{i}")))
+            .collect();
+        let specs: Vec<(&str, &str)> = specs
+            .iter()
+            .map(|(t, d)| (t.as_str(), d.as_str()))
+            .collect();
+        let first = dispatcher.assign("batch-1", make_msgs(&specs));
+
+        // Defer everything pinned to worker 0 by draining it, then let batch-1
+        // resolve so the drain completes and worker 1 is the only target left.
+        let doomed = wid(0);
+        let stranded: Vec<(&str, &str)> = first
+            .iter()
+            .filter(|sub_batch| sub_batch.worker == doomed)
+            .flat_map(keys_in)
+            .map(|key| key.trim_start_matches("t:").to_string())
+            .map(|distinct_id| specs.iter().find(|(_, d)| *d == distinct_id).copied())
+            .map(|spec| spec.expect("every stranded key came from specs"))
+            .collect();
+        assert!(
+            stranded.len() > 2,
+            "need more than one chunk's worth stranded"
+        );
+        registry.start_draining(&doomed);
+        assert!(dispatcher
+            .assign("batch-2", make_msgs(&stranded))
+            .is_empty());
+        for sub_batch in &first {
+            dispatcher.on_sub_batch_resolved(
+                &sub_batch.worker,
+                sub_batch.messages.len(),
+                &sub_batch.routing_keys,
+                false,
+                false,
+            );
+        }
+
+        let flushed = dispatcher.flush_deferred("batch-2");
+
+        assert_eq!(
+            flushed.len(),
+            stranded.len().div_ceil(2),
+            "the flushed backlog must be chunked, not sent as one request"
+        );
+        assert!(flushed.iter().all(|b| b.messages.len() <= 2));
+        assert!(flushed.iter().all(|b| b.worker == wid(1)));
+        assert_eq!(
+            flushed.iter().map(|b| b.messages.len()).sum::<usize>(),
+            stranded.len()
+        );
     }
 
     // ---- basic assignment ----

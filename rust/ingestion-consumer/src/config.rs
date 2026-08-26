@@ -244,6 +244,34 @@ pub struct Config {
     #[envconfig(from = "INGESTION_TRANSPORT_MAX_BODY_BYTES", default = "10485760")]
     pub transport_max_body_bytes: usize,
 
+    /// Cap on the number of events in one sub-batch. A worker's share of a
+    /// Kafka batch is split into requests of at most this many events, so a
+    /// batch that lands concentrated on few workers is worked in parallel
+    /// rather than as one large request each. A key-group is never split, so a
+    /// single group larger than this stays whole.
+    ///
+    /// A worker whose share is already under the cap still gets one request, so
+    /// this only splits where a batch is actually concentrated.
+    ///
+    /// `0` (the default) disables chunking: each worker receives exactly one
+    /// sub-batch per Kafka batch. Enabling is a charts-side, per-lane opt-in.
+    #[envconfig(from = "INGESTION_SUB_BATCH_MAX_EVENTS", default = "0")]
+    pub sub_batch_max_events: usize,
+
+    /// Cap on the estimated serialized size of one sub-batch (bytes), applied
+    /// alongside `INGESTION_SUB_BATCH_MAX_EVENTS`: a sub-batch closes as soon
+    /// as the next key-group would push it past either cap. Sizes are estimated
+    /// the same way `INGESTION_TRANSPORT_MAX_BODY_BYTES` estimates a request
+    /// body.
+    ///
+    /// `0` (the default) tracks `INGESTION_TRANSPORT_MAX_BODY_BYTES`, so the
+    /// dispatcher bounds every chunk it builds and the transport's serial split
+    /// is left as the fallback for the one case the dispatcher cannot bound: a
+    /// single key-group larger than the cap, which stays whole to keep per-key
+    /// ordering.
+    #[envconfig(from = "INGESTION_SUB_BATCH_MAX_BYTES", default = "0")]
+    pub sub_batch_max_bytes: usize,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,

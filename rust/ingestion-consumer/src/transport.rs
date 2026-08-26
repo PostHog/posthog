@@ -543,7 +543,9 @@ fn reassemble(
 /// Field names and punctuation are a small constant; escaping of the embedded
 /// JSON text is absorbed by the headroom between the split cap and the
 /// worker's hard body limit (and by the 413 halving fallback).
-fn approx_message_size(msg: &SerializedKafkaMessage) -> usize {
+///
+/// Shared with the dispatcher's byte cap so both size a sub-batch the same way.
+pub fn approx_message_size(msg: &SerializedKafkaMessage) -> usize {
     const PER_MESSAGE_OVERHEAD: usize = 96;
     msg.topic.len()
         + msg.key.as_deref().map_or(0, str::len)
