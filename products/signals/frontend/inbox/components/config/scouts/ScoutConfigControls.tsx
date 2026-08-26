@@ -24,7 +24,6 @@ import {
     timeToDailyCron,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
-import { ScoutRunSettingsToggles } from './ScoutRunSettingsToggles'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
 
@@ -60,7 +59,10 @@ export function ScoutEnabledSwitch({ config, onUpdate, updating = false }: Scout
     )
 }
 
-/** Labeled settings form for one scout, shown in the scout settings modal. */
+/**
+ * Labeled settings form for one scout, shown when a fleet row's gear is toggled
+ * open. Everything except enablement, which stays on the row.
+ */
 export function ScoutConfigForm({
     config,
     onUpdate,
@@ -80,6 +82,25 @@ export function ScoutConfigForm({
 
     return (
         <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Write signals to the inbox</span>
+                    <span className="text-[11.5px] text-muted">
+                        Turn this off for a dry run. The scout still runs on its schedule, and its signals stay out of
+                        the inbox.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.emit}
+                    // Editable while the scout is disabled, like network access: a newly enabled
+                    // scout with no prior run is immediately due, so the dry-run posture must be
+                    // settable BEFORE the enable or the first run reaches the inbox anyway.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    onChange={(checked) => onUpdate(config.id, { emit: checked })}
+                    aria-label={`${config.skill_name} write signals to the inbox`}
+                />
+            </div>
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Schedule</span>
@@ -139,13 +160,6 @@ export function ScoutConfigForm({
                     />
                 </div>
             ) : null}
-            <ScoutRunSettingsToggles
-                enabled={config.enabled}
-                emit={config.emit}
-                onEnabledChange={(enabled) => onUpdate(config.id, { enabled })}
-                onEmitChange={(emit) => onUpdate(config.id, { emit })}
-                disabledReason={updating ? 'Saving scout settings' : undefined}
-            />
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Network access</span>

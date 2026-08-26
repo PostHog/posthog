@@ -45,31 +45,32 @@ describe('ScoutConfigForm', () => {
     beforeEach(() => initKeaTests())
     afterEach(cleanup)
 
-    it('updates enablement and inbox emission from the settings form', () => {
+    const emitSwitchLabel = 'signals-scout-general write signals to the inbox'
+
+    it.each([
+        ['live', true, false],
+        ['dry run', false, true],
+    ])('moves a %s scout to the other posture', (_posture, emit, expectedPatch) => {
         const onUpdate = jest.fn()
-        const { getByText } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
+        const { getByLabelText } = render(<ScoutConfigForm config={{ ...config, emit }} onUpdate={onUpdate} />)
 
-        fireEvent.click(getByText('Enable this scout'))
-        fireEvent.click(getByText('Write signals to the inbox'))
+        const emitSwitch = getByLabelText(emitSwitchLabel)
+        expect(emitSwitch).toHaveAttribute('aria-checked', String(emit))
 
-        expect(onUpdate).toHaveBeenNthCalledWith(1, 'config-1', { enabled: false })
-        expect(onUpdate).toHaveBeenNthCalledWith(2, 'config-1', { emit: false })
-        expect(getByText('Turn off inbox signals to run the scout in dry-run mode.')).toBeTruthy()
+        fireEvent.click(emitSwitch)
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { emit: expectedPatch })
     })
 
-    it('reflects the saved run settings and locks them while updating', () => {
+    // Settable while the scout is off, so a dry-run posture can be chosen before the enable
+    // sends the first run out.
+    it('leaves the dry-run switch editable while the scout is disabled', () => {
         const onUpdate = jest.fn()
         const { getByLabelText } = render(
-            <ScoutConfigForm config={{ ...config, emit: false }} onUpdate={onUpdate} updating />
+            <ScoutConfigForm config={{ ...config, enabled: false }} onUpdate={onUpdate} />
         )
 
-        const enabledSwitch = getByLabelText('Enable this scout')
-        const emitSwitch = getByLabelText('Write signals to the inbox')
-
-        expect(enabledSwitch).toHaveAttribute('aria-checked', 'true')
-        expect(emitSwitch).toHaveAttribute('aria-checked', 'false')
-        expect(enabledSwitch).toBeDisabled()
-        expect(emitSwitch).toBeDisabled()
+        expect(getByLabelText(emitSwitchLabel)).not.toBeDisabled()
     })
 
     it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
