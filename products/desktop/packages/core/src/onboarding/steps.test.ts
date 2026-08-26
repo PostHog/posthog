@@ -9,6 +9,7 @@ import {
   type OnboardingStep,
   previousStep,
   stepDirection,
+  stepGatesResolved,
 } from "./steps";
 
 type StepGates = Parameters<typeof computeActiveSteps>[0];
@@ -73,6 +74,39 @@ describe("computeActiveSteps", () => {
     expect(
       computeActiveSteps({ ...allSteps, consentRequired: false }),
     ).not.toContain("consent");
+  });
+});
+
+describe("stepGatesResolved", () => {
+  const resolved: StepGates = {
+    hasGithubIntegration: false,
+    cliReady: false,
+    projectCount: 2,
+    consentRequired: true,
+  };
+
+  it("holds until every gate has answered", () => {
+    expect(stepGatesResolved(resolved)).toBe(true);
+  });
+
+  it.each<keyof StepGates>([
+    "hasGithubIntegration",
+    "cliReady",
+    "projectCount",
+    "consentRequired",
+  ])("stays unresolved while %s is pending", (gate) => {
+    expect(stepGatesResolved({ ...resolved, [gate]: undefined })).toBe(false);
+  });
+
+  it("treats every falsy answer as an answer", () => {
+    expect(
+      stepGatesResolved({
+        hasGithubIntegration: false,
+        cliReady: false,
+        projectCount: 0,
+        consentRequired: false,
+      }),
+    ).toBe(true);
   });
 });
 

@@ -21,7 +21,7 @@ export interface DetectedRepo {
   branch?: string;
 }
 
-export function computeActiveSteps(options: {
+export interface StepGates {
   /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
   hasGithubIntegration: boolean | undefined;
   /** Undefined while the local git and gh checks are loading. */
@@ -29,7 +29,25 @@ export function computeActiveSteps(options: {
   /** Undefined until the project list has loaded, so a slow list cannot skip a real choice. */
   projectCount: number | undefined;
   consentRequired: boolean | undefined;
-}): OnboardingStep[] {
+}
+
+/**
+ * Whether every gate has an answer. An unresolved gate keeps its step in the
+ * active set, so until this returns true the step the user stands on is
+ * provisional and a resolving gate can still drop it. Analytics must wait for
+ * this, or a step nobody chose to leave is recorded as viewed and then
+ * abandoned. Add every new gate here as well as to `computeActiveSteps`.
+ */
+export function stepGatesResolved(gates: StepGates): boolean {
+  return (
+    gates.hasGithubIntegration !== undefined &&
+    gates.cliReady !== undefined &&
+    gates.projectCount !== undefined &&
+    gates.consentRequired !== undefined
+  );
+}
+
+export function computeActiveSteps(options: StepGates): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
     if (step === "project-select" && options.projectCount === 1) return false;
     if (step === "consent" && options.consentRequired === false) return false;

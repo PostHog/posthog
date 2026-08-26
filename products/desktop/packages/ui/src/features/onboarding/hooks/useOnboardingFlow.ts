@@ -12,6 +12,7 @@ import {
   nearestActiveStep,
   type OnboardingStep,
   stepDirection,
+  stepGatesResolved,
 } from "@posthog/core/onboarding/steps";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -214,16 +215,17 @@ export function useOnboardingFlow() {
       ? consentRequirement
       : undefined;
 
-  const activeSteps = useMemo(
-    () =>
-      computeActiveSteps({
-        hasGithubIntegration,
-        cliReady,
-        projectCount,
-        consentRequired,
-      }),
+  const stepGates = useMemo(
+    () => ({
+      hasGithubIntegration,
+      cliReady,
+      projectCount,
+      consentRequired,
+    }),
     [hasGithubIntegration, cliReady, projectCount, consentRequired],
   );
+  const activeSteps = useMemo(() => computeActiveSteps(stepGates), [stepGates]);
+  const stepsResolved = stepGatesResolved(stepGates);
 
   useEffect(() => {
     if (!activeSteps.includes(currentStep)) {
@@ -261,6 +263,7 @@ export function useOnboardingFlow() {
     currentIndex,
     totalSteps: activeSteps.length,
     activeSteps,
+    stepsResolved,
     isFirstStep,
     isLastStep,
     direction: directionRef.current,
