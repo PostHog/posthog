@@ -206,6 +206,7 @@ export const FEATURE_FLAGS = {
 
     // Legacy flags, TBD if they need to be removed
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports', // owner: #team-batch-exports
+    BEHAVIORAL_PROPERTY_FILTER: 'behavioral-property-filter', // owner: #team-product-analytics, inline "performed event" filter on insights
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     BOX_PLOT_INSIGHT: 'box-plot-insight', // owner: @pauldambra #team-product-analytics
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
@@ -375,7 +376,6 @@ export const FEATURE_FLAGS = {
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
     LOGS_SETTINGS_PII_SCRUB: 'logs-settings-pii-scrub', // owner: #team-logs
     LOGS_SETTINGS_RETENTION_RULES: 'logs-settings-retention-rules', // owner: #team-logs
-    LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
     LOGS_TRANSFORMATIONS: 'logs-transformations', // owner: #team-logs
     MANAGED_MIGRATIONS_IAM_ROLE_AUTH: 'managed-migrations-iam-role-auth', // owner: #team-ingestion, gates IAM role auth for S3 batch imports
     MANAGED_MIGRATIONS_TRIAL_RUNS: 'managed-migrations-trial-runs', // owner: #team-ingestion, gates trial runs for managed migrations
