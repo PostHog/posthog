@@ -179,7 +179,11 @@ log "warming cargo registry for the rust workspace"
 (cd rust && cargo fetch)
 
 log "building the rust workspace binaries"
-(cd rust && cargo build --workspace --bins)
+mapfile -t RUST_BINS < <(cd rust && cargo metadata --no-deps --format-version 1 \
+    | python3 -c 'import json, sys; print("\n".join(sorted({t["name"] for p in json.load(sys.stdin)["packages"] for t in p["targets"] if "bin" in t["kind"] and not t.get("required-features")})))')
+for bin in "${RUST_BINS[@]}"; do
+    (cd rust && cargo build --bin "$bin")
+done
 du -sh "$RUST_TARGET_DIR"
 
 log "warming go module cache (livestream)"
