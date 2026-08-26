@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     tasksRunCreate,
+    tasksRunsCancelCreate,
     tasksRunsClearConversationCreate,
     tasksRunsCommandCreate,
     tasksWarmResumeCreate,
@@ -99,6 +100,7 @@ jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunCreate: jest.fn(),
     tasksRunsClearConversationCreate: jest.fn(),
     tasksWarmResumeCreate: jest.fn(),
+    tasksRunsCancelCreate: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
@@ -431,6 +433,29 @@ describe('runInteractionLogic', () => {
         ])
     })
 
+    it('hands back a warmed successor when /clear succeeds', async () => {
+        // The successor booted before the clear boundary was written, so its restored session still
+        // holds the conversation /clear promises to remove. Keeping it would let the next message
+        // resume the very thing the user just cleared.
+        jest.useFakeTimers()
+        setStatus('completed')
+        logic.actions.setComposerFormValues({ draft: 'keep going' })
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(tasksWarmResumeCreate).toHaveBeenCalled()
+
+        logic.actions.setComposerFormValues({ draft: '/clear' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(tasksRunsClearConversationCreate).toHaveBeenCalled()
+        expect(tasksRunsCancelCreate).toHaveBeenCalledWith('997', TASK_ID, 'warm-run', {
+            only_if_awaiting_first_message: true,
+        })
+    })
+
     it('falls back to a new run when the chain agent cannot honour the clear boundary', async () => {
         // An older agent ignores the marker and resumes the conversation it was meant to retire,
         // so a divider here would claim a clear that never happens.
@@ -743,11 +768,20 @@ describe('runInteractionLogic', () => {
         const blockedLogic = runInteractionLogic({ taskId: TASK_ID, runId: blockedRunId, onRunStarted })
         blockedLogic.mount()
 
+        // Terminal, so typing would otherwise warm a successor — which boots a cloud sandbox and
+        // restores the repository snapshot, before the organization has accepted anything.
+        ;(blockedStream.actions as unknown as { setStubStatus: (status: string | null) => void }).setStubStatus(
+            'completed'
+        )
+        jest.useFakeTimers()
         blockedLogic.actions.setComposerFormValues({ draft: 'ship it' })
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
         await expectLogic(blockedLogic, () => {
             blockedLogic.actions.submitComposerForm()
         }).toFinishAllListeners()
 
+        expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(tasksRunCreate).not.toHaveBeenCalled()
         expect(blockedLogic.values.consentBlocked).toBe(true)

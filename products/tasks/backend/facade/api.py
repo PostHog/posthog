@@ -6402,14 +6402,27 @@ def warm_task_resume_sandbox(
     if previous_run is None or not previous_run.is_terminal:
         return None
     latest_run = task.latest_run
+    latest_state = (latest_run.state or {}) if latest_run is not None else {}
     latest_is_expected_source = latest_run is not None and latest_run.id == previous_run.id
     latest_is_expected_warm = (
         latest_run is not None
         and not latest_run.is_terminal
-        and (latest_run.state or {}).get("await_user_message") is True
-        and (latest_run.state or {}).get("resume_from_run_id") == str(previous_run.id)
+        and latest_state.get("await_user_message") is True
+        and latest_state.get("resume_from_run_id") == str(previous_run.id)
     )
-    if not latest_is_expected_source and not latest_is_expected_warm:
+    # A successor the composer handed back (or the reaper took) is terminal and sits in front of its
+    # own source, so neither test above sees it. Without this the first release would leave the task
+    # unable to warm again until it was submitted — and releases are routine: an emptied draft, a
+    # changed model or mode, or leaving the composer. The source fence still holds, because the
+    # released successor has to have been warmed for this same run.
+    latest_is_released_warm = (
+        latest_run is not None
+        and latest_run.is_terminal
+        and latest_state.get("prewarmed") is True
+        and latest_state.get("await_user_message") is True
+        and latest_state.get("resume_from_run_id") == str(previous_run.id)
+    )
+    if not latest_is_expected_source and not latest_is_expected_warm and not latest_is_released_warm:
         return None
 
     previous_state = parse_run_state(previous_run.state)
@@ -6587,8 +6600,11 @@ def run_task(
     warm_run = _idling_warm_run_for_task(task)
     if warm_run is not None:
         warm_state = warm_run.state or {}
-        warm_resume_matches = resume_from_run_id is None or warm_state.get("resume_from_run_id") == str(
-            resume_from_run_id
+        # Both directions. A request that states no resume source must not be handed a successor
+        # warmed to resume an earlier run — its filesystem was restored from that run's snapshot, so
+        # a run asked to start fresh would silently inherit it.
+        warm_resume_matches = (warm_state.get("resume_from_run_id") or None) == (
+            str(resume_from_run_id) if resume_from_run_id else None
         )
         effective_branch = branch
         if effective_branch is None and previous_state is not None:
