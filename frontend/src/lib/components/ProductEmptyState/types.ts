@@ -83,7 +83,8 @@ export interface ProductEmptyStateConfig {
     /**
      * Where the hedgehog sits: `above` (default) is a small illustration above the
      * product name; `beside` renders it large next to the text and install command,
-     * for wide scene-setting illustrations.
+     * for wide scene-setting illustrations. `beside` needs a wide scene to work in,
+     * so on a narrower one it falls back to `above` rather than squeezing the copy.
      */
     hedgehogPlacement?: 'above' | 'beside'
     text: ProductEmptyStateTextByMode

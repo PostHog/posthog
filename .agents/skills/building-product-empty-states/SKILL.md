@@ -70,6 +70,7 @@ This is not a flat mock - the bar is "fun and involved", and the references set 
 - **Crossfade with the `preview-swap-hidden` / `preview-swap-visible` mixins** (`lib/components/ProductEmptyState/_previewMixins.scss`), never bare `opacity`. Opacity alone leaves the hidden half in the accessibility tree and the tab order, so a screen reader announces both states at once and a keyboard user can land on an invisible button. The mixins add `visibility` on a delay, which keeps the fade and costs no layout shift.
 - The hidden input stays keyboard-focusable, so the row it labels needs a `:focus-visible` outline (WCAG 2.4.7).
 - The preview must **never scroll**; guard all animation with `prefers-reduced-motion` and an `inStorybook()`-driven static class so visual-regression snapshots stay stable.
+- **It has to hold up from ~340px wide to the full scene.** The empty state keys its layout off its own width (a container query, not the viewport, because the sidebar and side panel eat into it): a wide scene puts the preview in a 40% column beside the copy, and a narrow one stacks it full width underneath. So every row wraps or truncates rather than clipping — `productEmptyStateStory(..., { containerWidth })` pins a narrow width for a snapshot.
 - Honor the `mode` prop: `waiting-for-data` should read as "listening" (e.g. a pinned spinner row).
 
 ### 4. Declare it on the scene
