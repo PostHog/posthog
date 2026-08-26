@@ -42,8 +42,8 @@ use std::time::Duration;
 use dashmap::DashMap;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_client::WorkerIngestClient;
 use ingestion_worker_proto::ingestion::worker::v1::{
-    ingest_stream_request, ingest_stream_response, IngestStreamRequest, KafkaMessage, StreamHello,
-    SubBatch, SubBatchStatus,
+    ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
+    KafkaMessage, StreamHello, SubBatch, SubBatchStatus,
 };
 use metrics::{counter, gauge};
 use tokio::sync::{mpsc, oneshot};
@@ -230,6 +230,15 @@ struct LedgerEntry {
     acked: Option<u32>,
 }
 
+/// An open stream: the request sender and the worker's ack stream.
+type OpenStream = (
+    mpsc::UnboundedSender<IngestStreamRequest>,
+    tonic::Streaming<IngestStreamResponse>,
+);
+
+/// One event off the ack stream: a frame, a clean end (`None`), or an error.
+type AckEvent = Result<Option<IngestStreamResponse>, tonic::Status>;
+
 struct LaneRunner {
     worker_url: Arc<str>,
     grpc_url: String,
@@ -297,48 +306,71 @@ impl LaneRunner {
         let mut ledger: VecDeque<LedgerEntry> = VecDeque::new();
         let mut pending_first = Some(first);
 
+        let (out_tx, mut acks) = match self.open_stream(stream_epoch).await {
+            Ok(stream) => stream,
+            Err(reason) => return self.fence(pending_first.take(), &mut ledger, queue, reason),
+        };
+
+        let mut next_seq = 1u64;
+        gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
+            .set(0.0);
+
+        loop {
+            if let Err(end) = self.fill_ledger(
+                &out_tx,
+                queue,
+                &mut pending_first,
+                &mut ledger,
+                &mut next_seq,
+            ) {
+                return end;
+            }
+            let ack = match self
+                .await_next_ack(&mut acks, queue, &mut pending_first, &mut ledger)
+                .await
+            {
+                Ok(Some(ack)) => ack,
+                Ok(None) => continue,
+                Err(end) => return end,
+            };
+            if let Err(end) = self.handle_ack(ack, queue, &mut pending_first, &mut ledger) {
+                return end;
+            }
+        }
+    }
+
+    /// Connect, greet, and open the ack stream. On failure the caller fences
+    /// with the returned reason.
+    async fn open_stream(&self, stream_epoch: u64) -> Result<OpenStream, &'static str> {
         // The inner connect_timeout bounds TCP only; the outer bound covers
         // everything else in connection setup (e.g. an h2 handshake that
         // never completes because the far side is not actually h2).
-        let channel = match tonic::transport::Endpoint::from_shared(self.grpc_url.clone())
-            .map(|endpoint| endpoint.connect_timeout(Duration::from_secs(5)))
-        {
-            Ok(endpoint) => {
-                match tokio::time::timeout(self.ack_timeout, endpoint.connect()).await {
-                    Ok(Ok(channel)) => channel,
-                    Ok(Err(err)) => {
-                        warn!(
-                            worker = %self.worker_url,
-                            grpc_url = %self.grpc_url,
-                            error = %err,
-                            "Lane connect failed"
-                        );
-                        return self.fence(
-                            pending_first.take(),
-                            &mut ledger,
-                            queue,
-                            "connect failed",
-                        );
-                    }
-                    Err(_) => {
-                        warn!(
-                            worker = %self.worker_url,
-                            grpc_url = %self.grpc_url,
-                            timeout_ms = self.ack_timeout.as_millis() as u64,
-                            "Lane connect timed out"
-                        );
-                        return self.fence(
-                            pending_first.take(),
-                            &mut ledger,
-                            queue,
-                            "connect timeout",
-                        );
-                    }
-                }
-            }
+        let endpoint = match tonic::transport::Endpoint::from_shared(self.grpc_url.clone()) {
+            Ok(endpoint) => endpoint.connect_timeout(Duration::from_secs(5)),
             Err(err) => {
                 error!(worker = %self.worker_url, grpc_url = %self.grpc_url, error = %err, "Invalid lane address");
-                return self.fence(pending_first.take(), &mut ledger, queue, "invalid address");
+                return Err("invalid address");
+            }
+        };
+        let channel = match tokio::time::timeout(self.ack_timeout, endpoint.connect()).await {
+            Ok(Ok(channel)) => channel,
+            Ok(Err(err)) => {
+                warn!(
+                    worker = %self.worker_url,
+                    grpc_url = %self.grpc_url,
+                    error = %err,
+                    "Lane connect failed"
+                );
+                return Err("connect failed");
+            }
+            Err(_) => {
+                warn!(
+                    worker = %self.worker_url,
+                    grpc_url = %self.grpc_url,
+                    timeout_ms = self.ack_timeout.as_millis() as u64,
+                    "Lane connect timed out"
+                );
+                return Err("connect timeout");
             }
         };
 
@@ -354,20 +386,20 @@ impl LaneRunner {
             })),
         };
         if out_tx.send(hello).is_err() {
-            return self.fence(pending_first.take(), &mut ledger, queue, "stream closed");
+            return Err("stream closed");
         }
 
         // Stream-open resolves only when the worker's response headers (its
         // greeting) arrive; bound it so a worker that never greets fences
         // instead of deadlocking the lane — the failure mode that wedged
         // production before the greeting existed.
-        let mut acks = match tokio::time::timeout(
+        match tokio::time::timeout(
             self.ack_timeout,
             client.ingest_stream(UnboundedReceiverStream::new(out_rx)),
         )
         .await
         {
-            Ok(Ok(response)) => response.into_inner(),
+            Ok(Ok(response)) => Ok((out_tx, response.into_inner())),
             Err(_) => {
                 warn!(
                     worker = %self.worker_url,
@@ -375,216 +407,195 @@ impl LaneRunner {
                     timeout_ms = self.ack_timeout.as_millis() as u64,
                     "Lane stream open timed out — no greeting from the worker"
                 );
-                return self.fence(
-                    pending_first.take(),
-                    &mut ledger,
-                    queue,
-                    "stream open timeout",
-                );
+                Err("stream open timeout")
             }
             Ok(Err(status)) => {
                 warn!(worker = %self.worker_url, grpc_url = %self.grpc_url, status = %status, "Lane stream open failed");
-                return self.fence(
-                    pending_first.take(),
-                    &mut ledger,
-                    queue,
-                    "stream open failed",
-                );
-            }
-        };
-
-        let mut next_seq = 1u64;
-        gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
-            .set(0.0);
-
-        loop {
-            // Send the held first item, then pull more only while the ledger
-            // has room — the worker-aligned concurrency cap.
-            while ledger.len() < self.max_unacked {
-                let item = match pending_first.take() {
-                    Some(item) => Some(item),
-                    None => match queue.try_recv() {
-                        Ok(item) => Some(item),
-                        Err(mpsc::error::TryRecvError::Empty) => None,
-                        Err(mpsc::error::TryRecvError::Disconnected) => {
-                            return if ledger.is_empty() {
-                                StreamEnd::QueueClosed
-                            } else {
-                                // Resolve the tail before exiting.
-                                self.fence(None, &mut ledger, queue, "queue closed")
-                            };
-                        }
-                    },
-                };
-                let Some(item) = item else { break };
-                let seq = next_seq;
-                next_seq += 1;
-                let request = IngestStreamRequest {
-                    msg: Some(ingest_stream_request::Msg::SubBatch(SubBatch {
-                        seq,
-                        batch_id: item.batch_id.clone(),
-                        messages: item.messages.iter().map(to_proto_message).collect(),
-                        replay: item.replay,
-                        assignment_epoch: self.assignment_epoch.load(Ordering::Relaxed),
-                    })),
-                };
-                let deadline = tokio::time::Instant::now() + self.ack_timeout;
-                if out_tx.send(request).is_err() {
-                    ledger.push_back(LedgerEntry {
-                        seq,
-                        item,
-                        deadline,
-                        acked: None,
-                    });
-                    return self.fence(None, &mut ledger, queue, "stream closed mid-send");
-                }
-                ledger.push_back(LedgerEntry {
-                    seq,
-                    item,
-                    deadline,
-                    acked: None,
-                });
-                gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
-                    .set(ledger.len() as f64);
-            }
-
-            // Wait for an ack, or for new work when the ledger has room. The
-            // ack-progress watchdog bounds how long the oldest un-acked
-            // sub-batch may sit unacked. Each entry carries its own deadline,
-            // armed when it was sent, so the watchdog keys on the oldest (front)
-            // entry, which is never acked (acked prefixes pop at once): a stuck
-            // sub-batch fences even while its siblings keep acking — the
-            // per-send bound the HTTP timeout it replaces gave. A worker that
-            // stops acking (saturated by other consumers, wedged, half-dead
-            // network) becomes a fence — and so a defer-and-reroute — rather
-            // than a silent forever-wait.
-            let ack = if ledger.is_empty() {
-                match queue.recv().await {
-                    Some(item) => {
-                        pending_first = Some(item);
-                        continue;
-                    }
-                    None => return StreamEnd::QueueClosed,
-                }
-            } else {
-                let watchdog = tokio::time::sleep_until(
-                    ledger
-                        .front()
-                        .expect("ledger is non-empty in this branch")
-                        .deadline,
-                );
-                if ledger.len() < self.max_unacked {
-                    tokio::select! {
-                        ack = acks.message() => Some(ack),
-                        _ = watchdog => {
-                            warn!(
-                                worker = %self.worker_url,
-                                unacked = ledger.len(),
-                                timeout_ms = self.ack_timeout.as_millis() as u64,
-                                "No ack progress within the watchdog window — fencing lane"
-                            );
-                            return self.fence(pending_first.take(), &mut ledger, queue, "ack progress timeout");
-                        }
-                        item = queue.recv() => {
-                            match item {
-                                Some(item) => {
-                                    pending_first = Some(item);
-                                    continue;
-                                }
-                                None => {
-                                    return self.fence(None, &mut ledger, queue, "queue closed");
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    tokio::select! {
-                        ack = acks.message() => Some(ack),
-                        _ = watchdog => {
-                            warn!(
-                                worker = %self.worker_url,
-                                unacked = ledger.len(),
-                                timeout_ms = self.ack_timeout.as_millis() as u64,
-                                "No ack progress within the watchdog window — fencing lane"
-                            );
-                            return self.fence(pending_first.take(), &mut ledger, queue, "ack progress timeout");
-                        }
-                    }
-                }
-            };
-
-            match ack {
-                Some(Ok(Some(frame))) => {
-                    // `ready` is the worker's greeting (and any future
-                    // keepalive): it exists to flush response headers, not to
-                    // resolve work. A frame this consumer predates is ignored
-                    // the same way.
-                    let response = match frame.msg {
-                        Some(ingest_stream_response::Msg::Ack(ack)) => ack,
-                        Some(ingest_stream_response::Msg::Ready(_)) | None => continue,
-                    };
-                    if response.status == SubBatchStatus::Failed as i32 {
-                        warn!(
-                            worker = %self.worker_url,
-                            seq = response.seq,
-                            error = %response.error,
-                            "Worker nacked sub-batch — fencing lane"
-                        );
-                        return self.fence(None, &mut ledger, queue, "sub-batch nacked");
-                    }
-                    if response.status != SubBatchStatus::Ok as i32 {
-                        // BUSY, or any status this consumer predates: transient
-                        // backpressure, not a fault. Fence in order (the ordered
-                        // stream cannot retry one sub-batch in place) but as
-                        // retriable, so the work re-routes without marking the
-                        // worker unhealthy.
-                        warn!(
-                            worker = %self.worker_url,
-                            seq = response.seq,
-                            status = response.status,
-                            "Worker signalled busy — fencing lane as retriable"
-                        );
-                        return self.fence_with(true, None, &mut ledger, queue, "worker busy");
-                    }
-                    let Some(entry) = ledger
-                        .iter_mut()
-                        .find(|e| e.seq == response.seq && e.acked.is_none())
-                    else {
-                        warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing lane");
-                        return self.fence(None, &mut ledger, queue, "unknown ack seq");
-                    };
-                    entry.acked = Some(response.accepted);
-                    counter!(
-                        "ingestion_consumer_transport_requests_total",
-                        "worker" => self.worker_url.clone(),
-                        "status" => "ok"
-                    )
-                    .increment(1);
-                    // Resolve only the acked prefix: a later ack waits for
-                    // every earlier seq, so a failure ahead of it still fences
-                    // it instead of letting it release its keys first.
-                    while ledger.front().is_some_and(|e| e.acked.is_some()) {
-                        let entry = ledger.pop_front().expect("front is present");
-                        let accepted = entry.acked.expect("front is acked");
-                        let _ = entry.item.reply.send(Ok(accepted));
-                    }
-                    gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
-                        .set(ledger.len() as f64);
-                }
-                Some(Ok(None)) => {
-                    return if ledger.is_empty() && pending_first.is_none() {
-                        StreamEnd::Idle
-                    } else {
-                        self.fence(pending_first.take(), &mut ledger, queue, "stream ended")
-                    };
-                }
-                Some(Err(status)) => {
-                    warn!(worker = %self.worker_url, status = %status, "Lane stream failed");
-                    return self.fence(pending_first.take(), &mut ledger, queue, "stream error");
-                }
-                None => unreachable!("ack future always yields a value"),
+                Err("stream open failed")
             }
         }
+    }
+
+    /// Send the held first item, then pull more only while the ledger has
+    /// room — the worker-aligned concurrency cap. `Err` ends the stream.
+    fn fill_ledger(
+        &self,
+        out_tx: &mpsc::UnboundedSender<IngestStreamRequest>,
+        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
+        pending_first: &mut Option<LaneItem>,
+        ledger: &mut VecDeque<LedgerEntry>,
+        next_seq: &mut u64,
+    ) -> Result<(), StreamEnd> {
+        while ledger.len() < self.max_unacked {
+            let item = match pending_first.take() {
+                Some(item) => Some(item),
+                None => match queue.try_recv() {
+                    Ok(item) => Some(item),
+                    Err(mpsc::error::TryRecvError::Empty) => None,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        return Err(if ledger.is_empty() {
+                            StreamEnd::QueueClosed
+                        } else {
+                            // Resolve the tail before exiting.
+                            self.fence(None, ledger, queue, "queue closed")
+                        });
+                    }
+                },
+            };
+            let Some(item) = item else { break };
+            let seq = *next_seq;
+            *next_seq += 1;
+            let request = IngestStreamRequest {
+                msg: Some(ingest_stream_request::Msg::SubBatch(SubBatch {
+                    seq,
+                    batch_id: item.batch_id.clone(),
+                    messages: item.messages.iter().map(to_proto_message).collect(),
+                    replay: item.replay,
+                    assignment_epoch: self.assignment_epoch.load(Ordering::Relaxed),
+                })),
+            };
+            let deadline = tokio::time::Instant::now() + self.ack_timeout;
+            let sent = out_tx.send(request).is_ok();
+            ledger.push_back(LedgerEntry {
+                seq,
+                item,
+                deadline,
+                acked: None,
+            });
+            if !sent {
+                return Err(self.fence(None, ledger, queue, "stream closed mid-send"));
+            }
+            gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
+                .set(ledger.len() as f64);
+        }
+        Ok(())
+    }
+
+    /// Wait for an ack, or for new work when the ledger has room. `Ok(None)`
+    /// means new work was held in `pending_first`; `Err` ends the stream.
+    ///
+    /// The ack-progress watchdog bounds how long the oldest un-acked
+    /// sub-batch may sit unacked. Each entry carries its own deadline, armed
+    /// when it was sent, so the watchdog keys on the oldest (front) entry,
+    /// which is never acked (acked prefixes pop at once): a stuck sub-batch
+    /// fences even while its siblings keep acking — the per-send bound the
+    /// HTTP timeout it replaces gave. A worker that stops acking (saturated
+    /// by other consumers, wedged, half-dead network) becomes a fence — and
+    /// so a defer-and-reroute — rather than a silent forever-wait.
+    async fn await_next_ack(
+        &self,
+        acks: &mut tonic::Streaming<IngestStreamResponse>,
+        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
+        pending_first: &mut Option<LaneItem>,
+        ledger: &mut VecDeque<LedgerEntry>,
+    ) -> Result<Option<AckEvent>, StreamEnd> {
+        let Some(front) = ledger.front() else {
+            return match queue.recv().await {
+                Some(item) => {
+                    *pending_first = Some(item);
+                    Ok(None)
+                }
+                None => Err(StreamEnd::QueueClosed),
+            };
+        };
+        let watchdog = tokio::time::sleep_until(front.deadline);
+        tokio::select! {
+            ack = acks.message() => Ok(Some(ack)),
+            _ = watchdog => {
+                warn!(
+                    worker = %self.worker_url,
+                    unacked = ledger.len(),
+                    timeout_ms = self.ack_timeout.as_millis() as u64,
+                    "No ack progress within the watchdog window — fencing lane"
+                );
+                Err(self.fence(pending_first.take(), ledger, queue, "ack progress timeout"))
+            }
+            item = queue.recv(), if ledger.len() < self.max_unacked => match item {
+                Some(item) => {
+                    *pending_first = Some(item);
+                    Ok(None)
+                }
+                None => Err(self.fence(None, ledger, queue, "queue closed")),
+            }
+        }
+    }
+
+    /// Apply one ack-stream event to the ledger. `Err` ends the stream.
+    fn handle_ack(
+        &self,
+        ack: AckEvent,
+        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
+        pending_first: &mut Option<LaneItem>,
+        ledger: &mut VecDeque<LedgerEntry>,
+    ) -> Result<(), StreamEnd> {
+        let frame = match ack {
+            Ok(Some(frame)) => frame,
+            Ok(None) => {
+                return Err(if ledger.is_empty() && pending_first.is_none() {
+                    StreamEnd::Idle
+                } else {
+                    self.fence(pending_first.take(), ledger, queue, "stream ended")
+                });
+            }
+            Err(status) => {
+                warn!(worker = %self.worker_url, status = %status, "Lane stream failed");
+                return Err(self.fence(pending_first.take(), ledger, queue, "stream error"));
+            }
+        };
+        // `ready` is the worker's greeting (and any future keepalive): it
+        // exists to flush response headers, not to resolve work. A frame this
+        // consumer predates is ignored the same way.
+        let response = match frame.msg {
+            Some(ingest_stream_response::Msg::Ack(ack)) => ack,
+            Some(ingest_stream_response::Msg::Ready(_)) | None => return Ok(()),
+        };
+        if response.status == SubBatchStatus::Failed as i32 {
+            warn!(
+                worker = %self.worker_url,
+                seq = response.seq,
+                error = %response.error,
+                "Worker nacked sub-batch — fencing lane"
+            );
+            return Err(self.fence(None, ledger, queue, "sub-batch nacked"));
+        }
+        if response.status != SubBatchStatus::Ok as i32 {
+            // BUSY, or any status this consumer predates: transient
+            // backpressure, not a fault. Fence in order (the ordered stream
+            // cannot retry one sub-batch in place) but as retriable, so the
+            // work re-routes without marking the worker unhealthy.
+            warn!(
+                worker = %self.worker_url,
+                seq = response.seq,
+                status = response.status,
+                "Worker signalled busy — fencing lane as retriable"
+            );
+            return Err(self.fence_with(true, None, ledger, queue, "worker busy"));
+        }
+        let Some(entry) = ledger
+            .iter_mut()
+            .find(|e| e.seq == response.seq && e.acked.is_none())
+        else {
+            warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing lane");
+            return Err(self.fence(None, ledger, queue, "unknown ack seq"));
+        };
+        entry.acked = Some(response.accepted);
+        counter!(
+            "ingestion_consumer_transport_requests_total",
+            "worker" => self.worker_url.clone(),
+            "status" => "ok"
+        )
+        .increment(1);
+        // Resolve only the acked prefix: a later ack waits for every earlier
+        // seq, so a failure ahead of it still fences it instead of letting it
+        // release its keys first.
+        while ledger.front().is_some_and(|e| e.acked.is_some()) {
+            let entry = ledger.pop_front().expect("front is present");
+            let accepted = entry.acked.expect("front is acked");
+            let _ = entry.item.reply.send(Ok(accepted));
+        }
+        gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
+            .set(ledger.len() as f64);
+        Ok(())
     }
 
     /// Resolve everything outstanding as failed, **in enqueue order**: the
