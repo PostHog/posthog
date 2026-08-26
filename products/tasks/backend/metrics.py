@@ -499,6 +499,25 @@ def observe_prewarmed_unused(task_run: "TaskRun", *, reason: PrewarmedUnusedReas
         logger.exception("prewarmed_unused_metric_failed", run_id=str(task_run.id))
 
 
+def observe_prewarmed_unused_if_never_activated(task_run: "TaskRun", *, reason: PrewarmedUnusedReason) -> None:
+    """Count a terminal Run as an unused warm, if that is what it is.
+
+    Owns the "never used" test so every path that terminalizes a Run books the miss the same way —
+    the workflow's status activity and the direct status write the cancel fallback uses when the
+    workflow is already gone.
+
+    `warm_activated` is what separates a real miss from a race: activation sets that marker before it
+    signals the first message and clears `await_user_message` only after, so a Run that terminalizes
+    between the two still carries both of the older markers while already being counted as activated.
+    """
+    run_state = task_run.state if isinstance(task_run.state, dict) else {}
+    if not run_state.get("prewarmed") or not run_state.get("await_user_message"):
+        return
+    if run_state.get("warm_activated"):
+        return
+    observe_prewarmed_unused(task_run, reason=reason)
+
+
 def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
     try:
         CUSTOM_IMAGE_BUILD_TOTAL.labels(outcome=outcome).inc()
