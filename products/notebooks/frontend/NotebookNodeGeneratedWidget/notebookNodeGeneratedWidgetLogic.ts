@@ -601,9 +601,14 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                 },
                 loadVersions: async ({ reset }) => {
-                    if (!values.currentTeamId || values.versionsLoading) {
+                    if (!values.currentTeamId) {
+                        actions.versionsFailed('The current project is unavailable.')
                         return
                     }
+                    if (cache.versionsRequestInFlight) {
+                        return
+                    }
+                    cache.versionsRequestInFlight = true
                     const offset = reset ? 0 : (values.versionsNextOffset ?? values.versions.length)
                     try {
                         const page = await notebooksWidgetVersions(
@@ -615,6 +620,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.versionsReceived(page.results, page.count, page.next_offset, reset)
                     } catch (error) {
                         actions.versionsFailed(errorMessage(error))
+                    } finally {
+                        cache.versionsRequestInFlight = false
                     }
                 },
                 openGenerationModal: async ({ operation }) => {

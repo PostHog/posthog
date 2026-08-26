@@ -664,6 +664,40 @@ class TestWidgetData(APIBaseTest):
         assert generate.call_args.kwargs["inspection"].resolved_inputs[0].run == latest
         assert generate.call_args.kwargs["operation"] == "regenerate"
 
+    def test_generation_starts_before_the_widget_has_a_current_version(self) -> None:
+        widget = GeneratedWidget.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="Render a globe",
+            canvas_id=uuid4(),
+            created_by=self.user,
+        )
+        NotebookWidgetInstance.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            notebook=self.notebook,
+            node_id=self.NODE_ID,
+            widget=widget,
+            created_by=self.user,
+        )
+        generation_id = uuid4()
+
+        with patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False):
+            result = start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Render a globe",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=generation_id,
+                operation=GeneratedWidgetVersion.Operation.INITIAL,
+            )
+
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(id=generation_id)
+        assert result.active_job is not None
+        assert result.active_job.id == generation_id
+        assert job.base_version is None
+        assert job.operation == GeneratedWidgetVersion.Operation.INITIAL
+
     def test_generation_identifier_is_idempotent_and_payload_bound(self) -> None:
         generation_id = uuid4()
         instance = self._mapping()

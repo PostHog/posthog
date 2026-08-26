@@ -495,7 +495,7 @@ def start_widget_generation(
         Team.objects.select_for_update().only("id").get(id=notebook.team_id)
         locked_instance = (
             NotebookWidgetInstance.objects.for_team(notebook.team_id)
-            .select_for_update()
+            .select_for_update(of=("self", "widget"))
             .select_related("widget", "widget__current_version")
             .get(id=instance.id)
         )

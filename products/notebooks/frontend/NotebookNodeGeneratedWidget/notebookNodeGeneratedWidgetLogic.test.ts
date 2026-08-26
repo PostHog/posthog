@@ -12,7 +12,11 @@ import {
     notebooksWidgetStatus,
     notebooksWidgetVersions,
 } from 'products/notebooks/frontend/generated/api'
-import type { WidgetStatusApi, WidgetVersionPageApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type {
+    WidgetStatusApi,
+    WidgetVersionApi,
+    WidgetVersionPageApi,
+} from 'products/notebooks/frontend/generated/api.schemas'
 
 import { formatWidgetElapsed, notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 
@@ -77,6 +81,46 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
         expect(notebooksWidgetStatus).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe')
         expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
+    })
+
+    it('loads version history when the widget has generated versions', async () => {
+        const version: WidgetVersionApi = {
+            id: '00000000-0000-0000-0000-000000000002',
+            parent_version_id: null,
+            version: 1,
+            operation: 'initial',
+            prompt_delta: 'Render a globe',
+            model: 'claude-sonnet-4-6',
+            created_at: '2026-08-26T12:00:00Z',
+            build_status: 'ready',
+            artifact_url: 'https://example.com/widget.html',
+            frame_names: [],
+            is_current: true,
+        }
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({
+                lifecycle_status: 'ready',
+                artifact_url: version.artifact_url,
+                current_version_id: version.id,
+                has_versions: true,
+            })
+        )
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [version],
+            count: 1,
+            next_offset: null,
+        })
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksWidgetVersions).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
+            offset: 0,
+            limit: 25,
+        })
+        expect(logic.values.versions).toEqual([version])
+        expect(logic.values.versionsCount).toBe(1)
+        expect(logic.values.versionsLoading).toBe(false)
     })
 
     it('keeps status errors separate from paid generation', async () => {
