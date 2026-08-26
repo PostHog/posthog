@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
@@ -13,6 +14,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import MAX_SELECT_RETENTION_LIMIT
+from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.team import WeekStartDay
@@ -378,3 +380,14 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         row = response.results[0]
         self.assertEqual(row.cohortSize, 1)
         self.assertEqual([cell.count for cell in row.values], [1, 1, 0, 0])
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_query_shape(self):
+        # The assertions above all read the response, which cannot see the query's shape. Three
+        # regressions hide there: `acquisition` or `cohort_sizes` losing MATERIALIZED, which re-runs the
+        # events scan at each of their 2 and 4 references; `activity` losing the restriction to acquired
+        # persons, which leaves every active person in the range on the join's build side; and the two
+        # arms drifting apart on which filters they apply.
+        response = self._run()
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
