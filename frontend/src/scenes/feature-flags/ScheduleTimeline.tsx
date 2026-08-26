@@ -131,7 +131,7 @@ export function ScheduleTimeline({
         layouts.push({ x, timeLabel, topLabelY })
     })
 
-    // Step-line segments, one per occurrence so approval-blocked steps can render dashed.
+    // Step-line segments, split so an approval-blocked step dashes its jump and not its run.
     let previousX = MARGIN.left
     let previousRollout = currentRolloutPercentage
     const stepSegments: { path: string; blocked: boolean }[] = []
@@ -141,11 +141,18 @@ export function ScheduleTimeline({
             return
         }
         const x = layouts[index].x
-        const path =
-            previousRollout === null
-                ? `M ${x} ${yForRollout(rollout)}`
-                : `M ${previousX} ${yForRollout(previousRollout)} H ${x} V ${yForRollout(rollout)}`
-        stepSegments.push({ path, blocked: occurrence.needsApproval })
+        const y = yForRollout(rollout)
+        if (previousRollout === null) {
+            stepSegments.push({ path: `M ${x} ${y}`, blocked: occurrence.needsApproval })
+        } else {
+            const previousY = yForRollout(previousRollout)
+            // The horizontal run holds the level the flag serves until this change fires, which is
+            // certain whatever a reviewer decides. Only the jump to the new level waits on approval.
+            stepSegments.push({ path: `M ${previousX} ${previousY} H ${x}`, blocked: false })
+            if (previousY !== y) {
+                stepSegments.push({ path: `M ${x} ${previousY} V ${y}`, blocked: occurrence.needsApproval })
+            }
+        }
         previousX = x
         previousRollout = rollout
     })
