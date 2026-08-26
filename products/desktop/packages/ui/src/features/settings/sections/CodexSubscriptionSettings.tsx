@@ -43,8 +43,16 @@ export function CodexSubscriptionSettings() {
     onSuccess: ({ authUrl }) => {
       openExternalUrl(authUrl);
       setAwaitingLogin(true);
+      setLaunching(true);
     },
   });
+  const [launching, setLaunching] = useState(false);
+  useEffect(() => {
+    if (!launching) return;
+    const timer = setTimeout(() => setLaunching(false), 4000);
+    return () => clearTimeout(timer);
+  }, [launching]);
+  const connecting = login.isPending || launching;
   const signOut = useMutation({
     ...hostTRPC.agent.codexSubscriptionSignOut.mutationOptions(),
     onSuccess: () => {
@@ -84,10 +92,11 @@ export function CodexSubscriptionSettings() {
         <Button
           variant="outline"
           size="sm"
-          disabled={login.isPending}
+          loading={connecting}
+          disabled={connecting}
           onClick={() => login.mutate()}
         >
-          {login.isPending
+          {connecting
             ? "Opening browser..."
             : awaitingLogin
               ? "Try again"
