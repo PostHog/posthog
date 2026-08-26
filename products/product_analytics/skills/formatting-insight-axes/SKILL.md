@@ -183,7 +183,7 @@ and move on.
 ## SQL insights (DataVisualizationNode)
 
 SQL insights have no `trendsFilter`.
-Formatting is per column, on `chartSettings.yAxis[].settings.formatting` for a chart and `chartSettings.tableSettings.columns[].settings.formatting` for a table.
+Formatting is per column, on `chartSettings.yAxis[].settings.formatting` for a chart and top-level `tableSettings.columns[].settings.formatting` for a table.
 
 ```json
 {
