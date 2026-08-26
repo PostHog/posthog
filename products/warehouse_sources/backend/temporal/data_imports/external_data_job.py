@@ -206,32 +206,26 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     return message or str(cause)
 
 
-# Django's exception class name for a write rejected by a demoted standby after a failover
-# (psycopg's ReadOnlySqlTransaction, surfaced as django.db.InternalError). Only our own ORM produces
-# it: sources reach a customer database over a raw driver connection, whose read-only error arrives
-# as ReadOnlySqlTransaction and whose base class is psycopg's InternalError_, neither of which
-# renders under this name.
-_APP_DB_FAILURE_TYPE = "InternalError"
+_APP_DB_FAILURE_PREFIX = "internalerror:"
 _APP_DB_FAILURE_PHRASE = "read-only transaction"
 
 
-def _is_app_db_failure(cause: BaseException | None) -> bool:
-    """Whether an activity failed against PostHog's own app DB rather than the customer's source.
+def _is_app_db_failure(internal_error: str) -> bool:
+    """Whether a run failed against PostHog's own app DB rather than the customer's source.
 
-    Temporal renders an activity failure as an ``ApplicationError`` carrying the original exception's
-    class name in ``type`` — the one part of the exception that survives the workflow boundary, since
-    the message alone can't tell our failover apart from the source-side condition worded the same
-    way. Activities that reach the app DB but never pass through ``_handle_import_error`` (creating
-    the job row, the post-import steps) surface here unwrapped, which is what this catches.
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    ``ApplicationError.__str__``), so the class the activity failed with survives into
+    ``internal_error``. ``django.db.InternalError`` is our own ORM: a source reaches a customer
+    database over a raw driver connection, whose read-only error is psycopg's
+    ``ReadOnlySqlTransaction`` and renders under that name instead. The two carry the same message,
+    which is why the class name has to do the telling.
 
-    The message narrows the type, mirroring ``is_stale_connection_read_only_error``: Django reports
-    corrupted data and failed-transaction states under the same class name, and those are real
-    defects rather than an outage that clears on its own. Narrowing on the message is safe in this
-    direction because it only rejects, and a source-side read-only error carries a different type.
+    The phrase narrows the class, mirroring ``is_stale_connection_read_only_error``: Django reports
+    corrupted data and failed-transaction states under the same class, and those are defects rather
+    than an outage that clears on its own.
     """
-    if not isinstance(cause, exceptions.ApplicationError) or cause.type != _APP_DB_FAILURE_TYPE:
-        return False
-    return _APP_DB_FAILURE_PHRASE in (cause.message or "").lower()
+    normalized = internal_error.lower()
+    return normalized.startswith(_APP_DB_FAILURE_PREFIX) and _APP_DB_FAILURE_PHRASE in normalized
 
 
 def _fail_stale_running_schema(
@@ -265,12 +259,6 @@ class UpdateExternalDataJobStatusInputs:
     # Run id stamped on the job row by the create-job activity, so finalization can resolve this
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
-    # Set when the run failed against PostHog's own app DB rather than the customer's source, so
-    # finalization can skip the source classification below. That classification reads only
-    # `internal_error` text, and our app DB's failover wording is identical to the source-side
-    # wording the Postgres map matches — without this flag our outage disables a working sync.
-    # Optional for mixed-version workers mid-rollout.
-    platform_error: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -361,10 +349,13 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
         # A failure against our own app DB carries the same text as several source-side conditions
         # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
-        # matching it here would disable a sync whose source never failed. The flag is the only
-        # signal that survives: Temporal renders the cause as a string, dropping the exception type
-        # the activity classified it by.
-        has_non_retryable_error = not inputs.platform_error and error_message_matches(
+        # matching it here would disable a sync whose source never failed, and hand the customer a
+        # message telling them to go fix a database that is working.
+        platform_failure = _is_app_db_failure(internal_error_normalized)
+        if platform_failure:
+            inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+
+        has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()
         )
         if has_non_retryable_error:
@@ -971,12 +962,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.platform_error = _is_app_db_failure(e.cause)
-                update_inputs.latest_error = (
-                    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
-                    if update_inputs.platform_error
-                    else _customer_facing_error(e.cause)
-                )
+                update_inputs.latest_error = _customer_facing_error(e.cause)
                 raise
         except Exception as e:
             # Catch all

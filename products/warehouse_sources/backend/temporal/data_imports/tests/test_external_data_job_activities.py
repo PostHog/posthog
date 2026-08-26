@@ -71,7 +71,9 @@ class TestIsAppDbFailure(SimpleTestCase):
     def test_only_the_failover_case_counts_as_ours(
         self, _name: str, exc_type: str, message: str, expected: bool
     ) -> None:
-        assert _is_app_db_failure(ApplicationError(message, type=exc_type)) is expected
+        # str(ApplicationError) is what the workflow stores as internal_error, so build the input
+        # the same way rather than hand-writing the prefix this depends on.
+        assert _is_app_db_failure(str(ApplicationError(message, type=exc_type))) is expected
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
@@ -204,18 +206,19 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
 @parameterized.expand(
     [
         # A customer relation whose own definition writes while we read it (a view or trigger that
-        # refreshes a materialized view). psycopg raises it on the source connection, so both the
-        # friendly message and the disable are correct.
-        ("raised_by_the_source", False, True),
-        # The identical SQLSTATE 25006 wording from our own app DB after a primary failover. Nothing
-        # is wrong with the source, and disabling makes the customer re-enable a sync our outage
-        # stopped.
-        ("raised_by_our_app_db", True, False),
+        # refreshes a materialized view). psycopg raises it on the source connection, so it reaches
+        # finalization under its own class name, and both the friendly message and the disable are
+        # correct.
+        ("raised_by_the_source", "ReadOnlySqlTransaction", True),
+        # The identical SQLSTATE 25006 wording from our own app DB after a primary failover, which
+        # Django reports as InternalError. Nothing is wrong with the source, and disabling makes the
+        # customer re-enable a sync our outage stopped.
+        ("raised_by_our_app_db", "InternalError", False),
     ]
 )
 @pytest.mark.django_db(transaction=True)
 def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_it(
-    _name: str, platform_error: bool, expect_disabled: bool
+    _name: str, exc_type: str, expect_disabled: bool
 ) -> None:
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org, name="team")
@@ -232,9 +235,8 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
         schema_id=str(schema.id),
         source_id=str(source.id),
         status=ExternalDataJob.Status.FAILED,
-        internal_error="cannot execute UPDATE in a read-only transaction",
+        internal_error=str(ApplicationError("cannot execute UPDATE in a read-only transaction", type=exc_type)),
         latest_error="cannot execute UPDATE in a read-only transaction",
-        platform_error=platform_error,
     )
 
     with (
