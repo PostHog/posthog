@@ -7,6 +7,8 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { BoxPlotChart } from 'scenes/insights/views/BoxPlot'
+import { TrendsCalendarHeatMap } from 'scenes/insights/views/CalendarHeatMap'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { MetricCard } from 'scenes/insights/views/Metric/Metric'
 
@@ -20,24 +22,12 @@ import { TrendsBarChart } from 'products/product_analytics/frontend/insights/tre
 import { TrendsLifecycleChart } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart'
 import { TrendsLineChart } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart'
 import { TrendsPieChart } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart'
+import { TrendsSlopeChart } from 'products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart'
 
 import { trendsDataLogic } from './trendsDataLogic'
-// Rarely-used viz types with their own heavy payloads (map data, d3); kept lazy. The common
-// charts are imported eagerly above — their quill-charts dependency already ships eagerly.
+// Maps carry ~1 MB of d3-geo + topojson data only the map display needs; kept lazy.
 const WorldMap = lazyWithRetry(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
 const RegionMap = lazyWithRetry(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
-const TrendsCalendarHeatMap = lazyWithRetry(() =>
-    import('scenes/insights/views/CalendarHeatMap').then((m) => ({ default: m.TrendsCalendarHeatMap }))
-)
-const BoxPlotChart = lazyWithRetry(() =>
-    import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart }))
-)
-// Rarely-used slope graph; keep it out of the eager bundle.
-const TrendsSlopeChart = lazyWithRetry(() =>
-    import('products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart').then((m) => ({
-        default: m.TrendsSlopeChart,
-    }))
-)
 
 interface Props {
     view: InsightType
