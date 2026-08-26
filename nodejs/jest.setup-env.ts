@@ -23,7 +23,7 @@ process.env.CLICKHOUSE_DATABASE = 'posthog_test'
 // database instead, so lookups are deterministic. Use IPs from the test ranges
 // (e.g. 89.160.20.129 → Linköping, 216.160.83.56 → Milton) in tests.
 const fixturePath = join(__dirname, 'tests', 'assets', 'GeoLite2-City-Test.mmdb.br')
-const mmdbPath = join(__dirname, '.tmp', 'GeoLite2-City-Test.mmdb')
+const mmdbPath = join(__dirname, '.tmp', `GeoLite2-City-Test-${process.env.JEST_WORKER_ID ?? 'main'}.mmdb`)
 
 mkdirSync(join(__dirname, '.tmp'), { recursive: true })
 writeFileSync(mmdbPath, brotliDecompressSync(readFileSync(fixturePath)))
