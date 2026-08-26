@@ -30,9 +30,10 @@ export const StaffPrimitive: Story = {
 }
 
 /**
- * A non-staff viewer gets no trigger at all, so the header shows no empty affordance. Renders blank on
- * purpose. `is_debug` has to be mocked off too: the default preflight fixture sets it, which makes
- * `isDev` true and would grant control regardless of the user.
+ * A non-staff viewer gets no trigger at all, so the header shows no empty affordance. The component
+ * renders nothing here, so the frame below stands in for it. `is_debug` has to be mocked off too: the
+ * default preflight fixture sets it, which makes `isDev` true and would grant control regardless of
+ * the user.
  */
 export const NonStaff: Story = {
     args: { variant: 'lemon' },
@@ -43,5 +44,14 @@ export const NonStaff: Story = {
                 '/_preflight': () => [200, { ...preflightJson, is_debug: false }],
             },
         }),
+        // The snapshot runtime makes `#storybook-root` hug its content, so a story that renders null
+        // leaves the screenshot a zero-size target and the run times out. The frame is a fixed box:
+        // caption only today, and holding the trigger beside it if the staff gate ever regresses.
+        (Story): JSX.Element => (
+            <div className="flex gap-2 items-center px-3 h-10 rounded border border-dashed w-fit text-muted">
+                <span>No staff menu</span>
+                <Story />
+            </div>
+        ),
     ],
 }
