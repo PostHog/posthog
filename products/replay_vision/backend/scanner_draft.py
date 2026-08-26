@@ -9,6 +9,7 @@ the creation wizard where the user reviews and adjusts it. Nothing is persisted 
 re-validates everything on save.
 """
 
+import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -713,6 +714,11 @@ def _page_filter_value(pathname: str) -> str | None:
     return value
 
 
+def _strip_page_count(page: str) -> str:
+    """Remove the trailing " (123)" session count the briefing appends, leaving the bare pathname."""
+    return re.sub(r"\s*\(\d+\)\s*$", "", page).strip()
+
+
 def _v2_query(pathnames: Sequence[str], events: Sequence[str]) -> dict[str, Any] | None:
     """The scanner's recording filter from the grounded pages and events.
 
@@ -808,15 +814,32 @@ def _finalize_v2(
         raise DraftError("draft missing name or prompt")
     scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
 
+    # The briefing shows each page as "/billing (10)" for ranking, but the prompt tells the model to
+    # copy pages exactly, so a literal-minded model returns the count too. Strip it before matching,
+    # or a well-behaved model's page fails the verbatim check and the scanner widens to everything.
+    proposed_pages = [s for p in parsed.filter_pages if (s := _strip_page_count(p))]
     # Verbatim membership in the lists the model was shown: a page or event the product never emits
     # would silently match zero sessions, so a hallucinated one must not survive.
-    pages = _grounded(parsed.filter_pages, allowed_pages, _MAX_FILTER_PAGES)
+    pages = _grounded(proposed_pages, allowed_pages, _MAX_FILTER_PAGES)
     events = _grounded(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS)
-    dropped_pages = {p for p in (v.strip() for v in parsed.filter_pages) if p} - set(pages)
+
+    # Always exclude internal and test users: a scanner defaults to real-user sessions unless the
+    # creator says otherwise (the recordings step can toggle it back on). No-op for a team that has
+    # not configured internal-user filters. The narrowing query is None when no page or event
+    # survives, so the base still carries this default.
+    narrowing = _v2_query(pages, events)
+    query: dict[str, Any] = narrowing if narrowing is not None else {"kind": "RecordingsQuery"}
+    query["filter_test_accounts"] = True
+
+    dropped_pages = set(proposed_pages) - set(pages)
     dropped_events = {e for e in (v.strip() for v in parsed.filter_events) if e} - set(events)
-    if dropped_pages or dropped_events:
-        # Every dropped value silently broadens the scan (worst case to every session, the most
-        # expensive outcome) while the rationale may still describe a narrow one.
+    # A page can ground yet drop to None in `_page_filter_value` (a too-short prefix) with nothing
+    # formally dropped, so the query still widens to everything. Fire the warning whenever the model
+    # wanted a filter but none survived, not only when a value was dropped.
+    widened_unexpectedly = narrowing is None and bool(proposed_pages or parsed.filter_events)
+    if dropped_pages or dropped_events or widened_unexpectedly:
+        # Every dropped value silently broadens the scan (worst case to every non-internal session,
+        # the most expensive outcome) while the rationale may still describe a narrow one.
         logger.warning(
             "replay_vision.scanner_draft.filter_values_dropped",
             team_id=team_id,
@@ -825,7 +848,9 @@ def _finalize_v2(
             dropped_events=len(dropped_events),
             kept_screens=len(pages),
             kept_events=len(events),
-            scans_every_session=not pages and not events,
+            # `narrowing is None`, not `not pages`: a page can ground yet drop to None in
+            # `_page_filter_value` (a too-short prefix), leaving the query unnarrowed.
+            scans_every_session=narrowing is None,
         )
 
     return ScannerDraft(
@@ -834,7 +859,7 @@ def _finalize_v2(
         scanner_type=parsed.scanner_type,
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
-        query=_v2_query(pages, events),
+        query=query,
         sampling_mode=parsed.sampling_mode,
     )
 

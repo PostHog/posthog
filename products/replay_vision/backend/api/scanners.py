@@ -1325,14 +1325,17 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. "
-            "1.0 when the budget covers every matching session. Null whenever `sampling_mode` is."
+            "1.0 when the budget covers every matching recording. Floored at the minimum rate, so a "
+            "budget below that floor keeps the minimum. Null whenever `sampling_mode` is."
         ),
     )
     estimated_monthly_observations = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "Goal-based flow only: replays a month the drafted scanner is projected to watch under the "
-            "solved dials — at or under `monthly_scan_budget`. Null whenever `sampling_mode` is."
+            "Goal-based flow only: recordings a month the drafted scanner is projected to watch under "
+            "the solved dials. At or under `monthly_scan_budget`, except when the budget is below what "
+            "the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null "
+            "whenever `sampling_mode` is."
         ),
     )
 

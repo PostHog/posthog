@@ -668,12 +668,42 @@ class TestFinalizeV2:
         assert draft.query is not None
         assert [e["id"] for e in draft.query["events"]] == ["real_event"]
 
-    def test_no_grounded_pages_means_no_query(self):
+    def test_no_grounded_pages_still_excludes_internal_users(self):
+        # Nothing to narrow on, but the scanner still defaults to real-user sessions rather than all.
         draft = _finalize_v2(
             _draft_v2(filter_pages=["/made-up"]), allowed_pages=["/billing"], allowed_events=[], team_id=1
         )
 
-        assert draft.query is None
+        assert draft.query == {"kind": "RecordingsQuery", "filter_test_accounts": True}
+
+    def test_a_narrowed_query_also_excludes_internal_users(self):
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing"]), allowed_pages=["/billing"], allowed_events=[], team_id=1
+        )
+
+        assert draft.query is not None
+        assert draft.query["filter_test_accounts"] is True
+        assert draft.query["properties"][0]["value"] == ["/billing"]
+
+    def test_page_count_suffix_is_stripped_before_grounding(self):
+        # The briefing shows "/billing (10)"; a model that copies it verbatim would fail the exact
+        # membership check and the scanner would widen to everything. Strip the count first.
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing (10)"]), allowed_pages=["/billing"], allowed_events=[], team_id=1
+        )
+
+        assert draft.query is not None
+        assert draft.query["properties"][0]["value"] == ["/billing"]
+
+    def test_a_grounded_page_that_cannot_narrow_warns_it_scans_everything(self):
+        # "/x" is a real page and grounds, but its filter value is too short to narrow, so the query
+        # widens to every session. The warning must report that, even though nothing was dropped.
+        with patch(f"{_MODULE}.logger.warning") as warn:
+            draft = _finalize_v2(_draft_v2(filter_pages=["/x"]), allowed_pages=["/x"], allowed_events=[], team_id=1)
+
+        assert draft.query is not None
+        assert "properties" not in draft.query
+        assert warn.call_args.kwargs["scans_every_session"] is True
 
     def test_carries_the_models_sampling_mode_without_costing(self):
         draft = _finalize_v2(_draft_v2(sampling_mode="focused"), allowed_pages=[], allowed_events=[], team_id=1)
@@ -733,6 +763,10 @@ class TestSolveBudget(_VisionAPITestCase):
         solution = self._solve(budget=1, model_mode="comprehensive", monthly_by_mode={"comprehensive": 10_000_000})
 
         assert solution.sampling_rate == MIN_SAMPLING_RATE
+        # The rate cannot go below the floor, so the projection lands above the budget rather than on
+        # it. The response help text says so, and the overview warns the user.
+        assert solution.estimated_monthly_observations == round(10_000_000 * MIN_SAMPLING_RATE)
+        assert solution.estimated_monthly_observations > 1
 
 
 class TestDraftV2(_VisionAPITestCase):
@@ -786,8 +820,9 @@ class TestDraftV2(_VisionAPITestCase):
             )
 
         assert gen.called
-        # No page list was shown, so the model's page picks cannot be grounded and no filter survives.
-        assert draft.query is None
+        # No page list was shown, so the model's page picks cannot be grounded and no narrowing
+        # survives — but the scanner still defaults to excluding internal users.
+        assert draft.query == {"kind": "RecordingsQuery", "filter_test_accounts": True}
 
     def test_solved_dials_reach_the_draft(self):
         draft = self._run(pages=("/billing",), generate=_draft_v2(filter_pages=["/billing"]))
