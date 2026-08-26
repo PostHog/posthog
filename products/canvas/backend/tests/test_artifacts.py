@@ -1,9 +1,11 @@
-import time
 import hashlib
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
+from posthog.models import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend import artifacts
@@ -51,7 +53,7 @@ class TestCanvasArtifacts(APIBaseTest):
         self.addCleanup(reader.stop)
 
     def _url(self) -> str:
-        url = artifacts.create_canvas_artifact_url(self.build, "index.html")
+        url = artifacts.create_canvas_artifact_url(self.build, "index.html", self.user)
         assert url is not None
         return url.replace("http://localhost:8010", "")
 
@@ -76,15 +78,21 @@ class TestCanvasArtifacts(APIBaseTest):
         assert "script-src 'self'" in response["Content-Security-Policy"]
         self.read_bytes.assert_not_called()
 
-    def test_url_is_stable_within_a_bucket(self):
+    def test_url_is_stable_across_requests(self):
         assert self._url() == self._url()
 
-    def test_expired_bucket_is_rejected(self):
+    @parameterized.expand(["removed_from_organization", "deactivated"])
+    def test_url_stops_serving_once_minting_user_loses_access(self, revocation: str):
         url = self._url()
-        two_buckets = artifacts.ARTIFACT_TOKEN_BUCKET_SECONDS * 2
-        with patch.object(artifacts.time, "time", return_value=time.time() + two_buckets):
-            response = self.client.get(url)
-        assert response.status_code == 404
+        assert self.client.get(url).status_code == 200
+
+        if revocation == "removed_from_organization":
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+        else:
+            self.user.is_active = False
+            self.user.save()
+
+        assert self.client.get(url).status_code == 404
 
     def test_unknown_asset_and_unready_build_404(self):
         url = self._url()

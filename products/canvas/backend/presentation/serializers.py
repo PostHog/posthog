@@ -6,6 +6,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models import User
 
 from products.canvas.backend.contract import (
     GRID_COLUMN_CHOICES,
@@ -843,7 +844,13 @@ class CanvasBuildSerializer(serializers.Serializer):
         entry = build.manifest.get("entryHtml")
         if not isinstance(entry, str):
             return None
-        return create_canvas_artifact_url(build, entry)
+        # Artifact tokens never expire, so each one is bound to the requesting
+        # user and re-checked against their access on every artifact request.
+        # Service principals and anonymous callers get no URL.
+        user = getattr(self.context.get("request"), "user", None)
+        if not isinstance(user, User):
+            return None
+        return create_canvas_artifact_url(build, entry, user)
 
 
 class CanvasBuildsResponseSerializer(serializers.Serializer):

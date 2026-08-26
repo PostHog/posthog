@@ -1,5 +1,6 @@
 import time
 import hashlib
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +28,29 @@ def _claims(**overrides):
     }
 
 
+def _stub_ready_build(canvas_build: MagicMock, content: bytes, capabilities: dict[str, Any] | None = None) -> MagicMock:
+    manifest: dict[str, Any] = {
+        "assets": [
+            {
+                "path": "index.html",
+                "contentType": "text/html; charset=utf-8",
+                "contentHash": hashlib.sha256(content).hexdigest(),
+                "sizeBytes": len(content),
+            }
+        ]
+    }
+    if capabilities is not None:
+        manifest["capabilities"] = capabilities
+    build = MagicMock(
+        artifact_object_prefix="canvas_artifact/team_1/canvas/build",
+        manifest=manifest,
+    )
+    canvas_build.objects.for_team.return_value.filter.return_value.select_related.return_value.first.return_value = (
+        build
+    )
+    return build
+
+
 class TestCanvasArtifactTokens(SimpleTestCase):
     @override_settings(
         CANVAS_ARTIFACT_SIGNING_KEYS=["new-key-at-least-32-bytes-long", "old-key-at-least-32-bytes-long"]
@@ -43,34 +67,28 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         self.assertEqual(_read_token(old_token), claims)
 
     @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["key"])
+    @patch("products.canvas.backend.artifacts._minting_user_retains_access", return_value=True)
     @patch("products.canvas.backend.artifacts.object_storage.read_bytes", return_value=b"body")
     @patch("products.canvas.backend.artifacts.CanvasBuild")
-    def test_only_manifest_listed_files_are_served(self, canvas_build: MagicMock, read_bytes: MagicMock) -> None:
+    def test_only_manifest_listed_files_are_served(
+        self, canvas_build: MagicMock, read_bytes: MagicMock, _retains_access: MagicMock
+    ) -> None:
         content = b"body"
-        build = MagicMock(
-            artifact_object_prefix="canvas_artifact/team_1/canvas/build",
-            manifest={
-                "capabilities": {
-                    # The second origin smuggles a CSP delimiter but no wildcard, so it
-                    # slips past every gate except the hostname charset check. Rendering
-                    # it verbatim would inject an attacker-chosen img-src directive.
-                    "network": {"origins": ["https://api.example.com", "https://example.com; img-src evil.example.net"]}
-                },
-                "assets": [
-                    {
-                        "path": "index.html",
-                        "contentType": "text/html; charset=utf-8",
-                        "contentHash": hashlib.sha256(content).hexdigest(),
-                        "sizeBytes": len(content),
-                    }
-                ],
+        _stub_ready_build(
+            canvas_build,
+            content,
+            capabilities={
+                # The second origin smuggles a CSP delimiter but no wildcard, so it
+                # slips past every gate except the hostname charset check. Rendering
+                # it verbatim would inject an attacker-chosen img-src directive.
+                "network": {"origins": ["https://api.example.com", "https://example.com; img-src evil.example.net"]}
             },
         )
-        canvas_build.objects.for_team.return_value.filter.return_value.first.return_value = build
         token = create_canvas_artifact_token(
             MagicMock(
                 team_id=1, canvas_id="00000000-0000-0000-0000-000000000001", id="00000000-0000-0000-0000-000000000002"
-            )
+            ),
+            MagicMock(id=7),
         )
 
         response = canvas_artifact(RequestFactory().get("/"), token or "", "index.html")
@@ -86,25 +104,18 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         read_bytes.assert_called_once()
 
     @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["key"])
+    @patch("products.canvas.backend.artifacts._minting_user_retains_access", return_value=True)
     @patch("products.canvas.backend.artifacts.object_storage.read_bytes", return_value=b"tampered")
     @patch("products.canvas.backend.artifacts.CanvasBuild")
-    def test_corrupt_stored_artifact_is_not_served(self, canvas_build: MagicMock, _read_bytes: MagicMock) -> None:
-        canvas_build.objects.for_team.return_value.filter.return_value.first.return_value = MagicMock(
-            artifact_object_prefix="canvas_artifact/team_1/canvas/build",
-            manifest={
-                "assets": [
-                    {
-                        "path": "index.html",
-                        "contentHash": hashlib.sha256(b"safe").hexdigest(),
-                        "sizeBytes": len(b"safe"),
-                    }
-                ]
-            },
-        )
+    def test_corrupt_stored_artifact_is_not_served(
+        self, canvas_build: MagicMock, _read_bytes: MagicMock, _retains_access: MagicMock
+    ) -> None:
+        _stub_ready_build(canvas_build, b"safe")
         token = create_canvas_artifact_token(
             MagicMock(
                 team_id=1, canvas_id="00000000-0000-0000-0000-000000000001", id="00000000-0000-0000-0000-000000000002"
-            )
+            ),
+            MagicMock(id=7),
         )
 
         with self.assertRaises(Http404):
@@ -112,7 +123,7 @@ class TestCanvasArtifactTokens(SimpleTestCase):
 
     @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=[])
     def test_artifact_urls_fail_closed_without_signing_keys(self) -> None:
-        self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+        self.assertIsNone(create_canvas_artifact_token(MagicMock(), MagicMock(id=7)))
 
     @override_settings(
         DEBUG=False,
@@ -122,7 +133,7 @@ class TestCanvasArtifactTokens(SimpleTestCase):
     )
     def test_production_artifacts_are_not_served_from_the_application_origin(self) -> None:
         build = MagicMock(team_id=1, canvas_id="canvas", id="build")
-        token = create_canvas_artifact_token(build)
+        token = create_canvas_artifact_token(build, MagicMock(id=7))
 
         with self.assertRaises(Http404):
             canvas_artifact(RequestFactory().get("/", HTTP_HOST="app.example"), token or "", "index.html")
@@ -135,7 +146,7 @@ class TestCanvasArtifactTokens(SimpleTestCase):
     )
     def test_configured_origin_is_enforced_in_debug(self) -> None:
         build = MagicMock(team_id=1, canvas_id="canvas", id="build")
-        token = create_canvas_artifact_token(build)
+        token = create_canvas_artifact_token(build, MagicMock(id=7))
 
         with self.assertRaises(Http404):
             canvas_artifact(RequestFactory().get("/", HTTP_HOST="app.example"), token or "", "index.html")
@@ -149,12 +160,12 @@ class TestCanvasArtifactTokens(SimpleTestCase):
     def test_production_token_requires_a_valid_origin_and_key(self) -> None:
         # A too-short primary key is refused in production (fail closed).
         with override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["too-short"]):
-            self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+            self.assertIsNone(create_canvas_artifact_token(MagicMock(), MagicMock(id=7)))
         # A misconfigured origin (non-https, or carrying a path/credentials) is refused.
         with override_settings(CANVAS_ARTIFACT_ORIGIN="http://usercontent.example"):
-            self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+            self.assertIsNone(create_canvas_artifact_token(MagicMock(), MagicMock(id=7)))
         with override_settings(CANVAS_ARTIFACT_ORIGIN="https://usercontent.example/path"):
-            self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+            self.assertIsNone(create_canvas_artifact_token(MagicMock(), MagicMock(id=7)))
 
     @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["a-signing-key-at-least-32-bytes-long"])
     def test_artifact_urls_are_stable_across_token_buckets(self) -> None:
@@ -164,11 +175,12 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         build = MagicMock(
             team_id=1, canvas_id="00000000-0000-0000-0000-000000000001", id="00000000-0000-0000-0000-000000000002"
         )
+        user = MagicMock(id=7)
         now = time.time()
         with patch("products.canvas.backend.artifacts.time.time", return_value=now):
-            first = create_canvas_artifact_url(build, "index.html")
+            first = create_canvas_artifact_url(build, "index.html", user)
         with patch("products.canvas.backend.artifacts.time.time", return_value=now + 3 * 3600):
-            second = create_canvas_artifact_url(build, "index.html")
+            second = create_canvas_artifact_url(build, "index.html", user)
             token = (second or "").split("/canvas-artifacts/")[1].split("/")[0]
             claims = _read_token(token)
 
@@ -197,9 +209,45 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         build = MagicMock(
             team_id=1, canvas_id="00000000-0000-0000-0000-000000000001", id="00000000-0000-0000-0000-000000000002"
         )
-        url = create_canvas_artifact_url(build, "index.html")
+        url = create_canvas_artifact_url(build, "index.html", MagicMock(id=7))
         self.assertIsNotNone(url)
         token = (url or "").split("/canvas-artifacts/")[1].split("/")[0]
         claims = _read_token(token)
         self.assertEqual(claims["team_id"], 1)
         self.assertEqual(claims["canvas_id"], "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(claims["user_id"], 7)
+
+    @parameterized.expand([("missing", {}), ("boolean", {"user_id": True}), ("string", {"user_id": "7"})])
+    @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["a-signing-key-at-least-32-bytes-long"])
+    @patch("products.canvas.backend.artifacts.object_storage.read_bytes", return_value=b"body")
+    @patch("products.canvas.backend.artifacts.CanvasBuild")
+    def test_stable_tokens_require_a_user_binding(
+        self, _name: str, claim_overrides: dict, canvas_build: MagicMock, _read_bytes: MagicMock
+    ) -> None:
+        # A bucket-less token never expires, so one that names no user would be
+        # an anonymous forever-credential that no revocation can reach.
+        _stub_ready_build(canvas_build, b"body")
+        token = signing.Signer(key="a-signing-key-at-least-32-bytes-long", salt=ARTIFACT_TOKEN_SALT).sign_object(
+            _claims(**claim_overrides), compress=True
+        )
+
+        with self.assertRaises(Http404):
+            canvas_artifact(RequestFactory().get("/"), token, "index.html")
+
+    @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["a-signing-key-at-least-32-bytes-long"])
+    @patch("products.canvas.backend.artifacts.object_storage.read_bytes", return_value=b"body")
+    @patch("products.canvas.backend.artifacts.CanvasBuild")
+    def test_bucketed_tokens_serve_without_a_user_binding(
+        self, canvas_build: MagicMock, _read_bytes: MagicMock
+    ) -> None:
+        # A bucketed token carries no user binding; inside its window it must
+        # keep serving so URLs already held by open clients keep working.
+        _stub_ready_build(canvas_build, b"body")
+        token = signing.Signer(key="a-signing-key-at-least-32-bytes-long", salt=ARTIFACT_TOKEN_SALT).sign_object(
+            _claims(bucket=int(time.time() // 3600)), compress=True
+        )
+
+        response = canvas_artifact(RequestFactory().get("/"), token, "index.html")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"body")

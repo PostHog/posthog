@@ -950,7 +950,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except CanvasSourceVersion.DoesNotExist:
             return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
         self._report_canvas_action("canvas reverted", canvas, version_id=str(payload.validated_data["version_id"]))
-        return Response(CanvasBuildSerializer(build).data)
+        return Response(CanvasBuildSerializer(build, context={"request": request}).data)
 
     @extend_schema(
         operation_id="canvases_builds_retrieve",
@@ -999,7 +999,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response = {
             "published_build_id": str(canvas.published_build_id) if canvas.published_build_id else None,
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
-            "builds": CanvasBuildSerializer(builds, many=True).data,
+            "builds": CanvasBuildSerializer(builds, many=True, context={"request": request}).data,
         }
         return Response(response)
 
@@ -1348,7 +1348,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ),
             ),
         )
-        return Response(CanvasBuildSerializer(build).data)
+        return Response(CanvasBuildSerializer(build, context={"request": request}).data)
 
     @extend_schema(
         operation_id="canvases_report_error_create",
