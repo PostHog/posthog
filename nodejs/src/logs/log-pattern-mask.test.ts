@@ -25,6 +25,15 @@ describe('log-pattern-mask', () => {
             ['timestamp is not shredded by num', '2026-08-24T10:20:45Z', '<TIMESTAMP>'],
             ['ip octets are not eaten by num', 'peer 192.168.0.1:8080 up', 'peer <IP>:<N> up'],
             ['email starting with digits is not mangled by num', '99bottles@example.com sent', '<EMAIL> sent'],
+            ['email domain is not claimed by host', 'user@example.com sent', '<EMAIL> sent'],
+            ['hex-looking labels are claimed by host, not hex', 'from deadbeefdeadbeef.com now', 'from <HOST> now'],
+            ['dotted quad stays an ip, not a host', 'from 10.0.0.1 now', 'from <IP> now'],
+            ['host in a url masks whole', 'GET https://api.example.io/v2/users', 'GET https://<HOST>/v2/users'],
+            [
+                'multi-label internal host masks whole',
+                'dial capture.posthog.svc.cluster.local failed',
+                'dial <HOST> failed',
+            ],
         ])('ordering: %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
@@ -38,9 +47,9 @@ describe('log-pattern-mask', () => {
         })
 
         it('counts fires per rule', () => {
-            const { ruleFires } = maskString('a@example.com b@example.com from 10.0.0.1 in 12ms')
+            const { ruleFires } = maskString('a@example.com b@example.com via api.example.net from 10.0.0.1 in 12ms')
             const byName = Object.fromEntries(MASK_RULES.map((rule, i) => [rule.name, ruleFires[i]]))
-            expect(byName).toEqual({ timestamp: 0, uuid: 0, email: 2, hex0x: 0, hex: 0, ipv4: 1, num: 1 })
+            expect(byName).toEqual({ timestamp: 0, uuid: 0, email: 2, host: 1, hex0x: 0, hex: 0, ipv4: 1, num: 1 })
         })
     })
 
@@ -68,7 +77,7 @@ describe('log-pattern-mask', () => {
             const body = JSON.stringify({ message: 'x'.repeat(100) })
             const result = computeLogPattern(body, 20, NO_CAP)
             expect(result.inputCapped).toEqual(true)
-            expect(result.bodyKind).toEqual('invalid_json')
+            expect(result.bodyKind).toEqual('plaintext')
             expect(result.pattern).toEqual(body.slice(0, 20))
         })
 
@@ -88,7 +97,7 @@ describe('log-pattern-mask', () => {
             ['json array', '[1,2]', 'json_object_or_array', JSON_ARRAY],
             ['json string', '"quoted 7"', 'json_string', 'quoted <N>'],
             ['json number primitive', '42', 'primitive', '<N>'],
-            ['prose body', 'plain text 3', 'invalid_json', 'plain text <N>'],
+            ['prose body', 'plain text 3', 'plaintext', 'plain text <N>'],
         ])('body kind %s', (_name, body, expectedKind, expectedPattern) => {
             const result = computeLogPattern(body, NO_CAP, NO_CAP)
             expect(result.bodyKind).toEqual(expectedKind)
@@ -141,7 +150,7 @@ describe('log-pattern-mask', () => {
                 .update(MASK_RULES.map((rule) => `${rule.name}\0${rule.pattern}\0${rule.replacement}`).join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
-            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 1, digest: 'd8b059c25a24983d' })
+            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 2, digest: 'cf5d13fd81dbf547' })
         })
     })
 
