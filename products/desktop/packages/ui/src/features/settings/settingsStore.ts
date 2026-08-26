@@ -280,8 +280,6 @@ interface SettingsStore {
   // sessions, cloud covers cloud runs.
   rtkEnabledLocal: boolean;
   rtkEnabledCloud: boolean;
-  // How local Codex sessions authenticate: the PostHog gateway (default) or
-  // the user's own ChatGPT subscription, signed in through Codex's own flow.
   codexModelAccess: CodexModelAccess;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;

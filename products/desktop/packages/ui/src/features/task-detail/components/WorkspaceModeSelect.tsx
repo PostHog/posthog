@@ -1,4 +1,11 @@
-import { ArrowsSplit, Cloud, Cube, Laptop, Plus } from "@phosphor-icons/react";
+import {
+  ArrowsSplit,
+  Cloud,
+  Cube,
+  Gear,
+  Laptop,
+  Plus,
+} from "@phosphor-icons/react";
 import {
   Button,
   DropdownMenu,
@@ -13,9 +20,14 @@ import {
   ItemMenuItem,
   ItemTitle,
   MenuLabel,
+  Switch,
 } from "@posthog/quill";
-import type { WorkspaceMode } from "@posthog/shared";
+import type { Adapter, WorkspaceMode } from "@posthog/shared";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  shouldShowCodexSubscriptionControls,
+  useCodexSubscription,
+} from "@posthog/ui/features/settings/useCodexSubscription";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useMemo, useState } from "react";
 import { useSandboxCustomImages } from "../../settings/sections/environments/useSandboxCustomImages";
@@ -30,6 +42,7 @@ interface WorkspaceModeSelectProps {
   size?: "1" | "2";
   disabled?: boolean;
   overrideModes?: WorkspaceMode[];
+  adapter?: Adapter;
   selectedCloudEnvironmentId?: string | null;
   onCloudEnvironmentChange?: (envId: string | null) => void;
   selectedCustomImageId?: string | null;
@@ -63,6 +76,7 @@ export function WorkspaceModeSelect({
   onChange,
   disabled,
   overrideModes,
+  adapter,
   selectedCloudEnvironmentId,
   onCloudEnvironmentChange,
   selectedCustomImageId,
@@ -70,6 +84,7 @@ export function WorkspaceModeSelect({
 }: WorkspaceModeSelectProps) {
   const { localWorkspaces } = useHostCapabilities();
   const cloudModeEnabled = useCloudModeEnabled();
+  const codexSubscription = useCodexSubscription();
 
   const { environments } = useSandboxEnvironments();
   const { images, customImagesEnabled } = useSandboxCustomImages();
@@ -173,6 +188,47 @@ export function WorkspaceModeSelect({
             />
           ))}
         </DropdownMenuGroup>
+
+        {localModes.length > 0 &&
+          shouldShowCodexSubscriptionControls({
+            flagEnabled: codexSubscription.flagEnabled,
+            adapter,
+            status: codexSubscription.status,
+            subscriptionOn: codexSubscription.subscriptionOn,
+          }) && (
+            <div
+              className="flex items-center gap-2 px-2 py-1.5"
+              title="Uses your own plan for Worktree and Local runs. Cloud tasks always use PostHog credits."
+            >
+              <span className="text-[12px] text-muted-foreground">
+                Use your subscription
+              </span>
+              <span className="flex-1" />
+              {codexSubscription.needsConnection && (
+                <span className="text-(--amber-11) text-[11px]">
+                  Not connected
+                </span>
+              )}
+              <Switch
+                size="sm"
+                checked={codexSubscription.subscriptionOn}
+                onCheckedChange={(checked) =>
+                  codexSubscription.setSubscriptionOn(checked === true)
+                }
+              />
+              <Button
+                variant="link-muted"
+                size="icon-xs"
+                aria-label="Subscription settings"
+                onClick={() => {
+                  setMenuOpen(false);
+                  openSettings("harness");
+                }}
+              >
+                <Gear size={13} />
+              </Button>
+            </div>
+          )}
 
         {showCloud && environments.length === 0 && (
           <DropdownMenuItem

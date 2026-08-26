@@ -22,11 +22,7 @@ export interface CodexLoginSession {
   cancel: () => void;
 }
 
-/**
- * Polls `account/read` until codex reports a signed-in account. Polling is the
- * completion signal (rather than a login notification) because it reads the
- * authoritative auth state and survives protocol renames across codex versions.
- */
+// Polls account/read because it is the authoritative auth state across codex versions.
 export async function waitForCodexAccount(
   rpc: AppServerRpc,
   options: {
@@ -55,12 +51,7 @@ export async function waitForCodexAccount(
   return false;
 }
 
-/**
- * Runs Codex's own ChatGPT sign-in inside the given CODEX_HOME. The spawned
- * app-server hosts the OAuth callback, so it must stay alive until `completed`
- * settles. Tokens land in `<codexHome>/auth.json` (the spawn pins the file
- * credential store), so the login persists across app restarts.
- */
+// The spawned app-server hosts the OAuth callback, so it must live until `completed` settles.
 export async function startCodexChatgptLogin(options: {
   binaryPath: string;
   codexHome: string;

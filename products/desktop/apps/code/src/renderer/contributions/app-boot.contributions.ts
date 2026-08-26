@@ -1,4 +1,5 @@
 import type { Contribution } from "@posthog/di/contribution";
+import { registerCodexSubscriptionAtBoot } from "@posthog/ui/features/settings/useCodexSubscription";
 import {
   initializePostHog,
   registerAppVersion,
@@ -32,6 +33,15 @@ export class AnalyticsBootContribution implements Contribution {
         registerHostInfo(await trpcClient.os.getHostInfo.query());
       } catch (error) {
         log.warn("Failed to register host info super properties", { error });
+      }
+      try {
+        await registerCodexSubscriptionAtBoot(() =>
+          trpcClient.agent.codexSubscriptionStatus.query(),
+        );
+      } catch (error) {
+        log.warn("Failed to register codex subscription super properties", {
+          error,
+        });
       }
     })();
   }

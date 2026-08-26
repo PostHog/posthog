@@ -538,11 +538,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     });
   }
 
-  /**
-   * Starts Codex's own ChatGPT sign-in inside the app's subscription
-   * CODEX_HOME and returns the OAuth URL for the renderer to open. Completion
-   * is observable through getCodexSubscriptionStatus().appLoggedIn.
-   */
+  /** Runs Codex's own ChatGPT sign-in; completion surfaces via getCodexSubscriptionStatus. */
   async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
     this.codexLogin?.cancel();
     const codexHome = getCodexSubscriptionHomeDir(
@@ -992,9 +988,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         "skills",
       );
 
-      // Own-subscription only applies once a ChatGPT login is stored in the
-      // app's subscription home; otherwise the session stays on the gateway
-      // so it still runs. Never falls back to the user's own ~/.codex.
+      // Falls back to the gateway when no login is stored; never to ~/.codex.
       let codexSubscription =
         adapter === "codex" &&
         config.codexModelAccess === "own-subscription" &&
@@ -1018,8 +1012,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           this.log.warn("Failed to prepare codex home", {
             error: err instanceof Error ? err.message : String(err),
           });
-          // Without the subscription home, codex would read ~/.codex and race
-          // the user's own CLI login — run on the gateway instead.
+          // Without the subscription home, codex would read the user's ~/.codex.
           codexSubscription = false;
         }
       }

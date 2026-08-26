@@ -24,12 +24,7 @@ export function getCodexHomeDir(
   return path.join(appDataPath, "codex-home", taskRunId);
 }
 
-/**
- * The persistent CODEX_HOME for own-subscription Codex sessions. One directory
- * per install (not per run), so the user's ChatGPT login done through Codex's
- * own flow survives across sessions and app restarts. Never deleted by
- * session cleanup.
- */
+/** Persistent CODEX_HOME holding the user's own ChatGPT login; never deleted by session cleanup. */
 export function getCodexSubscriptionHomeDir(appDataPath: string): string {
   return path.join(appDataPath, "codex-home-subscription");
 }
@@ -65,9 +60,7 @@ export async function cleanupCodexHome(
  */
 export async function prepareCodexHome(options: {
   appDataPath: string;
-  /** Required for per-run homes; ignored when `subscription` is true. */
   taskRunId?: string;
-  /** Build the persistent subscription home instead of a per-run one. */
   subscription?: boolean;
   bundledSkillsDir: string;
   log: AgentScopedLogger;

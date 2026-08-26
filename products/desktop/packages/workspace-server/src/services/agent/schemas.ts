@@ -70,11 +70,7 @@ export const startSessionInput = z.object({
   autoProgress: z.boolean().optional(),
   runMode: z.enum(["local", "cloud"]).optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
-  /**
-   * Codex-only. "own-subscription" runs the session on the user's own ChatGPT
-   * login instead of the PostHog gateway. Falls back to the gateway when no
-   * login is stored. Absent means gateway.
-   */
+  /** Codex-only. "own-subscription" runs on the user's own ChatGPT login; absent means gateway. */
   codexModelAccess: codexModelAccessSchema.optional(),
   additionalDirectories: z.array(z.string()).optional(),
   customInstructions: customInstructionsField,
@@ -295,16 +291,12 @@ export const rtkStatusOutput = z.object({
 
 export type RtkStatus = z.infer<typeof rtkStatusOutput>;
 
-/**
- * Whether this host can run Codex on the user's own ChatGPT subscription.
- * All fields come from existence checks; no credential is ever read.
- */
+/** All fields come from existence checks; no credential is ever read. */
 export const codexSubscriptionStatusOutput = z.object({
-  /** A `codex` binary is on the user's PATH. */
   cliInstalled: z.boolean(),
-  /** `~/.codex/auth.json` exists (the user signed into their own Codex CLI). */
+  /** `~/.codex/auth.json` exists on the host. */
   credentialFilePresent: z.boolean(),
-  /** The app's subscription CODEX_HOME holds a completed ChatGPT login. */
+  /** The app's own subscription CODEX_HOME holds a completed ChatGPT login. */
   appLoggedIn: z.boolean(),
 });
 

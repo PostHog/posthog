@@ -2,12 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CodexSubscriptionStatus } from "./schemas";
 
-/**
- * Detects whether this host can run Codex on the user's own ChatGPT
- * subscription. Existence checks only: the user's `~/.codex/auth.json` is
- * never opened, parsed, or copied — the sign-in for PostHog sessions runs
- * through Codex's own login flow into the app's subscription CODEX_HOME.
- */
+// Existence checks only; the user's ~/.codex/auth.json is never opened or copied.
 export function detectCodexSubscriptionStatus(input: {
   env: NodeJS.ProcessEnv;
   homeDir: string;
@@ -23,12 +18,11 @@ export function detectCodexSubscriptionStatus(input: {
   };
 }
 
-/** Whether the app's subscription CODEX_HOME holds a completed ChatGPT login. */
 export function hasSubscriptionLogin(subscriptionHomeDir: string): boolean {
   return fs.existsSync(path.join(subscriptionHomeDir, "auth.json"));
 }
 
-/** Removes the app's own stored login. Never touches the user's `~/.codex`. */
+// Removes only the app's own stored login, never the user's ~/.codex.
 export async function clearSubscriptionLogin(
   subscriptionHomeDir: string,
 ): Promise<void> {

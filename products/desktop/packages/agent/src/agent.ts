@@ -127,8 +127,6 @@ export class Agent {
         ? options.model
         : undefined;
     if (codexSubscription) {
-      // No gateway model list applies; codex's own model/list drives the
-      // picker. A non-OpenAI id here is the host's gateway default leaking in.
       const looksOpenAi =
         sanitizedModel?.startsWith("gpt-") ||
         sanitizedModel?.startsWith("openai/") ||
@@ -208,8 +206,7 @@ export class Agent {
         options.adapter === "codex" && (codexSubscription || gatewayConfig)
           ? {
               cwd: options.repositoryPath,
-              // Without gateway config, spawn.ts emits no model_provider and
-              // codex authenticates with its own login from CODEX_HOME.
+              // No gateway config means codex authenticates from CODEX_HOME.
               ...(!codexSubscription && gatewayConfig
                 ? {
                     apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,

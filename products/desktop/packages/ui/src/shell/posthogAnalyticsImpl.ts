@@ -33,9 +33,15 @@ export type HostInfoProperties = { platform: string; arch: string };
 
 let isInitialized = false;
 
+export type CodexSubscriptionState = {
+  access: "posthog-gateway" | "own-subscription";
+  connected: boolean;
+};
+
 // Cached so it can be re-applied after posthog.reset() clears super properties.
 let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
+let registeredCodexSubscription: CodexSubscriptionState | null = null;
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
 function registerPersistentSuperProperties() {
@@ -47,6 +53,9 @@ function registerPersistentSuperProperties() {
     ...(registeredHostInfo !== null
       ? hostInfoProperties(registeredHostInfo)
       : {}),
+    ...(registeredCodexSubscription !== null
+      ? codexSubscriptionProperties(registeredCodexSubscription)
+      : {}),
   });
 }
 
@@ -55,6 +64,30 @@ function hostInfoProperties({ platform, arch }: HostInfoProperties): {
   os_arch: string;
 } {
   return { os_platform: platform, os_arch: arch };
+}
+
+function codexSubscriptionProperties({
+  access,
+  connected,
+}: CodexSubscriptionState): {
+  codex_model_access: string;
+  codex_subscription_connected: boolean;
+} {
+  return {
+    codex_model_access: access,
+    codex_subscription_connected: connected,
+  };
+}
+
+// Registered as super properties so every event carries the subscription state.
+export function registerCodexSubscription(state: CodexSubscriptionState) {
+  registeredCodexSubscription = state;
+
+  if (!isInitialized) {
+    return;
+  }
+
+  posthog.register(codexSubscriptionProperties(state));
 }
 
 type PendingFlagListener = {
