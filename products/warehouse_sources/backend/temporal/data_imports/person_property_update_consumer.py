@@ -1,28 +1,33 @@
-"""Throttling consumer for warehouse -> person-property $set intents.
+"""Throttling consumer for warehouse -> person/group property update intents.
 
-Drains ``KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES`` and sends each as a ``$set`` through
-capture-internal, at a global rate (a constance setting ops can retune live). The rate is enforced
-by the shared, Redis-backed outbound egress limiter, so the budget holds across every replica at
-once — the consumer can run many pods without multiplying the send rate. Kafka lag is the
-backpressure: when the budget is spent the send blocks (the message stays on the topic) until a
-slot frees. Offsets commit only after a successful send; permanently-rejected (poison) messages go
-to a DLQ so they can't wedge a partition.
+Drains ``KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES`` at a global rate (a constance setting ops can
+retune live). Person messages are sent as a ``$set`` through capture-internal. Group messages are
+written straight onto the group (personhog + ClickHouse), mirroring the groups API — they must not
+go through capture, because ingestion drops a ``$groupidentify`` sent with
+``process_person_profile=false`` before it ever reaches the group. The rate is enforced by the
+shared, Redis-backed outbound egress limiter, so the budget holds across every replica at once —
+the consumer can run many pods without multiplying the send rate. Kafka lag is the backpressure:
+when the budget is spent the send blocks (the message stays on the topic) until a slot frees.
+Offsets commit only after a successful send; permanently-rejected (poison) messages go to a DLQ so
+they can't wedge a partition.
 
-The rate gate and the message->capture mapping are the tested seams; the Kafka loop, the capture
-call, and the distributed limiter are the boundaries.
+The rate gate and the message mappings are the tested seams; the Kafka loop, the capture call, the
+group write, and the distributed limiter are the boundaries.
 """
 
 import json
 import time
 import signal
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 
 import structlog
 from prometheus_client import Counter
 
+from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.outbound import OutboundRateLimiter
 from posthog.egress.limiter.policies import RatePolicy, register_policy
 from posthog.kafka_client import helper
@@ -32,6 +37,8 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES,
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
 )
+from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.group.util import create_group, get_group_by_key, raw_create_group_ch, save_group
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import CONSTANCE_CONFIG
 
@@ -52,7 +59,7 @@ _IN_MEMORY_DIVIDER = 6
 
 SENT_TOTAL = Counter(
     "warehouse_person_property_sent_total",
-    "person-property update events sent to capture ($set for persons, $groupidentify for groups)",
+    "property updates delivered ($set via capture for persons, direct group writes for groups)",
     labelnames=["kind"],
 )
 DLQ_TOTAL = Counter(
@@ -114,49 +121,86 @@ def _rate_policy(_key: str) -> RatePolicy:
 register_policy(_RATE_DOMAIN, _rate_policy)
 
 
-def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
-    """Map a topic message to capture_internal kwargs. Person messages become a `$set`; group messages
-    (``kind == "group"``) become a `$groupidentify` carrying `$group_type`/`$group_key`/`$group_set`.
-    Raises InvalidPersonPropertyMessage for a shape that can never succeed."""
-    token = payload.get("token")
-    distinct_id = payload.get("distinct_id")
+def _validated_properties(payload: dict[str, Any]) -> dict[str, Any]:
     properties = payload.get("properties")
-    if not token or not distinct_id:
-        raise InvalidPersonPropertyMessage("message missing token or distinct_id")
     if not isinstance(properties, dict) or not properties:
         raise InvalidPersonPropertyMessage("message has no properties to set")
-    # Non-finite floats (NaN/Infinity) survive json.loads but serialize to non-compliant JSON that
-    # the capture transport rejects as an unaccounted (non-terminal) failure, which would otherwise
-    # retry forever and wedge the partition. They can never succeed, so treat them as poison -> DLQ.
+    # Non-finite floats (NaN/Infinity) survive json.loads but serialize to non-compliant JSON —
+    # capture rejects it as an unaccounted (non-terminal) failure, and the group write would hand
+    # ClickHouse an unparseable properties blob. They can never succeed, so poison -> DLQ.
     try:
         json.dumps(properties, allow_nan=False)
     except ValueError as exc:
         raise InvalidPersonPropertyMessage("message has non-finite property values") from exc
+    return properties
 
-    event_source = payload.get("event_source") or EVENT_SOURCE
-    if payload.get("kind") == "group":
-        group_type = payload.get("group_type")
-        group_key = payload.get("group_key")
-        if not group_type or not group_key:
-            raise InvalidPersonPropertyMessage("group message missing group_type or group_key")
-        # Mirror the canonical group-identify write (ee/clickhouse/views/groups.py::trigger_group_identify):
-        # distinct_id is the team-uuid placeholder, group type is the name, process_person_profile=False.
-        return {
-            "token": token,
-            "event_name": "$groupidentify",
-            "event_source": event_source,
-            "distinct_id": str(distinct_id),
-            "properties": {"$group_type": group_type, "$group_key": str(group_key), "$group_set": properties},
-            "process_person_profile": False,
-        }
+
+def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
+    """Map a person topic message to capture_internal kwargs for a `$set`. Raises
+    InvalidPersonPropertyMessage for a shape that can never succeed."""
+    token = payload.get("token")
+    distinct_id = payload.get("distinct_id")
+    if not token or not distinct_id:
+        raise InvalidPersonPropertyMessage("message missing token or distinct_id")
+    properties = _validated_properties(payload)
     return {
         "token": token,
         "event_name": "$set",
-        "event_source": event_source,
+        "event_source": payload.get("event_source") or EVENT_SOURCE,
         "distinct_id": str(distinct_id),
         "properties": {"$set": properties},
         "process_person_profile": True,
     }
+
+
+@frozen
+class GroupPropertyUpdate:
+    team_id: int
+    group_type_index: GroupTypeIndex
+    group_key: str
+    properties: dict[str, Any]
+
+
+def build_group_update(payload: dict[str, Any]) -> GroupPropertyUpdate:
+    """Map a group topic message (``kind == "group"``) to a direct group-property write. Raises
+    InvalidPersonPropertyMessage for a shape that can never succeed."""
+    team_id = payload.get("team_id")
+    group_type_index = payload.get("group_type_index")
+    group_key = payload.get("group_key")
+    if not isinstance(team_id, int):
+        raise InvalidPersonPropertyMessage("group message missing team_id")
+    if not isinstance(group_type_index, int) or not 0 <= group_type_index < GROUP_TYPES_LIMIT:
+        raise InvalidPersonPropertyMessage("group message missing group_type_index")
+    if group_key is None or group_key == "":
+        raise InvalidPersonPropertyMessage("group message missing group_key")
+    properties = _validated_properties(payload)
+    return GroupPropertyUpdate(
+        team_id=team_id,
+        group_type_index=cast(GroupTypeIndex, group_type_index),
+        group_key=str(group_key),
+        properties=properties,
+    )
+
+
+def write_group_update(update: GroupPropertyUpdate) -> None:
+    """Write the properties straight onto the group, mirroring the groups API
+    (ee/clickhouse/views/groups.py: create -> create_group, update_property -> save_group +
+    raw_create_group_ch). Capture is the wrong transport for this: ingestion drops any
+    `$groupidentify` whose `$process_person_profile` is false before the group is touched, and the
+    groups API only survives that because it writes directly first and its event is decorative."""
+    group = get_group_by_key(update.team_id, update.group_type_index, update.group_key)
+    if group is None:
+        # The producer only emits intents for groups that exist, so a miss means the group was
+        # deleted since produce time. Create it carrying the synced properties, matching what a
+        # replayed $groupidentify would have done.
+        create_group(update.team_id, update.group_type_index, update.group_key, dict(update.properties))
+        return
+    merged = {**(group.group_properties or {}), **update.properties}
+    if merged == group.group_properties:
+        return
+    group.group_properties = merged
+    save_group(group, operation="warehouse_group_property_sync")
+    raw_create_group_ch(update.team_id, update.group_type_index, update.group_key, merged, group.created_at)
 
 
 # Outcomes of handling one message. "sent" and "dlq" are terminal (commit the offset); "retry"
@@ -184,6 +228,7 @@ class PersonPropertyUpdateConsumer:
         self,
         *,
         capture_fn: Callable[..., Any] | None = None,
+        group_write_fn: Callable[[GroupPropertyUpdate], None] = write_group_update,
         grant_fn: Callable[[], bool] | None = None,
         dlq_producer: Any | None = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -194,6 +239,7 @@ class PersonPropertyUpdateConsumer:
 
             capture_fn = capture_internal
         self._capture = capture_fn
+        self._write_group = group_write_fn
         # The distributed limiter's non-blocking check: True if this send fits the shared budget.
         # Built per process (lazy Redis backend), reused for every message.
         if grant_fn is None:
@@ -277,11 +323,15 @@ class PersonPropertyUpdateConsumer:
         except (ValueError, TypeError):
             return self._dlq(value, "invalid_json")
         # Valid JSON that isn't an object (``[]``, ``"foo"``, ``null``) parses fine but can never map
-        # to a $set; DLQ it instead of letting build_capture_kwargs crash and wedge the partition.
+        # to a property update; DLQ it instead of letting the builders crash and wedge the partition.
         if not isinstance(payload, dict):
             return self._dlq(value, "payload_not_object")
+        is_group = payload.get("kind") == "group"
         try:
-            kwargs = build_capture_kwargs(payload)
+            if is_group:
+                group_update = build_group_update(payload)
+            else:
+                kwargs = build_capture_kwargs(payload)
         except InvalidPersonPropertyMessage as exc:
             return self._dlq(value, str(exc))
 
@@ -290,6 +340,20 @@ class PersonPropertyUpdateConsumer:
         # redelivery rather than sending or dropping it.
         if not self._acquire_slot():
             return RETRY
+
+        if is_group:
+            try:
+                self._write_group(group_update)
+            except Exception:
+                # Group writes talk to personhog and the ClickHouse producer directly; what fails
+                # there is transient (network, DB), so retry in place. Poison shapes were DLQ'd at
+                # parse time.
+                RETRY_TOTAL.inc()
+                logger.exception("person_property_update.group_write_error")
+                return RETRY
+            SENT_TOTAL.labels(kind="group").inc()
+            return SENT
+
         try:
             result = self._capture(**kwargs)
         except Exception as exc:
@@ -305,7 +369,7 @@ class PersonPropertyUpdateConsumer:
             logger.exception("person_property_update.capture_error")
             return RETRY
         if result.succeeded():
-            SENT_TOTAL.labels(kind="group" if kwargs["event_name"] == "$groupidentify" else "person").inc()
+            SENT_TOTAL.labels(kind="person").inc()
             return SENT
         # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
         # validation failure), so it's poison. DLQ it rather than redelivering forever.

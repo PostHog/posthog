@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 
 class Command(BaseCommand):
-    help = "Consume warehouse person-property $set intents and send them to capture, rate-limited."
+    help = "Consume warehouse property-update intents ($set to capture for persons, direct group writes), rate-limited."
 
     def add_arguments(self, parser) -> None:
         parser.add_argument(
