@@ -72,10 +72,9 @@ export function LogsMetricRuleForm({ rule, seed = null, onCancel }: LogsMetricRu
                             value={previewLookback}
                             onChange={(value) => setPreviewLookback(value as LogsFilterPreviewLookback)}
                             options={[
-                                { value: '1h', label: '1h' },
-                                { value: '24h', label: '24h' },
+                                { value: '1h', label: '1h', 'data-attr': 'logs-metric-rule-preview-lookback-1h' },
+                                { value: '24h', label: '24h', 'data-attr': 'logs-metric-rule-preview-lookback-24h' },
                             ]}
-                            data-attr="logs-metric-rule-preview-lookback"
                         />
                     </div>
                     <LogsFilterVolumeSparkline
