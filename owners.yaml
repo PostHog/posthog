@@ -8,6 +8,8 @@ teams:
     # the channel just doesn't match it.
     ai-research:
         slack: '#team-ai-research'
+        # The team keeps bot output out of its own channel, so automation posts here instead.
+        notifications: '#bots-ai-research'
     batch-exports:
         slack: '#team-batch-exports'
     clickhouse:
@@ -18,6 +20,8 @@ teams:
     # Metrics and Traces") absorbed logs, and #team-apm is where it lives.
     logs:
         slack: '#team-apm'
+    platform-ux:
+        slack: '#team-platform-ux'
     team-data-stack:
         slack: '#group-data-stack'
     # PostHog Desktop's channel kept the name it was created under.
@@ -63,16 +67,35 @@ rules:
       owners: team-ai-observability
     - match: '/docs/published/handbook/engineering/developing-locally.md'
       owners: team-devex
+    - match:
+          - '/frontend/src/lib/lemon-ui/'
+          - '/frontend/src/lib/ui/'
+      owners: platform-ux
     - match: '/nodejs/tests/'
       owners: team-ingestion
+    - match: '/packages/quill/'
+      owners: [platform-ux, '@sampennington']
     - match: '/posthog/helpers/email_utils.py'
       owners: team-platform-features
+    - match: '/posthog/test/activity_logging/'
+      owners: team-platform-features
+    - match:
+          - '/posthog/api/test/test_playwright_setup.py'
+          - '/posthog/test/test_startup_import_budget.py'
+      owners: team-devex
     - match: '/posthog/management/commands/find_enum_collisions.py'
       owners: team-devex
     - match: '/posthog/settings/data_warehouse.py'
       owners: team-data-stack
     - match: '/posthog/settings/email.py'
       owners: team-platform-features
+    - match:
+          - '/docs/internal/web-bot-auth-key-directory.md'
+          - '/posthog/settings/web_bot_auth.py'
+          - '/posthog/test/test_web_bot_auth.py'
+          - '/posthog/web_bot_auth.py'
+          - '/posthog/web_bot_auth_keys.py'
+      owners: ai-research
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
     - match: '/services/llm-gateway/'
@@ -82,7 +105,8 @@ rules:
           - '/tools/hogli/'
           - '/tools/owners/'
           - '/tools/phrocs/'
-          - '/tools/pr-approval-agent/'
+      owners: team-devex
+    - match: '/products/stamphog/packages/pr-approval-agent/'
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform

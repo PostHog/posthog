@@ -172,6 +172,7 @@ export interface hogFlowEditorLogicValues {
     highlightedDropzoneNodeId: string | null
     isCopyingNode: boolean
     isMovingNode: boolean
+    isZoomedOutFar: boolean
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -236,41 +237,6 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'delay'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
                                 reason?: string | undefined
                             }
                             created_at?: number | undefined
@@ -408,6 +374,53 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
                                 inputs: Record<
                                     string,
                                     {
@@ -474,6 +487,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -716,6 +732,12 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
@@ -740,6 +762,14 @@ export interface hogFlowEditorLogicActions {
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -840,6 +870,13 @@ export interface hogFlowEditorLogicActions {
                       to: string
                       type: 'branch' | 'continue'
                   }[]
+                  email_sending_rate_limit?:
+                      | {
+                            count: number
+                            period: 'hour' | 'minute'
+                        }
+                      | null
+                      | undefined
                   exit_condition:
                       | 'exit_on_conversion'
                       | 'exit_on_trigger_not_matched'
@@ -855,6 +892,12 @@ export interface hogFlowEditorLogicActions {
                   trigger?:
                       | {
                             type: 'schedule'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
                         }
                       | {
                             filters: {
@@ -882,6 +925,14 @@ export interface hogFlowEditorLogicActions {
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -978,6 +1029,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1030,41 +1084,6 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'delay'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
                                 reason?: string | undefined
                             }
                             created_at?: number | undefined
@@ -1202,6 +1221,53 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
                                 inputs: Record<
                                     string,
                                     {
@@ -1268,6 +1334,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1510,6 +1579,12 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
@@ -1534,6 +1609,14 @@ export interface hogFlowEditorLogicActions {
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -1634,6 +1717,13 @@ export interface hogFlowEditorLogicActions {
                       to: string
                       type: 'branch' | 'continue'
                   }[]
+                  email_sending_rate_limit?:
+                      | {
+                            count: number
+                            period: 'hour' | 'minute'
+                        }
+                      | null
+                      | undefined
                   exit_condition:
                       | 'exit_on_conversion'
                       | 'exit_on_trigger_not_matched'
@@ -1649,6 +1739,12 @@ export interface hogFlowEditorLogicActions {
                   trigger?:
                       | {
                             type: 'schedule'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'slack-message'
                         }
                       | {
                             filters: {
@@ -1676,6 +1772,14 @@ export interface hogFlowEditorLogicActions {
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -1772,6 +1876,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1885,6 +1992,9 @@ export interface hogFlowEditorLogicActions {
     }
     setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
         highlightedDropzoneNodeId: string | null
+    }
+    setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
+        isZoomedOutFar: boolean
     }
     setMode: (mode: HogFlowEditorMode) => {
         mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
@@ -2004,6 +2114,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
         handlePaneClick: true,
+        setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
     reducers(() => ({
         mode: [
@@ -2054,6 +2165,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 startMovingNode: () => true,
                 stopMovingNode: () => false,
+            },
+        ],
+        isZoomedOutFar: [
+            false,
+            {
+                setIsZoomedOutFar: (_, { isZoomedOutFar }) => isZoomedOutFar,
             },
         ],
         movingNodeId: [

@@ -20,12 +20,11 @@ from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     from products.surveys.backend.models import Survey as SurveyModel
@@ -1127,6 +1126,30 @@ class TestEarlyAccessFeature(APIBaseTest):
             "concept",
             "beta",
         )
+
+    @patch("posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change.delay")
+    def test_send_events_for_early_access_feature_stage_change_skips_when_stage_omitted(self, mock_celery_task):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "CeleryTestFeature",
+                "description": "Test firing celery task",
+                "stage": EarlyAccessFeature.Stage.CONCEPT,
+            },
+            format="json",
+        )
+        feature_id = response.json()["id"]
+
+        # A PATCH that only changes the assignee omits stage; it must not read as a move to a null
+        # stage and enqueue a spurious stage-change task.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={"assignee": None},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_celery_task.assert_not_called()
 
     def test_create_early_access_feature_in_specific_folder(self):
         response = self.client.post(

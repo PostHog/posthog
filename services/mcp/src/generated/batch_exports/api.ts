@@ -202,9 +202,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['AwsS3']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -258,9 +257,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['S3Compatible']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -562,9 +560,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['AwsS3']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -618,9 +615,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['S3Compatible']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -901,7 +897,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
             hogql_query: zod
                 .string()
                 .describe(
-                    'HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet.'
+                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
                 ),
         })
         .describe('Typed configuration for the hogql model.'),
@@ -976,7 +972,7 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                'HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet.'
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
             ),
         data_interval_start: zod.iso
             .datetime({ offset: true })

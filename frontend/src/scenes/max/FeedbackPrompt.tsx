@@ -19,6 +19,7 @@ interface FeedbackPromptProps {
     traceId: string | null
 }
 
+// Duplicated for the sandbox runtime in products/posthog_ai/frontend/components/FeedbackPromptDetails.tsx; this copy is deleted with the LangGraph runtime.
 /**
  * Detailed feedback form shown after user clicks "Bad" rating.
  * Allows text feedback submission or escalation to support ticket.
@@ -34,7 +35,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
 
     const submitInFlightRef = useRef(false)
 
-    const { sendSupportRequest, lastSubmittedTicketId, conversationsFlagEnabled } = useValues(supportLogic)
+    const { sendSupportRequest, lastSubmittedTicketId } = useValues(supportLogic)
     const { resetSendSupportRequest } = useActions(supportLogic)
     const { user } = useValues(userLogic)
 
@@ -102,8 +103,6 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
             name: '',
             email: '',
             kind: 'feedback',
-            target_area: 'posthog-ai',
-            severity_level: 'low',
             message: feedbackText,
             ai_conversation_id: conversationId,
             ai_trace_id: traceId,
@@ -121,16 +120,6 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
         const finalMessage = appendTicketMetadata(sendSupportRequest.message, { conversationId, traceId })
         if (!finalMessage) {
             lemonToast.error('Please add a description before creating a ticket.')
-            return
-        }
-
-        // The Zendesk form variant requires the triage fields the kea-forms validator would have
-        // enforced before this direct submit
-        if (
-            !conversationsFlagEnabled &&
-            (!sendSupportRequest.kind || !sendSupportRequest.target_area || !sendSupportRequest.severity_level)
-        ) {
-            lemonToast.error('Please choose a message type, topic, and severity level.')
             return
         }
 

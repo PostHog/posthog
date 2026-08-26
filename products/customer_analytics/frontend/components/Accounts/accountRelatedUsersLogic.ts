@@ -5,12 +5,74 @@ import posthog from 'posthog-js'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { OrganizationMemberType } from '~/types'
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
+import { OrganizationMemberType, Region } from '~/types'
+
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 
 // The account org-members endpoint returns a slim member shape — only id + user are serialized.
-export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user'>
+export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user'> & {
+    region: Region.US | Region.EU
+}
 
 export const PAGE_SIZE = 5
+
+// EU-region orgs have no rows in this region's posthog_user tables; eu_org_members is a
+// materialized DWH pre-join of the EU postgres sync (prod-only, refreshed daily).
+const EU_MEMBERS_VIEW = 'eu_org_members'
+const EU_MEMBERS_LIMIT = 3000
+
+const isExpectedMissingViewError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error ?? '')
+    return (
+        message.includes(EU_MEMBERS_VIEW) &&
+        (message.includes("don't have access to table") || message.includes('Unknown table'))
+    )
+}
+
+const paginateMembers = (
+    members: AccountOrganizationMember[],
+    page: number
+): CountedPaginatedResponse<AccountOrganizationMember> => ({
+    results: members.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    count: members.length,
+})
+
+const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMember[] | null> => {
+    try {
+        const response = (await api.query({
+            kind: NodeKind.HogQLQuery,
+            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+            query: hogql`
+                select user_id, membership_id, first_name, last_name, email, distinct_id
+                from eu_org_members
+                where organization_id = ${externalId}
+                order by joined_at desc
+                limit ${EU_MEMBERS_LIMIT}
+            `,
+        })) as HogQLQueryResponse
+        const rows = (response.results ?? []) as unknown[][]
+        return rows.map((row) => ({
+            id: String(row[1]),
+            user: {
+                id: Number(row[0]),
+                first_name: (row[2] as string | null) ?? '',
+                last_name: (row[3] as string | null) ?? '',
+                email: (row[4] as string | null) ?? '',
+                distinct_id: (row[5] as string | null) ?? '',
+            } as AccountOrganizationMember['user'],
+            region: Region.EU,
+        }))
+    } catch (error) {
+        if (!isExpectedMissingViewError(error)) {
+            posthog.captureException(error as Error, {
+                scope: 'accountRelatedUsersLogic.fetchEuMembers',
+            })
+        }
+        return null
+    }
+}
 
 export interface AccountRelatedUsersLogicProps {
     externalId: string
@@ -34,10 +96,10 @@ export interface accountRelatedUsersLogicActions {
         errorObject?: any
     }
     loadMembersSuccess: (
-        membersResponse: CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>,
+        membersResponse: CountedPaginatedResponse<AccountOrganizationMember>,
         payload?: any
     ) => {
-        membersResponse: CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>
+        membersResponse: CountedPaginatedResponse<AccountOrganizationMember>
         payload?: any
     }
     setPage: (page: number) => {
@@ -73,18 +135,33 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ cache, props, values }) => ({
         membersResponse: [
             null as CountedPaginatedResponse<AccountOrganizationMember> | null,
             {
                 loadMembers: async (_ = null, breakpoint) => {
+                    if (cache.euMembers) {
+                        return paginateMembers(cache.euMembers, values.page)
+                    }
                     try {
                         const response = await api.organizationMembers.listForOrg(props.externalId, {
                             limit: PAGE_SIZE,
                             offset: (values.page - 1) * PAGE_SIZE,
                         })
                         breakpoint()
-                        return response
+                        if (response.count > 0) {
+                            return {
+                                ...response,
+                                results: response.results.map((member) => ({ ...member, region: Region.US })),
+                            }
+                        }
+                        const euMembers = await fetchEuMembers(props.externalId)
+                        breakpoint()
+                        if (euMembers?.length) {
+                            cache.euMembers = euMembers
+                            return paginateMembers(euMembers, values.page)
+                        }
+                        return { ...response, results: [] }
                     } catch (error) {
                         if (!isBreakpoint(error as Error)) {
                             posthog.captureException(error as Error, {

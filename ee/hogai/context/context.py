@@ -24,7 +24,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.event_usage import groups
+from posthog.event_usage import EventSource, groups
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -140,6 +140,26 @@ class AssistantContextManager(AssistantContextMixin):
     @property
     def is_subagent(self) -> bool:
         return (self._config.get("configurable") or {}).get("is_subagent", False)
+
+    @property
+    def event_source(self) -> EventSource:
+        """The surface that asked for this run, for analytics attribution.
+
+        Defaults to `posthog_ai` because most runs are the in-product assistant. Programmatic
+        entry points (the MCP `create_and_query_insight` endpoint) resolve it from the request
+        instead, so an agent's work isn't counted as PostHog AI's.
+
+        Coerced rather than type-checked: configs round-trip through checkpoint serialization,
+        which turns the enum back into a plain string, and `isinstance` would silently reset a
+        recovered run to the default.
+        """
+        event_source = (self._config.get("configurable") or {}).get("event_source")
+        if event_source is None:
+            return EventSource.POSTHOG_AI
+        try:
+            return EventSource(event_source)
+        except ValueError:
+            return EventSource.POSTHOG_AI
 
     def get_billing_context(self) -> MaxBillingContext | None:
         """
@@ -461,6 +481,11 @@ class AssistantContextManager(AssistantContextMixin):
                     "one saying what it shows, so a reader can skim the notebook without opening each block."
                 ),
                 (
+                    "- `<SQLV2 />` and `<PythonV2 />` carry their body in a `code` prop holding the SQL or Python "
+                    "as a string. Only `<Query />` takes a `query` prop holding a query object, so never give a "
+                    "code cell a `query` prop."
+                ),
+                (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "
                     "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "
@@ -502,10 +527,13 @@ class AssistantContextManager(AssistantContextMixin):
         return InsightContext(
             team=self._team,
             user=self._user,
+            event_source=self.event_source,
             query=insight.query,
             name=insight.name,
             description=insight.description,
             insight_id=insight.id,
+            # `MaxInsightContext.id` is a saved insight's short_id
+            insight_short_id=insight.id,
             dashboard_filters=dashboard_filters,
             filters_override=filters_override,
             variables_override=variables_override,

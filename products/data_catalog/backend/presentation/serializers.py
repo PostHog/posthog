@@ -13,6 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
+from ..facade.api import MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
@@ -151,14 +152,23 @@ class MetricSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         extra_kwargs = {
-            "name": {"help_text": "Identifier-safe run handle, unique per team and reserved forever. Write-once."},
+            "name": {
+                "help_text": "Identifier-safe run handle, unique among the team's live metrics. Renaming or "
+                "deleting a metric frees its name for reuse, and anything referencing the old name (SQL over "
+                "information_schema.metrics, run URLs, links) stops resolving."
+            },
             "source_insight_short_id": {
                 "required": False,
                 "help_text": "Create the metric from this insight's query (snapshotted server-side). "
                 "Set to null to unlink. Mutually exclusive with definition.",
             },
             "display_name": {"help_text": "Human-friendly label. Mutable, unlike name."},
-            "description": {"help_text": "What the metric means and how to interpret it."},
+            "description": {
+                "help_text": "What the metric means and what it serves, in 1-3 short sentences: the business "
+                "meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the "
+                "query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+                "max_length": MAX_DESCRIPTION_LENGTH,
+            },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},
             "confidence": {
@@ -181,6 +191,49 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkNamesRequest")
+class MetricBulkNamesRequestSerializer(serializers.Serializer):
+    """Input for the bulk metric actions: the metric names to act on."""
+
+    names = serializers.ListField(
+        child=serializers.CharField(max_length=METRIC_NAME_MAX_LENGTH),
+        allow_empty=False,
+        # `allow_empty` alone doesn't reach the OpenAPI schema; `min_length` emits `minItems: 1`
+        # so generated MCP/Zod clients can't construct an empty batch the API would 400.
+        min_length=1,
+        max_length=api.METRIC_BULK_MAX,
+        help_text=f"Names of the metrics to act on, at most {api.METRIC_BULK_MAX}. Duplicates are collapsed.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkSkip")
+class MetricBulkSkipSerializer(serializers.Serializer):
+    """A metric the bulk action did not act on, and why."""
+
+    name = serializers.CharField(help_text="Name of the metric that was skipped.")
+    reason = serializers.CharField(
+        help_text="Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'."
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkApprove")
+class MetricBulkApproveResponseSerializer(serializers.Serializer):
+    """Outcome of a bulk approve: what changed, and what was left alone."""
+
+    approved = MetricSerializer(many=True, help_text="The metrics that are now approved, freshly serialized.")
+    skipped = MetricBulkSkipSerializer(many=True, help_text="Requested metrics that were not approved, with reasons.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkDelete")
+class MetricBulkDeleteResponseSerializer(serializers.Serializer):
+    """Outcome of a bulk delete: which names are gone, and what was left alone."""
+
+    deleted = serializers.ListField(
+        child=serializers.CharField(), help_text="Names of the metrics that were deleted, now free for reuse."
+    )
+    skipped = MetricBulkSkipSerializer(many=True, help_text="Requested metrics that were not deleted, with reasons.")
 
 
 @extend_schema_serializer(component_name="DataCatalogCertification")

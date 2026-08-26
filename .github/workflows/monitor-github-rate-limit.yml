@@ -115,7 +115,7 @@ jobs:
 
             # Same pattern for the other high-volume App buckets: posthog-tests (CI
             # alerter, migration-risk checks, test-timing), posthog-paths-filter (the
-            # changes jobs across ~22 workflows), and the telemetry app (job-duration
+            # changes jobs across the workflow fleet), and the telemetry app (job-duration
             # emitters). Each is its own 15k/hr bucket, so each gets its own series.
             - name: Mint posthog-tests token
               id: tests-token

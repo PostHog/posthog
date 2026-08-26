@@ -56,6 +56,7 @@ describe("createRuntimeMcpServers", () => {
         env: { POSTHOG_LOCAL_TOOLS_ENABLED: "finish" },
         transport: "stdio",
         lifecycle: "eager",
+        requestTimeoutMs: 300_000,
         directTools: true,
       },
     });
@@ -105,7 +106,14 @@ process.stdin.resume();
       cliPath: hostPath,
       cwd: directory,
       projectTrusted: true,
+      extensions: ["auto-publish"],
       providerOptions: { apiKey: "proxy-key" },
+      enrichment: {
+        apiUrl: "http://127.0.0.1:5678",
+        publicApiUrl: "https://us.posthog.com",
+        projectId: 2,
+        apiKey: "enrichment-proxy-key",
+      },
     });
 
     try {
@@ -114,8 +122,14 @@ process.stdin.resume();
         await expect(readFile(capturePath, "utf8")).resolves.toBe(
           JSON.stringify({
             providerOptions: { apiKey: "proxy-key" },
+            enrichment: {
+              apiUrl: "http://127.0.0.1:5678",
+              publicApiUrl: "https://us.posthog.com",
+              projectId: 2,
+              apiKey: "enrichment-proxy-key",
+            },
             projectTrusted: true,
-            channelMode: false,
+            extensions: ["auto-publish"],
           }),
         );
       });
@@ -125,7 +139,7 @@ process.stdin.resume();
     }
   });
 
-  it("passes channel mode privately and enables Electron's Node mode", async () => {
+  it("passes requested extensions privately and enables Electron's Node mode", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-electron-node-mode-"));
     const hostPath = join(directory, "host.mjs");
     const capturePath = join(directory, "capture.txt");
@@ -138,7 +152,7 @@ const bootstrap = JSON.parse(readFileSync(3, "utf8"));
 closeSync(3);
 writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
   nodeMode: process.env.ELECTRON_RUN_AS_NODE ?? "",
-  channelMode: bootstrap.channelMode,
+  extensions: bootstrap.extensions,
   apiKey: bootstrap.providerOptions.apiKey,
 }));
 process.stdin.resume();
@@ -148,7 +162,7 @@ process.stdin.resume();
       cliPath: hostPath,
       cwd: directory,
       providerOptions: { apiKey: "proxy-key" },
-      channelMode: true,
+      extensions: ["repository-tools"],
     });
 
     try {
@@ -157,7 +171,7 @@ process.stdin.resume();
         await expect(readFile(capturePath, "utf8")).resolves.toBe(
           JSON.stringify({
             nodeMode: "1",
-            channelMode: true,
+            extensions: ["repository-tools"],
             apiKey: "proxy-key",
           }),
         );

@@ -20,10 +20,12 @@ import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { VisionDocsLink } from '../../components/DocsLink'
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type {
     FeedbackThemesApi,
@@ -151,6 +153,7 @@ function SuggestionEvaluationPanel({
     editedSinceTest: boolean
 }): JSX.Element | null {
     const [detailsOpen, setDetailsOpen] = useState(false)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const evaluation = suggestion.evaluation
     if (!evaluation) {
         return null
@@ -215,7 +218,7 @@ function SuggestionEvaluationPanel({
                         {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
                     </>
                 )}
-                <Tooltip title="Only results that ran successfully count against the monthly Replay Vision quota">
+                <Tooltip title="Only results that ran successfully count against the Replay vision quota">
                     <span className="text-muted text-xs">
                         {chargedCount} observation{chargedCount === 1 ? '' : 's'} charged to your quota
                     </span>
@@ -248,13 +251,11 @@ function SuggestionEvaluationPanel({
                                 title: 'Session',
                                 key: 'session',
                                 render: (_, result) => (
-                                    // New tab like the results table links, so reviewers keep their place.
                                     <Link
-                                        to={urls.replaySingle(result.session_id)}
-                                        target="_blank"
-                                        className="font-mono"
+                                        onClick={() => openSessionPlayer({ id: result.session_id })}
+                                        className="font-mono text-xs whitespace-nowrap"
                                     >
-                                        {result.session_id.slice(0, 8)}…
+                                        {result.session_id}
                                     </Link>
                                 ),
                             },
@@ -408,9 +409,9 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                     (ratedCount === 0
                                         ? 'Rate at least one result first'
                                         : quota?.exhausted && quota.credit_limit !== null
-                                          ? `Monthly Replay Vision budget of ${formatCreditCount(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
+                                          ? `Replay vision budget of ${formatCreditCount(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
                                           : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
-                                            ? `Only ${formatCreditCount(quota.remaining)} of budget left this period. Lower the number of results to test.`
+                                            ? `Only ${formatCreditCount(quota.remaining)} of budget left this billing period. Lower the number of results to test.`
                                             : undefined)
                                 }
                                 tooltip="Re-runs the scanner with the suggested prompt against your rated results, so you can see what would change. Each tested result is charged like a normal observation."
@@ -468,7 +469,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, thumbs down first. Costs{' '}
                             {formatCreditCount(plannedTestCredits)}
                             {displayQuota && displayQuota.remaining !== null && displayQuota.credit_limit !== null
-                                ? `, ${formatCreditsRange(displayQuota.remaining, displayQuota.credit_limit)} left this period`
+                                ? `, ${formatCreditsRange(displayQuota.remaining, displayQuota.credit_limit)} left this billing period`
                                 : ''}
                             .
                         </span>
@@ -813,6 +814,7 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
     const logic = scannerCalibrationLogic({ scannerId })
     const { observations, observationsLoading, total, page, ratedFilter, sort } = useValues(logic)
     const { setPage, setRatedFilter, setSort, labelChanged } = useActions(logic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const scannerType = scanner?.scanner_type
 
@@ -920,8 +922,7 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
                     size="small"
                     type="secondary"
                     icon={<IconRewindPlay />}
-                    to={urls.replaySingle(obs.session_id)}
-                    targetBlank
+                    onClick={() => openSessionPlayer({ id: obs.session_id })}
                     className="whitespace-nowrap"
                     data-attr="vision-calibration-view-recording"
                 >
@@ -984,11 +985,19 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
                     nouns={['result', 'results']}
                     emptyState={
                         <div className="p-6 text-center text-muted">
-                            {ratedFilter === 'rated'
-                                ? 'No rated results yet. Rate some under "All" or "Unrated".'
-                                : ratedFilter === 'unrated'
-                                  ? 'No unrated results. Everything has been rated.'
-                                  : "No successful observations to rate yet. They'll appear here once the scanner produces results."}
+                            {ratedFilter === 'rated' ? (
+                                'No rated results yet. Rate some under "All" or "Unrated".'
+                            ) : ratedFilter === 'unrated' ? (
+                                'No unrated results. Everything has been rated.'
+                            ) : (
+                                <>
+                                    No successful observations to rate yet. They'll appear here once the scanner
+                                    produces results.{' '}
+                                    <VisionDocsLink page="calibration" dataAttr="vision-empty-docs-link-calibration">
+                                        Learn how calibration works
+                                    </VisionDocsLink>
+                                </>
+                            )}
                         </div>
                     }
                 />

@@ -1,7 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -26,6 +30,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
 import { biEditorLogic } from './bi/biEditorLogic'
 import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
@@ -171,6 +176,8 @@ function createMockEditor(): any {
         setModel: jest.fn(),
         focus: jest.fn(),
         getModel: () => null,
+        getSelection: () => null,
+        getPosition: () => null,
     }
 }
 
@@ -1063,6 +1070,92 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('Save as metric', () => {
+        const PREFILL = {
+            name: 'monthly_active_users',
+            display_name: 'Monthly active users',
+            description: 'Unique users seen in the last 30 days',
+            unit: 'users',
+        }
+
+        function mountEditor(): void {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+        }
+
+        it('picks up a prefill written by urls.sqlEditor', async () => {
+            mountEditor()
+
+            router.actions.push(urls.sqlEditor({ source: 'metric', metricPrefill: PREFILL }))
+
+            await expectLogic(logic).toDispatchActions(['setMetricPrefill']).toMatchValues({ metricPrefill: PREFILL })
+        })
+
+        it.each([
+            ['a bare string', 'monthly_active_users'],
+            ['an array', ['monthly_active_users']],
+            ['keys the dialog does not accept', { definition: 'SELECT 1', owner: 'me' }],
+            ['non-string values', { name: 42, description: true }],
+        ])('leaves an existing prefill untouched when the param is %s', async (_case, metricPrefill) => {
+            mountEditor()
+            logic.actions.setMetricPrefill(PREFILL)
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', metric_prefill: metricPrefill })
+
+            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ metricPrefill: PREFILL })
+        })
+
+        it('seeds the dialog with the prefill', async () => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            mountEditor()
+            logic.actions.setMetricPrefill(PREFILL)
+
+            logic.actions.saveAsMetric()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual(PREFILL)
+            openForm.mockRestore()
+        })
+
+        it.each([
+            [
+                'posts the optional fields when they are filled in',
+                PREFILL,
+                { display_name: 'Monthly active users', unit: 'users' },
+            ],
+            [
+                'omits the optional fields when they are blank',
+                { ...PREFILL, display_name: '', unit: '' },
+                { display_name: undefined, unit: undefined },
+            ],
+        ])('%s', async (_case, fields, expectedOptionalFields) => {
+            let createBody: Record<string, any> | undefined
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
+                        createBody = (await request.json()) as Record<string, any>
+                        return [200, { name: fields.name }]
+                    },
+                },
+            })
+            mountEditor()
+            logic.actions.setMetricPrefill(PREFILL)
+            logic.actions.setQueryInput('SELECT count() FROM events')
+
+            logic.actions.saveAsMetricSubmit(fields)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBody).toMatchObject({ name: fields.name, description: fields.description })
+            expect(createBody?.display_name).toEqual(expectedOptionalFields.display_name)
+            expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
+            expect(logic.values.metricPrefill).toBeNull()
+        })
+    })
+
     describe('Update view', () => {
         it('advances the saved baseline after updating so reverting to the original query re-enables Update view', async () => {
             logic = sqlEditorLogic({
@@ -1505,7 +1598,170 @@ describe('sqlEditorLogic', () => {
             values: [],
             filters: [{ field: eventField, operator: 'equals', value: 'signup' }],
             limit: 1000,
+            sort: null,
         }
+        const configEventProperties = {
+            source_kind: 'project_data',
+            chart_type: ChartDisplayType.ActionsBar,
+            row_count: 1,
+            column_count: 0,
+            value_count: 0,
+            filter_count: 1,
+            field_types: ['string'],
+            aggregation_types: [],
+            filter_operator_types: ['equals'],
+            date_bucket_types: [],
+            custom_expression_count: 0,
+            sort_kind: 'auto',
+            sort_direction: null,
+        }
+
+        it('captures BI mode selection and query runs without query contents', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            ;(posthog.capture as jest.Mock).mockClear()
+            biLogic.actions.setEditorView(BIEditorView.SQL)
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.MODE_SELECTED, {
+                mode: BIEditorView.SQL,
+                ...configEventProperties,
+            })
+
+            ;(posthog.capture as jest.Mock).mockClear()
+            biLogic.actions.setEditorView(BIEditorView.BI)
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.MODE_SELECTED, {
+                mode: BIEditorView.BI,
+                ...configEventProperties,
+            })
+
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.runQuery()
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_RUN, configEventProperties)
+
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: false })
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.runQuery()
+            expect(posthog.capture).not.toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_RUN, expect.anything())
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            biLogic.actions.setEditorView(BIEditorView.SQL)
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.runQuery()
+            expect(posthog.capture).not.toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_RUN, expect.anything())
+
+            biLogic.unmount()
+        })
+
+        it('captures a successful BI insight save as an activation outcome', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setDashboardId(99)
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.saveAsInsightSubmit('BI insight')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_SAVED, {
+                save_type: 'insight',
+                operation: 'create',
+                added_to_dashboard: true,
+                ...configEventProperties,
+            })
+
+            createSpy.mockRestore()
+            biLogic.unmount()
+        })
+
+        it('attributes a BI view update to its originating tab', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
+            let resolveFirstViewRequest: () => void = () => {}
+            let markFirstViewRequestStarted: () => void = () => {}
+            const firstViewRequestStarted = new Promise<void>((resolve) => {
+                markFirstViewRequestStarted = resolve
+            })
+            const firstViewRequestPending = new Promise<void>((resolve) => {
+                resolveFirstViewRequest = resolve
+            })
+            let viewRequestCount = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': async () => {
+                        viewRequestCount += 1
+                        if (viewRequestCount === 1) {
+                            markFirstViewRequestStarted()
+                            await firstViewRequestPending
+                        }
+                        return [200, MOCK_VIEW]
+                    },
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW, undefined, undefined, undefined, {
+                editorView: BIEditorView.BI,
+                config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            ;(posthog.capture as jest.Mock).mockClear()
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+            await firstViewRequestStarted
+            logic.actions.updateTab({ ...logic.values.activeTab!, biEditorState: undefined })
+            resolveFirstViewRequest()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(posthog.capture).toHaveBeenCalledWith(BI_EDITOR_EVENTS.QUERY_SAVED, {
+                save_type: 'view',
+                operation: 'update',
+                added_to_dashboard: false,
+                ...configEventProperties,
+            })
+        })
 
         it('offers every sidebar table while excluding hidden PostHog tables', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
@@ -1553,28 +1809,34 @@ describe('sqlEditorLogic', () => {
             logic.mount()
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
+            const persistedConfig: BIConfig = {
+                ...config,
+                chartType: ChartDisplayType.TwoDimensionalHeatmap,
+                limit: 50000,
+            }
+            const restoredConfig: BIConfig = { ...persistedConfig, limit: 1000 }
 
             router.actions.push(urls.sqlEditor(), undefined, {
                 q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
                 mode: BIEditorView.BI,
-                bi: config,
+                bi: persistedConfig,
             })
 
             await expectLogic(logic)
                 .toDispatchActions(['createTab', 'updateTab'])
                 .toMatchValues({
                     activeTab: partial({
-                        biEditorState: { editorView: BIEditorView.BI, config },
+                        biEditorState: { editorView: BIEditorView.BI, config: restoredConfig },
                     }),
                 })
-            await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config })
+            await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config: restoredConfig })
 
             await expectLogic(biLogic, () => biLogic.actions.setFilterValue(0, 'purchase')).toFinishAllListeners()
 
             expect(router.values.hashParams.mode).toEqual(BIEditorView.BI)
             expect(router.values.hashParams.bi).toEqual({
-                ...config,
-                filters: [{ ...config.filters[0], value: 'purchase' }],
+                ...restoredConfig,
+                filters: [{ ...restoredConfig.filters[0], value: 'purchase' }],
             })
 
             biLogic.unmount()
@@ -1608,6 +1870,43 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.bi).toEqual({
                 ...dateConfig,
                 rows: [{ ...timestampField, dateBucket: 'day' }],
+            })
+
+            biLogic.unmount()
+        })
+
+        it('regenerates the query and URL when the result limit changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT event, count(*) FROM events GROUP BY event LIMIT 1000',
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            await expectLogic(biLogic, () => biLogic.actions.setLimit(50000)).toFinishAllListeners()
+
+            expect(logic.values.queryInput).toContain('LIMIT 50000')
+            expect(router.values.hashParams.bi).toEqual({ ...config, limit: 50000 })
+
+            await expectLogic(biLogic, () =>
+                biLogic.actions.setChartType(ChartDisplayType.TwoDimensionalHeatmap)
+            ).toFinishAllListeners()
+
+            expect(biLogic.values.config.limit).toBe(1000)
+            expect(logic.values.queryInput).toContain('LIMIT 1000')
+            expect(router.values.hashParams.bi).toEqual({
+                ...config,
+                chartType: ChartDisplayType.TwoDimensionalHeatmap,
+                limit: 1000,
             })
 
             biLogic.unmount()
@@ -1897,6 +2196,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'Postgres',
                                 access_method: 'direct',
                                 supports_hogql: true,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],
@@ -1966,6 +2266,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'Postgres',
                                 access_method: 'direct',
                                 supports_hogql: true,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],
@@ -2015,6 +2316,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'MSSQL',
                                 access_method: 'direct',
                                 supports_hogql: false,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],
@@ -2555,6 +2857,80 @@ describe('sqlEditorLogic', () => {
             } else {
                 expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
             }
+
+            editorDataNodeLogic.unmount()
+            viewsLogic.unmount()
+        })
+
+        // Regression: dropping the incremental spread from the create payload silently saves the
+        // view as a full refresh even though the user configured incremental in the save dialog.
+        it('sends the incremental config with the created view', async () => {
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 1')
+
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+            })
+            editorDataNodeLogic.mount()
+
+            let createBody: Record<string, any> | undefined
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/': async ({ request }) => {
+                        createBody = (await request.json()) as Record<string, any>
+                        return [
+                            200,
+                            {
+                                id: 'created-view-id',
+                                name: 'Incremental view',
+                                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                                is_materialized: false,
+                                latest_history_id: null,
+                                sync_frequency: null,
+                                status: null,
+                                last_run_at: null,
+                                latest_error: null,
+                            },
+                        ]
+                    },
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': materializeEndpointMock,
+                },
+            })
+
+            const incremental = {
+                enabled: true,
+                incremental_key: 'timestamp',
+                unique_key: ['id'],
+                lookback_seconds: 3600,
+            }
+            logic.actions.saveAsViewSubmit(
+                'Incremental view',
+                true,
+                undefined,
+                undefined,
+                undefined,
+                false,
+                undefined,
+                incremental
+            )
+
+            await expectLogic(viewsLogic).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
+            await expectLogic(viewsLogic).toFinishAllListeners()
+
+            expect(createBody?.incremental).toEqual(incremental)
+            expect(materializeEndpointMock).toHaveBeenCalledTimes(1)
 
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()

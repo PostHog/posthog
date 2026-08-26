@@ -15,17 +15,17 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.facade.models import Insight, InsightViewed
 from products.surveys.backend.models import Survey
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search import EntitySearchContext
-from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account

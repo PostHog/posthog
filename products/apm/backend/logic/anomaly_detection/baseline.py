@@ -179,6 +179,18 @@ def _level_factor(
     return float(np.clip(factor, 1.0 / config.level_factor_clamp, config.level_factor_clamp))
 
 
+def candidate_slice_pad_buckets(config: DetectionConfig) -> int:
+    """Half-width, in buckets, of the widest candidate pool any stage draws
+    around a daily or weekly step from the evaluated bucket.
+
+    A caller fetching sparse history (e.g. a just-in-time scan reading only the
+    time slices baselines can sample) must pad each daily/weekly slice by this
+    much per side to guarantee every position `_candidate_positions` can emit
+    is backed by fetched data.
+    """
+    return max(config.developing_pool_buckets, config.mature_pool_buckets) + _DST_SLACK_BUCKETS
+
+
 def select_baseline(
     history: SeriesHistory,
     index: int,

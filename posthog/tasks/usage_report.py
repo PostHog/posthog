@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
@@ -44,7 +45,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
+from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -98,6 +99,17 @@ CONVERSATIONS_EVENTS = [
     "$conversations_restore_link_requested",
     "$conversations_widget_state_changed",
     "$conversations_back_to_tickets",
+]
+
+BILLABLE_EVENT_EXCLUDED_EVENTS = [
+    "$feature_flag_called",
+    "$experiment_exposure",
+    "survey sent",
+    "survey shown",
+    "survey dismissed",
+    "$exception",
+    *AI_EVENTS,
+    *CONVERSATIONS_EVENTS,
 ]
 
 
@@ -286,6 +298,13 @@ class UsageReportCounters:
 
     # MCP usage overlaps billable event and per-SDK totals.
     mcp_tool_call_events_count_in_period: int
+    mcp_missing_capability_events_count_in_period: int
+    mcp_initialize_events_count_in_period: int
+    mcp_tools_list_events_count_in_period: int
+    mcp_resource_read_events_count_in_period: int
+    mcp_resources_list_events_count_in_period: int
+    mcp_prompt_get_events_count_in_period: int
+    mcp_prompts_list_events_count_in_period: int
 
     # SDK usage (continued)
     openclaw_events_count_in_period: int
@@ -396,22 +415,20 @@ def get_product_name(realm: str, has_license: bool) -> str:
         return "unknown"
 
 
-def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata:
+def get_instance_metadata(period: DayRange) -> InstanceMetadata:
     has_license = False
 
     if settings.EE_AVAILABLE:
         license = get_cached_instance_license()
         has_license = license is not None
 
-    period_start, period_end = period
-
     realm = get_instance_realm()
     metadata = InstanceMetadata(
         deployment_infrastructure=os.getenv("DEPLOYMENT", "unknown"),
         realm=realm,
         period={
-            "start_inclusive": period_start.isoformat(),
-            "end_inclusive": period_end.isoformat(),
+            "start_inclusive": period.start.isoformat(),
+            "end_inclusive": period.end.isoformat(),
         },
         site_url=settings.SITE_URL,
         product=get_product_name(realm, has_license),
@@ -443,7 +460,7 @@ def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata
                     "email": user.email,
                 }
             )
-            for user in User.objects.filter(is_active=True, last_login__gte=period_start, last_login__lte=period_end)
+            for user in User.objects.filter(is_active=True, last_login__gte=period.start, last_login__lte=period.end)
         ]
         metadata.users_who_logged_in_count = len(metadata.users_who_logged_in)
 
@@ -460,8 +477,8 @@ def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata
             )
             for user in User.objects.filter(
                 is_active=True,
-                date_joined__gte=period_start,
-                date_joined__lte=period_end,
+                date_joined__gte=period.start,
+                date_joined__lte=period.end,
             )
         ]
         metadata.users_who_signed_up_count = len(metadata.users_who_signed_up)
@@ -604,7 +621,15 @@ def _execute_calendar_aligned_split_query(
     query_template: str,
     params: dict,
     num_splits: int,
-) -> list[tuple[int, int]]:
+    combine_results_func: Optional[Callable[[list], Any]] = None,
+) -> Any:
+    """Like `_execute_split_query`, but every split boundary lands on midnight.
+
+    A dedup key containing `toDate(timestamp)` only sums correctly across splits when no split
+    cuts a day in half: a duplicate row pair straddling the boundary lands one row in each split
+    and so is deduped by neither. `combine_results_func` mirrors `_execute_split_query`'s — leave
+    it unset for flat `(team_id, count)` rows, pass one when grouping by a second dimension.
+    """
     total_days = (end.date() - begin.date()).days
     split_boundaries = {begin, end}
 
@@ -628,7 +653,9 @@ def _execute_calendar_aligned_split_query(
             )
         )
 
-    return _combine_team_count_results(all_results)
+    if combine_results_func is None:
+        return _combine_team_count_results(all_results)
+    return combine_results_func(all_results)
 
 
 def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
@@ -675,20 +702,6 @@ def get_teams_with_billable_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    # We are excluding $exception events during the beta
-    # We also exclude AI events as they are billed separately through ai_event_count_in_period
-    # We also exclude Conversations widget events generated by our own support widget
-    excluded_events = [
-        "$feature_flag_called",
-        "$experiment_exposure",
-        "survey sent",
-        "survey shown",
-        "survey dismissed",
-        "$exception",
-        *AI_EVENTS,
-        *CONVERSATIONS_EVENTS,
-    ]
-
     # nosemgrep: clickhouse-fstring-param-audit - events table/count expression are internal fragments
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
@@ -699,7 +712,9 @@ def get_teams_with_billable_event_count_in_period(
     """
 
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
-        return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=12)
+        return _execute_split_query(
+            begin, end, query_template, {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS}, num_splits=12
+        )
 
 
 @timed_log()
@@ -718,19 +733,6 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    # We exclude AI events as they are billed separately through ai_event_count_in_period
-    # We also exclude Conversations widget events generated by our own support widget
-    excluded_events = [
-        "$feature_flag_called",
-        "$experiment_exposure",
-        "survey sent",
-        "survey shown",
-        "survey dismissed",
-        "$exception",
-        *AI_EVENTS,
-        *CONVERSATIONS_EVENTS,
-    ]
-
     # nosemgrep: clickhouse-fstring-param-audit - events table/count expression are internal fragments
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
@@ -742,7 +744,9 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     """
 
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
-        return _execute_split_query(begin, end, query_template, {"excluded_events": excluded_events}, num_splits=12)
+        return _execute_split_query(
+            begin, end, query_template, {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS}, num_splits=12
+        )
 
 
 @timed_log()
@@ -823,6 +827,71 @@ def _get_ai_sub_sdk_event_metric_counts(
     return {
         metric_name: list(team_counts.items()) for metric_name, team_counts in ai_counts_by_metric.items()
     }, node_subtractions
+
+
+# MCP Analytics events emitted verbatim by the @posthog/mcp SDK, beyond `$mcp_tool_call` (which
+# has its own dedicated metric/query below and must not be folded in here — see
+# `mcp_tool_call_events` in `get_all_event_metrics_in_period`). Excludes `$exception`/`$identify`
+# (shared with every SDK, would double count) and `$mcp_custom` (a registered constant that's
+# never emitted verbatim, so it would always be zero).
+MCP_ANALYTICS_EVENT_METRICS: dict[str, str] = {
+    "$mcp_missing_capability": "mcp_missing_capability_events",
+    "$mcp_initialize": "mcp_initialize_events",
+    "$mcp_tools_list": "mcp_tools_list_events",
+    "$mcp_resource_read": "mcp_resource_read_events",
+    "$mcp_resources_list": "mcp_resources_list_events",
+    "$mcp_prompt_get": "mcp_prompt_get_events",
+    "$mcp_prompts_list": "mcp_prompts_list_events",
+}
+
+
+def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    """One grouped query for all `MCP_ANALYTICS_EVENT_METRICS`, fanned out in Python.
+
+    Mirrors `_get_ai_sub_sdk_event_metric_counts`'s "one query, group by two dims, fan out"
+    shape, but groups by `event` (not `$ai_lib`).
+
+    Reads `events` directly, matching `mcp_tool_call_events` rather than the
+    `events_read_table(use_new)` the rest of this module uses. The two must agree: every MCP
+    metric shares one dedup expression so the counts stay comparable, and that expression is the
+    legacy `events` ORDER BY key. The JSON table sorts by full-precision `timestamp` and raw
+    `distinct_id`/`uuid` instead, so the same expression does not dedup it equivalently. Moving
+    these metrics onto that table means changing how they dedup, for the whole module at once.
+    """
+    quoted_events = ", ".join(f"'{event}'" for event in MCP_ANALYTICS_EVENT_METRICS)
+    # nosemgrep: clickhouse-fstring-param-audit - event names are internal constants, not user input
+    query_template = f"""
+        SELECT
+            team_id,
+            event,
+            uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
+        FROM events
+        PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE event IN ({quoted_events})
+        GROUP BY team_id, event
+    """
+
+    def combine_mcp_analytics_results(results_list: list) -> dict[str, list[tuple[int, int]]]:
+        counts_by_metric: dict[str, dict[int, int]] = {
+            metric_name: {} for metric_name in MCP_ANALYTICS_EVENT_METRICS.values()
+        }
+        for results in results_list:
+            for team_id, event, count in results:
+                metric_name = MCP_ANALYTICS_EVENT_METRICS.get(event)
+                if metric_name is None:
+                    continue
+                team_counts = counts_by_metric[metric_name]
+                team_counts[team_id] = team_counts.get(team_id, 0) + count
+        return {metric_name: list(team_counts.items()) for metric_name, team_counts in counts_by_metric.items()}
+
+    return _execute_calendar_aligned_split_query(
+        begin=begin,
+        end=end,
+        query_template=query_template,
+        params={},
+        num_splits=12,
+        combine_results_func=combine_mcp_analytics_results,
+    )
 
 
 @timed_log()
@@ -978,6 +1047,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             ai_lib_expression=ai_lib_expression,
             use_new_events_schema=use_new,
         )
+        mcp_analytics_counts_by_metric = _get_mcp_analytics_event_metric_counts(begin=begin, end=end)
 
     # Fold the AI sub-counts in and remove them from node_events (the main scan counts every
     # posthog-node event as node_events). max(0, count) guards against tiny cross-query ingestion jitter.
@@ -985,6 +1055,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         (team_id, max(0, count - node_subtractions.get(team_id, 0))) for team_id, count in metrics["node_events"]
     ]
     metrics.update(ai_counts_by_metric)
+    metrics.update(mcp_analytics_counts_by_metric)
 
     return metrics
 
@@ -1617,6 +1688,7 @@ POSTHOG_AI_PRODUCTS = [
 ]
 
 # ai_product values billed as PostHog Desktop credits.
+UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis",)
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
@@ -1685,6 +1757,13 @@ def _get_teams_with_ai_credits_for_products(
             assert region is not None, "Region must be set in production infrastructure"
         return []
 
+    if region == "DEV":
+        # Hosted DEV has no internal team containing AI billing events.
+        return []
+
+    if region not in CLOUD_REGION_TO_TEAM_ID or region not in CLOUD_REGION_TO_URL:
+        raise ImproperlyConfigured(f"AI credit usage reporting is not configured for CLOUD_DEPLOYMENT={region!r}")
+
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
     region_filter_params = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region])
     if region_filter_params is None:
@@ -1713,6 +1792,9 @@ def _get_teams_with_ai_credits_for_products(
     )
     ai_product_expr, _ = get_property_string_expr(
         "events", "ai_product", "'ai_product'", "properties", use_new_events_schema=use_new
+    )
+    task_origin_expr, _ = get_property_string_expr(
+        "events", "task_origin_product", "'task_origin_product'", "properties", use_new_events_schema=use_new
     )
 
     with tags_context(
@@ -1794,6 +1876,9 @@ def _get_teams_with_ai_credits_for_products(
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
                         AND {ai_product_expr} IN %(ai_products)s
+                        -- PostHog-funded task origins (e.g. task_analysis runs) are never billed
+                        -- to the customer. Events without the property yield '' and pass.
+                        AND {task_origin_expr} NOT IN %(unbilled_task_origins)s
                 )
                 WHERE
                     ai_billable = 1
@@ -1827,6 +1912,7 @@ def _get_teams_with_ai_credits_for_products(
                 "markup_multiplier": 1 + markup_percent,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
                 "ai_products": tuple(ai_products),
+                "unbilled_task_origins": UNBILLED_TASK_ORIGIN_PRODUCTS,
                 **region_filter_params,
             },
             workload=Workload.OFFLINE,
@@ -2763,6 +2849,13 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_web_lite_events_count_in_period": all_metrics["web_lite_events"],
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
         "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
+        "teams_with_mcp_missing_capability_events_count_in_period": all_metrics["mcp_missing_capability_events"],
+        "teams_with_mcp_initialize_events_count_in_period": all_metrics["mcp_initialize_events"],
+        "teams_with_mcp_tools_list_events_count_in_period": all_metrics["mcp_tools_list_events"],
+        "teams_with_mcp_resource_read_events_count_in_period": all_metrics["mcp_resource_read_events"],
+        "teams_with_mcp_resources_list_events_count_in_period": all_metrics["mcp_resources_list_events"],
+        "teams_with_mcp_prompt_get_events_count_in_period": all_metrics["mcp_prompt_get_events"],
+        "teams_with_mcp_prompts_list_events_count_in_period": all_metrics["mcp_prompts_list_events"],
         "teams_with_openclaw_events_count_in_period": all_metrics["openclaw_events"],
         "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
         "teams_with_posthog_ai_events_count_in_period": all_metrics["posthog_ai_events"],
@@ -3155,6 +3248,27 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         mcp_tool_call_events_count_in_period=all_data["teams_with_mcp_tool_call_events_count_in_period"].get(
             team.id, 0
         ),
+        mcp_missing_capability_events_count_in_period=all_data[
+            "teams_with_mcp_missing_capability_events_count_in_period"
+        ].get(team.id, 0),
+        mcp_initialize_events_count_in_period=all_data["teams_with_mcp_initialize_events_count_in_period"].get(
+            team.id, 0
+        ),
+        mcp_tools_list_events_count_in_period=all_data["teams_with_mcp_tools_list_events_count_in_period"].get(
+            team.id, 0
+        ),
+        mcp_resource_read_events_count_in_period=all_data["teams_with_mcp_resource_read_events_count_in_period"].get(
+            team.id, 0
+        ),
+        mcp_resources_list_events_count_in_period=all_data["teams_with_mcp_resources_list_events_count_in_period"].get(
+            team.id, 0
+        ),
+        mcp_prompt_get_events_count_in_period=all_data["teams_with_mcp_prompt_get_events_count_in_period"].get(
+            team.id, 0
+        ),
+        mcp_prompts_list_events_count_in_period=all_data["teams_with_mcp_prompts_list_events_count_in_period"].get(
+            team.id, 0
+        ),
         openclaw_events_count_in_period=all_data["teams_with_openclaw_events_count_in_period"].get(team.id, 0),
         posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
         posthog_ai_events_count_in_period=all_data["teams_with_posthog_ai_events_count_in_period"].get(team.id, 0),
@@ -3267,10 +3381,10 @@ def _add_team_report_to_org_reports(
                 )
 
 
-def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
-    logger.info("Querying all org reports", period_start=period_start, period_end=period_end)
+def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
+    logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
-    all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+    all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
 
     logger.info("Querying all teams")
 
@@ -3284,7 +3398,7 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
 
     for team in teams:
         team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
+        _add_team_report_to_org_reports(org_reports, team, team_report, period.start)
 
     logger.info("Generating org reports complete", org_reports_count=len(org_reports))
 
@@ -3367,7 +3481,6 @@ def send_all_org_usage_reports(
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
-    period_start, period_end = period
 
     instance_metadata = get_instance_metadata(period)
 
@@ -3392,7 +3505,7 @@ def send_all_org_usage_reports(
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
-    org_reports = _get_all_org_reports(period_start, period_end)
+    org_reports = _get_all_org_reports(period=period)
 
     if organization_ids:
         original_count = len(org_reports)
@@ -3477,8 +3590,8 @@ def send_all_org_usage_reports(
         event="usage reports complete",
         properties={
             "total_orgs": total_orgs,
-            "period_start": period_start.isoformat(),
-            "period_end": period_end.isoformat(),
+            "period_start": period.start.isoformat(),
+            "period_end": period.end.isoformat(),
             "total_orgs_sent": total_orgs_sent,
             "query_time": query_time_duration,
             "queue_time": queue_time_duration,

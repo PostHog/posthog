@@ -44,6 +44,7 @@ export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -170,6 +171,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                     ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
+                    ),
             })
             .describe(
                 "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
@@ -244,6 +251,7 @@ export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 50
 export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -372,6 +380,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                     ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
+                    ),
             })
             .describe(
                 "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
@@ -492,6 +506,7 @@ export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -509,6 +524,18 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
         ),
     order_by: zod
         .string()
@@ -534,7 +561,9 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -607,6 +636,7 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Filter by enabled state. Accepts a comma-separated list of `enabled`\/`disabled`.'),
+    experiment_id: zod.string().optional().describe('Filter to scanners whose targeting watches the given experiment.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -623,6 +653,10 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Case-insensitive substring match across name, description, and the prompt in scanner_config.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe('Filter to scanners carrying at least one of the given tags (comma-separated).'),
 })
 
 /**
@@ -640,8 +674,16 @@ export const visionScannersCreateBodyNameMax = 255
 
 export const visionScannersCreateBodyDescriptionMax = 1000
 
+export const visionScannersCreateBodyTagsItemMax = 255
+
+export const visionScannersCreateBodyTagsMax = 32
+
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
+
+export const visionScannersCreateBodyCreditLimitMax = 2147483647
+
+export const visionScannersCreateBodyExperimentTargetingOneVariantMax = 400
 
 export const VisionScannersCreateBody = /* @__PURE__ */ zod
     .object({
@@ -654,6 +696,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .max(visionScannersCreateBodyDescriptionMax)
             .optional()
             .describe('Free-form description shown in the scanner management UI.'),
+        tags: zod
+            .array(zod.string().max(visionScannersCreateBodyTagsItemMax))
+            .max(visionScannersCreateBodyTagsMax)
+            .optional()
+            .describe(
+                "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
+            ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
             .describe(
@@ -688,18 +737,26 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
             ),
+        credit_limit: zod
+            .number()
+            .min(1)
+            .max(visionScannersCreateBodyCreditLimitMax)
+            .nullish()
+            .describe(
+                "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
         provider: zod
             .enum(['google'])
             .describe('\* `google` - Google')
             .optional()
             .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.7-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
             )
             .describe(
-                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
             ),
         enabled: zod
             .boolean()
@@ -712,6 +769,29 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
+            ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant: zod
+                            .string()
+                            .max(visionScannersCreateBodyExperimentTargetingOneVariantMax)
+                            .nullish()
+                            .describe(
+                                'Narrow to sessions of people exposed to this variant. Null means every variant.'
+                            ),
+                    })
+                    .describe(
+                        "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it."
+                    ),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
@@ -744,8 +824,16 @@ export const visionScannersPartialUpdateBodyNameMax = 255
 
 export const visionScannersPartialUpdateBodyDescriptionMax = 1000
 
+export const visionScannersPartialUpdateBodyTagsItemMax = 255
+
+export const visionScannersPartialUpdateBodyTagsMax = 32
+
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
+
+export const visionScannersPartialUpdateBodyCreditLimitMax = 2147483647
+
+export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantMax = 400
 
 export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -759,6 +847,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .max(visionScannersPartialUpdateBodyDescriptionMax)
             .optional()
             .describe('Free-form description shown in the scanner management UI.'),
+        tags: zod
+            .array(zod.string().max(visionScannersPartialUpdateBodyTagsItemMax))
+            .max(visionScannersPartialUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
+            ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
             .describe(
@@ -795,19 +890,27 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
             ),
+        credit_limit: zod
+            .number()
+            .min(1)
+            .max(visionScannersPartialUpdateBodyCreditLimitMax)
+            .nullish()
+            .describe(
+                "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
         provider: zod
             .enum(['google'])
             .describe('\* `google` - Google')
             .optional()
             .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.7-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
             )
             .optional()
             .describe(
-                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Concrete model to use for this scanner.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
             ),
         enabled: zod
             .boolean()
@@ -820,6 +923,29 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
+            ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant: zod
+                            .string()
+                            .max(visionScannersPartialUpdateBodyExperimentTargetingOneVariantMax)
+                            .nullish()
+                            .describe(
+                                'Narrow to sessions of people exposed to this variant. Null means every variant.'
+                            ),
+                    })
+                    .describe(
+                        "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it."
+                    ),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
@@ -957,6 +1083,7 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -976,6 +1103,18 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -1001,7 +1140,9 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1022,6 +1163,7 @@ export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.obje
 })
 
 export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -1039,6 +1181,18 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
         ),
     order_by: zod
         .string()
@@ -1064,7 +1218,9 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1084,6 +1240,7 @@ export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod
 })
 
 export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -1101,6 +1258,18 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
         ),
     recent_days: zod
         .number()
@@ -1126,7 +1295,9 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1209,6 +1380,7 @@ export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
+export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1238,13 +1410,36 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
                 "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
             ),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.7-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
             )
             .default(visionScannersEstimateCreateBodyModelDefault)
             .describe(
-                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Proposed model; determines `credits_per_observation` in the response.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
+            ),
+        experiment_targeting: zod
+            .union([
+                zod
+                    .object({
+                        experiment_id: zod.number().min(1).describe('The experiment the scanner watches.'),
+                        variant: zod
+                            .string()
+                            .max(visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax)
+                            .nullish()
+                            .describe(
+                                'Narrow to sessions of people exposed to this variant. Null means every variant.'
+                            ),
+                    })
+                    .describe(
+                        "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it."
+                    ),
+                zod.null(),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
@@ -1302,13 +1497,13 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
                 'Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.'
             ),
         model: zod
-            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.6-flash'])
+            .enum(['gemini-3.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.7-flash'])
             .describe(
-                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                '\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
             )
             .default(visionScannersInlineScanCreateBodyModelDefault)
             .describe(
-                'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.6-flash` - Gemini 3.6 Flash'
+                'Model to scan with. Determines what each observation costs in credits.\n\n\* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.7-flash` - Gemini 3.7 Flash'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')

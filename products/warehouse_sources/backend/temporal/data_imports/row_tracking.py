@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db.models import F, Q, Sum
-from django.db.utils import OperationalError
+from django.db.utils import InternalError, OperationalError
 
+import requests
 from dateutil import parser
 from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
@@ -44,6 +45,10 @@ async def _get_redis():
         await redis.ping()
     except Exception as e:
         capture_exception(e)
+        # get_async_client only builds a lazy client, so a failed ping means redis is
+        # still unreachable - reset it to None so callers' `if not redis: return` guard
+        # actually skips the real command instead of raising the same error uncaught.
+        redis = None
 
     yield redis
 
@@ -222,7 +227,6 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
 
         await logger.adebug(f"BillingLimits: rows_synced_in_billing_period = {rows_synced_in_billing_period}")
 
-        # Get all in-progress rows for all teams in org
         rows_per_team = await asyncio.gather(*[get_all_rows_for_team(t_id) for t_id in all_teams_in_org])
         existing_rows_in_progress = sum(rows_per_team)
 
@@ -242,10 +246,17 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         await logger.awarning(f"BillingLimits: Redis error while checking billing limits, failing open: {e}")
 
         return False
-    except OperationalError as e:
-        # Same rationale as above: a dropped Postgres connection while fetching billing
-        # data is a transient infra blip, and the check already fails open.
+    except (OperationalError, InternalError) as e:
+        # Same rationale as above: a dropped Postgres connection, or a read-only
+        # transaction hitting a replica/failover blip, while fetching billing data is
+        # a transient infra issue, and the check already fails open.
         await logger.awarning(f"BillingLimits: Database error while checking billing limits, failing open: {e}")
+
+        return False
+    except requests.exceptions.RequestException as e:
+        # Same rationale as above: a network blip (e.g. a proxy timeout) reaching the
+        # billing service is a transient infra issue, and the check already fails open.
+        await logger.awarning(f"BillingLimits: Network error while checking billing limits, failing open: {e}")
 
         return False
     except Exception as e:

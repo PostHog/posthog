@@ -1,17 +1,25 @@
-"""
-Facade re-exports for tasks access / usage gating.
-
-``has_tasks_access`` gates whether a user may use the tasks/code product.
-``has_loops_access`` additionally gates Loops on top of tasks access (see docs/LOOPS.md Rollout).
-``code_access_required_response`` and ``cloud_usage_limit_response`` provide the HTTP-layer
-responses used by user-triggered cloud execution paths. Presentation imports them from here rather
-than reaching the internal ``access`` / ``logic.services.code_usage_gate`` modules directly.
-"""
-
-from products.tasks.backend.access import has_loops_access, has_tasks_access
+from products.tasks.backend.access import (
+    DesktopAccessDecision,
+    DesktopAccessResolutionError,
+    get_desktop_access_decision,
+    has_loops_access,
+    has_tasks_access,
+)
+from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.code_usage_gate import (
-    cloud_usage_limit_response,
     code_access_required_response,
+    compute_quota_limit_response,
+    usage_limit_response,
 )
 
-__all__ = ["cloud_usage_limit_response", "code_access_required_response", "has_loops_access", "has_tasks_access"]
+__all__ = [
+    "DesktopAccessDecision",
+    "DesktopAccessReason",
+    "DesktopAccessResolutionError",
+    "code_access_required_response",
+    "compute_quota_limit_response",
+    "get_desktop_access_decision",
+    "has_loops_access",
+    "has_tasks_access",
+    "usage_limit_response",
+]

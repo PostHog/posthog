@@ -2,7 +2,14 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconInfo, IconLogomark, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonTable,
+    LemonTableColumns,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -30,8 +37,9 @@ const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
 }
 
 export function CustomPropertiesConfig(): JSX.Element {
-    const { filteredDefinitions, definitionsLoading, searchTerm } = useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, deleteDefinition, setSearchTerm } =
+    const { filteredDefinitions, definitionsLoading, searchTerm, targetTypeFilter } =
+        useValues(customPropertyDefinitionsLogic)
+    const { openCreateModal, openEditModal, deleteDefinition, setSearchTerm, setTargetTypeFilter } =
         useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -71,6 +79,8 @@ export function CustomPropertiesConfig(): JSX.Element {
             render: (_, definition) =>
                 definition.target_type === 'person' ? (
                     <LemonTag type="completion">Person</LemonTag>
+                ) : definition.target_type === 'group' ? (
+                    <LemonTag type="caution">Group</LemonTag>
                 ) : (
                     <LemonTag type="default">Account</LemonTag>
                 ),
@@ -175,21 +185,36 @@ export function CustomPropertiesConfig(): JSX.Element {
                     New custom property
                 </LemonButton>
             </div>
-            <LemonInput
-                type="search"
-                placeholder="Search custom properties"
-                value={searchTerm}
-                onChange={setSearchTerm}
-                className="max-w-80"
-            />
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search custom properties"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="max-w-80"
+                />
+                <LemonSegmentedButton
+                    size="small"
+                    value={targetTypeFilter}
+                    onChange={setTargetTypeFilter}
+                    options={[
+                        { value: 'all', label: 'All' },
+                        { value: 'account', label: 'Accounts' },
+                        { value: 'person', label: 'Persons' },
+                        { value: 'group', label: 'Groups' },
+                    ]}
+                />
+            </div>
             <LemonTable
                 columns={columns}
                 dataSource={filteredDefinitions}
                 loading={definitionsLoading}
                 rowKey="id"
+                pagination={{ pageSize: 20, hideOnSinglePage: true }}
                 emptyState={
-                    searchTerm
-                        ? 'No custom properties match your search.'
+                    searchTerm || targetTypeFilter !== 'all'
+                        ? 'No custom properties match your filters.'
                         : 'No custom properties yet. Create one to get started.'
                 }
             />

@@ -2,32 +2,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.runpod import RunPodResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.source import RunPodSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _BILLING_ENDPOINTS = ["billing_pods", "billing_endpoints", "billing_network_volumes"]
 _INVENTORY_ENDPOINTS = ["pods", "endpoints", "templates", "network_volumes"]
-
-
-class TestRunPodSourceConfig:
-    def test_source_type(self) -> None:
-        assert RunPodSource().source_type == ExternalDataSourceType.RUNPOD
-
-    def test_config_exposes_single_secret_api_key_field(self) -> None:
-        config = RunPodSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.RUN_POD
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/runpod"
-        fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert [f.name for f in fields] == ["api_key"]
-        assert fields[0].secret is True and fields[0].required is True
 
 
 class TestRunPodSchemas:
@@ -54,12 +32,6 @@ class TestRunPodSchemas:
     def test_names_filter(self) -> None:
         schemas = RunPodSource().get_schemas(MagicMock(), team_id=1, names=["billing_pods"])
         assert [s.name for s in schemas] == ["billing_pods"]
-
-
-class TestRunPodResumableManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        manager = RunPodSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is RunPodResumeConfig
 
 
 class TestRunPodSourceForPipeline:

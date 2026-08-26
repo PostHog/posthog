@@ -137,23 +137,30 @@ export interface TeamRepositoriesResult {
 export interface CombinedTeamRepositories {
   repositoryMap: Record<string, number>;
   isPending: boolean;
+  failedIntegrationIds: number[];
 }
 
 export function combineGithubRepositories(
   results: ReadonlyArray<RepositoryQueryResult<TeamRepositoriesResult>>,
+  integrationIds: ReadonlyArray<number>,
 ): CombinedTeamRepositories {
   const map: Record<string, number> = {};
+  const failedIntegrationIds: number[] = [];
   let pending = false;
-  for (const result of results) {
+  results.forEach((result, index) => {
     if (result.isPending) pending = true;
-    if (!result.data) continue;
+    if (result.isError) {
+      const integrationId = integrationIds[index];
+      if (integrationId != null) failedIntegrationIds.push(integrationId);
+    }
+    if (!result.data) return;
     for (const repo of result.data.repos ?? []) {
       if (!(repo in map)) {
         map[repo] = result.data.integrationId;
       }
     }
-  }
-  return { repositoryMap: map, isPending: pending };
+  });
+  return { repositoryMap: map, isPending: pending, failedIntegrationIds };
 }
 
 export interface UserRepositoryIntegrationRef {
@@ -185,7 +192,10 @@ export function combineUserGithubRepositories(
 
   results.forEach((result, index) => {
     if (result.isPending) pending = true;
-    if (result.isError) {
+    // A refetch in flight is not a broken installation. Returning from the
+    // browser after connecting refetches on focus, and the new installation's
+    // first repo fetch can beat the backend finishing the link.
+    if (result.isError && !result.isRefetching) {
       const installationId = installationIds[index] ?? null;
       if (installationId) failedInstallationIds.push(installationId);
     }
@@ -218,41 +228,64 @@ export interface RepositoryPageResult<TRef> {
 
 export interface CombinedRepositoryPicker<TRef> {
   repositoryMap: Record<string, TRef>;
-  isPending: boolean;
-  isRefreshing: boolean;
   hasMore: boolean;
 }
 
-export function combineRepositoryPicker<TRef>(
-  results: ReadonlyArray<RepositoryQueryResult<RepositoryPageResult<TRef>>>,
+export interface RepositoryPickerPage<TRef> {
+  integrations: ReadonlyArray<
+    RepositoryPageResult<TRef> & {
+      key: string;
+      nextOffset?: number;
+    }
+  >;
+}
+
+export const REPOSITORY_PICKER_PAGE_SIZE = 50;
+export type RepositoryPickerOffsets = Record<string, number>;
+
+export function computeRepositoryNextOffset(
+  offset: number,
+  page: Pick<RepositoryPageResult<unknown>, "repositories" | "hasMore">,
+): number | undefined {
+  const resultCount = page.repositories?.length ?? 0;
+  return page.hasMore && resultCount > 0 ? offset + resultCount : undefined;
+}
+
+export function flattenRepositoryPickerPages<TRef>(
+  pages: ReadonlyArray<RepositoryPickerPage<TRef>> | undefined,
 ): CombinedRepositoryPicker<TRef> {
   const map: Record<string, TRef> = {};
-  let pending = false;
-  let refreshing = false;
-  let hasMoreResults = false;
-
-  for (const result of results) {
-    if (result.isPending) pending = true;
-    if (result.isRefetching) refreshing = true;
-    if (!result.data) continue;
-
-    if (result.data.hasMore) {
-      hasMoreResults = true;
-    }
-
-    for (const repo of result.data.repositories ?? []) {
-      if (!(repo in map)) {
-        map[repo] = result.data.ref;
+  for (const page of pages ?? []) {
+    for (const integration of page.integrations) {
+      for (const repository of integration.repositories ?? []) {
+        if (!(repository in map)) {
+          map[repository] = integration.ref;
+        }
       }
     }
   }
 
   return {
     repositoryMap: map,
-    isPending: pending,
-    isRefreshing: refreshing,
-    hasMore: hasMoreResults,
+    hasMore:
+      pages
+        ?.at(-1)
+        ?.integrations.some(
+          (integration) => integration.nextOffset !== undefined,
+        ) ?? false,
   };
+}
+
+export function computeNextRepositoryPickerOffsets<TRef>(
+  lastPage: RepositoryPickerPage<TRef>,
+): RepositoryPickerOffsets | undefined {
+  const offsets: RepositoryPickerOffsets = {};
+  for (const integration of lastPage.integrations) {
+    if (integration.nextOffset !== undefined) {
+      offsets[integration.key] = integration.nextOffset;
+    }
+  }
+  return Object.keys(offsets).length > 0 ? offsets : undefined;
 }
 
 export function normalizeRepoKey(repoKey: string | null | undefined): string {

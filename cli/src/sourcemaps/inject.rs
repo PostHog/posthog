@@ -6,7 +6,8 @@ use walkdir::DirEntry;
 use crate::{
     api::releases::{Release, ReleaseBuilder},
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs},
+        args::{FileSelectionArgs, ReleaseArgs, ReleaseMode},
+        constant::CHUNK_ID_NAMESPACE,
         content::SourceMapFile,
         source_pairs::{read_pairs, SourcePair},
     },
@@ -26,6 +27,20 @@ pub struct InjectArgs {
 
     #[clap(flatten)]
     pub release: ReleaseArgs,
+
+    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
+    /// release id into the sourcemap so the uploaded symbol set is bound to it: the previous
+    /// behavior. EXPERIMENTAL `event` injects the release id into each chunk as
+    /// `_posthogReleaseId` so the SDK emits it on every exception, and derives
+    /// content-addressed chunk ids that are stable across rebuilds. Also settable via
+    /// `POSTHOG_RELEASE_MODE`.
+    #[arg(
+        long,
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
+    )]
+    pub release_mode: ReleaseMode,
 }
 
 impl InjectArgs {
@@ -43,6 +58,7 @@ pub fn inject_impl(
         file_selection,
         public_path_prefix,
         release,
+        release_mode,
     } = args;
 
     info!("injecting selection: {}", file_selection);
@@ -57,16 +73,33 @@ pub fn inject_impl(
         bail!("no source files found");
     }
 
-    let created_release_id = if let Some(r) = existing_release {
-        Some(r.id.to_string())
-    } else {
-        let cwd = std::env::current_dir()?;
-        get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
-            .as_ref()
-            .map(|r| r.id.to_string())
-    };
-
-    pairs = inject_pairs(pairs, created_release_id)?;
+    match release_mode {
+        ReleaseMode::Event => {
+            // The release id travels inside each chunk for the SDK to emit, rather than being
+            // stamped into the sourcemap, so the release exists but nothing binds a symbol set
+            // to it.
+            let release_id = resolve_release_id(release.clone(), existing_release)?;
+            if release_id.is_none() {
+                warn!(
+                    "no release could be resolved, injecting chunk ids only — events will carry no release"
+                );
+            }
+            pairs = inject_pairs(pairs, release_id.as_deref())?;
+        }
+        ReleaseMode::SymbolSet => {
+            // Fetch or create a release over the API and stamp its id into the sourcemap,
+            // binding the uploaded symbol set to it.
+            let created_release_id = if let Some(r) = existing_release {
+                Some(r.id.to_string())
+            } else {
+                let cwd = std::env::current_dir()?;
+                get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
+                    .as_ref()
+                    .map(|r| r.id.to_string())
+            };
+            pairs = inject_pairs_legacy(pairs, created_release_id)?;
+        }
+    }
 
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
@@ -76,7 +109,59 @@ pub fn inject_impl(
     Ok(())
 }
 
+/// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
+/// `_posthogReleaseId` payload. A bundler-emitted debug id, when present, is adopted as the
+/// chunk id so one id identifies the chunk across the whole toolchain.
 pub fn inject_pairs(
+    mut pairs: Vec<SourcePair>,
+    release_id: Option<&str>,
+) -> Result<Vec<SourcePair>> {
+    for pair in &mut pairs {
+        let Some(chunk_id) = pair.get_chunk_id() else {
+            let chunk_id = adopted_debug_id(pair)
+                .unwrap_or_else(|| stable_chunk_id(&pair.source.inner.content));
+            pair.add_chunk_id(chunk_id, release_id)?;
+            continue;
+        };
+
+        // Already injected: the chunk id is content-addressed and the content didn't change,
+        // so keep it — but refresh the embedded release id when a different release resolved,
+        // or a re-run over an existing dist would keep reporting the old release on every
+        // event. When no release resolves, leave the pair untouched: failing to resolve is
+        // missing information (e.g. no git context), not evidence the embedded id is stale.
+        let Some(release_id) = release_id else {
+            continue;
+        };
+        if pair.get_injected_release_id().as_deref() == Some(release_id) {
+            continue;
+        }
+        pair.remove_chunk_id(chunk_id.clone())?;
+        pair.add_chunk_id(chunk_id, Some(release_id))?;
+    }
+
+    Ok(pairs)
+}
+
+/// A bundler-emitted ECMA-426 debug id is already content-derived, so adopt it as the chunk id
+/// instead of deriving our own. Non-UUID values are refused: the id flows into upload rows and
+/// SDK events, and a malformed one is worse than a derived one.
+fn adopted_debug_id(pair: &SourcePair) -> Option<String> {
+    let debug_id = pair.get_debug_id()?;
+    if uuid::Uuid::parse_str(&debug_id).is_err() {
+        warn!(
+            "ignoring malformed debug id {:?} on {} — falling back to a content-derived chunk id",
+            debug_id,
+            pair.source.inner.path.display()
+        );
+        return None;
+    }
+    Some(debug_id)
+}
+
+/// Symbol-set-mode injection (the default): a random per-build chunk id and the created release
+/// id stamped into the sourcemap. Regenerates the chunk id whenever the release id changes or is
+/// missing.
+pub fn inject_pairs_legacy(
     mut pairs: Vec<SourcePair>,
     created_release_id: Option<String>,
 ) -> Result<Vec<SourcePair>> {
@@ -90,12 +175,56 @@ pub fn inject_pairs(
             if let Some(previous_chunk_id) = pair.get_chunk_id() {
                 pair.update_chunk_id(previous_chunk_id, chunk_id)?;
             } else {
-                pair.add_chunk_id(chunk_id)?;
+                pair.add_chunk_id(chunk_id, None)?;
             }
         }
     }
 
     Ok(pairs)
+}
+
+/// Deterministically derive a chunk id from the pristine minified source (UUIDv5). Identical
+/// builds produce identical ids on every machine and rebuild, so uploads dedupe instead of
+/// minting a per-build random id.
+///
+/// The sourcemap is deliberately not part of the identity. It carries `sourcesContent`, so a
+/// comment-only edit rewrites the map while the minified code stays byte-identical, and folding
+/// the map in would mint a new chunk for code that never changed. The map still reaches the
+/// server, because the upload hashes the payload it sends: a map-only change is a content
+/// change, and event mode overwrites the stored symbol set with the newer map.
+fn stable_chunk_id(source_content: &str) -> String {
+    uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, source_content.as_bytes()).to_string()
+}
+
+/// Resolve the release row whose id gets injected into the chunks. Reuses the release already
+/// fetched upstream (the `process` command) when there is one; otherwise resolves name/version
+/// from flags and git/CI metadata and fetches or creates the row. Returns `None` only when there
+/// isn't enough information to identify a release at all.
+fn resolve_release_id(
+    release: ReleaseArgs,
+    existing_release: Option<&Release>,
+) -> Result<Option<String>> {
+    if let Some(r) = existing_release {
+        return Ok(Some(r.id.to_string()));
+    }
+    Ok(resolve_release(release)?.map(|r| r.id.to_string()))
+}
+
+/// Fetch or create the release identified by `release`, filling in whichever of name and version
+/// the flags left out from git and CI metadata. Returns `None` when neither source identifies a
+/// release.
+///
+/// Shared with the `release resolve` command, so a build tool that injects the release id itself
+/// lands on the same row `sourcemap inject --release-mode=event` would have injected.
+pub fn resolve_release(release: ReleaseArgs) -> Result<Option<Release>> {
+    let cwd = std::env::current_dir()?;
+    let release = release.resolve_info_plist()?;
+    let mut builder: ReleaseBuilder = release.into();
+    add_git_info_to_release_builder(&cwd, &mut builder)?;
+    if !builder.can_create() {
+        return Ok(None);
+    }
+    Ok(Some(builder.fetch_or_create()?))
 }
 
 pub fn get_release_for_maps<'a>(
@@ -105,6 +234,7 @@ pub fn get_release_for_maps<'a>(
 ) -> Result<Option<Release>> {
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
+    let release = release.resolve_info_plist()?;
     let needs_release = release.name.is_some()
         || release.version.is_some()
         || release.build.is_some()
@@ -112,11 +242,9 @@ pub fn get_release_for_maps<'a>(
 
     let mut created_release = None;
     if needs_release {
-        let release_args_were_provided =
-            release.name.is_some() || release.version.is_some() || release.build.is_some();
         let mut builder: ReleaseBuilder = release.into();
 
-        add_git_info_to_release_builder(directory, &mut builder, release_args_were_provided)?;
+        add_git_info_to_release_builder(directory, &mut builder)?;
 
         if builder.can_create() {
             created_release = Some(builder.fetch_or_create()?);
@@ -126,18 +254,15 @@ pub fn get_release_for_maps<'a>(
     Ok(created_release)
 }
 
-fn add_git_info_to_release_builder(
-    directory: &Path,
-    builder: &mut ReleaseBuilder,
-    release_args_were_provided: bool,
-) -> Result<()> {
+fn add_git_info_to_release_builder(directory: &Path, builder: &mut ReleaseBuilder) -> Result<()> {
     let needs_git_for_release_fields = !builder.can_create();
+    let release_fields_were_provided = builder.has_name() || builder.has_version();
 
     match get_git_info(Some(directory.to_path_buf())) {
         Ok(Some(info)) => {
             builder.with_git(info);
         }
-        Ok(None) if needs_git_for_release_fields && release_args_were_provided => {
+        Ok(None) if needs_git_for_release_fields && release_fields_were_provided => {
             anyhow::bail!(
                 "Release fields are incomplete and git info is unavailable. Provide both --release-name and --release-version, or run from a git repository or supported CI environment."
             );
@@ -162,8 +287,15 @@ mod tests {
     };
 
     use super::*;
+    use crate::sourcemaps::plain::inject::is_javascript_file;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    const XCODE_RELEASE_ENV_VARS: &[&str] = &[
+        "PRODUCT_BUNDLE_IDENTIFIER",
+        "MARKETING_VERSION",
+        "CURRENT_PROJECT_VERSION",
+    ];
 
     const GIT_INFO_ENV_VARS: &[&str] = &[
         "GITHUB_ACTIONS",
@@ -228,6 +360,7 @@ mod tests {
             name: name.map(String::from),
             version: version.map(String::from),
             build: build.map(String::from),
+            info_plist: None,
             skip_release_on_fail: true,
         }
     }
@@ -242,6 +375,52 @@ mod tests {
         temp_root
     }
 
+    fn chunk_id_for(sourcemap: &str) -> String {
+        let dir = tempfile::tempdir().expect("failed to create temporary directory");
+        fs::write(
+            dir.path().join("app.js"),
+            "console.log(1);\n//# sourceMappingURL=app.js.map\n",
+        )
+        .expect("failed to write source");
+        fs::write(dir.path().join("app.js.map"), sourcemap).expect("failed to write sourcemap");
+
+        let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+            .include(vec![])
+            .expect("failed to build selection")
+            .exclude(vec![])
+            .expect("failed to build selection");
+        let pairs = read_pairs(selection.into_iter().filter(is_javascript_file), &None);
+
+        inject_pairs(pairs, None)
+            .expect("failed to inject pairs")
+            .first()
+            .and_then(SourcePair::get_chunk_id)
+            .expect("injected pair carries a chunk id")
+    }
+
+    #[test]
+    fn map_only_changes_keep_the_chunk_id() {
+        // Bundlers embed the original file in `sourcesContent`, so editing a comment rewrites
+        // the map while the minified code stays byte-identical. Folding the map into the id
+        // would mint a new chunk on every such edit and orphan the symbol set already stored.
+        let one = chunk_id_for(
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["// one\nconsole.log(1)\n"],"mappings":"AAAA","names":[]}"#,
+        );
+        let two = chunk_id_for(
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["// two\nconsole.log(1)\n"],"mappings":"AAAA","names":[]}"#,
+        );
+
+        assert_eq!(one, two);
+    }
+
+    #[test]
+    fn stable_chunk_id_tracks_the_minified_source() {
+        let id = stable_chunk_id("code();");
+
+        assert_eq!(id, stable_chunk_id("code();"));
+        assert_ne!(id, stable_chunk_id("other();"));
+    }
+
     #[test]
     fn git_failure_is_not_fatal_when_release_fields_are_explicit() {
         let _env_lock = lock_env();
@@ -249,7 +428,7 @@ mod tests {
         let temp_root = make_git_repo_without_branch_ref();
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), Some("1.0.0")).into();
 
-        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder, true);
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder);
 
         assert!(result.is_ok());
         assert!(builder.can_create());
@@ -262,7 +441,7 @@ mod tests {
         let temp_root = make_git_repo_without_branch_ref();
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), None).into();
 
-        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder, true)
+        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder)
             .expect_err("git failure should remain fatal when release fields are incomplete");
 
         assert!(format!("{error:#}").contains("Failed to determine git info for release"));
@@ -275,7 +454,42 @@ mod tests {
         let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
         let mut builder: ReleaseBuilder = release_args(None, None).into();
 
-        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder, false);
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder);
+
+        assert!(result.is_ok());
+        assert!(!builder.can_create());
+    }
+
+    #[test]
+    fn unresolved_info_plist_is_not_fatal_without_git_or_xcode_environment() {
+        let _env_lock = lock_env();
+        let _git_env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
+        let _xcode_env_guard = EnvVarGuard::clear(XCODE_RELEASE_ENV_VARS);
+        let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
+        let info_plist = temp_root.path().join("Info.plist");
+        fs::write(
+            &info_plist,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+</dict>
+</plist>"#,
+        )
+        .expect("failed to write Info.plist");
+        let mut args = release_args(None, None);
+        args.info_plist = Some(info_plist);
+        let resolved = args
+            .resolve_info_plist()
+            .expect("Info.plist should be readable");
+        let mut builder: ReleaseBuilder = resolved.into();
+
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder);
 
         assert!(result.is_ok());
         assert!(!builder.can_create());
@@ -288,7 +502,7 @@ mod tests {
         let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), None).into();
 
-        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder, true)
+        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder)
             .expect_err("missing git should be fatal when release args are incomplete");
 
         assert!(format!("{error:#}").contains("Release fields are incomplete"));

@@ -117,11 +117,13 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
+        [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
         [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
+        [PropertyFilterType.Behavioral]: TaxonomicFilterGroupType.Events,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
         [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
         [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
@@ -359,6 +361,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isFeaturePropertyFilter(filter) ||
         isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
+        isErrorTrackingIssuePropertyFilter(filter) ||
         isLogPropertyFilter(filter) ||
         isMetricPropertyFilter(filter) ||
         isSpanPropertyFilter(filter)
@@ -445,6 +448,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+    [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
     [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
@@ -502,6 +506,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.SpanAttribute]: PropertyDefinitionType.SpanAttribute,
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
+        [PropertyFilterType.Account]: PropertyDefinitionType.Account,
         [PropertyFilterType.AccountCustomProperty]: PropertyDefinitionType.AccountCustomProperty,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
         [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,

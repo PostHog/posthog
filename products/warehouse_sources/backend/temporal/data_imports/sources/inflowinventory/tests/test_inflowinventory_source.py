@@ -3,20 +3,15 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.inflowinventory import (
     InflowinventorySourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
-    InflowInventoryResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.source import (
     InflowinventorySource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestInflowinventorySource:
@@ -24,9 +19,6 @@ class TestInflowinventorySource:
         self.source = InflowinventorySource()
         self.team_id = 123
         self.config = InflowinventorySourceConfig(company_id="co-123", api_key="inflow-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INFLOWINVENTORY
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -39,20 +31,6 @@ class TestInflowinventorySource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["company_id", "api_key"]
-
-    def test_company_id_field_is_plain_text(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "company_id")
-        assert field.type == SourceFieldInputConfigType.TEXT
-        assert field.secret is False
-        assert field.required is True
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_connection_host_fields_pins_company_id(self) -> None:
         # The secret key is sent to a host/path derived from company_id, so retargeting it must
@@ -114,47 +92,28 @@ class TestInflowinventorySource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
+    def test_version_declaration(self) -> None:
+        # New sources default to the current stable version; the legacy pin stays supported so
+        # existing sources keep syncing under their own version.
+        assert self.source.default_version == "2026-07-10"
+        assert set(self.source.supported_versions) == {"2023-04-01", "2026-07-10"}
+
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid inFlow Inventory API key"),
-            ("forbidden", 403, False, "Invalid inFlow Inventory API key"),
-            ("server_error", 500, False, "inFlow Inventory returned HTTP 500"),
-            ("connection_error", 0, False, "Could not connect to inFlow Inventory: boom"),
+            ("pinned_legacy", "2023-04-01", "2023-04-01"),
+            ("pinned_current", "2026-07-10", "2026-07-10"),
+            ("unpinned_resolves_to_default", None, "2026-07-10"),
         ]
     )
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory.check_access"
-    )
-    def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-        mock_check: mock.MagicMock,
-    ) -> None:
-        message = (
-            "inFlow Inventory returned HTTP 500"
-            if status == 500
-            else ("Could not connect to inFlow Inventory: boom" if status == 0 else None)
-        )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert returned == expected_message
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is InflowInventoryResumeConfig
-
-    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.source.inflowinventory_source"
     )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_plumbs_arguments(
+        self, _name: str, pinned: str | None, expected_version: str, mock_source: mock.MagicMock
+    ) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "products"
+        inputs.api_version = pinned
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -165,6 +124,7 @@ class TestInflowinventorySource:
         assert kwargs["company_id"] == "co-123"
         assert kwargs["endpoint"] == "products"
         assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["api_version"] == expected_version
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

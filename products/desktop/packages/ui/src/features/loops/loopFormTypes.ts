@@ -51,6 +51,7 @@ export interface LoopFormValues {
    * unrelated change never drops a loop's other repository associations.
    */
   repositories: LoopSchemas.LoopRepositoryEntry[];
+  sandboxEnvironmentId: string | null;
   triggers: LoopTriggerDraft[];
   behaviors: LoopSchemas.LoopBehaviors;
   notifications: LoopSchemas.LoopNotifications;
@@ -67,6 +68,99 @@ export function emptyLoopGithubTriggerConfig(): LoopSchemas.LoopGithubTriggerCon
 
 export function emptyLoopApiTriggerConfig(): LoopSchemas.LoopApiTriggerConfig {
   return {};
+}
+
+/** The `action` values GitHub sends for each webhook event we subscribe to. Push carries no
+ * action at all. */
+const GITHUB_EVENT_ACTIONS: Record<
+  LoopSchemas.LoopGithubTriggerEventEnum,
+  string[]
+> = {
+  push: [],
+  pull_request: [
+    "opened",
+    "reopened",
+    "closed",
+    "synchronize",
+    "edited",
+    "ready_for_review",
+    "converted_to_draft",
+    "review_requested",
+    "review_request_removed",
+    "labeled",
+    "unlabeled",
+    "assigned",
+    "unassigned",
+  ],
+  issues: [
+    "opened",
+    "reopened",
+    "closed",
+    "edited",
+    "deleted",
+    "labeled",
+    "unlabeled",
+    "assigned",
+    "unassigned",
+    "pinned",
+    "unpinned",
+    "transferred",
+  ],
+  issue_comment: ["created", "edited", "deleted"],
+};
+
+/** Actions offerable for a set of events, which is their intersection rather than their union:
+ * one `filters.actions` list is matched against every event on the trigger, so an action only
+ * some of them can send would stop the others firing entirely. */
+export function githubTriggerActionOptions(
+  events: LoopSchemas.LoopGithubTriggerEventEnum[],
+): string[] {
+  if (events.length === 0) {
+    return [];
+  }
+  return events
+    .map((event) => GITHUB_EVENT_ACTIONS[event] ?? [])
+    .reduce((shared, actions) =>
+      shared.filter((action) => actions.includes(action)),
+    );
+}
+
+/** Every action GITHUB_EVENT_ACTIONS models. GitHub keeps adding actions, and the API accepts any
+ * string, so a trigger can hold one we don't list — we can't tell which events send it. */
+const MODELLED_GITHUB_ACTIONS = new Set(
+  Object.values(GITHUB_EVENT_ACTIONS).flat(),
+);
+
+/** Sets the trigger's events, dropping any selected action the new set can't all send. Leaving
+ * a stale action behind would silently stop the newly ticked event from ever firing.
+ *
+ * Actions we don't model are kept: dropping one would widen the trigger to every action of the
+ * event, and since the user was never shown a control for it they'd get no say in that. */
+export function withGithubTriggerEvents(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+  events: LoopSchemas.LoopGithubTriggerEventEnum[],
+): LoopSchemas.LoopGithubTriggerConfig {
+  const offerable = githubTriggerActionOptions(events);
+  const actions = (config.filters?.actions ?? []).filter(
+    (action) =>
+      offerable.includes(action) || !MODELLED_GITHUB_ACTIONS.has(action),
+  );
+  return withGithubTriggerFilters({ ...config, events }, { actions });
+}
+
+/** Applies a filter patch, dropping keys that end up empty so an untouched trigger doesn't
+ * grow `{actions: [], payload: []}` noise in its stored config. */
+export function withGithubTriggerFilters(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+  patch: Partial<LoopSchemas.LoopGithubTriggerFilters>,
+): LoopSchemas.LoopGithubTriggerConfig {
+  const merged = { ...config.filters, ...patch };
+  const filters = Object.fromEntries(
+    Object.entries(merged).filter(
+      ([, value]) => !Array.isArray(value) || value.length > 0,
+    ),
+  ) as LoopSchemas.LoopGithubTriggerFilters;
+  return { ...config, filters };
 }
 
 export function defaultLoopNotifications(): LoopSchemas.LoopNotifications {
@@ -147,6 +241,7 @@ export function emptyLoopFormValues(): LoopFormValues {
     model: "",
     reasoningEffort: null,
     repositories: [],
+    sandboxEnvironmentId: null,
     triggers: [defaultLoopScheduleTrigger()],
     behaviors: defaultLoopBehaviors(),
     notifications: defaultLoopNotifications(),
@@ -187,6 +282,7 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
     model: loop.model,
     reasoningEffort: loop.reasoning_effort,
     repositories: [...loop.repositories],
+    sandboxEnvironmentId: loop.sandbox_environment_id,
     triggers: loop.triggers.map((trigger) => ({
       key: trigger.id,
       id: trigger.id,
@@ -220,11 +316,17 @@ export function formValuesToLoopWrite(
     model: values.model.trim(),
     reasoning_effort: values.reasoningEffort,
     repositories: values.repositories,
+    sandbox_environment: values.sandboxEnvironmentId,
     triggers: values.triggers.map((trigger) => ({
       id: trigger.id,
       type: trigger.type,
       enabled: trigger.enabled,
-      config: trigger.config,
+      config:
+        trigger.type === "github"
+          ? withNormalizedPayloadConditions(
+              trigger.config as LoopSchemas.LoopGithubTriggerConfig,
+            )
+          : trigger.config,
     })),
     behaviors: values.behaviors,
     notifications: values.notifications,
@@ -261,8 +363,50 @@ export function isTriggerDraftValid(trigger: LoopTriggerDraft): boolean {
     return (
       !!config.repository &&
       config.github_integration_id > 0 &&
-      config.events.length > 0
+      config.events.length > 0 &&
+      (config.filters?.payload ?? []).every(isPayloadConditionValid)
     );
   }
   return true;
+}
+
+/** Each accepted value is its own chip in the editor, never a delimited string. An earlier
+ * version split this field on commas, which both lost a value that legitimately contains one
+ * (`pull_request.title` is a matchable path) and quietly widened the gate: an exact condition
+ * of "release, approved" became two alternatives, so a PR titled just "approved" matched. */
+function payloadConditionValues(
+  condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
+): string[] {
+  const values = Array.isArray(condition.equals)
+    ? condition.equals
+    : [condition.equals];
+  return values.map((value) => value.trim()).filter(Boolean);
+}
+
+function withNormalizedPayloadConditions(
+  config: LoopSchemas.LoopGithubTriggerConfig,
+): LoopSchemas.LoopGithubTriggerConfig {
+  const conditions = config.filters?.payload;
+  if (!conditions) {
+    return config;
+  }
+  return {
+    ...config,
+    filters: {
+      ...config.filters,
+      payload: conditions.map((condition) => ({
+        path: condition.path.trim(),
+        equals: payloadConditionValues(condition),
+      })),
+    },
+  };
+}
+
+// A half-filled row would submit and come back as a 400 from the trigger serializer.
+function isPayloadConditionValid(
+  condition: LoopSchemas.LoopGithubTriggerPayloadFilter,
+): boolean {
+  return (
+    !!condition.path.trim() && payloadConditionValues(condition).length > 0
+  );
 }

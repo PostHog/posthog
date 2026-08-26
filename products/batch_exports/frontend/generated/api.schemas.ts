@@ -377,7 +377,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.
      * @nullable
      */
     integration_id?: number | null
@@ -1274,8 +1274,8 @@ export const AwsS3DestinationRequestApiType = {
  */
 export interface AwsS3DestinationRequestApi {
     type: AwsS3DestinationRequestApiType
-    /** ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: AwsS3DestinationConfigApi
 }
 
@@ -1291,8 +1291,8 @@ export const S3CompatibleDestinationRequestApiType = {
  */
 export interface S3CompatibleDestinationRequestApi {
     type: S3CompatibleDestinationRequestApiType
-    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: S3CompatibleDestinationConfigApi
 }
 
@@ -1658,7 +1658,7 @@ export const FileDownloadHogQLRequestApiModel = {
 export interface FileDownloadHogQLRequestApi {
     file: FileDownloadDestinationFileConfigApi
     model: FileDownloadHogQLRequestApiModel
-    /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
     hogql_query: string
 }
 
@@ -1754,7 +1754,7 @@ export interface FileDownloadBatchExportOnDemandApi {
     model: FileDownloadBatchExportOnDemandModelEnumApi
     include?: string[]
     exclude?: string[]
-    /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+    /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
     hogql_query?: string
     /** Start of the data interval to export */
     data_interval_start?: string
@@ -1949,7 +1949,7 @@ export type BatchExportsRunsListParams = {
 
 export type BatchExportsRunsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**
@@ -1981,7 +1981,7 @@ export type BatchExportsRunsLogsRetrieveParams = {
 
 export type BatchExportsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**
@@ -2024,7 +2024,7 @@ export type FileDownloadBatchExportsListParams = {
 
 export type FileDownloadBatchExportsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**

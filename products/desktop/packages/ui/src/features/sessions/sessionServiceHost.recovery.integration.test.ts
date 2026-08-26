@@ -91,7 +91,7 @@ const mockAuth = vi.hoisted(() => ({
     },
     currentOrgId: "org-1",
     currentProjectId: 123,
-    hasCodeAccess: true,
+    desktopAccess: { projectId: 123, status: "allowed", reason: null },
     needsScopeReauth: false,
   })),
   getAuthenticatedClient: vi.fn<() => Promise<Record<string, unknown> | null>>(
@@ -188,6 +188,31 @@ vi.mock("@posthog/di/container", () => ({
     if (typeof token === "function" && token.name === "NotificationBus") {
       return mockNotificationService;
     }
+    if (token === Symbol.for("posthog.notification.agentSessionNotifier")) {
+      return {
+        notify: (notification: {
+          kind: "needs_input" | "turn_completed";
+          taskTitle: string;
+          taskId: string;
+          stopReason?: string;
+          durationMs?: number;
+        }) => {
+          if (notification.kind === "needs_input") {
+            mockNotificationService.notifyPermissionRequest(
+              notification.taskTitle,
+              notification.taskId,
+            );
+          } else {
+            mockNotificationService.notifyPromptComplete(
+              notification.taskTitle,
+              notification.stopReason,
+              notification.taskId,
+              notification.durationMs,
+            );
+          }
+        },
+      };
+    }
     throw new Error(`resolveService: unmocked token ${String(token)}`);
   },
 }));
@@ -220,6 +245,7 @@ vi.mock("@posthog/ui/shell/posthogAnalyticsImpl", () => ({
   buildPermissionToolMetadata: vi.fn(() => ({})),
   posthogFeatureFlags: {
     isEnabled: vi.fn(() => undefined),
+    getVariant: vi.fn(() => undefined),
     onFlagsLoaded: vi.fn(),
   },
 }));
@@ -348,7 +374,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       },
       currentOrgId: "org-1",
       currentProjectId: 123,
-      hasCodeAccess: true,
+      desktopAccess: { projectId: 123, status: "allowed", reason: null },
       needsScopeReauth: false,
     });
     mockTrpcAgent.onSessionEvent.subscribe.mockReturnValue({

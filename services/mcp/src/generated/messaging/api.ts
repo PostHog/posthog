@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 2 enabled ops
+ * PostHog API - MCP 3 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -57,6 +57,8 @@ export const MessagingPreferencesOptOutsRetrieveParams = /* @__PURE__ */ zod.obj
         ),
 })
 
+export const messagingPreferencesOptOutsRetrieveQuerySearchMax = 512
+
 export const MessagingPreferencesOptOutsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     category_key: zod
         .string()
@@ -66,4 +68,36 @@ export const MessagingPreferencesOptOutsRetrieveQueryParams = /* @__PURE__ */ zo
         ),
     page: zod.number().optional(),
     page_size: zod.number().optional(),
+    search: zod
+        .string()
+        .max(messagingPreferencesOptOutsRetrieveQuerySearchMax)
+        .optional()
+        .describe('Case-insensitive substring match on the recipient identifier.'),
+})
+
+/**
+ * Opt a recipient back in to a specific category, or to all marketing messages.
+ * @summary Remove a recipient from the opt-out list
+ */
+export const MessagingPreferencesRemoveOptOutCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingPreferencesRemoveOptOutCreateBodyIdentifierMax = 512
+
+export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingPreferencesRemoveOptOutCreateBodyIdentifierMax)
+        .describe('The recipient identifier to opt back in (e.g. email address).'),
+    category_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional message category key. If omitted, the recipient is opted back in to all marketing messages.'
+        ),
 })

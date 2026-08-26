@@ -13,7 +13,7 @@ name: Desktop Update E2E (macOS)
 #      the background poll downloads and re-stages it; the restart must land on
 #      3.0.0. Proves replacing a staged Squirrel.Mac update is safe.
 #   3. Forge -> electron-builder: a real Electron Forge build (v0.55.132, the last
-#      Forge release, what users run today) updating via the genuine built-in
+#      Forge release) updating via the genuine built-in
 #      Squirrel.Mac client to the electron-builder build we ship now.
 
 on:
@@ -153,7 +153,7 @@ jobs:
                   '
 
             # Forge -> electron-builder leg. The old Forge app is a fixed pinned build
-            # (cb0ca68db), byte-identical on every run, so cache it and skip the ~11 min
+            # (cb0ca68db), byte-identical on every run, so cache it and skip the
             # rebuild that dominates this job. The key tracks the build script, which
             # pins the ref; bump the script to force a rebuild. Built after the baseline
             # leg so a flake in the (riskier) old-build step can never mask the baseline.
@@ -165,8 +165,8 @@ jobs:
                   key: forge-app-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('products/desktop/apps/code/scripts/dev-update/build-old-forge.sh') }}
 
             # Reuse the cached app only if its signature still verifies, otherwise rebuild.
-            # This makes a missing or tar-corrupted restore degrade to today's behaviour
-            # (a full build) instead of a confusing swap failure in the Forge leg.
+            # This makes a missing or tar-corrupted restore degrade to a full build
+            # instead of a confusing swap failure in the Forge leg.
             - name: Build old Forge app if not cached
               working-directory: products/desktop/apps/code
               env:
@@ -266,8 +266,8 @@ jobs:
               with:
                   name: update-old-build-1.0.0
                   path: |
-                      products/desktop/apps/code/out/PostHog-Code-1.0.0-arm64-mac.zip
-                      products/desktop/apps/code/out/PostHog-Code-1.0.0-arm64-mac.zip.blockmap
+                      products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip
+                      products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip.blockmap
                   if-no-files-found: warn
                   retention-days: 7
 

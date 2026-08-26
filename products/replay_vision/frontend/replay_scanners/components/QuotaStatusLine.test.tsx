@@ -9,7 +9,6 @@ const base: QuotaProjection = {
     status: 'safe',
     exhausted: false,
     capReachDate: null,
-    percentLabel: 0,
     resetsOn: null,
     usedPct: 0,
     usedFreePct: 0,

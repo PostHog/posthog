@@ -53,6 +53,33 @@ export type HogWatcherFunctionState = {
     state: HogWatcherState
 }
 
+/**
+ * Compares a watcher read across Redis and Valkey on `state` alone, for `dualRead`.
+ *
+ * `tokens` is refilled from the wall clock at read time (see `getPersistedStates`), so the two
+ * stores disagree on it whenever their reads land on different seconds. Comparing it would leave
+ * the mismatch metric permanently saturated, and that metric is the signal we need to trust
+ * before moving watcher reads to Valkey. `state` is what decides whether an invocation runs.
+ */
+export function sameWatcherState(
+    primary: HogWatcherFunctionState | null,
+    secondary: HogWatcherFunctionState | null
+): boolean {
+    return primary?.state === secondary?.state
+}
+
+/** `sameWatcherState` over a keyed batch — the id set has to agree as well as each state. */
+export function sameWatcherStates(
+    primary: Record<string, HogWatcherFunctionState>,
+    secondary: Record<string, HogWatcherFunctionState>
+): boolean {
+    const ids = Object.keys(primary ?? {})
+    return (
+        ids.length === Object.keys(secondary ?? {}).length &&
+        ids.every((id) => primary[id]?.state === secondary[id]?.state)
+    )
+}
+
 type FunctionCostEntry = {
     hogFunction?: HogFunctionType
     functionId: string

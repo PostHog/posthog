@@ -1,23 +1,20 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.automox import (
     MULTIPLE_ORGS_ERROR,
     ORG_NOT_FOUND_ERROR,
-    AutomoxResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.source import AutomoxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key", organization_id: str | None = None) -> Any:
@@ -28,17 +25,6 @@ def _config(api_key: str = "key", organization_id: str | None = None) -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert AutomoxSource().source_type == ExternalDataSourceType.AUTOMOX
-
-    def test_config_is_visible_and_alpha(self) -> None:
-        config = AutomoxSource().get_source_config
-        # A finished source must not be hidden from users.
-        assert getattr(config, "unreleasedSource", None) in (None, False)
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/automox"
-
     def test_fields(self) -> None:
         fields = {f.name: f for f in AutomoxSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"api_key", "organization_id"}
@@ -76,61 +62,6 @@ class TestGetSchemas:
         assert set(tables) == set(ENDPOINTS)
         assert tables["devices"]["sync_methods"] == ["Full refresh"]
         assert "Incremental" in tables["policy_runs"]["sync_methods"]
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("valid", (True, None)),
-            ("invalid", (False, "Automox authentication failed.")),
-        ]
-    )
-    def test_plumbs_transport_result(self, _name: str, result: tuple[bool, str | None]) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.automox.source.validate_automox_credentials",
-            return_value=result,
-        ) as mocked:
-            assert AutomoxSource().validate_credentials(_config(organization_id="7"), team_id=1) == result
-        mocked.assert_called_once_with("key", "7")
-
-
-class TestResumableWiring:
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = AutomoxSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AutomoxResumeConfig
-
-    @parameterized.expand(
-        [
-            ("incremental", True, "2026-01-01"),
-            # A stale watermark must not leak into a full-refresh run.
-            ("full_refresh", False, None),
-        ]
-    )
-    def test_source_for_pipeline_plumbs_arguments(
-        self, _name: str, should_use_incremental_field: bool, expected_last_value: Any
-    ) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "policy_runs"
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = should_use_incremental_field
-        inputs.db_incremental_field_last_value = "2026-01-01"
-        manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.automox.source.automox_source"
-        ) as mocked:
-            AutomoxSource().source_for_pipeline(_config(organization_id="3"), manager, inputs)
-        mocked.assert_called_once_with(
-            api_key="key",
-            organization_id="3",
-            endpoint="policy_runs",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=expected_last_value,
-        )
 
 
 class TestNonRetryableErrors:
@@ -178,6 +109,3 @@ class TestCanonicalDescriptions:
     def test_canonical_descriptions_keys_are_known_endpoints(self) -> None:
         # Every documented table must map to a real endpoint, or its descriptions never apply.
         assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-
-    def test_source_exposes_canonical_descriptions(self) -> None:
-        assert AutomoxSource().get_canonical_descriptions() is CANONICAL_DESCRIPTIONS

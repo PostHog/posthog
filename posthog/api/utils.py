@@ -40,7 +40,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -333,6 +333,7 @@ INSIGHT_KINDS = {
     "FunnelCorrelationQuery",
     "RetentionQuery",
     "PathsQuery",
+    "PathsV2Query",
     "StickinessQuery",
     "LifecycleQuery",
 }
@@ -356,6 +357,7 @@ INSIGHT_ACTORS_KINDS = {
     "FunnelsActorsQuery",
     "FunnelCorrelationActorsQuery",
     "StickinessActorsQuery",
+    "PathsV2ActorsQuery",
 }
 
 
@@ -496,12 +498,51 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
         }
 
 
+def canonicalize_encoded_url(url: str) -> str:
+    """Decode a URL that arrived fully percent-encoded, so it has an authority to validate.
+
+    Some browsers encode a whole redirect target, turning ``https://permitted.example`` into
+    ``https%3A%2F%2Fpermitted.example`` — a string that parses to no host at all.
+
+    Only a string with no host is decoded, and only once. Decoding a URL that already has an
+    authority is what lets ``https://permitted.example%2F@evil.example/`` be approved as
+    ``permitted.example`` while a browser resolves ``evil.example``, so that case is left alone.
+    Callers must redirect to what this returns, not to what they passed in, because approving the
+    decoded form and emitting the raw one would reintroduce the same split.
+
+    Callers run their own ``urlparse`` after this and turn its ``ValueError`` into a 400, so a URL
+    that cannot be parsed at all is handed back untouched rather than raised on here.
+    """
+    try:
+        if urlparse(url).hostname:
+            return url
+        decoded = urllib.parse.unquote(url)
+        return decoded if urlparse(decoded).hostname else url
+    except ValueError:
+        return url
+
+
 def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
-    if hostname and has_authority_bypass_chars(hostname):
+    if not hostname:
+        return hostname_in_allowed_url_list(allowed_url_list, hostname)
+    candidate = canonicalize_encoded_url(hostname)
+    if has_ambiguous_authority(candidate):
         return False
-    # if the browser url encodes the hostname, we need to decode it first
-    hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
-    return hostname_in_allowed_url_list(allowed_url_list, hostname)
+    return hostname_in_allowed_url_list(allowed_url_list, urlparse(candidate).hostname)
+
+
+def strip_url_userinfo(url: str) -> str:
+    """
+    Rebuild ``url`` so its authority holds only the host and port.
+
+    Redirect targets are approved on the strength of their host, so echoing the
+    caller's authority back keeps a ``user@`` prefix that the approval never looked at.
+    """
+    parsed = urlparse(url)
+    if "@" not in parsed.netloc:
+        return url
+    # urlparse derives the host the same way, by taking everything after the last "@".
+    return urllib.parse.urlunparse(parsed._replace(netloc=parsed.netloc.rpartition("@")[2]))
 
 
 def _strip_www(host: str) -> str:
@@ -608,7 +649,7 @@ def on_permitted_recording_domain(permitted_domains: list[str], request: HttpReq
     # TODO we will match on the app identifier in the origin instead and allow users to auth those
     is_authorized_mobile_client: bool = user_agent is not None and any(
         keyword in user_agent
-        for keyword in ["posthog-android", "posthog-ios", "posthog-react-native", "posthog-flutter"]
+        for keyword in ["posthog-android", "posthog-ios", "posthog-react-native", "posthog-flutter", "posthog-kmp"]
     )
 
     return is_authorized_web_client or is_authorized_mobile_client

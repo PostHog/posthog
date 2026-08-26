@@ -45,12 +45,14 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -80,7 +82,7 @@ from products.notebooks.backend.sql_v2_references import (
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
-from products.notebooks.backend.sql_v2_runs import finish_node_run
+from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
@@ -91,7 +93,11 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2RunStatusResponseSerializer,
     NotebookSQLV2StateResponseSerializer,
 )
-from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
+from products.notebooks.backend.sql_v2_state import (
+    NotebookCellLimitExceeded,
+    build_notebook_cell_state,
+    validate_cell_count,
+)
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
@@ -112,9 +118,10 @@ _CROSS_ENGINE_REF_ERROR_FOR_PYTHON = (
     "'{name}' ran on a warehouse connection, and Python cells can only read PostHog results. "
     "Re-run '{name}' on PostHog to use it here."
 )
+# Covers both kinds of local frame: one a Python cell bound, and one a SQL cell left behind when
+# reading a Python dataframe rerouted it to the sandbox. Neither is reachable from a warehouse.
 _LOCAL_FRAME_REF_ERROR = (
-    "'{name}' is a Python dataframe, so only a cell running on PostHog can read it. "
-    "Switch this cell to PostHog to use it."
+    "You can't query the local dataframe '{name}' because this cell points to a data source other than PostHog."
 )
 
 
@@ -380,6 +387,12 @@ class NotebookSerializer(NotebookMinimalSerializer):
     def validate_content(self, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
+        # self.instance is set on update and None on create, so a new notebook is measured
+        # against an empty document and an edit against what it currently holds.
+        try:
+            validate_cell_count(self.instance.content if self.instance else None, value)
+        except NotebookCellLimitExceeded as err:
+            raise serializers.ValidationError(str(err))
         try:
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
@@ -558,6 +571,9 @@ def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
     return response_payload
 
 
+IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "activity"})
+
+
 @extend_schema(
     description="The API for interacting with Notebooks. This feature is in early access and the API can have "
     "breaking changes without announcement.",
@@ -690,6 +706,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # The list serializer omits content/text_content, but both are large columns
             # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
             # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
+            queryset = queryset.defer("content", "text_content")
+        elif self.action in IDENTITY_ONLY_DETAIL_ACTIONS:
             queryset = queryset.defer("content", "text_content")
 
         order = self.request.GET.get("order", None)
@@ -1183,7 +1201,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # that warehouse's SQL. Inlining either elsewhere would ship the wrong query.
         latest_by_node: dict[str, tuple[str, str]] = {}
         other_engine_nodes: set[str] = set()
+        # A SQL node rerouted to DuckDB binds its result into the kernel namespace under its
+        # dataframe name, exactly like a Python node — there is no ClickHouse query to inline,
+        # but the frame is there to read. So it becomes a local ref rather than an absent one.
+        kernel_frame_nodes: set[str] = set()
         for other_node_id, run_id, run_code, run_type, run_connection_id, run_send_raw in latest_runs:
+            if run_type == NotebookNodeRun.NodeType.DUCKDB:
+                kernel_frame_nodes.add(other_node_id)
+                continue
             if run_type != NotebookNodeRun.NodeType.HOGQL:
                 continue
             if run_connection_id == connection_id and bool(run_send_raw) == send_raw_query:
@@ -1193,7 +1218,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         cross_engine_error = _CROSS_ENGINE_REF_ERROR_FOR_PYTHON if node_type == "python" else _CROSS_ENGINE_REF_ERROR
         refs: dict[str, SQLV2Ref] = {}
         for name, spec in ref_specs.items():
-            if spec["kind"] == "local":
+            if spec["kind"] == "local" or spec["node_id"] in kernel_frame_nodes:
                 # A kernel frame lives in the sandbox, which only reaches PostHog's own data — a
                 # connection run can't be rerouted there, so mark it unusable instead.
                 refs[name] = (
@@ -1323,6 +1348,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # caller lost access mid-query. Advancing the row leaks nothing — the gate below still
         # decides whether any of it is returned.
         rows = sync_direct_run(run)
+        # The kernel lane's equivalent, and here for the same reason: the sandbox delivers its
+        # envelope once with no retry, so a lost delivery leaves a run nothing else can move.
+        # The two are mutually exclusive — each is a no-op for the other's node types.
+        expire_stale_kernel_run(run)
         self._require_run_connection_access(run, user)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
@@ -1659,6 +1688,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     current_version=locked_notebook.version,
                 )
             else:
+                # Checked against the locked row rather than in the serializer, so two saves
+                # racing to add a cell cannot both read the same under-limit count and pass.
+                # This is the path the MCP cell tools write through, so it is the one an agent
+                # adding cells in a loop actually meets.
+                try:
+                    validate_cell_count(locked_notebook.content, submitted_content)
+                except NotebookCellLimitExceeded as err:
+                    raise serializers.ValidationError(str(err))
                 annotated_content = annotate_python_nodes(submitted_content)
                 diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
                 result = markdown_collab.submit_markdown_update(

@@ -62,6 +62,9 @@ const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUr
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
             }
+            if (params.email_sending_rate_limit !== undefined) {
+                body['email_sending_rate_limit'] = params.email_sending_rate_limit
+            }
             if (params.edges !== undefined) {
                 body['edges'] = params.edges
             }
@@ -230,6 +233,7 @@ const workflowsListInvocations = (): ToolBase<
                 after: params.after,
                 before: params.before,
                 distinct_id: params.distinct_id,
+                error_message_contains: params.error_message_contains,
                 limit: params.limit,
                 status: params.status,
             },
@@ -361,6 +365,9 @@ const workflowsRestoreRevision = (): ToolBase<typeof WorkflowsRestoreRevisionSch
         if (params.overwrite !== undefined) {
             body['overwrite'] = params.overwrite
         }
+        if (params.expected_draft_updated_at !== undefined) {
+            body['expected_draft_updated_at'] = params.expected_draft_updated_at
+        }
         const result = await context.api.request<Schemas.HogFlow>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/restore/`,
@@ -452,6 +459,9 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             }
             if (params.exit_condition !== undefined) {
                 body['exit_condition'] = params.exit_condition
+            }
+            if (params.email_sending_rate_limit !== undefined) {
+                body['email_sending_rate_limit'] = params.email_sending_rate_limit
             }
             if (params.variables !== undefined) {
                 body['variables'] = params.variables

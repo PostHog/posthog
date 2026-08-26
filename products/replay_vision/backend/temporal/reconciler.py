@@ -15,6 +15,7 @@ from products.replay_vision.backend.temporal.constants import (
     INLINE_SCANNER_REAP_TIMEOUT,
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
+    REAP_BACKFILL_SCHEDULES_TIMEOUT,
     REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
     REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
     REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT,
@@ -41,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
         delete_scanner_schedule_activity,
         list_enabled_scanners_activity,
         list_scanner_schedules_activity,
+        reap_backfill_schedules_activity,
         reap_childless_inline_scanners_activity,
         reap_orphaned_observations_activity,
         reap_stuck_vision_action_runs_activity,
@@ -87,6 +89,16 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
                 )
             except Exception:
                 workflow.logger.exception("replay_vision.reap_childless_inline_scanners_failed")
+
+        if workflow.patched("reap-backfill-schedules-2026-08"):
+            try:
+                await workflow.execute_activity(
+                    reap_backfill_schedules_activity,
+                    start_to_close_timeout=REAP_BACKFILL_SCHEDULES_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
 
         # A scanner toggled between the two listings recovers on the next tick.
         enabled_entries, existing_entries = await asyncio.gather(

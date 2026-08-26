@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconChevronLeft } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconSend } from '@posthog/icons'
+import { LemonCheckbox, LemonDropdown, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -35,9 +35,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, WeekdayType } from '~/types'
 
-import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { AIWindowConfigApi, SubscriptionDeliveryApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
@@ -45,18 +45,22 @@ import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
+    ALL_DAYS,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     intervalOptions,
     monthlyWeekdayOptions,
+    selectedDaysToDayPickerLabel,
+    shouldShowDayPicker,
     targetTypeOptions,
     timeOptions,
-    weekdayInputOptions,
+    toggleSelectedDay,
     weekdayOptions,
     WEEKDAYS,
     AI_PROMPT_MAX_LENGTH,
+    isFreeTierCreateAtLimit,
 } from '../utils'
 
 // Shown wherever AI subscriptions are gated off (org hasn't approved AI data
@@ -69,6 +73,96 @@ function AiConsentGateMessage(): JSX.Element {
         <>
             {AI_NOT_ALLOWED_REASON}{' '}
             <Link to={urls.settings('organization-details', 'organization-ai-consent')}>Manage AI data processing</Link>
+        </>
+    )
+}
+
+function SubscriptionDayPicker({
+    value,
+    onChange,
+}: {
+    value: WeekdayType[]
+    onChange: (value: WeekdayType[]) => void
+}): JSX.Element {
+    let selectAllChecked: boolean | 'indeterminate' = false
+    if (value.length === ALL_DAYS.length) {
+        selectAllChecked = true
+    } else if (value.length > 0) {
+        selectAllChecked = 'indeterminate'
+    }
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-start"
+            overlay={
+                <div className="w-48 flex flex-col gap-0.5">
+                    <div className="flex items-center mb-0.5">
+                        <LemonButton
+                            size="small"
+                            className="flex-1"
+                            icon={<LemonCheckbox checked={selectAllChecked} className="pointer-events-none" />}
+                            disabledReason={value.length === ALL_DAYS.length ? 'All days are selected' : undefined}
+                            onClick={() => onChange([...ALL_DAYS])}
+                        >
+                            Select all
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            disabledReason={value.length === 0 ? 'No days are selected' : undefined}
+                            onClick={() => onChange([])}
+                        >
+                            Clear all
+                        </LemonButton>
+                    </div>
+                    {weekdayOptions.map((day) => (
+                        <LemonCheckbox
+                            key={day.value}
+                            checked={value.includes(day.value)}
+                            label={day.label}
+                            fullWidth
+                            className="px-2 py-1 rounded hover:bg-bg-3000"
+                            onChange={() => onChange(toggleSelectedDay(value, day.value))}
+                        />
+                    ))}
+                </div>
+            }
+        >
+            <LemonButton type="secondary">{selectedDaysToDayPickerLabel(value)}</LemonButton>
+        </LemonDropdown>
+    )
+}
+
+function LastDeliveryStatus({
+    lastDelivery,
+    loading,
+    failed,
+    currentTimezone,
+}: {
+    lastDelivery: SubscriptionDeliveryApi | null
+    loading: boolean
+    failed: boolean
+    currentTimezone: string | undefined
+}): JSX.Element {
+    if (loading) {
+        return <LemonSkeleton className="w-32 h-4 inline-block" />
+    }
+    if (failed) {
+        return <>Last run unavailable</>
+    }
+    if (!lastDelivery) {
+        return <>No deliveries yet</>
+    }
+    return (
+        <>
+            Last run:{' '}
+            <TZLabel
+                time={lastDelivery.finished_at ?? lastDelivery.created_at}
+                formatDate="ddd, MMM D"
+                formatTime="h:mm A"
+                timestampStyle="absolute"
+            />{' '}
+            {currentTimezone}
         </>
     )
 }
@@ -102,11 +196,6 @@ interface EditSubscriptionProps {
     dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
-}
-
-// A null count (loading or fetch failed) fails open — the backend POST check is the hard limit.
-export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
-    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
 }
 
 export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
@@ -351,10 +440,19 @@ function EditSubscriptionForm({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
-        useValues(logic)
+    const {
+        subscription,
+        subscriptionLoading,
+        isSubscriptionSubmitting,
+        subscriptionChanged,
+        lastDelivery,
+        lastDeliveryLoadFailed,
+        lastDeliveryLoading,
+        summaryQuota,
+        testDeliveryLoading,
+    } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -655,21 +753,12 @@ function EditSubscriptionForm({
                                         <LemonSelect options={availableFrequencyOptions} />
                                     </LemonField>
 
-                                    {(subscription.frequency === 'daily' || subscription.frequency === 'weekly') && (
+                                    {shouldShowDayPicker(subscription.frequency, subscription.interval) && (
                                         <>
                                             <LemonField name="byweekday">
-                                                {({ value, onChange }) => {
-                                                    const selectedDays = value ?? []
-                                                    return (
-                                                        <LemonInputSelect
-                                                            mode="multiple"
-                                                            bulkActions="select-and-clear-all"
-                                                            options={weekdayInputOptions}
-                                                            value={selectedDays}
-                                                            onChange={onChange}
-                                                        />
-                                                    )
-                                                }}
+                                                {({ value, onChange }) => (
+                                                    <SubscriptionDayPicker value={value ?? []} onChange={onChange} />
+                                                )}
                                             </LemonField>
                                         </>
                                     )}
@@ -753,6 +842,34 @@ function EditSubscriptionForm({
                                         timestampStyle="absolute"
                                     />{' '}
                                     {currentTimezone}
+                                </div>
+                            )}
+                            {id !== 'new' && (
+                                <div className="flex items-center justify-between gap-2 mt-1">
+                                    <div className="text-sm text-secondary">
+                                        <LastDeliveryStatus
+                                            lastDelivery={lastDelivery}
+                                            loading={lastDeliveryLoading}
+                                            failed={lastDeliveryLoadFailed}
+                                            currentTimezone={currentTimezone}
+                                        />
+                                        {' · '}
+                                        <Link to={urls.subscription(id)}>View history</Link>
+                                    </div>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconSend />}
+                                        onClick={sendTestDelivery}
+                                        loading={testDeliveryLoading}
+                                        disabledReason={
+                                            subscription.enabled === false
+                                                ? 'Re-enable this subscription before sending a test delivery'
+                                                : undefined
+                                        }
+                                    >
+                                        Send test delivery
+                                    </LemonButton>
                                 </div>
                             )}
                         </div>

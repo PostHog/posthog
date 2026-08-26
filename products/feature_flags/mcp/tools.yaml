@@ -32,10 +32,7 @@ tools:
             idempotent: false
         enrich_url: '{id}'
         title: Create feature flag
-        description: |
-            Create a feature flag in the current project.
-            For group-targeted flags (workspaces/companies/etc.), set filters.aggregation_group_type_index
-            and use property type "group" with group_type_index on each property. Omitting type defaults to person.
+        description: >
         include_params:
             - key
             - name
@@ -137,8 +134,10 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         title: Get feature flag definition
-        description: |
-            Get a feature flag by ID.
+        description: >
+            Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its
+            numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use
+            `feature-flag-get-all` to search by key or name and find the ID.
         param_overrides:
             id:
                 cast: string-int
@@ -282,10 +281,12 @@ tools:
         list: true
         title: Get my evaluated feature flags
         description: >
-            List all feature flags in the current project along with their evaluated value for the authenticated user
-            (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple
-            flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON
-            object to evaluate group-based flags.
+            List feature flags in the current project along with their evaluated value for the authenticated user (the
+            API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags,
+            variant key string for multivariate flags, false if disabled). Pass `flag_keys` to scope the response to
+            specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry
+            for every flag and can produce a very large payload. Optionally pass `groups` as a JSON object to evaluate
+            group-based flags.
     feature-flags-remote-config-retrieve:
         operation: feature_flags_remote_config_retrieve
         enabled: false
@@ -346,9 +347,12 @@ tools:
             idempotent: true
         title: Test feature flag evaluation
         description: >
-            Test how a feature flag evaluates for a specific user at an optional point in time. Provides detailed
-            reasoning about why the flag matched or didn't match, including condition analysis and person properties
-            used in evaluation.
+            Simulate how one feature flag (by numeric ID) would evaluate for a specific user, optionally at a past point
+            in time (`timestamp` reconstructs flag conditions and person properties as they existed then). Provide
+            `distinct_id` or `person_id` (mutually exclusive) and optionally `groups`. Returns the evaluated value with
+            detailed reasoning: which condition matched and the person properties used. Use this to debug or dry-run a
+            single flag; use `feature-flags-evaluation-reasons-retrieve` to see live evaluations across many flags for a
+            user, and `feature-flags-user-blast-radius-create` to size a release condition before applying it.
         param_overrides:
             id:
                 cast: string-int
@@ -481,11 +485,7 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         title: Update feature flag
-        description: |
-            Update a feature flag by ID in the current project.
-            When updating filters on group-targeted flags, include type "group", group_type_index, and
-            filters.aggregation_group_type_index. If those fields are omitted, the tool merges them from the
-            existing flag so group targeting is not silently converted to person targeting.
+        description: >
         include_params:
             - key
             - name

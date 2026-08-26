@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useContext, useEffect } from 'react'
+import { useContext, useEffect, useMemo } from 'react'
 
 import { useComponentPanelState } from './componentPanelContext'
 import { NotebookComponentRunStatusContext } from './componentRunStatus'
 import { NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
 import { NotebookComponentShell } from './NotebookComponentShell'
 import { createMarkdownNotebookRegistry } from './registry'
+import { NotebookComponentRenderProps } from './types'
 
 function PanelStateProbe(): JSX.Element {
     const panelState = useComponentPanelState()
@@ -155,8 +156,21 @@ describe('NotebookComponentShell', () => {
             const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
             useEffect(() => {
                 setToolbarExtras?.({
-                    actions: [{ text: 'Add metric', onClick: onAction }],
-                    menuItems: [{ label: 'Refresh', onClick: onMenuItem }],
+                    actions: [
+                        {
+                            text: 'Add metric',
+                            icon: <span data-testid="action-menu-icon" />,
+                            onClick: onAction,
+                        },
+                    ],
+                    menuItems: [
+                        {
+                            label: 'Refresh',
+                            sideIcon: <span data-testid="custom-menu-icon" />,
+                            onClick: onMenuItem,
+                        },
+                    ],
+                    editMenuItems: [{ label: 'Change view', items: [{ label: 'Summary', onClick: jest.fn() }] }],
                 })
             }, [setToolbarExtras])
             return <div>Results</div>
@@ -199,20 +213,193 @@ describe('NotebookComponentShell', () => {
 
         const editRender = renderShell('edit')
 
-        const actionButton = screen.getByText('Add metric')
-        fireEvent.click(actionButton)
+        await userEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByTestId('action-menu-icon')).toBeNull()
+        await userEvent.click(await screen.findByText('Add metric'))
         expect(onAction).toHaveBeenCalled()
 
         await userEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByTestId('custom-menu-icon')).toBeNull()
         await userEvent.click(await screen.findByText('Refresh'))
         expect(onMenuItem).toHaveBeenCalled()
 
+        await userEvent.click(screen.getByLabelText('More actions'))
+        expect(await screen.findByText('Change view')).toBeTruthy()
+
         editRender.unmount()
 
-        // The menu still renders in view mode (e.g. profile canvases), the actions row does not.
-        renderShell('view')
+        // The menu still renders in view mode (e.g. profile canvases), but editing actions do not.
+        const viewRender = renderShell('view')
         expect(screen.queryByText('Add metric')).toBeNull()
         expect(screen.getByLabelText('More actions')).toBeTruthy()
+        await userEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByText('Change view')).toBeNull()
+        expect(screen.getByText('Refresh')).toBeTruthy()
+        viewRender.unmount()
+    })
+
+    it('settles when a component publishes a menu derived from updateProps', async () => {
+        function ViewMenuProbe({ updateProps }: NotebookComponentRenderProps): JSX.Element {
+            const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+            const editMenuItems = useMemo(
+                () => [
+                    {
+                        label: 'Change view',
+                        items: [{ label: 'Summary', onClick: () => updateProps({ view: 'summary' }) }],
+                    },
+                ],
+                [updateProps]
+            )
+
+            useEffect(() => {
+                setToolbarExtras?.({ actions: [], menuItems: null, editMenuItems })
+            }, [editMenuItems, setToolbarExtras])
+
+            return <div>Results</div>
+        }
+
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: ViewMenuProbe,
+            },
+        ])
+
+        const rendered = render(
+            <NotebookComponentShell
+                node={{ id: 'probe-node', type: 'component', tagName: 'Probe', props: {} }}
+                mode="edit"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        expect(within(rendered.container).getByText('Results')).toBeTruthy()
+        await userEvent.click(within(rendered.container).getByLabelText('More actions'))
+        expect(await screen.findByText('Change view')).toBeTruthy()
+        rendered.unmount()
+    })
+
+    it('puts current-tab and new-tab resource links first in the overflow menu', async () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Feature flag',
+                category: 'Test',
+                ViewComponent: () => <div>Results</div>,
+                getHref: () => '/project/1/feature_flags/123',
+            },
+        ])
+
+        render(
+            <NotebookComponentShell
+                node={{ id: 'probe-node', type: 'component', tagName: 'Probe', props: {} }}
+                mode="edit"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        expect(screen.queryByLabelText('Open in new tab')).toBeNull()
+        await userEvent.click(screen.getByLabelText('More actions'))
+
+        const menuItems = screen.getAllByRole('menuitem')
+        expect(menuItems[0].textContent).toContain('Open feature flag')
+        expect(menuItems[0].closest('a')?.getAttribute('target')).toBeNull()
+        expect(menuItems[1].textContent).toContain('Open in new tab')
+        expect(menuItems[1].closest('a')?.getAttribute('target')).toBe('_blank')
+    })
+
+    it('renders a published fixed title and status without offering title editing', () => {
+        const toggleStatus = jest.fn()
+
+        function FixedTitleProbe(): JSX.Element {
+            const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+            useEffect(() => {
+                setToolbarExtras?.({
+                    actions: [],
+                    menuItems: null,
+                    title: 'onboarding-wizard-sync-mode',
+                    titleStatus: {
+                        label: 'Enabled',
+                        type: 'success',
+                        onClick: toggleStatus,
+                    },
+                })
+            }, [setToolbarExtras])
+            return <div>Release conditions</div>
+        }
+
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'FeatureFlagProbe',
+                label: 'Feature flag',
+                category: 'Test',
+                editableTitle: false,
+                ViewComponent: FixedTitleProbe,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentShell
+                node={{
+                    id: 'feature-flag-node',
+                    type: 'component',
+                    tagName: 'FeatureFlagProbe',
+                    props: { title: 'Ignored custom title' },
+                }}
+                mode="edit"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        const titleButton = container.querySelector(
+            '.MarkdownNotebook__component-toolbar-title--button'
+        ) as HTMLButtonElement
+        expect(titleButton.textContent).toBe('onboarding-wizard-sync-mode')
+        expect(screen.getByText('Enabled').closest('.LemonTag')?.classList.contains('LemonTag--success')).toBe(true)
+
+        fireEvent.doubleClick(titleButton)
+        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title--input')).toBeNull()
+
+        fireEvent.click(screen.getByText('Enabled'))
+        expect(toggleStatus).toHaveBeenCalledTimes(1)
     })
 
     it('shows the filters toggle in view mode only when the host and definition opt in', () => {
@@ -385,6 +572,49 @@ describe('NotebookComponentShell', () => {
         const collapsedCanvas = renderShell(true, { filters: false, results: false })
         expect(within(collapsedCanvas.container).queryByText('Results')).toBeNull()
         expect(within(collapsedCanvas.container).getByLabelText('Expand')).toBeTruthy()
+    })
+
+    it.each([
+        ['edit', { filters: true, results: true }],
+        ['view', { filters: false, results: true }],
+        // Collapsed: the reason the control is a shell slot rather than a published toolbar extra —
+        // a code cell stays runnable with neither its editor nor its results on screen.
+        ['edit', { filters: false, results: false }],
+    ] as const)('renders the definition toolbar control in %s mode with panels %p', (mode, componentPanels) => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: () => <div>Results</div>,
+                EditComponent: () => <div>Filters panel</div>,
+                ToolbarComponent: () => <button type="button">Run</button>,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentShell
+                node={{ id: 'probe-node', type: 'component', tagName: 'Probe', props: {} }}
+                mode={mode}
+                componentPanels={componentPanels}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        expect(
+            within(container.querySelector('.MarkdownNotebook__component-toolbar') as HTMLElement).getByText('Run')
+        ).toBeTruthy()
     })
 
     it('keeps the toolbar menu when collapsing unmounts the component', () => {

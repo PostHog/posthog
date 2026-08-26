@@ -23,9 +23,9 @@ jest.mock('lib/api', () => {
     }
 })
 
-const evaluation = (id: string, directoryId: string | null): LLMJudgeEvaluation => ({
+const evaluation = (id: string, directoryId: string | null, name = `Evaluation ${id}`): LLMJudgeEvaluation => ({
     id,
-    name: `Evaluation ${id}`,
+    name,
     description: '',
     directory_id: directoryId,
     enabled: true,
@@ -85,17 +85,36 @@ describe('evaluationMetricsLogic', () => {
         evaluationsLogic.unmount()
     })
 
-    it('scopes the graph and summary metrics when a directory is selected', () => {
-        const rootEvaluation = evaluation('root', null)
+    it('uses one filtered breakdown query and scopes metrics to the selected directory', () => {
+        const firstRootEvaluation = evaluation('root-one', null, "Root's evaluation")
+        const secondRootEvaluation = evaluation('root-two', null, "Root's evaluation")
         const directoryEvaluation = evaluation('inside', 'directory-a')
 
-        evaluationsLogic.actions.loadEvaluationsSuccess([rootEvaluation, directoryEvaluation])
-        metricsLogic.actions.loadStatsSuccess([stats(rootEvaluation.id, 4), stats(directoryEvaluation.id, 2)])
+        evaluationsLogic.actions.loadEvaluationsSuccess([
+            firstRootEvaluation,
+            secondRootEvaluation,
+            directoryEvaluation,
+        ])
+        metricsLogic.actions.loadStatsSuccess([
+            stats(firstRootEvaluation.id, 4),
+            stats(secondRootEvaluation.id, 3),
+            stats(directoryEvaluation.id, 2),
+        ])
 
         expect(metricsLogic.values.chartQuery?.series).toEqual([
-            expect.objectContaining({ custom_name: rootEvaluation.name }),
+            expect.objectContaining({
+                properties: [expect.objectContaining({ value: [firstRootEvaluation.id, secondRootEvaluation.id] })],
+            }),
         ])
-        expect(metricsLogic.values.summaryMetrics.total_runs).toBe(4)
+        expect(metricsLogic.values.chartQuery?.breakdownFilter).toEqual(
+            expect.objectContaining({
+                breakdown_type: 'hogql',
+                breakdown_hide_other_aggregation: true,
+            })
+        )
+        expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).toContain("'Root\\'s evaluation (1)'")
+        expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).toContain("'Root\\'s evaluation (2)'")
+        expect(metricsLogic.values.summaryMetrics.total_runs).toBe(7)
 
         router.actions.push(
             combineUrl(urls.aiObservabilityEvaluations(), {
@@ -104,8 +123,12 @@ describe('evaluationMetricsLogic', () => {
         )
 
         expect(metricsLogic.values.chartQuery?.series).toEqual([
-            expect.objectContaining({ custom_name: directoryEvaluation.name }),
+            expect.objectContaining({
+                properties: [expect.objectContaining({ value: [directoryEvaluation.id] })],
+            }),
         ])
+        expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).toContain(directoryEvaluation.name)
+        expect(metricsLogic.values.chartQuery?.breakdownFilter?.breakdown).not.toContain(firstRootEvaluation.id)
         expect(metricsLogic.values.summaryMetrics.total_runs).toBe(2)
     })
 })

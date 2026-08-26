@@ -17,9 +17,9 @@ from posthog.api.search import (
     search_entities as search_entities_fts,
 )
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
@@ -35,7 +35,7 @@ from products.feature_flags.backend.flag_status import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type

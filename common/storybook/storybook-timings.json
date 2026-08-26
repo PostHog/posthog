@@ -967,31 +967,31 @@
         "chromium": 28.171,
         "webkit": 5.876
     },
-    "frontend/src/scenes/inbox/InboxScene.stories.tsx": {
+    "products/signals/frontend/inbox/InboxScene.stories.tsx": {
         "chromium": 20.612,
         "webkit": 4.663
     },
-    "frontend/src/scenes/inbox/components/badges/InboxBadges.stories.tsx": {
+    "products/signals/frontend/inbox/components/badges/InboxBadges.stories.tsx": {
         "chromium": 5.184,
         "webkit": 1.435
     },
-    "frontend/src/scenes/inbox/components/cards/InboxCards.stories.tsx": {
+    "products/signals/frontend/inbox/components/cards/InboxCards.stories.tsx": {
         "chromium": 18.545,
         "webkit": 2.834
     },
-    "frontend/src/scenes/inbox/components/detail/InboxDetail.stories.tsx": {
+    "products/signals/frontend/inbox/components/detail/InboxDetail.stories.tsx": {
         "chromium": 26.069,
         "webkit": 8.057
     },
-    "frontend/src/scenes/inbox/components/detail/PullRequestDiffView.stories.tsx": {
+    "products/signals/frontend/inbox/components/detail/PullRequestDiffView.stories.tsx": {
         "chromium": 15.643,
         "webkit": 3.188
     },
-    "frontend/src/scenes/inbox/components/shell/InboxUsageWidget.stories.tsx": {
+    "products/signals/frontend/inbox/components/shell/InboxUsageWidget.stories.tsx": {
         "chromium": 18.696,
         "webkit": 2.603
     },
-    "frontend/src/scenes/inbox/components/tabs/InboxTabs.stories.tsx": {
+    "products/signals/frontend/inbox/components/tabs/InboxTabs.stories.tsx": {
         "chromium": 25.134,
         "webkit": 3.292
     },

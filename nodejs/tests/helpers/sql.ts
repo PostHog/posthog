@@ -46,7 +46,6 @@ BEGIN
             'posthog_featureflaghashkeyoverride',
             'posthog_cohortpeople',
             'posthog_persondistinctid',
-            'posthog_personlessdistinctid',
             'posthog_person',
             'posthog_personoverridemapping',
             'posthog_personoverride',
@@ -76,7 +75,6 @@ BEGIN
     DELETE FROM posthog_personoverride CASCADE;
     DELETE FROM posthog_personoverridemapping CASCADE;
     DELETE FROM posthog_persondistinctid CASCADE;
-    DELETE FROM posthog_personlessdistinctid CASCADE;
     DELETE FROM posthog_person CASCADE;
 
     -- Handle any other tables that might exist in the persons database
@@ -94,7 +92,6 @@ BEGIN
             'posthog_personoverride',
             'posthog_personoverridemapping',
             'posthog_persondistinctid',
-            'posthog_personlessdistinctid',
             'posthog_person'
         )
     ) LOOP
@@ -146,7 +143,7 @@ function getPostgresUseForTable(table: string): PostgresUse {
 
     // Persons-related tables
     const personsTablesRegex =
-        /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
+        /^posthog_(person|persondistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
     if (personsTablesRegex.test(table)) {
         return PostgresUse.PERSONS_WRITE
     }
@@ -476,7 +473,9 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
 }
 
 export async function fetchPostgresPersons(postgres: PostgresRouter, teamId: number) {
-    const query = `SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
+    // Live persons only, matching production reads: in tombstone mode a merged-away
+    // source keeps its row with is_deleted = true.
+    const query = `SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = ${teamId} AND is_deleted = false ORDER BY id`
     return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.fetchPersons`.

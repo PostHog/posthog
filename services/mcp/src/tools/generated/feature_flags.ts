@@ -388,6 +388,7 @@ const featureFlagsMyFlagsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/my_flags/`,
             query: {
+                flag_keys: params.flag_keys,
                 groups: params.groups,
             },
         })

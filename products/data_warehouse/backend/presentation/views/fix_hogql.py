@@ -26,6 +26,7 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         query = request.data.get("query", None)
         error = request.data.get("error", "")
+        connection_id = request.data.get("connection_id", None)
 
         if query is None:
             return Response(
@@ -36,13 +37,19 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         trace_id = f"fix_hogql_query_{uuid.uuid4()}"
         user = cast(User, request.user)
 
+        fix_hogql_context: dict[str, str] = {
+            "hogql_query": query,
+            "error_message": error,
+        }
+        # Only present when the query targets a direct-query data warehouse connection, so the fixer
+        # sees that connection's tables instead of only the ClickHouse catalog.
+        if connection_id:
+            fix_hogql_context["connection_id"] = connection_id
+
         config: RunnableConfig = {
             "configurable": {
                 "contextual_tools": {
-                    "fix_hogql_query": {
-                        "hogql_query": query,
-                        "error_message": error,
-                    }
+                    "fix_hogql_query": fix_hogql_context,
                 },
                 "team": self.team,
                 "user": user,

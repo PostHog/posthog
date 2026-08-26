@@ -315,6 +315,7 @@ export const getPrDetailsByUrlOutput = z.object({
   draft: z.boolean(),
   headRefName: z.string().nullable(),
   title: z.string().nullable(),
+  author: z.string().nullable(),
 });
 
 export type PrDetailsByUrlOutput = z.infer<typeof getPrDetailsByUrlOutput>;
@@ -349,6 +350,11 @@ export const getBranchChangedFilesInput = z.object({
   branch: z.string(),
 });
 
+export const getCommitChangedFilesInput = z.object({
+  repo: z.string(),
+  sha: z.string(),
+});
+
 export const getLocalBranchChangedFilesInput = z.object({
   directoryPath: z.string(),
   branch: z.string(),
@@ -357,6 +363,7 @@ export const getLocalBranchChangedFilesInput = z.object({
 export const prReviewCommentUserSchema = z.object({
   login: z.string(),
   avatar_url: z.string(),
+  isBot: z.boolean().optional(),
 });
 
 export const prReviewCommentSchema = z.object({

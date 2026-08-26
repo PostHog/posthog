@@ -22,6 +22,7 @@ import { useAuthenticatedInfiniteQuery } from "@posthog/ui/hooks/useAuthenticate
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { toast } from "@posthog/ui/primitives/toast";
+import type { InfiniteData } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 
@@ -56,26 +57,39 @@ export function useInboxReportsInfinite(
       | ((query: unknown) => number | false | undefined);
     refetchIntervalInBackground?: boolean;
     staleTime?: number;
+    /** Rows per page; smaller pages paint faster where the list streams in on scroll. */
+    pageSize?: number;
+    placeholderData?: (
+      previousData: InfiniteData<SignalReportsResponse, number> | undefined,
+    ) => InfiniteData<SignalReportsResponse, number> | undefined;
   },
 ) {
+  const pageSize = options?.pageSize ?? REPORTS_PAGE_SIZE;
   const query = useAuthenticatedInfiniteQuery<SignalReportsResponse, number>(
-    reportKeys.infiniteList(params),
+    // The page size is part of the key: pages of different sizes can't be
+    // stitched into one cached list.
+    reportKeys.infiniteList({ ...params, limit: pageSize }),
     (client, offset) =>
       client.getSignalReports({
         ...params,
-        limit: REPORTS_PAGE_SIZE,
+        limit: pageSize,
         offset,
       }),
     {
       enabled: options?.enabled,
       initialPageParam: 0,
       getNextPageParam: (lastPage, allPages) => {
+        // An empty page ends pagination even when `count` says otherwise —
+        // trusting a disagreeing count would loop the scroll sentinel on a
+        // spinner forever, refetching the same empty page.
+        if (lastPage.results.length === 0) return undefined;
         const loaded = allPages.reduce((n, p) => n + p.results.length, 0);
         return loaded < lastPage.count ? loaded : undefined;
       },
       refetchInterval: options?.refetchInterval,
       refetchIntervalInBackground: options?.refetchIntervalInBackground,
       staleTime: options?.staleTime,
+      placeholderData: options?.placeholderData,
     },
   );
 
@@ -236,7 +250,7 @@ interface UpdateSuggestedReviewersVariables {
  * Edits a report's suggested reviewers. The server appends a new `suggested_reviewers` status
  * artefact (latest-wins), so the work-log keeps the full history of changes. We optimistically
  * append a synthetic latest row — mirroring the server — so the detail pane reflects the change
- * instantly (immediate apply); the refetch on settle reconciles it with the real row.
+ * instantly (immediate apply); the refetch on settle reconciles the report and artefact caches.
  */
 export function useUpdateSuggestedReviewers(reportId: string) {
   const queryClient = useQueryClient();
@@ -283,9 +297,8 @@ export function useUpdateSuggestedReviewers(reportId: string) {
         }
         toast.error(error.message || "Failed to update suggested reviewers");
       },
-      onSettled: () => {
-        queryClient.invalidateQueries({ queryKey });
-      },
+      onSettled: () =>
+        queryClient.invalidateQueries({ queryKey: reportKeys.all }),
     },
   );
 }

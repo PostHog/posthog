@@ -14,6 +14,8 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    DelegatedOAuthAccessTokenAuthentication,
+    DelegatedPersonalAPIKeyAuthentication,
     IDJagAccessTokenAuthentication,
     InternalAPIAuthentication,
     JwtAuthentication,
@@ -37,9 +39,11 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     VerifiedDomainEnforcementPermission,
 )
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.products import is_product_module
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -84,7 +88,7 @@ class RouterRegistry:
     def _reject_product_caller(method: str) -> None:
         # frame 0 = here, 1 = the public method, 2 = its caller
         caller_module = sys._getframe(2).f_globals.get("__name__", "")
-        if caller_module.startswith("products."):
+        if is_product_module(caller_module):
             raise RuntimeError(
                 f"Parent routers are core-owned; {caller_module} must not call RouterRegistry.{method}(). "
                 "Products nest onto existing parents via routers.projects/organizations/root."
@@ -298,6 +302,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
                 # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
                 IDJagAccessTokenAuthentication,
+                DelegatedPersonalAPIKeyAuthentication,
+                DelegatedOAuthAccessTokenAuthentication,
                 JwtAuthentication,
                 OAuthAccessTokenAuthentication,
                 PersonalAPIKeyAuthentication,
