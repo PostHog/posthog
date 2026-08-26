@@ -80,9 +80,11 @@ const MODEL_GATE_PATTERNS = ["needs a paid posthog plan"] as const;
 
 const ORG_LIMIT_PATTERNS = [
   "cloud usage limit reached",
-  "reached its posthog desktop usage limit",
+  // Matched without the possessive so both wordings land here: the gateway says
+  // "its" ("your team has reached its …") and the task API says "your".
+  "posthog desktop usage limit",
   // Older gateway deployments still send the pre-rename wording.
-  "reached its posthog code usage limit",
+  "posthog code usage limit",
   "reached its usage limit for this billing period",
   // Per-user free valves — billed orgs have none, so these always mean the
   // free tier is used up.

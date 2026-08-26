@@ -4,9 +4,9 @@ import {
   prepareTaskInput,
 } from "@posthog/core/task-detail/taskInput";
 import {
-  isUsageLimitResult,
   TASK_SERVICE,
   type TaskService,
+  usageLimitCauseForResult,
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
@@ -44,6 +44,7 @@ import {
 import { titleAttachmentStoreApi } from "../../../shell/titleAttachmentStore";
 import { useAuthStateValue } from "../../auth/store";
 import { assertCloudUsageAvailable } from "../../billing/preflightCloudUsage";
+import { showUsageLimitPromptForError } from "../../billing/usageLimitPrompt";
 import { useUsageLimitStore } from "../../billing/usageLimitStore";
 import { useLocalMcpCloudServers } from "../../local-mcp/useLocalMcpCloudServers";
 import {
@@ -558,10 +559,14 @@ export function useTaskCreation({
               error_type: "task_creation_failed",
               failed_step: result.failedStep,
             });
-            // Usage-limit blocks already show the upgrade modal; don't also toast an error.
-            if (isUsageLimitResult(result)) {
-              useUsageLimitStore.getState().show({ cause: "org_limit" });
-              log.warn("Cloud task creation blocked by usage limit");
+            // A spend-gate block gets the upgrade modal, which carries the route to
+            // billing; a toast naming the limit would leave nothing to act on.
+            const limitCause = usageLimitCauseForResult(result);
+            if (limitCause) {
+              useUsageLimitStore.getState().show({ cause: limitCause });
+              log.warn("Cloud task creation blocked by usage limit", {
+                cause: limitCause,
+              });
             } else {
               const title = getErrorTitle(result.failedStep);
               toastError(title, result.error);
@@ -583,7 +588,9 @@ export function useTaskCreation({
           track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
             error_type: "unexpected_error",
           });
-          toastError("Failed to create task", error);
+          if (!showUsageLimitPromptForError(error)) {
+            toastError("Failed to create task", error);
+          }
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {
             pendingTaskPromptStoreApi.clear(pendingTaskKey);

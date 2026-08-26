@@ -5,7 +5,11 @@ import type { PiRunner } from "../pi-runtime/piRunner";
 import type { TaskCreationEffects } from "./taskCreationEffects";
 import type { ITaskCreationHost } from "./taskCreationHost";
 import { buildWorktreeAdoptionInput } from "./taskInput";
-import { TaskService } from "./taskService";
+import {
+  type CreateTaskResult,
+  TaskService,
+  usageLimitCauseForResult,
+} from "./taskService";
 
 const scopedLog = {
   debug: vi.fn(),
@@ -206,5 +210,59 @@ describe("TaskService.createTask validation", () => {
     expect(result.success).toBe(false);
     if (result.success) throw new Error("expected task_creation failure");
     expect(result.failedStep).toBe("task_creation");
+  });
+});
+
+describe("usageLimitCauseForResult", () => {
+  it.each([
+    {
+      name: "the local pre-flight sentinel",
+      result: {
+        success: false,
+        error: "Cloud usage limit reached",
+        failedStep: "usage_limit",
+      },
+      expected: "org_limit",
+    },
+    {
+      name: "a backend spend-gate block reduced to prose",
+      result: {
+        success: false,
+        error: "You've reached your PostHog Desktop usage limit.",
+        failedStep: "task_creation",
+      },
+      expected: "org_limit",
+    },
+    {
+      name: "an organization-level compute-quota block",
+      result: {
+        success: false,
+        error: "Your organization reached its PostHog Desktop usage limit.",
+        failedStep: "task_creation",
+      },
+      expected: "org_limit",
+    },
+    {
+      name: "an unrelated failure",
+      result: {
+        success: false,
+        error: "Repository not found",
+        failedStep: "task_creation",
+      },
+      expected: null,
+    },
+  ])("maps $name to $expected", ({ result, expected }) => {
+    expect(
+      usageLimitCauseForResult(result as unknown as CreateTaskResult),
+    ).toBe(expected);
+  });
+
+  it("reports no limit for a successful creation", () => {
+    expect(
+      usageLimitCauseForResult({
+        success: true,
+        data: {},
+      } as unknown as CreateTaskResult),
+    ).toBeNull();
   });
 });
