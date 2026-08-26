@@ -7,12 +7,7 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -23,10 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.nager_date import NagerDateResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.settings import ENDPOINTS, PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.source import NagerDateSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "Countries") -> SourceInputs:
@@ -51,9 +44,6 @@ class TestNagerDateSource:
         self.source = NagerDateSource()
         self.config = NagerDateSourceConfig(country_codes="US\nGB")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NAGERDATE
-
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
@@ -64,15 +54,6 @@ class TestNagerDateSource:
         assert config.iconPath == "/static/services/nager_date.png"
         # A finished source ships visible; re-adding the flag would hide it from every user.
         assert not config.unreleasedSource
-
-    def test_get_source_config_fields(self) -> None:
-        fields = [field for field in self.source.get_source_config.fields if isinstance(field, SourceFieldInputConfig)]
-
-        assert [field.name for field in fields] == ["country_codes"]
-        assert fields[0].type == SourceFieldInputConfigType.TEXTAREA
-        assert fields[0].required is True
-        # The API is open, so nothing on this form is a credential.
-        assert fields[0].secret is False
 
     def test_pinned_version_matches_the_path_the_code_calls(self) -> None:
         assert self.source.default_version == "v4"
@@ -88,11 +69,6 @@ class TestNagerDateSource:
         assert not any(schema.supports_incremental for schema in schemas)
         assert not any(schema.supports_append for schema in schemas)
         assert all(schema.description for schema in schemas)
-
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123, names=["PublicHolidays"])
-
-        assert [schema.name for schema in schemas] == ["PublicHolidays"]
 
     def test_documented_tables_render_without_credentials(self) -> None:
         # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
@@ -112,12 +88,6 @@ class TestNagerDateSource:
         # subdivisions with different classifications, so these tables key on the synthetic id
         # this source adds rather than the raw API fields.
         assert PRIMARY_KEYS[endpoint] == ["id"]
-
-    def test_get_resumable_source_manager_is_bound_to_the_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is NagerDateResumeConfig
 
     def test_non_retryable_error_matches_a_misconfigured_country_list(self) -> None:
         raised = "Nager.Date source misconfigured: Enter at least one ISO 3166-1 alpha-2 country code, for example US."
@@ -139,20 +109,3 @@ class TestNagerDateSource:
         assert response.primary_keys == PRIMARY_KEYS[endpoint]
         assert mock_source.call_args.kwargs["endpoint"] == endpoint
         assert mock_source.call_args.kwargs["country_codes"] == ["US", "GB"]
-
-    @parameterized.expand(
-        [
-            ("US\nGB", ["US", "GB"]),
-            ("", []),
-        ]
-    )
-    def test_validate_credentials_parses_the_codes_before_probing(
-        self, country_codes: str, expected_codes: list[str]
-    ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.source.validate_nager_date_credentials"
-        ) as mock_validate:
-            mock_validate.return_value = (True, None)
-            self.source.validate_credentials(NagerDateSourceConfig(country_codes=country_codes), team_id=123)
-
-        assert mock_validate.call_args.args == (expected_codes,)

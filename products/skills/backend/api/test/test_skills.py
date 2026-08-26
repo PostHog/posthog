@@ -12,7 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 from ...api.community_publish_services import (
     CommunitySkillPublishError,
@@ -53,7 +53,8 @@ class TestLLMSkillAPI(APIBaseTest):
         category: str = "",
         created_by: User | None = None,
     ) -> LLMSkill:
-        return LLMSkill.objects.create(
+        owner = created_by or self.user
+        skill = LLMSkill.objects.create(
             team=self.team,
             name=name,
             description=description,
@@ -66,8 +67,12 @@ class TestLLMSkillAPI(APIBaseTest):
             allowed_tools=allowed_tools or [],
             metadata=metadata or {},
             category=category,
-            created_by=created_by or self.user,
+            created_by=owner,
         )
+        # The create endpoint seeds the creator as owner, so a fixture built straight from the ORM
+        # has to as well. Publishing to the community is owner-only.
+        set_skill_owners(self.team, name, [owner])
+        return skill
 
     # --- Create ---
 
@@ -1392,7 +1397,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
 
 # llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
-# posthog/rbac/user_access_control.py) - same as TestSkillMarketplaceRBAC in
+# products/access_control/backend/facade/user_access_control.py) - same as TestSkillMarketplaceRBAC in
 # test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
 class TestSkillAccessControlRBAC(APIBaseTest):
     def setUp(self):
@@ -1495,6 +1500,75 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             format="json",
         )
         assert update_response.status_code == status.HTTP_200_OK
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    def test_an_object_level_grant_on_one_skill_does_not_allow_publishing_another(self, _mock_flag):
+        # AccessControlPermission.has_permission passes anyone holding an object-level grant for the
+        # resource, and the name/<slug> actions then load whichever skill the URL names. Ownership is
+        # the per-skill claim that stops one grant reaching every skill in the project.
+        theirs = LLMSkill.objects.create(
+            team=self.team,
+            name="theirs",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(theirs.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        set_skill_owners(self.team, theirs.name, [self.member])
+        set_skill_owners(self.team, self.skill.name, [self.user])
+
+        response = self.client.post(
+            self._url(f"name/{self.skill.name}/publish-community"),
+            data={"author_handle": "someone"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("a skill nobody owns", "make-fractals", status.HTTP_403_FORBIDDEN),
+            ("a skill that does not exist", "no-such-skill", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    @patch(COMMUNITY_FLAG, return_value=True)
+    def test_publishing_without_ownership_is_refused(self, _label, skill_name, expected_status, _mock_flag):
+        # Resource-level editor is not enough on its own. An ownerless skill is publishable by nobody,
+        # because the alternative fallback to edit access reaches every skill in the project again.
+        # An unknown slug still answers 404, the way the other name/<slug> actions answer it.
+        self._grant_llm_skill_access("editor")
+
+        response = self.client.post(
+            self._url(f"name/{skill_name}/publish-community"),
+            data={"author_handle": "someone"},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_an_owner_with_editor_access_can_publish(self, mock_publish, _mock_flag):
+        mock_publish.return_value = {"pr_url": "https://example.com/pull/1", "pr_number": 1, "branch": "b"}
+        self._grant_llm_skill_access("editor")
+        set_skill_owners(self.team, self.skill.name, [self.member])
+
+        response = self.client.post(
+            self._url(f"name/{self.skill.name}/publish-community"),
+            data={"author_handle": "someone"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_org_admin_has_full_access_without_explicit_grant(self):
         membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
@@ -1670,6 +1744,33 @@ class TestLLMSkillOwners(APIBaseTest):
         create_skill(self.team, user=self.user, name="reused", description="d", body="# fresh")
 
         assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [self.user.email]
+
+    def test_list_filters_to_skills_owned_by_one_user(self) -> None:
+        # The owner filter has to match through LLMSkillOwner. created_by_id answers a different
+        # question (who published the latest version), so it can't stand in for this.
+        member = self._member("filterowner@example.com")
+        create_skill(self.team, user=self.user, name="theirs", description="d", body="# b")
+        create_skill(self.team, user=self.user, name="mine", description="d", body="# b")
+        set_skill_owners(self.team, "theirs", [member])
+
+        response = self.client.get(self._url() + f"?owner_id={member.id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == ["theirs"]
+
+    def test_list_owner_filter_excludes_owner_who_lost_access(self) -> None:
+        # Owner rows survive a member losing access, so filtering by that member must return nothing
+        # rather than surfacing the skills through a stale row.
+        member = self._member("goneowner@example.com")
+        create_skill(self.team, user=self.user, name="orphaned", description="d", body="# b")
+        set_skill_owners(self.team, "orphaned", [member])
+
+        member.organization_memberships.filter(organization=self.organization).delete()
+
+        response = self.client.get(self._url() + f"?owner_id={member.id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == []
 
     def test_skill_get_excludes_owner_who_lost_access(self) -> None:
         # An owner row survives the member losing access; the read path serializes UserBasic, so a

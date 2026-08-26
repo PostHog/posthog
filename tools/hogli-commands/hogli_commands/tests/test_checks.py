@@ -306,7 +306,7 @@ _NARROWED_TURBO = {
     "extends": ["//"],
     "tasks": {
         "backend:contract-check": {
-            "inputs": ["backend/facade/**", "backend/presentation/**"],
+            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/migrations/**"],
             "outputs": [],
             "cache": True,
         }
@@ -317,7 +317,7 @@ _NARROWED_TURBO_WITH_ROUTES = {
     "extends": ["//"],
     "tasks": {
         "backend:contract-check": {
-            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/routes.py"],
+            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/routes.py", "backend/migrations/**"],
             "outputs": [],
             "cache": True,
         }
@@ -1821,8 +1821,39 @@ class TestWatchedModelsAllowance:
     def test_chain_check_blocks_when_surface_omitted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = self._allowance_ctx(tmp_path, monkeypatch, ["backend/facade/**", "backend/models/**"])
         result = chain_check.run(ctx)
-        assert any("watched-models surface" in i and "backend/migrations/" in i for i in result.issues)
+        assert any("model surface" in i and "backend/migrations/" in i for i in result.issues)
         assert result.file == "products/my_product/turbo.json"
+
+    def _narrowed_ctx(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo_inputs: list[str]) -> CheckContext:
+        # a narrowed product with models but no allowance entry: the surface must still be watched
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "models.py").write_text("class Table:\n    pass\n")
+        (ctx.backend_dir / "migrations").mkdir()
+        (ctx.product_dir / "turbo.json").write_text(
+            json.dumps({"tasks": {"backend:contract-check": {"inputs": turbo_inputs}}})
+        )
+        return ctx
+
+    @pytest.mark.parametrize(
+        "turbo_inputs, expected_uncovered",
+        [
+            (["backend/facade/**"], ["backend/migrations/", "backend/models.py"]),
+            (["backend/facade/**", "backend/models.py"], ["backend/migrations/"]),
+            (["backend/facade/**", "backend/models.py", "backend/migrations/**"], []),
+        ],
+    )
+    def test_chain_check_requires_the_model_surface_without_an_allowance(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo_inputs: list[str], expected_uncovered: list[str]
+    ) -> None:
+        ctx = self._narrowed_ctx(tmp_path, monkeypatch, turbo_inputs)
+        result = chain_check.run(ctx)
+        surface_issues = [i for i in result.issues if "model surface" in i]
+        if not expected_uncovered:
+            assert surface_issues == []
+            return
+        assert len(surface_issues) == 1
+        assert all(location in surface_issues[0] for location in expected_uncovered)
 
 
 class TestUnwatchedGarages:
@@ -1876,6 +1907,8 @@ class TestNarrowedTurboWiringSurface:
         "inputs, expected",
         [
             (["backend/facade/**", "backend/models/tcac.py"], set()),  # covered
+            (["backend/facade/**", "backend/models/**"], set()),  # a dir glob covers the file inside it
+            (["backend/facade/**", "backend/models_extra/**"], {"backend/models/tcac.py"}),  # sibling dir doesn't
             (["backend/facade/**"], {"backend/models/tcac.py"}),  # missing -> uncovered
         ],
     )

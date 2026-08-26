@@ -801,10 +801,12 @@ describe("buildConversationItems", () => {
       });
     });
 
-    it("hides debug-level console logs by default and renders them inline when showDebugLogs is true", () => {
+    it("hides internal console logs by default and renders them inline when showDebugLogs is true", () => {
       const events: AcpMessage[] = [
         progressMsg(1, "sandbox", "in_progress", "Setting up sandbox"),
         consoleMsg(2, "sandbox provisioned", "debug"),
+        consoleMsg(3, "handoff skipped", "warn"),
+        consoleMsg(4, "checkpoint captured", "info"),
       ];
 
       const hidden = buildConversationItems(events, null);
@@ -819,11 +821,11 @@ describe("buildConversationItems", () => {
         showDebugLogs: true,
       });
       expect(
-        shown.items.some(
+        shown.items.filter(
           (i) =>
             i.type === "session_update" && i.update.sessionUpdate === "console",
         ),
-      ).toBe(true);
+      ).toHaveLength(3);
     });
 
     it("emits no progress group for a conversation without progress notifications", () => {
@@ -954,6 +956,37 @@ describe("buildConversationItems", () => {
       expect(buildConversationItems(events, true).completedToolCallCount).toBe(
         3,
       );
+    });
+
+    it("still settles a tool call started before a mid-turn steer", () => {
+      const steerMsg: AcpMessage = {
+        type: "acp_message",
+        ts: 3,
+        message: {
+          jsonrpc: "2.0",
+          id: 99,
+          method: "session/prompt",
+          params: {
+            _meta: { steer: true },
+            prompt: [{ type: "text", text: "change course" }],
+          },
+        },
+      };
+      const events = [
+        userPromptMsg(1, 1, "go"),
+        toolCallMsg(2, "t1"),
+        steerMsg,
+        toolUpdateMsg(4, "t1", { status: "completed" }),
+      ];
+      const result = buildConversationItems(events, true);
+
+      expect(result.completedToolCallCount).toBe(1);
+      expect(
+        result.items.filter((item) => item.type === "session_update"),
+      ).toHaveLength(1);
+      expect(
+        result.items.filter((item) => item.type === "user_message"),
+      ).toHaveLength(2);
     });
   });
 

@@ -40,6 +40,8 @@ jobs:
               with:
                   clean: false
                   persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Force all scans for oversized pull requests
               id: oversized
               if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 3000
@@ -113,6 +115,7 @@ jobs:
                       devex:
                         - 'bin/**'
                         - 'common/**'
+                        - 'docs/onboarding/**'
                         - 'ee/**'
                         - 'frontend/**'
                         - 'packages/**'
@@ -418,7 +421,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
@@ -435,7 +438,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
             # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
             # --baseline-commit diffs against the PR base (first parent of the
@@ -455,7 +458,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
     semgrep-test-rules:
         needs: changes

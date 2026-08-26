@@ -24,7 +24,7 @@ from posthog.sync import database_sync_to_async
 
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
-from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
+from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -511,35 +511,17 @@ async def arun_signals_scout(
         raise
 
 
-def _data_catalog_enabled_for_team(team: Team) -> bool:
-    """Whether this team's scouts get the governed-metrics catalog steering.
-
-    A flag-read error falls back to off rather than propagating: this resolves inside the
-    `_spawn_and_run` call the outer handler treats as a failed run, so a transient SDK or
-    cache error would book a failure and advance the streak toward pausing the lane, over a
-    prompt section the run does not need. Mirrors `team_limits._read_flag_payload`, where a
-    read error never breaks dispatch either. Off is also the pre-catalog behaviour, so the
-    fallback can only cost steering, never mis-steer a team at a table it cannot query.
-    """
-    try:
-        return is_data_catalog_enabled(team)
-    except Exception as error:
-        capture_exception(error)
-        return False
-
-
 def _business_knowledge_maintained_for_team(team: Team) -> bool:
     """Whether this team's scouts get the business-knowledge section.
 
     `is_maintained_for_team`, not `is_available_for_team`: the section rides on every run, so a
     knowledge base a team tried once and abandoned would tax the whole lane forever. Resolved
     fresh per run so a flag flip, a first finished ingest, or a team returning to curate lands on
-    the next run. Falls back to off on a read error for the same reason
-    `_data_catalog_enabled_for_team` does: the resolved value forks the prompt and is stamped on
-    the run row + both lifecycle events, so a raise would book a failed run and advance the streak
-    over a section the run does not need. Swallowing here also keeps it safe to resolve in
-    `arun_signals_scout` (outside the run's try/except), where the failure and cancellation paths
-    read it back to report the shape the run got.
+    the next run. Falls back to off on a read error rather than propagating: the resolved value
+    forks the prompt and is stamped on the run row + both lifecycle events, so a raise would book a
+    failed run and advance the streak over a section the run does not need. Swallowing here also
+    keeps it safe to resolve in `arun_signals_scout` (outside the run's try/except), where the
+    failure and cancellation paths read it back to report the shape the run got.
     """
     try:
         return is_maintained_for_team(team)
@@ -560,6 +542,31 @@ def _governed_metric_names_for_team(team: Team, user_id: int) -> list[str] | Non
     except Exception as error:
         capture_exception(error)
         return None
+
+
+def _mcp_server_names_for_run(team: Team, user_id: int, config: SignalScoutConfig) -> list[str]:
+    """Names of the external MCP servers this run's sandbox will mount, for prompt steering.
+
+    Mirrors the launch path's resolution parameter for parameter (`start_agent_server` →
+    `get_installations_for_sandbox`): same origin and agent key, no credential owner, the
+    per-scout server selection, and the personal-inclusion posture of a non-internal task —
+    so the prompt names exactly the servers the sandbox mounts. A resolution error degrades
+    to an empty list rather than propagating, for the same reason as the flag fallback above:
+    the servers still mount (or not) at launch regardless, so the fallback only costs steering.
+    """
+    try:
+        return get_sandbox_mcp_server_names(
+            team.id,
+            user_id=user_id,
+            include_personal=True,
+            task_origin=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+            task_agent_key="scout",
+            credential_owner_id=None,
+            allowed_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
+        )
+    except Exception as error:
+        capture_exception(error)
+        return []
 
 
 async def _spawn_and_run(
@@ -647,11 +654,11 @@ async def _spawn_and_run(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
     )
-    data_catalog_enabled = await database_sync_to_async(_data_catalog_enabled_for_team, thread_sensitive=False)(team)
-    governed_metric_names = (
-        await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(team, user_id)
-        if data_catalog_enabled
-        else None
+    governed_metric_names = await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(
+        team, user_id
+    )
+    mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
+        team, user_id, config
     )
     prompt = build_run_prompt(
         skill,
@@ -659,8 +666,10 @@ async def _spawn_and_run(
         team_id=team.id,
         started_at=started_at,
         github_read_access=github_guidance,
-        data_catalog_enabled=data_catalog_enabled,
         governed_metric_names=governed_metric_names,
+        # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
+        # them out of the exec-interface rule; empty renders nothing.
+        mcp_server_names=mcp_server_names,
         business_knowledge_maintained=business_knowledge_maintained,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project

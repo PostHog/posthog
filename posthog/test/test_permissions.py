@@ -9,21 +9,22 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
-from posthog.rbac.user_access_control import UserAccessControl
 
-try:
-    from ee.models.rbac.access_control import AccessControl
-    from ee.models.rbac.role import Role, RoleMembership
-except ImportError:
-    pass
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
@@ -674,6 +675,115 @@ class TestTeamMemberAccessPermission(BaseTest):
         result = self.permission.has_permission(request, view)
 
         self.assertTrue(result)
+
+
+class TestDelegatedJwtPermissions(BaseTest):
+    def _create_delegated_token(
+        self,
+        source_authentication: str,
+        scopes: list[str],
+        scoped_teams: list[int] | None = None,
+        scoped_organizations: list[str] | None = None,
+    ) -> tuple[str, PersonalAPIKey | OAuthAccessToken]:
+        token_payload: dict[str, str | int] = {"id": self.user.id}
+        if source_authentication == "personal_api_key":
+            credential: PersonalAPIKey | OAuthAccessToken = PersonalAPIKey.objects.create(
+                user=self.user,
+                label="delegated credential",
+                secure_value=hash_key_value(generate_random_token_personal()),
+                scopes=scopes,
+                scoped_teams=scoped_teams,
+                scoped_organizations=scoped_organizations,
+            )
+            token_payload["personal_api_key_id"] = credential.id
+        else:
+            application = OAuthApplication.objects.create(
+                name="Delegated credential test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            credential = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token="pha_delegated_credential_test",
+                expires=timezone.now() + timedelta(hours=1),
+                scope=" ".join(scopes),
+                scoped_teams=scoped_teams,
+                scoped_organizations=scoped_organizations,
+            )
+            token_payload["oauth_access_token_id"] = str(credential.id)
+
+        worker_token = encode_jwt(
+            token_payload,
+            timedelta(minutes=15),
+            PosthogJwtAudience.DELEGATED_USER,
+        )
+        return worker_token, credential
+
+    @parameterized.expand([("personal_api_key",), ("oauth_access_token",)])
+    def test_delegated_jwt_cannot_exceed_source_scope(self, source_authentication: str) -> None:
+        worker_token, _credential = self._create_delegated_token(
+            source_authentication,
+            scopes=["export:write"],
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {"target_email": "security-test@example.com", "level": 8, "send_email": False},
+            headers={"authorization": f"Bearer {worker_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_delegated_jwt_fails_after_source_personal_api_key_is_revoked(self) -> None:
+        worker_token, credential = self._create_delegated_token(
+            "personal_api_key",
+            scopes=["feature_flag:read"],
+        )
+        credential.delete()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            headers={"authorization": f"Bearer {worker_token}"},
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_delegated_jwt_cannot_exceed_source_project_restriction(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        worker_token, _credential = self._create_delegated_token(
+            "personal_api_key",
+            scopes=["*"],
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/feature_flags/",
+            headers={"authorization": f"Bearer {worker_token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_delegated_personal_api_key_filters_organization_list(self) -> None:
+        other_organization, _, _ = Organization.objects.bootstrap(self.user)
+        worker_token, _credential = self._create_delegated_token(
+            "personal_api_key",
+            scopes=["*"],
+            scoped_organizations=[str(other_organization.id)],
+        )
+
+        response = self.client.get(
+            "/api/organizations/",
+            headers={"authorization": f"Bearer {worker_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {organization["id"] for organization in response.json()["results"]} == {str(other_organization.id)}
 
 
 class TestOAuthAccessTokenAPIScopePermission(BaseTest):

@@ -14,6 +14,8 @@ export type {
   TaskRun,
   TaskRunArtifact,
   TaskRunEnvironment,
+  TaskRunState,
+  TaskRunStateField,
   TaskRunStatus,
 } from "@posthog/shared";
 
@@ -38,6 +40,20 @@ export interface StoredNotification {
  * Type alias for stored log entries.
  */
 export type StoredEntry = StoredNotification;
+
+/**
+ * Per-session context wiki mount, threaded explicitly (instead of via global
+ * `process.env` writes) so concurrent sessions never exchange wiki paths or
+ * publish tokens.
+ */
+export interface ContextWikiEnv {
+  /** Local checkout of the org's wiki (POSTHOG_CONTEXT_LAYER_PATH). */
+  path: string;
+  /** API path agents land wiki commits through (POSTHOG_CONTEXT_LAYER_COMMITS_PATH). */
+  commitsPath: string;
+  /** Publish token (POSTHOG_PERSONAL_API_KEY); absent for impersonated sessions. */
+  personalApiKey?: string;
+}
 
 export interface ProcessSpawnedCallback {
   onProcessSpawned?: (info: {
@@ -67,6 +83,8 @@ export interface TaskExecutionOptions {
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
   /** Additional directories the agent process can access beyond cwd. */
   additionalDirectories?: string[];
+  /** Per-session context wiki mount forwarded to the harness subprocess env. */
+  contextWiki?: ContextWikiEnv;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";

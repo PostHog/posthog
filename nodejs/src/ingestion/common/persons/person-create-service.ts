@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { personCreateConflictResolvedCounter } from '~/common/persons/metrics'
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
@@ -74,7 +75,19 @@ export class PersonCreateService {
                     }
                 }
 
-                // If we still can't find the person, something is wrong
+                // Nothing owns the distinct IDs we tried to create, so the row holding this
+                // uuid owns a different one. Resolve to it: the alternative is an error with no
+                // isRetriable, which the pipeline rethrows until the consumer dies with
+                // uncommitted offsets. The event is attributed to the holder without moving any
+                // mapping, so no two identities are silently merged.
+                if (result.conflictingPerson) {
+                    personCreateConflictResolvedCounter.labels({ resolved_by: 'uuid' }).inc()
+                    return [result.conflictingPerson, false]
+                }
+
+                // The holder vanished between the failed write and the lookup, so there is
+                // nothing to resolve to.
+                personCreateConflictResolvedCounter.labels({ resolved_by: 'none' }).inc()
                 throw new Error(
                     `Person creation failed with constraint violation, but could not fetch existing person for distinct IDs: ${result.distinctIds.join(
                         ', '

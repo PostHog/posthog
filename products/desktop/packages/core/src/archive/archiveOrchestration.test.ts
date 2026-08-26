@@ -243,6 +243,25 @@ describe("archiveTasks", () => {
       failed: 0,
     });
   });
+
+  it("archives tasks in parallel", async () => {
+    const harness = makeDeps();
+    let releaseFirst: (() => void) | undefined;
+    harness.deps.archive = vi.fn().mockImplementation((taskId: string) => {
+      if (taskId !== "a") return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+    });
+
+    const result = archiveTasks(["a", "b"], harness.deps);
+    await vi.waitFor(() => {
+      expect(harness.deps.archive).toHaveBeenCalledWith("b");
+    });
+    releaseFirst?.();
+
+    await expect(result).resolves.toEqual({ archived: 2, failed: 0 });
+  });
 });
 
 describe("shouldNavigateAwayForBulkArchive", () => {

@@ -43,7 +43,19 @@ def test_dispatches_for_work_email_in_us_and_records_work_email():
     with on_commit, connect as connect_mock, run, region, record as record_mock:
         start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
     connect_mock.assert_called_once()
-    record_mock.assert_called_once_with(organization_id="org-1", work_email=True)
+    record_mock.assert_called_once_with(organization_id="org-1", work_email=True, signup_role=None)
+
+
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")
+def test_signup_role_is_recorded_alongside_work_email():
+    # The role answer feeds the V0.5 student disqualification; persisting it makes the DQ
+    # replayable by the score backfill instead of living only on the workflow inputs.
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    with on_commit, connect, run, region, record as record_mock:
+        start_signup_enrichment_workflow(
+            organization_id="org-1", distinct_id="d1", email="founder@stripe.com", role_at_organization="Student"
+        )
+    record_mock.assert_called_once_with(organization_id="org-1", work_email=True, signup_role="Student")
 
 
 @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False, HARMONIC_API_KEY="key")
@@ -95,7 +107,7 @@ def test_personal_email_records_work_email_false_without_provider_dispatch():
     with on_commit, connect as connect_mock, run, region, record as record_mock:
         start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="someone@gmail.com")
     connect_mock.assert_not_called()
-    record_mock.assert_called_once_with(organization_id="org-1", work_email=False)
+    record_mock.assert_called_once_with(organization_id="org-1", work_email=False, signup_role=None)
 
 
 @override_settings(
@@ -126,7 +138,7 @@ def test_missing_distinct_id_records_work_email_but_never_dispatches():
     with on_commit, connect as connect_mock, run, region, record as record_mock:
         start_signup_enrichment_workflow(organization_id="org-1", distinct_id=None, email="founder@stripe.com")
     connect_mock.assert_not_called()
-    record_mock.assert_called_once_with(organization_id="org-1", work_email=True)
+    record_mock.assert_called_once_with(organization_id="org-1", work_email=True, signup_role=None)
 
 
 @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True, HARMONIC_API_KEY="key")

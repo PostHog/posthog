@@ -650,6 +650,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -1044,6 +1050,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -1083,6 +1095,21 @@ database "posthog" {
       expr        = "timestamp"
       type        = "minmax"
       granularity = 1
+    }
+    projection "projection_aggregate_counts" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint
+SQL
+
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.logs34"

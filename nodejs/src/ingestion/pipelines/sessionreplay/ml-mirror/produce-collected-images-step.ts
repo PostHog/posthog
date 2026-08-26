@@ -3,6 +3,7 @@ import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
 import { CollectedImage } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
@@ -24,7 +25,9 @@ const PRODUCED_REF_CACHE_MAX = 500_000
  * fails the message: the mirrored lines already carry the refs, and a ref whose image never lands
  * is defined as equivalent to a placeholder for training joins.
  */
-export function createProduceCollectedImagesStep<T extends { collectedImages?: CollectedImage[] }>(
+export function createProduceCollectedImagesStep<
+    T extends { collectedImages?: CollectedImage[]; message: { timestamp?: number } },
+>(
     outputs: IngestionOutputs<MlImageScrubOutput>,
     producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
 ): ProcessingStep<T, T> {
@@ -48,6 +51,11 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
             bytes += image.bytes.length
         }
         SessionRecordingIngesterMetrics.incrementMlImagesCollected('queued', fresh.length)
+        const captureTimestampMs = input.message.timestamp
+        const headers =
+            captureTimestampMs !== undefined && Number.isSafeInteger(captureTimestampMs) && captureTimestampMs > 0
+                ? { [CAPTURE_TIMESTAMP_HEADER]: String(captureTimestampMs) }
+                : undefined
 
         // The ack handlers must capture only the refs: `image.bytes` are subarray views into the
         // whole packed FFI buffer (up to 32 MB per source message), and queueMessages copies the
@@ -57,7 +65,7 @@ export function createProduceCollectedImagesStep<T extends { collectedImages?: C
         const produce = outputs
             .queueMessages(
                 ML_IMAGE_SCRUB_OUTPUT,
-                fresh.map((image) => ({ key: image.ref, value: image.bytes }))
+                fresh.map((image) => ({ key: image.ref, value: image.bytes, headers }))
             )
             .then(() => {
                 // queueMessages resolves on delivery acks, so `produced` counts what actually landed.

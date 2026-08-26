@@ -60,6 +60,7 @@ export type Turn = {
   commandName?: string;
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
   broadcast: () => Promise<void>;
+  pendingInput?: SDKUserMessage;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;
@@ -92,7 +93,6 @@ export type Session = BaseSession & {
   cwd: string;
   taskRunId?: string;
   lastPlanFilePath?: string;
-  lastPlanContent?: string;
   effort?: EffortLevel;
   /** User intent; retained while a non-fast model hides the "fast" option. */
   fastModeEnabled: boolean;
@@ -121,10 +121,18 @@ export type Session = BaseSession & {
   queryGeneration: number;
   /** The query iterator ended and can't be revived; new prompts reject. */
   queryClosed?: boolean;
-  /** Set while a /clear is swapping the SDK query; resolves when it settles
-   * (success or failure). Prompts await it, cancel/refresh refuse during it,
-   * and a second /clear is rejected — the swap must never be raced. */
-  clearing?: Promise<void>;
+  /** Set while an in-place SDK query swap (/clear or refreshSession) is in
+   * flight; resolves when it settles (success or failure). Prompts await it,
+   * cancel and the other swap path refuse during it, and a second swap is
+   * rejected — the swap must never be raced. */
+  querySwap?: Promise<void>;
+  /** Tracks whether we're inside a compaction. The SDK emits the terminal
+   * `status` (compact_result success/failed) twice for a single failed
+   * compaction, and the two messages are indistinguishable, so we report the
+   * outcome only while a compaction is in progress, then clear this. A fresh
+   * `compacting` status sets it again, so every distinct compaction (e.g.
+   * repeated auto-compactions in a long turn) is still shown. */
+  compacting?: boolean;
   cancelController?: AbortController;
   forceCancelTimer?: ReturnType<typeof setTimeout>;
   emitRawSDKMessages: boolean | SDKMessageFilter[];
@@ -228,6 +236,7 @@ export type NewSessionMeta = {
    * runtime whether it needs a repo and clones one only if so.
    */
   channelMode?: boolean;
+  taskOriginProduct?: string;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud

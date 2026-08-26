@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.utils import timezone
@@ -22,6 +22,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailThread,
@@ -51,8 +52,7 @@ from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-
-from ee.models.rbac.access_control import AccessControl
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -566,7 +566,7 @@ class TestAccountViewSet(APIBaseTest):
             f"{self.endpoint_base}{account.id}/",
             {
                 "name": "Renamed",
-                "properties": {"sfdc_id": "001xx"},
+                "properties": {"sfdc_id": "001xx", "website_domain": "https://www.acme.example/about"},
             },
             format="json",
         )
@@ -575,6 +575,7 @@ class TestAccountViewSet(APIBaseTest):
         account.refresh_from_db()
         self.assertEqual(account.name, "Renamed")
         self.assertEqual(account.properties.sfdc_id, "001xx")
+        self.assertEqual(account.properties.website_domain, "acme.example")
 
     def test_update_does_not_accept_ignored_at(self):
         ignored_at = timezone.now()
@@ -2747,13 +2748,21 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         self.endpoint = f"/api/environments/{self.team.id}/accounts/{self.account.id}/support_tickets/"
 
     def test_list_returns_tickets_for_the_accounts_org(self):
-        Ticket.objects.create(
+        ticket = Ticket.objects.create(
             team=self.team,
             ticket_number=7,
             widget_session_id="s7",
             distinct_id="d7",
             organization_id="acme-1",
             status="open",
+            anonymous_traits={"name": "Example customer", "email": "customer@example.com"},
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Latest question",
+            item_context={"author_type": "customer", "is_private": False},
         )
         Ticket.objects.create(
             team=self.team, ticket_number=8, widget_session_id="s8", distinct_id="d8", organization_id="other-org"
@@ -2765,7 +2774,15 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual([t["ticket_number"] for t in data], [7])
         self.assertEqual(data[0]["status"], "open")
+        self.assertEqual(data[0]["last_message"]["sender"]["name"], "Example customer")
+        self.assertEqual(data[0]["last_message"]["direction"], "inbound")
         self.assertTrue(data[0]["deep_link"].endswith(f"/project/{self.team.id}/support/tickets/7"))
+
+        detail_response = self.client.get(f"{self.endpoint}{ticket.id}/")
+        self.assertEqual(status.HTTP_200_OK, detail_response.status_code, detail_response.json())
+        self.assertEqual(detail_response.json()["count"], 1)
+        self.assertEqual(detail_response.json()["results"][0]["content"], "Latest question")
+        self.assertEqual(detail_response.json()["results"][0]["direction"], "inbound")
 
     def test_list_is_empty_when_account_has_no_external_id(self):
         unlinked = Account.objects.unscoped().create(team=self.team, name="Unlinked", external_id=None)
@@ -2774,6 +2791,72 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json(), [])
+
+    def test_ticket_object_denial_hides_list_metadata_and_message_bodies(self):
+        allowed_ticket = Ticket.objects.create(
+            team=self.team,
+            ticket_number=9,
+            widget_session_id="s9",
+            distinct_id="d9",
+            organization_id="acme-1",
+        )
+        denied_ticket = Ticket.objects.create(
+            team=self.team,
+            ticket_number=10,
+            widget_session_id="s10",
+            distinct_id="d10",
+            organization_id="acme-1",
+        )
+        for ticket in (allowed_ticket, denied_ticket):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=f"Message for {ticket.ticket_number}",
+                item_context={"author_type": "customer", "is_private": False},
+            )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "ticket-object-denied@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=str(denied_ticket.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(viewer)
+
+        list_response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, list_response.status_code, list_response.json())
+        self.assertEqual([ticket["id"] for ticket in list_response.json()], [str(allowed_ticket.id)])
+        self.assertEqual(
+            status.HTTP_404_NOT_FOUND,
+            self.client.get(f"{self.endpoint}{denied_ticket.id}/").status_code,
+        )
+        self.assertEqual(
+            status.HTTP_200_OK,
+            self.client.get(f"{self.endpoint}{allowed_ticket.id}/").status_code,
+        )
 
     def test_account_viewer_denied_tickets_cannot_read_them(self):
         Ticket.objects.create(
@@ -2838,6 +2921,13 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
             display_name="Customer",
             kind=EmailThreadParticipantKind.CUSTOMER,
         )
+        EmailThreadParticipant.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            email="agent@example.com",
+            display_name="Account manager",
+            kind=EmailThreadParticipantKind.INTERNAL,
+        )
         for index, sent_at in enumerate([last_message_at, first_message_at], start=1):
             comment = Comment.objects.create(
                 team=self.team,
@@ -2870,6 +2960,9 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
         summary = payload["results"][0]
         self.assertEqual(summary["subject"], "Renewal planning")
         self.assertEqual(summary["message_count"], 2)
+        self.assertEqual(summary["first_message"]["sender"]["name"], "Customer")
+        self.assertEqual(summary["last_message"]["sender"]["name"], "Customer")
+        self.assertEqual(summary["last_message"]["direction"], "inbound")
         self.assertNotIn("messages", summary)
 
         detail_response = self.client.get(f"{self.endpoint}{self.thread.id}/?limit=1&offset=0")
@@ -3054,6 +3147,55 @@ class TestAccountMeetingViewSet(APIBaseTest):
                 }
             ],
         )
+
+    @patch("products.customer_analytics.backend.logic.gong.execute_hogql_query")
+    def test_list_includes_the_gong_url_for_a_matching_calendar_event(
+        self, mock_execute_hogql_query: MagicMock
+    ) -> None:
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-gong")
+        meeting = Meeting.objects.unscoped().create(
+            team=self.team,
+            account=account,
+            ical_uid="calendar-event@google.com",
+            recurrence_instance_id="2026-08-03T15:00:00Z",
+            start_time="2026-08-03T15:00:00Z",
+            title="Review",
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="gong-source",
+            connection_id="gong-connection",
+            status="Completed",
+            source_type="Gong",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="gong_calls",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://example.com/gong_calls/*",
+            external_data_source=source,
+            columns={"calendar_event_id": {}, "url": {}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            table=table,
+            name="calls",
+            should_sync=True,
+            status="Completed",
+        )
+        mock_execute_hogql_query.return_value.results = [
+            [
+                "calendar-event@google.com_2026-08-03T15:00:00Z",
+                "https://app.gong.io/call?id=123",
+            ]
+        ]
+
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["results"][0]["id"], str(meeting.id))
+        self.assertEqual(response.json()["results"][0]["gong_url"], "https://app.gong.io/call?id=123")
 
     def test_search_filters_by_title_or_attendee(self):
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")

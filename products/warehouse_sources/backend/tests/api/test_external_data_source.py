@@ -42,9 +42,11 @@ from posthog.models.project import Project
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.direct_trino import DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -56,6 +58,7 @@ from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
     get_declared_field_names,
@@ -154,6 +157,141 @@ class TestExternalDataSource(APIBaseTest):
         return ExternalDataSchema.objects.create(
             name="Customers", team_id=self.team.pk, source_id=source_id, table=None
         )
+
+    def _make_source(self, prefix: str) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix=prefix,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+        )
+
+    def _make_schema_with_table(
+        self,
+        source: ExternalDataSource,
+        name: str,
+        *,
+        status: str | None = None,
+        latest_error: str | None = None,
+        should_sync: bool = True,
+        row_count: int = 0,
+    ) -> ExternalDataSchema:
+        table = DataWarehouseTable.objects.create(
+            name=name, team=self.team, external_data_source=source, row_count=row_count
+        )
+        return ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name=name,
+            table=table,
+            status=status,
+            latest_error=latest_error,
+            should_sync=should_sync,
+        )
+
+    def test_list_serializes_trimmed_schema_shape_while_retrieve_stays_full(self):
+        # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
+        # shape (the fields the list UI reads); the single-source view keeps the full schema.
+        source = self._make_source("trim")
+        self._make_schema_with_table(source, "Customers", row_count=42)
+
+        list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        self.assertEqual(list_response.status_code, 200)
+        listed_schema = list_response.json()["results"][0]["schemas"][0]
+        self.assertEqual(
+            set(listed_schema.keys()),
+            {"id", "name", "label", "should_sync", "status", "sync_type", "last_synced_at", "latest_error", "table"},
+        )
+        self.assertEqual(listed_schema["table"]["row_count"], 42)
+        self.assertEqual(listed_schema["table"]["name"], "Customers")
+        # sync_type is kept for the PostHog Desktop app, which reads it from the list; without it the
+        # app treats every schema as needing an update and sends a redundant PATCH per toggle.
+        self.assertIn("sync_type", listed_schema)
+
+        detail_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+        self.assertEqual(detail_response.status_code, 200)
+        detail_schema = detail_response.json()["schemas"][0]
+        # fields the settings page needs that the list intentionally drops
+        self.assertIn("sync_type", detail_schema)
+        self.assertIn("available_columns", detail_schema)
+
+    def test_list_source_status_and_latest_error_reflect_syncing_schemas(self):
+        # `active_schemas` is derived in Python from the single schemas prefetch; the derived subset
+        # must still drive the source-level status/error the same way the second prefetch did.
+        source = self._make_source("status")
+        self._make_schema_with_table(
+            source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error="boom", should_sync=True
+        )
+        # a disabled schema must not drag the source into a failed state
+        self._make_schema_with_table(source, "Old", status=ExternalDataSchema.Status.COMPLETED, should_sync=False)
+
+        result = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
+        self.assertEqual(result["status"], ExternalDataSchema.Status.FAILED)
+        self.assertEqual(result["latest_error"], "boom")
+
+    def test_list_query_count_does_not_scale_with_source_count(self):
+        # Guards the prefetch design: adding sources (each with schemas + tables) must not add queries.
+        # A regression to per-source credential/source lookups or the duplicate schema prefetch shows up
+        # here as a rising query count.
+        first = self._make_source("one")
+        self._make_schema_with_table(first, "A")
+
+        # warm any per-request caches so the two measurements compare like with like
+        self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        with CaptureQueriesContext(connection) as one_source_queries:
+            self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        for index in range(4):
+            extra = self._make_source(f"many-{index}")
+            self._make_schema_with_table(extra, f"S{index}")
+
+        with CaptureQueriesContext(connection) as many_source_queries:
+            self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        self.assertEqual(len(many_source_queries.captured_queries), len(one_source_queries.captured_queries))
+
+    def _make_credentialed_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key=f"key-{name}", access_secret=f"secret-{name}"
+        )
+        table = DataWarehouseTable.objects.create(
+            name=name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            credential=credential,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source_id=source.id, name=name, table=table, should_sync=True
+        )
+
+    def test_retrieve_query_count_does_not_scale_with_schema_count(self):
+        # Retrieve serializes columns (include_columns=True), and building them reads
+        # table.credential.access_key per schema. The prefetch must keep credentials joined on this
+        # path; if it stops, each schema adds a credential SELECT. Guards the N+1 on the detail page.
+        source = self._make_source("detail")
+        self._make_credentialed_schema(source, "first")
+
+        url = f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/"
+        self.client.get(url)  # warm
+
+        with CaptureQueriesContext(connection) as one_schema_queries:
+            assert self.client.get(url).status_code == 200
+
+        for index in range(4):
+            self._make_credentialed_schema(source, f"more-{index}")
+
+        with CaptureQueriesContext(connection) as many_schema_queries:
+            assert self.client.get(url).status_code == 200
+
+        self.assertEqual(len(many_schema_queries.captured_queries), len(one_schema_queries.captured_queries))
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -395,6 +533,72 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 201, response.json()
         mock_sync_discover.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.get_schemas",
+        return_value=[
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "bigint", False)],
+                source_catalog="hive",
+                source_schema="analytics",
+                source_table_name="events",
+            )
+        ],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_direct_trino_connection(self, _mock_validate, _mock_get_schemas):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Trino",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "Lakehouse",
+                "payload": {
+                    "host": "trino.example.com",
+                    "port": 443,
+                    "catalog": "hive",
+                    "schema": "analytics",
+                    "auth_type": {"selection": "password", "user": "posthog", "password": "secret"},
+                    "use_ssl": True,
+                    "verify_ssl": True,
+                    "schemas": [{"name": "analytics.events", "should_sync": True, "sync_type": None}],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        schema = ExternalDataSchema.objects.get(source=source, name="analytics.events")
+        assert source.direct_engine == "trino"
+        assert source.access_method == ExternalDataSource.AccessMethod.DIRECT
+        assert schema.table is not None
+        assert schema.table.url_pattern == DIRECT_TRINO_URL_PATTERN
+        assert schema.table.options == {
+            "direct_trino_catalog": "hive",
+            "direct_trino_schema": "analytics",
+            "direct_trino_table": "events",
+        }
+
+    def test_create_trino_rejects_warehouse_mode(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Trino",
+                "created_via": "web",
+                "access_method": "warehouse",
+                "payload": {},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "Trino is available only as a direct connection."}
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -803,6 +1007,7 @@ class TestExternalDataSource(APIBaseTest):
                 "cdc_lag_warning_threshold_mb": 512,
                 "cdc_lag_critical_threshold_mb": 1024,
                 "cdc_consistent_point": "0/AA",
+                "cdc_ingest_mode": "buffered",
             },
         )
 
@@ -823,6 +1028,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_lag_warning_threshold_mb": 1,
                     "cdc_lag_critical_threshold_mb": 2,
                     "cdc_consistent_point": "0/BAD",
+                    "cdc_ingest_mode": "legacy",
                 }
             },
             format="json",
@@ -839,6 +1045,7 @@ class TestExternalDataSource(APIBaseTest):
         assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
         assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -2256,12 +2463,12 @@ class TestExternalDataSource(APIBaseTest):
             table=table,
         )
 
-        # The list view never reads schemas[].table.columns, so it skips the expensive
-        # HogQL field serialization and returns an empty column list.
+        # The list view never reads schemas[].table.columns, so it serializes a trimmed table shape
+        # (id, name, row_count) and omits columns entirely — no expensive HogQL field serialization.
         list_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()
         list_table = list_payload["results"][0]["schemas"][0]["table"]
         self.assertEqual(list_table["name"], "Accounts")
-        self.assertEqual(list_table["columns"], [])
+        self.assertNotIn("columns", list_table)
 
         # The single-source read still populates columns for the schema detail page.
         retrieve_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}").json()
@@ -2442,13 +2649,17 @@ class TestExternalDataSource(APIBaseTest):
         source_types = {option["source_type"] for option in payload}
 
         # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
-        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse"}.issubset(source_types))
+        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse", "Trino"}.issubset(source_types))
         self.assertNotIn("Stripe", source_types)
 
         clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
         self.assertEqual(clickhouse["label"], "ClickHouse")
         self.assertIsNotNone(clickhouse["icon_path"])
         self.assertTrue(clickhouse["icon_path"].endswith("clickhouse.png"))
+
+        trino = next(option for option in payload if option["source_type"] == "Trino")
+        self.assertEqual(trino["label"], "Trino")
+        self.assertEqual(trino["icon_path"], "/static/services/trino.svg")
 
         for option in payload:
             self.assertTrue(option["label"])
@@ -2729,6 +2940,7 @@ class TestExternalDataSource(APIBaseTest):
                     "enabled_columns": None,
                     "row_filters": None,
                     "available_columns": [],
+                    "source_column_metadata_available": False,
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
@@ -4692,9 +4904,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {
-                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-            },
+            {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -4710,9 +4920,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {
-                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-            },
+            {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
         )
 
     def test_source_prefix_accepts_direct_mysql(self):
@@ -5007,7 +5215,10 @@ class TestExternalDataSource(APIBaseTest):
             )
 
         assert response.status_code == 400
-        assert response.json()["message"] == "Source type 'AmazonS3' does not support schema discovery."
+        assert response.json()["message"] == (
+            "The AmazonS3 source isn't available to connect yet. "
+            "Choose a different source, or contact support if you were expecting it."
+        )
         mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
@@ -5931,6 +6142,78 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "new_password"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.billomat.source.BillomatSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_host_change_preserves_secret_nested_in_switch_group_is_rejected(
+        self, mock_validate_credentials
+    ):
+        """Billomat's `app_secret` lives nested inside the `registered_app` switch-group container,
+        not at the top level. Changing `billomat_id` (a `connection_host_fields` entry) must still be
+        rejected when that nested secret would be carried over unchanged — otherwise the preserved
+        `app_secret` gets sent to whatever host the new `billomat_id` resolves to."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Billomat",
+            created_by=self.user,
+            prefix="test_billomat_nested_secret",
+            job_inputs={
+                "source_type": "Billomat",
+                "billomat_id": "acme",
+                "api_key": "original_api_key",
+                "registered_app": {
+                    "enabled": True,
+                    "app_id": "original_app_id",
+                    "app_secret": "original_app_secret",
+                },
+            },
+        )
+
+        # Re-supplying the top-level secret (api_key) but not the nested one (app_secret) must still
+        # be rejected: the preserved app_secret would otherwise follow billomat_id to the new host.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "billomat_id": "attacker-controlled",
+                    "api_key": "original_api_key",
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["billomat_id"] == "acme"
+        assert source.job_inputs["registered_app"]["app_secret"] == "original_app_secret"
+        mock_validate_credentials.assert_not_called()
+
+        # Re-supplying both the top-level and nested secrets succeeds and adopts the new host.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "billomat_id": "new-tenant",
+                    "api_key": "new_api_key",
+                    "registered_app": {
+                        "enabled": True,
+                        "app_id": "original_app_id",
+                        "app_secret": "new_app_secret",
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["billomat_id"] == "new-tenant"
+        assert source.job_inputs["registered_app"]["app_secret"] == "new_app_secret"
         mock_validate_credentials.assert_called_once()
 
     @parameterized.expand([("with_password", {"password": "new_password"}, 200), ("without_password", {}, 400)])
@@ -11536,7 +11819,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
             data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "does not support one-shot setup" in response.json()["message"]
+        assert "isn't available to connect yet" in response.json()["message"]
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
@@ -11577,7 +11860,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
             data={"source_type": "AmazonS3", "prefix": "s3_create_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "does not support schema discovery" in response.json()["message"]
+        assert "isn't available to connect yet" in response.json()["message"]
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
     def _create_stripe_webhook_template(self):

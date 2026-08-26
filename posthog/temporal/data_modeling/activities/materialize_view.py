@@ -62,7 +62,7 @@ from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
-from products.warehouse_sources.backend.facade.temporal import PersonPropertyRowSink
+from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink, PersonPropertyRowSink
 
 LOGGER = get_logger(__name__)
 
@@ -160,6 +160,19 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
     )
 
 
+def _is_s3_permission_denied(error: BaseException) -> bool:
+    """True for an S3 access-denied error on our own bucket, from either client this pipeline uses.
+
+    `s3fs`/aiobotocore (used by `CDPProducer._list_files_to_produce`) maps an AccessDenied response
+    onto the builtin `PermissionError`. pyarrow's `S3FileSystem` (used by `stage_chunk`'s parquet
+    write) doesn't set an errno for it, so the same AWS error surfaces as a plain `OSError` with the
+    AWS error code embedded in the message instead.
+    """
+    if isinstance(error, PermissionError):
+        return True
+    return isinstance(error, OSError) and "ACCESS_DENIED" in str(error)
+
+
 class _CDPRowSink:
     """Stages the rows a run wrote so CDP destinations and workflows subscribed to the view can act
     on them.
@@ -195,7 +208,11 @@ class _CDPRowSink:
             await self._producer.stage_chunk(self._chunk, batch)
             self._chunk += 1
         except Exception as e:
-            capture_exception(e)
+            # A missing write grant on the cdp_producer/ prefix is the same anticipated
+            # provisioning gap `_list_files_to_produce` already tolerates quietly for reads (see its
+            # `except PermissionError` branch) — not a bug worth paging on.
+            if not _is_s3_permission_denied(e):
+                capture_exception(e)
             await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
             self.enabled = False
             await self.discard()
@@ -247,6 +264,9 @@ class MaterializeViewResult:
     # what the workflow gates the person-property child on. Defaulted to the skip value so an old
     # history decodes without it and never fires that child during replay.
     person_property_sync_enabled: bool = False
+    # Defaulted so workflow histories recorded before account staging do not start new children on replay.
+    account_property_sync_enabled: bool = False
+    delta_version: int | None = None
     # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
     # the producer job. Defaulted so old workflow histories decode without it.
     should_trigger_cdp_producer: bool = False
@@ -685,6 +705,23 @@ async def _build_person_property_sink(
         return None
 
 
+async def _account_property_sync_enabled(
+    objects: MatviewInputObjects, job_id: str, logger: FilteringBoundLogger
+) -> bool:
+    sink = AccountPropertyRowSink(
+        team_id=objects.team.pk,
+        binding=saved_query_binding(objects.saved_query.id),
+        job_id=job_id,
+        logger=logger,
+    )
+    try:
+        return await sink.should_run()
+    except Exception as error:
+        await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
+        capture_exception(error)
+        return False
+
+
 async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: FilteringBoundLogger) -> None:
     """Clear stale staged rows at run start. Never raises, for the same reason staging doesn't."""
     try:
@@ -1034,11 +1071,25 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             try:
                 if plan.incremental:
                     row_count, file_uris = await _materialize_incrementally(
-                        objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
+                        objects,
+                        plan,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
                     )
                 else:
                     row_count, file_uris = await _materialize_fully(
-                        objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
+                        objects,
+                        plan,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
                     )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
@@ -1050,6 +1101,20 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
             inputs.team_id, str(objects.saved_query.id)
         )
+        account_property_sync_enabled = await _account_property_sync_enabled(objects, inputs.job_id, logger)
+        delta_version: int | None = None
+        if account_property_sync_enabled:
+            try:
+                delta_table = await asyncio.to_thread(
+                    deltalake.DeltaTable,
+                    table_uri,
+                    storage_options=storage_options,
+                )
+                delta_version = delta_table.version()
+            except Exception as error:
+                await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
+                capture_exception(error)
+                account_property_sync_enabled = False
         result = MaterializeViewResult(
             node_id=objects.node.id,
             node_name=objects.node.name,
@@ -1060,6 +1125,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             quality_audit=quality_audit,
             incremental=plan.incremental,
             person_property_sync_enabled=person_property_sink is not None,
+            account_property_sync_enabled=account_property_sync_enabled,
+            delta_version=delta_version,
             should_trigger_cdp_producer=cdp_sink.enabled,
         )
         published = True
