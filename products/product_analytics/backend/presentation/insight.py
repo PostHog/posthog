@@ -180,6 +180,7 @@ from products.product_analytics.backend.facade.api import (
     with_last_viewed_at,
 )
 from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.insight_write_validation import validate_insight_write
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -735,6 +736,14 @@ class InsightSerializer(InsightBasicSerializer):
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+
+        validate_insight_write(
+            query=query,
+            filters=attrs.get("filters") if using_legacy_filters else None,
+            team=self.context["get_team"](),
+            user=self.context["request"].user,
+            request=self.context["request"],
+        )
 
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:

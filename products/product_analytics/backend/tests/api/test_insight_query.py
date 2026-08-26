@@ -1,6 +1,7 @@
-from typing import get_args
+from typing import Any, get_args
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -185,6 +186,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
             expected_status=status.HTTP_201_CREATED,
         )
+
+    def test_saves_a_query_the_rules_reject_while_enforcement_is_off(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"name": "Empty series", "query": {"kind": "TrendsQuery", "series": []}},
+            expected_status=status.HTTP_201_CREATED,
+        )
+
+        assert Insight.objects.filter(pk=insight_id).exists()
+
+    @patch("products.product_analytics.backend.insight_write_validation.feature_enabled_or_false", return_value=True)
+    def test_rejects_a_query_the_rules_reject_once_enforced(self, _flag: Any) -> None:
+        insight_count_before = Insight.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {"name": "Empty series", "query": {"kind": "TrendsQuery", "series": []}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "insight_requires_at_least_one_series" in str(response.json())
+        assert Insight.objects.count() == insight_count_before
 
     def test_can_list_insights_including_those_with_only_queries(self) -> None:
         self.dashboard_api.create_insight({"name": "Insight with filters"})
