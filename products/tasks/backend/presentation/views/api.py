@@ -85,7 +85,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_resume_gap,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
+from products.tasks.backend.facade.run_config import WARMABLE_ORIGIN_PRODUCTS, TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
@@ -559,6 +559,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=TaskCreateSerializer,
         responses={
             201: TaskSerializer,
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required for a create that can activate a warm sandbox",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -566,10 +570,31 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "task limit (code `signal_report_task_cap`), or the per-user creation rate limit fired"
                 ),
             ),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access could not be verified",
+            ),
         },
     )
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
+
+        # A create that carries warm-reuse hints can activate an idling sandbox in place, which starts
+        # the agent without the client ever calling the run endpoint — so the gates that endpoint puts
+        # in front of a cloud run have to be applied here too. Without this, a warm booted while the
+        # caller was entitled still runs after Desktop access or the usage limit turns against them.
+        # Scoped to warmable origins, which is what a warm can ever be reused for; the code-access
+        # exempt Inbox shapes are not among them, matching how the warm endpoint gates.
+        # `origin_product` is optional on the wire; `create_task` defaults it the same way.
+        if (
+            "branch" in serializer.validated_data
+            and serializer.validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
+            in WARMABLE_ORIGIN_PRODUCTS
+        ):
+            if access_response := code_access_required_response(request, self.organization):
+                return access_response
+            if limit_response := usage_limit_response(request.user, self.team_id):
+                return limit_response
 
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")

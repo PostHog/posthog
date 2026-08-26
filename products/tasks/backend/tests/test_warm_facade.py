@@ -154,6 +154,53 @@ class TestWarmTaskSandbox(APIBaseTest):
 
         assert response.status_code == 400
 
+    @parameterized.expand(
+        [
+            (
+                "claude_rejects_codex_mode",
+                "claude",
+                "claude-opus-4-6",
+                "full-access",
+            ),
+            (
+                "codex_rejects_claude_mode",
+                "codex",
+                "gpt-5.4",
+                "bypassPermissions",
+            ),
+            ("mode_without_a_runtime", None, None, "plan"),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_rejects_mismatched_permission_mode(
+        self,
+        _case_name,
+        runtime_adapter,
+        model,
+        initial_permission_mode,
+        mock_warm,
+        _mock_warm_enabled,
+    ):
+        # The mode is fixed when the sandbox boots, so a pair the run request would reject must not
+        # reach one here either — the submit that follows would be rejected against a booted sandbox.
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {
+                "repository": "posthog/posthog",
+                "github_integration": self.integration.id,
+                "branch": "main",
+                "runtime_adapter": runtime_adapter,
+                "model": model,
+                "initial_permission_mode": initial_permission_mode,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["attr"] == "initial_permission_mode"
+        mock_warm.assert_not_called()
+
     def test_provisions_selected_sandbox_environment_and_custom_image(self):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=self.team,
@@ -741,6 +788,50 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         _, kwargs = m_signal.call_args
         assert kwargs["content"] == "resolved skill message"
         assert kwargs["artifact_ids"] == ["artifact-1"]
+
+    def test_create_endpoint_regates_a_warm_reuse_that_would_activate_a_sandbox(self):
+        # Activating a warm starts the agent from the create endpoint, so the client never calls the run
+        # endpoint that normally applies this gate. A warm booted while the caller was entitled must not
+        # still run after entitlement is withdrawn.
+        _warm_task, run = self._warm_run()
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+                return_value=tasks_access.DesktopAccessDecision.STARTUP_PLAN,
+            ),
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal,
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "description": "fix the bug",
+                    "repository": "posthog/posthog",
+                    "github_integration": self.integration.id,
+                    "branch": "main",
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        m_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+
+    def test_create_endpoint_without_warm_hints_is_not_regated(self):
+        # Only a create that can activate a sandbox takes the run-start gates; a plain create still
+        # goes through, and the run endpoint gates it when execution is actually requested.
+        with patch(
+            "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+            return_value=tasks_access.DesktopAccessDecision.STARTUP_PLAN,
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {"description": "fix the bug"},
+                format="json",
+            )
+
+        assert response.status_code == 201, response.content
 
 
 class TestWarmRunRelease(APIBaseTest):
