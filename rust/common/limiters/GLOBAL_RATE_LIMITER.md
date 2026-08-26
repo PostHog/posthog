@@ -110,6 +110,14 @@ This produces a smooth, continuously-updating estimate that's more accurate than
 
 Each `CacheEntry` stores the last-known weighted count from Redis (`estimated_count`)
 and the time it was synced (`synced_at`).
+
+`synced_at` is `None` until the first Redis read lands. That keeps "created just
+now" distinct from "synced just now", which decide opposite things: a
+never-synced entry is due for a sync as soon as it clears `min_sync_floor`,
+where a freshly synced one waits out its pressure tier. Collapsing the two
+delays a new key's first read by a full tier interval (4 x `sync_interval` at
+Idle), during which the node knows only its own local count and cannot see the
+fleet.
 Between syncs, the estimate **decays** at the configured leak rate:
 
 ```text
@@ -210,7 +218,7 @@ Tier boundaries are pressure-based (level / threshold), so they apply correctly 
 ```rust
 struct CacheEntry {
     estimated_count: f64,    // weighted count from last Redis sync
-    synced_at: Instant,      // when we last read from Redis
+    synced_at: Option<Instant>, // when we last read from Redis; None until the first read
     local_pending: u64,      // events counted locally since last sync, reset to 0 on sync
     pressure: f64,           // effective_level / threshold at last sync
 }
@@ -301,6 +309,13 @@ only if you're also changing the window/sync intervals.
   a shorter idle timeout reclaims slots faster, keeping the cache responsive.
 - `local_cache_ttl` acts as an upper bound on how stale an entry can get
   before being forced to re-sync from scratch on next access.
+- **`min_sync_floor` gates reads only.** `enqueue_update` runs unconditionally
+  for every event with a non-zero count, before any floor check, so every
+  event's count reaches Redis regardless of the floor. The floor suppresses the
+  `MGET` round trip for keys too far under their threshold to be limited. Writes
+  are bounded by a different mechanism: `absorb_update` merges by
+  `(key, epoch)` within a tick, so write volume scales with the number of
+  distinct active keys per tick rather than with event rate.
 - `global_cache_ttl` is an enforcement requirement, not only Redis hygiene.
   Reads consult the current and previous epoch, so the previous epoch's key is
   still needed for a full window after its last write. Below 2 × `window_interval`
