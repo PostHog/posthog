@@ -246,6 +246,10 @@ export const shortcutLogic = kea<shortcutLogicType>([
             if (singleKeyMatch && !values.disabledShortcutNames.includes(singleKeyMatch.name)) {
                 if (escapeShouldDeferToOverlay(key)) {
                     // Let the overlay, dialog, or drag handle Escape instead of the shortcut.
+                    // Still stop any in-progress sequence, as a non-deferred Escape would, so a
+                    // stale "g then p" cannot complete after the deferred Escape.
+                    cache.sequenceKeys = []
+                    cache.sequenceShortcut = null
                     return
                 }
                 event.preventDefault()
