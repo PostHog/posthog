@@ -504,6 +504,8 @@ class Task(DeletedMetaFields, models.Model):
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
+            if self.origin_key:
+                all_properties["origin_key"] = self.origin_key
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
