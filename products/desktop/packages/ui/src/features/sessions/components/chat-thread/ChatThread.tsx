@@ -3,6 +3,7 @@ import {
   Check,
   Copy,
   FileText,
+  LinkIcon,
   Robot,
   Scroll,
   ThumbsDown,
@@ -85,6 +86,7 @@ import {
   type TurnRow,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
 import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { useCopyMessageLink } from "@posthog/ui/features/sessions/components/chat-thread/useCopyMessageLink";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
 import {
@@ -372,6 +374,7 @@ function TurnFooter({
         {formatTimestamp(timestamp)}
       </span>
       {copyText && <CopyButton value={copyText} label="Copy turn" />}
+      <CopyLinkButton messageId={turnId} label="Copy link to turn" />
       <TurnFeedback turnId={turnId} sentiment={sentiment} />
     </ChatMessageFooter>
   );
@@ -483,6 +486,36 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 }
 
 /**
+ * Copies a link straight back to this spot in the transcript, so a turn or a message can be handed
+ * to someone else — or to yourself later — without asking them to scroll for it. Renders nothing
+ * when the thread has no task to link to (see {@link useCopyMessageLink}).
+ */
+function CopyLinkButton({
+  messageId,
+  label,
+}: {
+  messageId: string;
+  label: string;
+}) {
+  const { copied, copyLink } = useCopyMessageLink(messageId);
+  const [hovered, setHovered] = useState(false);
+  if (!copyLink) return null;
+  return (
+    // Same held-open confirmation as {@link CopyButton}: the click can move the pointer off the
+    // button, and the tooltip is the only thing that says the write happened.
+    <FooterIconButton
+      label={label}
+      tooltip={copied ? "Link copied!" : label}
+      open={copied || hovered}
+      onOpenChange={setHovered}
+      onClick={copyLink}
+    >
+      {copied ? <Check size={12} /> : <LinkIcon size={12} />}
+    </FooterIconButton>
+  );
+}
+
+/**
  * End-aligned user bubble. The text is clamped to five lines (`max-height: 5lh` + `overflow-hidden`,
  * which — unlike `-webkit-line-clamp` — reliably clamps markdown's block `<p>` children); a "Show
  * more" toggle appears only when the content actually exceeds the clamp, so short messages never
@@ -497,11 +530,13 @@ function CopyButton({ value, label }: { value: string; label: string }) {
  * The send timestamp sits in a `ChatMessageFooter` revealed on hover.
  */
 function UserBubble({
+  messageId,
   content,
   timestamp,
   attachments = [],
   keyboardFocused = false,
 }: {
+  messageId: string;
   content: string;
   timestamp?: number;
   attachments?: UserMessageAttachment[];
@@ -692,6 +727,10 @@ function UserBubble({
             <ChatMessageFooter className="items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               {formatTimestamp(timestamp)}
               <CopyButton value={displayContent} label="Copy message" />
+              <CopyLinkButton
+                messageId={messageId}
+                label="Copy link to message"
+              />
             </ChatMessageFooter>
           )}
         </ChatMessageContent>
@@ -823,6 +862,7 @@ function ThreadItemBody({
   if (item.type === "user_message") {
     return (
       <UserBubble
+        messageId={item.id}
         content={item.content}
         timestamp={item.timestamp}
         attachments={item.attachments}

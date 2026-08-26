@@ -59,8 +59,13 @@ export const useThreadNavigationStore = create<ThreadNavigationStore>()(
 );
 
 /** The target row may not be registered yet, and the tab holding the transcript may only
- *  just have been activated, so the first frame after a request is routinely too early. */
-const JUMP_ATTEMPT_FRAMES = 60;
+ *  just have been activated, so the first frame after a request is routinely too early.
+ *
+ *  Budgeted for the slowest caller rather than the common one: a deep link opens the task and
+ *  then requests the jump, so the transcript mounts empty and streams its rows in afterwards —
+ *  a request made from a pane that is already showing the transcript lands in a frame or two.
+ *  A target that never arrives costs a Map lookup per frame until this runs out. */
+export const JUMP_ATTEMPT_FRAMES = 240;
 
 /** Rows above the target measure late (diffs, highlighted code, images), which moves it out
  *  from under an offset already committed, so a landed jump is re-issued for a few frames. */

@@ -32,6 +32,9 @@ export function taskDeepLink(taskId: string, searchParams: Record<string, unknow
     if (typeof searchParams.item === 'string') {
         params.set('item', searchParams.item)
     }
+    if (typeof searchParams.message === 'string') {
+        params.set('message', searchParams.message)
+    }
     const query = params.toString()
     return `${DESKTOP_SCHEME}://task/${encodeURIComponent(taskId)}${query ? `?${query}` : ''}`
 }

@@ -133,6 +133,20 @@ describe("TaskLinkService", () => {
       },
     );
 
+    it("parses a message anchor from the query params", () => {
+      const listener = vi.fn();
+      service.on(TaskLinkEvent.OpenTask, listener);
+
+      mockDeepLink._invoke("task", "task-123", "message=turn-1-user");
+
+      expect(listener).toHaveBeenCalledWith({
+        taskId: "task-123",
+        taskRunId: undefined,
+        comment: undefined,
+        messageId: "turn-1-user",
+      });
+    });
+
     it("ignores a second path segment that is not 'run'", () => {
       const listener = vi.fn();
       service.on(TaskLinkEvent.OpenTask, listener);

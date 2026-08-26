@@ -24,7 +24,10 @@ export function useOpenTargetDeepLink() {
       log.info("Opening notification target", { kind: target.kind });
       switch (target.kind) {
         case "task":
-          handleOpenTask(target.taskId, target.taskRunId);
+          handleOpenTask({
+            taskId: target.taskId,
+            taskRunId: target.taskRunId,
+          });
           break;
         case "canvas":
           navigateToChannelDashboard(target.channelId, target.dashboardId);

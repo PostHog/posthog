@@ -78,12 +78,13 @@ The link is rejected if `url` is missing, is not a `github.com` URL, or does not
 
 ### `posthog-code://task/<taskId>[/run/<taskRunId>]`
 
-Open an existing task. Optionally jump to a specific run, or focus a comment thread inside the task.
+Open an existing task. Optionally jump to a specific run, scroll to one message in the transcript, or focus a comment thread inside the task.
 
 | Segment / Parameter | Required | Description |
 |---|---|---|
 | `<taskId>` | Yes | Task ID |
 | `run/<taskRunId>` | No | Specific run to open |
+| `message` | No | Conversation item id to scroll the transcript to after the task opens. This is the link the thread's own copy-link affordances produce (the message minimap and the per-turn footer). |
 | `comment` | No | Comment thread (root comment id) to focus after the task opens |
 | `scope` | No | Comment target scope when the thread lives on a sub-resource: `desktop_canvas` or `task_artifact`. Defaults to the task itself. |
 | `item` | No | Row id of the canvas/artifact the thread lives on; required alongside `scope` |
@@ -91,10 +92,13 @@ Open an existing task. Optionally jump to a specific run, or focus a comment thr
 ```
 posthog-code://task/abc123
 posthog-code://task/abc123/run/xyz789
+posthog-code://task/abc123?message=turn-1730000000000-user
 posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 ```
 
-An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
+The request is retried for a few seconds while the transcript loads, then dropped. So a message the transcript never renders — an id from a transcript that has since changed, or one far enough back that its page of history has not been loaded — leaves the task open at its usual position rather than scrolling.
+
+An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `message`, `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
 ### `posthog-code://inbox[/<reportId>]`
 

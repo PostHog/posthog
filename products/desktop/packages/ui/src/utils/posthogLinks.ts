@@ -122,6 +122,24 @@ export function channelShareUrl(
 }
 
 /**
+ * The shareable https link for a task — or, with `messageId`, for one message in
+ * its transcript: `<instance>/code/task/<taskId>[?message=<messageId>]`. Opening
+ * it in a browser hits the same web interstitial the channel links use, which
+ * deep-links into the desktop app or offers the download. The inbound desktop
+ * side lives in `TaskLinkService` / `useTaskDeepLink`, which hands the message
+ * to the transcript's own scroll-to-message request.
+ */
+export function taskShareUrl(
+  taskId: string,
+  messageId?: string,
+): string | null {
+  const base = `/code/task/${encodeURIComponent(taskId)}`;
+  return getPostHogUrl(
+    messageId ? `${base}?message=${encodeURIComponent(messageId)}` : base,
+  );
+}
+
+/**
  * Parse a URL, rejecting anything that isn't https. The gate every surface that
  * renders a backend-supplied link goes through before fetching from it or
  * handing it to the host's external-link opener.

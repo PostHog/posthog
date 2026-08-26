@@ -25,6 +25,8 @@ export interface TaskLinkPayload {
   taskId: string;
   taskRunId?: string;
   comment?: TaskLinkCommentAnchor;
+  /** Conversation item id the transcript scrolls to once the task is open. */
+  messageId?: string;
 }
 
 export interface TaskLinkEvents {
@@ -72,7 +74,8 @@ export class TaskLinkService extends TypedEventEmitter<TaskLinkEvents> {
           itemId: searchParams.get("item") ?? undefined,
         }
       : undefined;
-    return this.openTask({ taskId, taskRunId, comment });
+    const messageId = searchParams.get("message") ?? undefined;
+    return this.openTask({ taskId, taskRunId, comment, messageId });
   }
 
   /** Routes the main window to a task, queueing until the renderer is ready. */
