@@ -922,7 +922,7 @@ class DesktopAccessResponseSerializer(serializers.Serializer):
 
 
 class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
-    has_access = serializers.BooleanField(help_text="Whether the user has legacy PostHog Desktop access.")
+    has_access = serializers.BooleanField(help_text="Whether the current project can use PostHog Desktop.")
     has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
 
 
@@ -3588,10 +3588,6 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
     id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
     result = serializers.JSONField(required=False, help_text="Command result on success")
     error = serializers.DictField(required=False, help_text="Error details on failure")
-
-
-class CodeInviteRedeemRequestSerializer(serializers.Serializer):
-    code = serializers.CharField(max_length=50)
 
 
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):

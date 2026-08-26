@@ -17556,11 +17556,6 @@ export namespace Schemas {
       StaleVersion: 'stale_version',
     } as const;
 
-    export interface CodeInviteRedeemRequest {
-      /** @maxLength 50 */
-      code: string;
-    }
-
     /**
      * * `codex` - codex
      */
@@ -46015,7 +46010,7 @@ export namespace Schemas {
     }
 
     export interface LegacyDesktopAccessResponse {
-      /** Whether the user has legacy PostHog Desktop access. */
+      /** Whether the current project can use PostHog Desktop. */
       has_access: boolean;
       /** Whether the independent Loops feature is enabled. */
       has_loops_access: boolean;

@@ -8,7 +8,6 @@ import { DesktopAccessScreen } from "@posthog/ui/features/auth/components/Deskto
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
 import {
   useLogoutMutation,
-  useRedeemInviteCodeMutation,
   useRetryDesktopAccessMutation,
   useSelectProjectMutation,
   useSwitchOrgMutation,
@@ -63,7 +62,6 @@ function App({ devToolbar }: AppProps) {
   const selectProjectMutation = useSelectProjectMutation();
   const switchOrgMutation = useSwitchOrgMutation();
   const retryDesktopAccessMutation = useRetryDesktopAccessMutation();
-  const redeemInviteCodeMutation = useRedeemInviteCodeMutation();
   const logoutMutation = useLogoutMutation();
   const desktopAccessIsCurrent =
     desktopAccess.projectId === authState.currentProjectId;
@@ -242,18 +240,13 @@ function App({ devToolbar }: AppProps) {
               selectProjectMutation.isPending || switchOrgMutation.isPending
             }
             isRetrying={retryDesktopAccessMutation.isPending}
-            isRedeemingInviteCode={redeemInviteCodeMutation.isPending}
             isLoggingOut={logoutMutation.isPending}
             switchError={switchError}
-            redemptionError={redeemInviteCodeMutation.error?.message ?? null}
             onSelectOrganization={(organizationId) =>
               switchOrgMutation.mutate(organizationId)
             }
             onSelectProject={(projectId) =>
               selectProjectMutation.mutate(projectId)
-            }
-            onRedeemInviteCode={(inviteCode) =>
-              redeemInviteCodeMutation.mutate(inviteCode)
             }
             onRetry={() => retryDesktopAccessMutation.mutate()}
             onLogout={() => logoutMutation.mutate()}

@@ -263,29 +263,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
     return response;
   }
-  async redeemInviteCode(code: string): Promise<AuthState> {
-    const { apiHost } = await this.getValidAccessToken();
-    const response = await this.authenticatedFetch(
-      fetch,
-      `${apiHost}/api/code/invites/redeem/`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      },
-    );
-
-    const data = (await response.json().catch(() => ({}))) as {
-      success?: boolean;
-      error?: string;
-    };
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Failed to redeem invite code");
-    }
-
-    return this.retryDesktopAccess();
-  }
   async retryDesktopAccess(): Promise<AuthState> {
     await this.initialize();
     const session = await this.ensureValidSession();

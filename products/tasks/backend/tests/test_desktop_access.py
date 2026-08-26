@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -8,15 +8,8 @@ from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
 
-from products.tasks.backend.access import (
-    DESKTOP_ACCESS_GATE_FLAG,
-    DesktopAccessReason,
-    DesktopAccessResolutionError,
-    get_desktop_access_decision,
-    has_tasks_access,
-)
+from products.tasks.backend.access import DesktopAccessReason, DesktopAccessResolutionError, get_desktop_access_decision
 from products.tasks.backend.logic.services.code_usage_gate import code_access_required_response
-from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState, StartupProgramLabel
 
@@ -28,8 +21,8 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.feature_flag_patcher = patch("products.tasks.backend.access.get_feature_flag_or_none")
         self.mock_feature_flag = self.feature_flag_patcher.start()
 
-        def feature_flag_value(flag_key: str, *_args: object, **_kwargs: object) -> bool:
-            return flag_key == DESKTOP_ACCESS_GATE_FLAG
+        def feature_flag_value(*_args: object, **_kwargs: object) -> bool:
+            return False
 
         self.mock_feature_flag.side_effect = feature_flag_value
 
@@ -82,52 +75,8 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(decision.reason, expected_reason)
 
     @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=True)
-    def test_rollout_flag_off_preserves_legacy_feature_flag_access(self, _mock_legacy_flag, mock_funding) -> None:
-        self.mock_feature_flag.side_effect = [False]
-
-        decision = get_desktop_access_decision(self.user, self.organization)
-
-        self.assertTrue(decision.allowed)
-        self.assertEqual(self.mock_feature_flag.call_count, 1)
-        mock_funding.assert_not_called()
-
-    @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=False)
-    def test_rollout_flag_off_preserves_legacy_invite_access(self, _mock_legacy_flag, mock_funding) -> None:
-        invite = CodeInvite.objects.create(code="LEGACYCODE", max_redemptions=1, is_active=True)
-        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
-        self.mock_feature_flag.side_effect = [False]
-
-        decision = get_desktop_access_decision(self.user, self.organization)
-
-        self.assertTrue(decision.allowed)
-        mock_funding.assert_not_called()
-
-    @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=False)
-    def test_rollout_flag_off_preserves_legacy_denial(self, _mock_legacy_flag, mock_funding) -> None:
-        self.mock_feature_flag.side_effect = [False]
-
-        decision = get_desktop_access_decision(self.user, self.organization)
-
-        self.assertFalse(decision.allowed)
-        self.assertIsNone(decision.reason)
-        mock_funding.assert_not_called()
-
-    @patch("products.tasks.backend.access._get_funding_status")
-    def test_indeterminate_rollout_flag_fails_closed(self, mock_funding) -> None:
-        self.mock_feature_flag.side_effect = [None]
-
-        with self.assertRaises(DesktopAccessResolutionError):
-            get_desktop_access_decision(self.user, self.organization)
-
-        self.assertEqual(self.mock_feature_flag.call_count, 1)
-        mock_funding.assert_not_called()
-
-    @patch("products.tasks.backend.access._get_funding_status")
     def test_override_grants_access_before_funding_resolution(self, mock_funding) -> None:
-        self.mock_feature_flag.side_effect = [True, True]
+        self.mock_feature_flag.side_effect = [True]
 
         decision = get_desktop_access_decision(self.user, self.organization)
 
@@ -147,23 +96,9 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["code"], "desktop_access_unavailable")
 
-    @patch("products.tasks.backend.access._get_funding_status")
-    def test_access_code_does_not_affect_authorization_after_rollout(self, mock_funding) -> None:
-        invite = CodeInvite.objects.create(code="ACCESSCODE", max_redemptions=1, is_active=True)
-        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
-        mock_funding.return_value = OrganizationFundingStatus(
-            startup_program_label="Startup",
-            prepaid_credit_state=PrepaidCreditState.NONE,
-        )
-
-        decision = get_desktop_access_decision(self.user, self.organization)
-
-        self.assertFalse(decision.allowed)
-        self.assertEqual(decision.reason, DesktopAccessReason.STARTUP_PLAN)
-
     @parameterized.expand([(None,), ("control",), ("false",)])
-    def test_indeterminate_feature_flag_fails_closed(self, flag_value) -> None:
-        self.mock_feature_flag.side_effect = [True, flag_value]
+    def test_indeterminate_override_flag_fails_closed(self, flag_value) -> None:
+        self.mock_feature_flag.side_effect = [flag_value]
 
         with self.assertRaises(DesktopAccessResolutionError):
             get_desktop_access_decision(self.user, self.organization)
@@ -207,32 +142,31 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(blocked_response.status_code, status.HTTP_200_OK)
         self.assertEqual(blocked_response.json(), {"allowed": False, "reason": "startup_plan"})
 
+    @parameterized.expand(
+        [
+            ("allowed", None, True),
+            ("startup", "Startup", False),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.tasks_access.has_loops_access", return_value=True)
-    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=True)
-    def test_legacy_endpoint_preserves_feature_flag_access(self, _mock_legacy_flag, _mock_loops) -> None:
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_legacy_endpoint_uses_access_policy(
+        self,
+        _name: str,
+        startup_program_label: StartupProgramLabel | None,
+        expected_access: bool,
+        mock_funding,
+        _mock_loops,
+    ) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=startup_program_label,
+            prepaid_credit_state=PrepaidCreditState.NONE,
+        )
+
         response = self.client.get("/api/code/invites/check-access/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"has_access": True, "has_loops_access": True})
-
-    @patch("products.tasks.backend.presentation.views.api.tasks_access.has_loops_access", return_value=False)
-    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=False)
-    def test_legacy_endpoint_preserves_invite_access(self, _mock_legacy_flag, _mock_loops) -> None:
-        invite = CodeInvite.objects.create(code="ENDPOINTCODE", max_redemptions=1, is_active=True)
-        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
-
-        response = self.client.get("/api/code/invites/check-access/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"has_access": True, "has_loops_access": False})
-
-    @patch("products.tasks.backend.presentation.views.api.tasks_access.has_loops_access", return_value=False)
-    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=False)
-    def test_legacy_endpoint_preserves_denial(self, _mock_legacy_flag, _mock_loops) -> None:
-        response = self.client.get("/api/code/invites/check-access/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"has_access": False, "has_loops_access": False})
+        self.assertEqual(response.json(), {"has_access": expected_access, "has_loops_access": True})
 
     @patch(
         "products.tasks.backend.presentation.views.desktop_access.get_desktop_access_decision",
@@ -243,19 +177,3 @@ class TestDesktopAccessPolicy(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.json()["code"], "desktop_access_unavailable")
-
-
-class TestTasksAccessFlags(BaseTest):
-    @parameterized.expand(
-        [
-            ("desktop_waitlist", {"tasks"}, True),
-            ("posthog_ai_composer", {"phai-sandbox-mode"}, True),
-            ("neither", set(), False),
-        ]
-    )
-    def test_either_access_flag_grants_access(self, _name: str, enabled_flags: set[str], expected: bool) -> None:
-        with patch(
-            "products.tasks.backend.access.feature_enabled_or_false",
-            side_effect=lambda flag_key, *_args, **_kwargs: flag_key in enabled_flags,
-        ):
-            assert has_tasks_access(self.user) is expected

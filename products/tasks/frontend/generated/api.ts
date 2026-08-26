@@ -17,7 +17,6 @@ import type {
     ChannelInstructionsWriteApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
-    CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     DesktopAccessResponseApi,
     DesktopBetaTermsAcceptanceDTOApi,
@@ -153,8 +152,8 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has legacy PostHog Desktop access and Loops access.
- * @summary Check access
+ * Compatibility endpoint for released PostHog Desktop clients.
+ * @summary Check PostHog Desktop access
  */
 export const codeInvitesCheckAccessRetrieve = async (
     options?: RequestInit
@@ -162,26 +161,6 @@ export const codeInvitesCheckAccessRetrieve = async (
     return apiMutator<LegacyDesktopAccessResponseApi>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getCodeInvitesRedeemCreateUrl = () => {
-    return `/api/code/invites/redeem/`
-}
-
-/**
- * Redeem a PostHog Desktop invite code to enable legacy access.
- * @summary Redeem invite code
- */
-export const codeInvitesRedeemCreate = async (
-    codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesRedeemCreateUrl(), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(codeInviteRedeemRequestApi),
     })
 }
 

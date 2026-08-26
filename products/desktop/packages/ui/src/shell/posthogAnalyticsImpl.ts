@@ -443,7 +443,6 @@ export function getFeatureFlagVariant(flagKey: string): string | undefined {
 
 /**
  * Reload feature flags from the server.
- * Useful after a person property change (e.g., invite code redemption).
  */
 export function reloadFeatureFlags(): void {
   if (!isInitialized) {

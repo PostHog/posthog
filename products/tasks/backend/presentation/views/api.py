@@ -52,7 +52,7 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_mcp_built_in_agent_oauth_request,
 )
-from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
+from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
@@ -97,7 +97,6 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
 )
 from products.tasks.backend.presentation.serializers import (
-    CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
     ModelCatalogueResponseSerializer,
@@ -3520,69 +3519,62 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         return Response(serializer.data)
 
 
-@extend_schema(tags=["code-invites"])
-class CodeInviteViewSet(viewsets.ViewSet):
-    """API for redeeming PostHog Desktop invite codes."""
-
+@extend_schema(tags=["tasks"])
+class LegacyDesktopAccessViewSet(viewsets.ViewSet):
     authentication_classes = [
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
-
     scope_object = "task"
-
-    http_method_names = ["get", "post", "head", "options"]
-    throttle_classes = [CodeInviteThrottle]
+    http_method_names = ["get", "head", "options"]
 
     def get_permissions(self):
-        # Both endpoints are user-account-level operations (not project data).
-        if self.action in ("check_access", "redeem"):
-            return [IsAuthenticated()]
-        return super().get_permissions()
-
-    @validated_request(
-        request_serializer=CodeInviteRedeemRequestSerializer,
-        responses={
-            200: OpenApiResponse(description="Invite code redeemed successfully"),
-            400: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="Invalid or expired invite code",
-            ),
-        },
-        summary="Redeem invite code",
-        description="Redeem a PostHog Desktop invite code to enable legacy access.",
-    )
-    @action(detail=False, methods=["post"], url_path="redeem")
-    def redeem(self, request, **kwargs):
-        result = tasks_facade.redeem_code_invite(request.validated_data["code"], request.user.id)
-
-        if result.outcome == tasks_facade.CODE_INVITE_INVALID_CODE:
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Invalid invite code"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if result.outcome == tasks_facade.CODE_INVITE_NOT_REDEEMABLE:
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        return Response({"success": True})
+        return [IsAuthenticated()]
 
     @extend_schema(
-        responses={200: OpenApiResponse(response=LegacyDesktopAccessResponseSerializer)},
-        summary="Check access",
-        description="Check whether the authenticated user has legacy PostHog Desktop access and Loops access.",
+        responses={
+            200: OpenApiResponse(response=LegacyDesktopAccessResponseSerializer),
+            503: OpenApiResponse(response=TaskRunErrorResponseSerializer),
+        },
+        summary="Check PostHog Desktop access",
+        description="Compatibility endpoint for released PostHog Desktop clients.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
+        team = getattr(request.user, "team", None)
+        if team is None:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "type": "service_unavailable",
+                        "code": "desktop_access_unavailable",
+                        "error": "We couldn't verify PostHog Desktop access. Try again.",
+                    }
+                ).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            decision = tasks_access.get_desktop_access_decision(request.user, team.organization)
+        except tasks_access.DesktopAccessResolutionError:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "type": "service_unavailable",
+                        "code": "desktop_access_unavailable",
+                        "error": "We couldn't verify PostHog Desktop access. Try again.",
+                    }
+                ).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         return Response(
             LegacyDesktopAccessResponseSerializer(
                 {
-                    "has_access": tasks_access.has_tasks_access(request.user),
-                    "has_loops_access": tasks_access.has_loops_access(request.user),
+                    "has_access": decision.allowed,
+                    "has_loops_access": tasks_access.has_loops_access(request.user, team),
                 }
             ).data
         )

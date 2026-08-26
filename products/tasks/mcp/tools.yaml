@@ -98,9 +98,6 @@ tools:
     code-invites-check-access-retrieve:
         operation: code_invites_check_access_retrieve
         enabled: false
-    code-invites-redeem-create:
-        operation: code_invites_redeem_create
-        enabled: false
     code-sandbox-pricing-list:
         operation: code_sandbox_pricing_list
         enabled: false

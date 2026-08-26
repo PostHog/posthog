@@ -51,14 +51,6 @@ export function useSwitchOrgMutation() {
   });
 }
 
-export function useRedeemInviteCodeMutation() {
-  const hostClient = useHostTRPCClient();
-  return useMutation({
-    mutationFn: (code: string) =>
-      hostClient.auth.redeemInviteCode.mutate({ code }),
-  });
-}
-
 export function useRetryDesktopAccessMutation() {
   const hostClient = useHostTRPCClient();
   return useMutation({

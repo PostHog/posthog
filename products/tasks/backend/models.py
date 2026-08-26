@@ -2,8 +2,6 @@ import os
 import re
 import json
 import uuid
-import string
-import secrets
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
@@ -22,7 +20,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, models, transaction
+from django.db import connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -3414,79 +3412,6 @@ class SandboxCustomImage(TeamScopedRootMixin):
     def modal_publish_name(self) -> str:
         # One stable tag per image — Modal has no image-deletion API, so per-version tags would accumulate.
         return f"posthog-sandbox-custom-{self.team_id}-{self.id.hex}:latest"
-
-
-class CodeInviteQuerySet(models.QuerySet["CodeInvite"]):
-    def unexpired(self, at: datetime | None = None) -> "CodeInviteQuerySet":
-        at = at or django_timezone.now()
-        return self.filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=at))
-
-    def expire(self, at: datetime | None = None) -> int:
-        at = at or django_timezone.now()
-        return self.unexpired(at).update(expires_at=at)
-
-
-class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Desktop access."""
-
-    objects = CodeInviteQuerySet.as_manager()
-
-    code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
-    max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
-    redemption_count = models.PositiveIntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-    expires_at = models.DateTimeField(null=True, blank=True, help_text="Optional expiration date.")
-    description = models.TextField(blank=True, help_text="Internal admin note.")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_code_invites"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_code_invite"
-
-    def __str__(self):
-        return self.code
-
-    def save(self, *args, **kwargs):
-        if not self.code:
-            alphabet = string.ascii_uppercase + string.digits
-            for attempt in range(10):
-                self.code = "".join(secrets.choice(alphabet) for _ in range(8))
-                try:
-                    with transaction.atomic():
-                        return super().save(*args, **kwargs)
-                except IntegrityError:
-                    if attempt == 9:
-                        raise
-            return
-        super().save(*args, **kwargs)
-
-    @property
-    def is_redeemable(self) -> bool:
-        if not self.is_active:
-            return False
-        if self.expires_at and self.expires_at <= django_timezone.now():
-            return False
-        if self.max_redemptions > 0 and self.redemption_count >= self.max_redemptions:
-            return False
-        return True
-
-
-class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Desktop invite."""
-
-    invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True)
-    redeemed_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_code_invite_redemption"
-        unique_together = [("invite_code", "user")]
-
-    def __str__(self):
-        return f"{self.user} redeemed {self.invite_code}"
 
 
 class DesktopBetaTermsAcceptance(models.Model):

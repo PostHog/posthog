@@ -104,8 +104,6 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     ChannelInstructions,
     ChannelStar,
-    CodeInvite,
-    CodeInviteRedemption,
     DesktopBetaTermsAcceptance,
     MCPBuiltInAgentKey,
     SandboxCustomImage,
@@ -151,14 +149,6 @@ TaskRuntime = Task.Runtime
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
-# --- Code-invite redeem outcomes ---
-# Returned on ``CodeInviteRedeemResult.outcome``; the presentation layer maps each to an
-# HTTP response. ``REDEEMED`` covers both a fresh redemption and the idempotent no-op when
-# the user already redeemed this code (both surface as success).
-CODE_INVITE_REDEEMED = "redeemed"
-CODE_INVITE_INVALID_CODE = "invalid_code"
-CODE_INVITE_NOT_REDEEMABLE = "not_redeemable"
-
 WIZARD_PR_READY_EMAIL_FEATURE_FLAG = "wizard-cloud-run-pr-ready-email-enabled"
 
 # Runtime posture for a setup-wizard cloud run, applied in create_wizard_cloud_run. The model is
@@ -169,9 +159,6 @@ WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
 WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
 
 __all__ = [
-    "CODE_INVITE_INVALID_CODE",
-    "CODE_INVITE_NOT_REDEEMABLE",
-    "CODE_INVITE_REDEEMED",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -261,7 +248,6 @@ __all__ = [
     "read_task_run_logs",
     "record_comment_activity",
     "signal_task_run_client_activity",
-    "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
@@ -1672,9 +1658,6 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
     return snapshot.id
 
 
-# --- Desktop invites ---
-
-
 def get_desktop_beta_terms_acceptance(organization_id: UUID) -> contracts.DesktopBetaTermsAcceptanceDTO:
     return contracts.DesktopBetaTermsAcceptanceDTO(
         is_desktop_beta_terms_accepted=DesktopBetaTermsAcceptance.objects.filter(
@@ -1689,51 +1672,6 @@ def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.
         defaults={"accepted_by_user_id": user_id},
     )
     return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
-
-
-def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
-    """Redeem a PostHog Desktop invite for a user.
-
-    Idempotent: a user who already redeemed this code gets ``REDEEMED`` without a second
-    redemption row. A fresh redemption takes a row lock on the invite, re-checks
-    redeemability under the lock, records the redemption, bumps ``redemption_count``, and
-    captures the activation analytics — all in one transaction, mirroring the original view.
-    """
-    code_str = code.strip()
-
-    try:
-        invite_code = CodeInvite.objects.get(code__iexact=code_str)
-    except CodeInvite.DoesNotExist:
-        return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_INVALID_CODE)
-
-    user = User.objects.get(pk=user_id)
-
-    if CodeInviteRedemption.objects.filter(invite_code=invite_code, user=user).exists():
-        return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_REDEEMED)
-
-    with transaction.atomic():
-        invite_code = CodeInvite.objects.select_for_update().get(id=invite_code.id)
-
-        if not invite_code.is_redeemable:
-            return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_NOT_REDEEMABLE)
-
-        organization = user.organization if hasattr(user, "organization") else None
-
-        CodeInviteRedemption.objects.create(
-            invite_code=invite_code,
-            user=user,
-            organization=organization,
-        )
-
-        CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
-
-        posthoganalytics.capture(
-            distinct_id=str(user.distinct_id),
-            event="code_invite_redeemed",
-            groups=groups(organization=organization),
-        )
-
-    return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_REDEEMED)
 
 
 # --- Sandbox environments (presentation CRUD) ---

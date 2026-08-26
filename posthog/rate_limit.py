@@ -1315,11 +1315,6 @@ class SharePasswordThrottle(_SharedLinkAtomicThrottle):
     rate = "10/minute"
 
 
-class CodeInviteThrottle(UserRateThrottle):
-    scope = "code_invite"
-    rate = "20000/hour"
-
-
 class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
     # Rate limit running a saved query per saved query per team.
     # Prevents agents from running the same query repeatedly without reason.

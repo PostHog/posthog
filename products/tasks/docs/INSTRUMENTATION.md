@@ -233,14 +233,6 @@ Tracked when a GitHub `pull_request.closed` webhook is received with `merged=tru
 
 Tracked when a GitHub `pull_request.closed` webhook is received with `merged=false`. Same additional properties as `pr_created`.
 
-## API Events
-
-Source: `products/tasks/backend/api.py`
-
-### `code_invite_redeemed`
-
-Tracked when a user redeems a Desktop invite. Includes `organization` group analytics. No additional properties.
-
 ## Activity Observability Events
 
 Source: `products/tasks/backend/temporal/observability.py`
