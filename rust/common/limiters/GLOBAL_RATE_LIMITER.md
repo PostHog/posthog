@@ -253,6 +253,14 @@ TTL:   2 × window_interval (120s for 60s window)
 
 Only 2 keys per entity exist at any time (current + previous epoch).
 
+**Two deployments that share a key prefix must agree on `window_interval`.**
+The epoch number is `floor(unix / window_interval)`, so a mismatch puts each
+deployment on a different key namespace and silently splits the shared counter.
+Capture's AI byte budget is one such namespace: its prefix deliberately carries
+no `capture_mode`, so capture-analytics and capture-ai draw on one budget. The
+`global_rate_limiter_window_seconds{scope}` gauge publishes the value each
+process is running, so an alert can compare them.
+
 ### Configuration
 
 #### Rate limiting behavior

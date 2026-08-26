@@ -35,6 +35,7 @@ const GLOBAL_RATE_LIMITER_PIPELINE_HISTOGRAM: &str = "global_rate_limiter_pipeli
 const GLOBAL_RATE_LIMITER_TICK_HISTOGRAM: &str = "global_rate_limiter_tick_ms";
 const GLOBAL_RATE_LIMITER_PIPELINE_SIZE_HISTOGRAM: &str = "global_rate_limiter_pipeline_size";
 const GLOBAL_RATE_LIMITER_PENDING_SYNC_SIZE_GAUGE: &str = "global_rate_limiter_pending_sync_size";
+const GLOBAL_RATE_LIMITER_WINDOW_GAUGE: &str = "global_rate_limiter_window_seconds";
 const GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE: &str = "global_rate_limiter_sync_tier_gauge";
 const GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER: &str =
     "global_rate_limiter_tier_transitions_total";
@@ -1016,7 +1017,7 @@ impl GlobalRateLimiterImpl {
 
         // Cache-size gauge every tick (O(1)); per-tier distribution via a
         // throttled full scan (slow-moving, see TIER_SCAN_INTERVAL_TICKS).
-        Self::emit_cache_gauges(cache, scope, tick_n);
+        Self::emit_cache_gauges(cache, scope, tick_n, config.window_interval);
 
         // Take a bounded slice of the pending set rather than all of it. The
         // remainder stays queued, so a backlog surfaces as sync staleness instead
@@ -1452,9 +1453,23 @@ impl GlobalRateLimiterImpl {
     /// distribution needs a full `cache.iter()` scan, so it runs only every
     /// `TIER_SCAN_INTERVAL_TICKS`: the distribution moves slowly and prod metrics
     /// dedup to 60s, so scanning every tick would be wasted work under load.
-    fn emit_cache_gauges(cache: &Cache<String, CacheEntry>, scope: &'static str, tick_n: u64) {
+    fn emit_cache_gauges(
+        cache: &Cache<String, CacheEntry>,
+        scope: &'static str,
+        tick_n: u64,
+        window_interval: Duration,
+    ) {
         metrics::gauge!(GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE, "scope" => scope)
             .set(cache.entry_count() as f64);
+
+        // The window sets Redis epoch numbering, so two deployments that share a
+        // key namespace must agree on it. Capture's AI byte budget is one such
+        // namespace: its prefix carries no capture_mode, so capture-analytics and
+        // capture-ai draw on one budget. A disagreement splits that budget in two
+        // with no error and no log, so publish the value each deployment is
+        // actually running and let an alert compare them.
+        metrics::gauge!(GLOBAL_RATE_LIMITER_WINDOW_GAUGE, "scope" => scope)
+            .set(window_interval.as_secs_f64());
 
         if tick_n.is_multiple_of(TIER_SCAN_INTERVAL_TICKS) {
             let tier_counts = Self::scan_tier_counts(cache);
