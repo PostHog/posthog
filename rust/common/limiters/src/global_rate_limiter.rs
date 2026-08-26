@@ -543,6 +543,25 @@ impl GlobalRateLimiterImpl {
             );
             config.local_cache_ttl = config.window_interval;
         }
+        // Reads consult the current and the previous epoch, so the previous
+        // epoch's Redis key is still needed for a full window after its last
+        // write. A TTL below 2 x window_interval expires that key while it is
+        // still being read, and `weighted_count` then takes `prev_count` as 0.
+        // That understates the fleet estimate for the rest of the window and
+        // under-enforces. `global_cache_ttl` has a default derived from the
+        // default window, so any caller that changes the window without
+        // changing the TTL lands here.
+        let min_global_cache_ttl = config.window_interval * 2;
+        if config.global_cache_ttl < min_global_cache_ttl {
+            warn!(
+                scope,
+                global_cache_ttl = ?config.global_cache_ttl,
+                window_interval = ?config.window_interval,
+                "global_cache_ttl below 2x window_interval expires the previous \
+                 epoch key while reads still need it; clamping to 2x window_interval"
+            );
+            config.global_cache_ttl = min_global_cache_ttl;
+        }
         let config = config;
 
         let cache = Cache::builder()
@@ -2109,6 +2128,35 @@ mod tests {
                 Duration::from_secs(expected_secs),
                 "idle_timeout={idle_secs}s against a 60s window should resolve to {expected_secs}s -- \
                  an idle timeout inside the window expires entries mid-window and silently under-enforces"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_global_cache_ttl_clamped_up_to_two_windows() {
+        // (configured_ttl_secs, expected_secs) against test_config()'s 60s window
+        let cases = vec![
+            (30, 120),  // below one window
+            (60, 120),  // one window: still expires the previous epoch early
+            (119, 120), // just below the bound
+            (120, 120), // exactly at the bound: untouched
+            (600, 600), // above: untouched
+        ];
+
+        for (ttl_secs, expected_secs) in cases {
+            let client = Arc::new(MockRedisClient::new());
+            let config = GlobalRateLimiterConfig {
+                global_cache_ttl: Duration::from_secs(ttl_secs),
+                ..test_config()
+            };
+            let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+            assert_eq!(
+                limiter.config.global_cache_ttl,
+                Duration::from_secs(expected_secs),
+                "global_cache_ttl={ttl_secs}s against a 60s window should resolve to {expected_secs}s -- \
+                 a TTL under 2x the window expires the previous epoch key while reads still \
+                 need it, so weighted_count takes prev_count as 0 and under-enforces"
             );
         }
     }

@@ -260,7 +260,7 @@ only if you're also changing the window/sync intervals.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `global_cache_ttl` | 120s (2 × window) | `EXPIRE` TTL on Redis epoch keys. Must be ≥ 2 × `window_interval` so both epoch keys survive for reads |
+| `global_cache_ttl` | 2 × `window_interval` | `EXPIRE` TTL on Redis epoch keys. Clamped up to 2 × `window_interval` at construction so both epoch keys survive for reads. The default is derived from the *default* window, so a caller that changes `window_interval` and leaves this alone is corrected rather than silently under-enforcing |
 | `global_read_timeout` | 100ms | Timeout for batched MGET reads |
 | `global_write_timeout` | 100ms | Timeout for batched INCRBY writes |
 | `redis_key_prefix` | `@posthog/global_rate_limiter` | Prefix for all Redis keys (capture derives from `capture_mode`) |
@@ -278,8 +278,9 @@ only if you're also changing the window/sync intervals.
 
   │◄── window_interval (60s) ──►│
   │                              │
-  │  global_cache_ttl (120s = 2×window)                                  │
-  │  Redis epoch keys expire after this, ensuring old counters clean up  │
+  │  global_cache_ttl (2×window, clamped at construction)                │
+  │  Redis epoch keys expire after this. Below 2×window the previous     │
+  │  epoch key dies while reads still need it, and the estimate drops.   │
   │◄─────────────────────────────────────────────────────────────────────►│
   │                                                                      │
   │  local_cache_idle_timeout (300s)                                     │
@@ -300,8 +301,22 @@ only if you're also changing the window/sync intervals.
   a shorter idle timeout reclaims slots faster, keeping the cache responsive.
 - `local_cache_ttl` acts as an upper bound on how stale an entry can get
   before being forced to re-sync from scratch on next access.
-- `global_cache_ttl` is Redis hygiene — it only needs to be ≥ 2 × `window_interval`.
-  Making it much larger wastes Redis memory on dead keys.
+- `global_cache_ttl` is an enforcement requirement, not only Redis hygiene.
+  Reads consult the current and previous epoch, so the previous epoch's key is
+  still needed for a full window after its last write. Below 2 × `window_interval`
+  it expires early, `weighted_count` reads `prev_count` as 0, and the fleet
+  estimate is understated for the rest of every window — always toward
+  under-limiting. `GlobalRateLimiterImpl::new` clamps it up and logs a warning.
+  Making it much larger than 2 × `window_interval` wastes Redis memory on dead keys.
+
+**All three TTLs are clamped at construction**, because each one expiring inside
+the window it serves causes silent under-enforcement:
+
+| Parameter | Clamped to at least | What an undersized value breaks |
+|---|---|---|
+| `local_cache_idle_timeout` | `window_interval` | Entries expire mid-window and the next request takes the always-allowed miss path |
+| `local_cache_ttl` | `window_interval` | Same, on the absolute expiry path |
+| `global_cache_ttl` | 2 × `window_interval` | The previous epoch key dies while reads still need it, so `prev_count` reads as 0 |
 
 ## Request Flow
 
