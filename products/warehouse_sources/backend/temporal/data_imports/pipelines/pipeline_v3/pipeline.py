@@ -138,7 +138,13 @@ class PipelineV3(Generic[ResumableData]):
         self._table = models.table
         # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
-        self._is_incremental = models.schema.is_incremental or models.schema.is_webhook or models.schema.is_xmin
+        # Same for a change stream, which only ever carries the rows that changed.
+        self._is_incremental = (
+            models.schema.is_incremental
+            or models.schema.is_webhook
+            or models.schema.is_xmin
+            or source_response.cdc_write_mode is not None
+        )
 
         self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
 
@@ -151,7 +157,9 @@ class PipelineV3(Generic[ResumableData]):
         self._attempt = attempt
 
         sync_type: SyncTypeLiteral = "full_refresh"
-        if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
+        if source_response.cdc_write_mode is not None:
+            sync_type = "cdc"
+        elif self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
             sync_type = "incremental"
         elif self._schema.is_append:
             sync_type = "append"
@@ -198,6 +206,7 @@ class PipelineV3(Generic[ResumableData]):
             run_uuid=self._s3_batch_writer.get_run_uuid(),
             logger=self._logger,
             primary_keys=self._resource.primary_keys,
+            cdc_write_mode=self._resource.cdc_write_mode,
             is_resume=is_resume,
             partition_count=partition_count,
             partition_size=partition_size,
@@ -207,6 +216,9 @@ class PipelineV3(Generic[ResumableData]):
             is_first_ever_sync=is_first_ever_sync,
             workflow_id=current_workflow_id(),
             workflow_run_id=current_workflow_run_id(),
+            # Snapshotted on the job when the run started. Empty for every run before
+            # destinations, and every run of a team the flag is off for.
+            destination_ids=list(self._job.destination_ids or []),
         )
 
         self._resumable_source_manager = resumable_source_manager
