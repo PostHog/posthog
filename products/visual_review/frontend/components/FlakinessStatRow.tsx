@@ -16,7 +16,7 @@ const STATS: Array<{ value: FlakinessPreset; label: string; description: string 
     {
         value: 'unstable',
         label: 'Unstable',
-        description: `Produced a new variant in the last ${RECENT_VARIANT_WINDOW_DAYS} days`,
+        description: `Rendered a variant in the last ${RECENT_VARIANT_WINDOW_DAYS} days`,
     },
     {
         value: 'settled',

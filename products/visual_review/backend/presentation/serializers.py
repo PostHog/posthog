@@ -379,10 +379,10 @@ class FlakinessEntrySerializer(DataclassSerializer):
     flakiness_state = serializers.ChoiceField(
         choices=[(state.value, state.value) for state in FlakinessState],
         help_text=(
-            "`unstable` when a new variant appeared inside the recency window, `settled` when "
-            "variants exist against this baseline but none recently, `clean` when none exist. A "
-            "`clean` entry is always a quarantined one, because an unquarantined snapshot with no "
-            "variants is not listed at all."
+            "`unstable` when a run rendered a variant inside the recency window, new or already "
+            "known, `settled` when variants exist against this baseline but none recently, "
+            "`clean` when none exist. A `clean` entry is always a quarantined one, because an "
+            "unquarantined snapshot with no variants is not listed at all."
         ),
     )
     needs_decision = serializers.BooleanField(
