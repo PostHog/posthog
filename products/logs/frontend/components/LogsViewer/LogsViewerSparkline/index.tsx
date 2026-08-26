@@ -1,19 +1,18 @@
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 import { DefaultTooltip, HighlightedRange, TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { DateRangeZoomData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { shortTimeZone } from 'lib/utils/timezones'
 
-import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
+import { DateRange } from '~/queries/schema/schema-general'
 
 import type { VisibleLogsTimeRange } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 
@@ -33,32 +32,22 @@ export interface LogsViewerSparklineProps {
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
     displayTimezone: string // IANA timezone string (e.g. "UTC", "America/New_York", "Europe/London")
-    breakdownBy: LogsSparklineBreakdownBy
-    onBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     collapsed?: boolean
     onToggleCollapse?: () => void
     incompleteBarIndices?: number[]
     visibleRowDateRange?: VisibleLogsTimeRange | null
 }
 
-const BREAKDOWN_OPTIONS: { value: LogsSparklineBreakdownBy; label: string }[] = [
-    { value: 'severity', label: 'Severity' },
-    { value: 'service', label: 'Service' },
-]
-
 export function LogsSparkline({
     sparklineData,
     sparklineLoading,
     onDateRangeChange,
     displayTimezone,
-    breakdownBy,
-    onBreakdownByChange,
     collapsed = false,
     onToggleCollapse,
     incompleteBarIndices,
     visibleRowDateRange,
 }: LogsViewerSparklineProps): JSX.Element | null {
-    const showServiceBreakdown = useFeatureFlag('LOGS_SPARKLINE_SERVICE_BREAKDOWN')
     const theme = useChartTheme()
 
     // Quill's automatic date axis has no seconds mode, and buckets target ~50 across the queried
@@ -115,7 +104,6 @@ export function LogsSparkline({
             xAxis: { tickFormatter: (value: string) => dayjs(value).tz(displayTimezone).format(tickFormat) },
             yAxis: { tickFormatter: humanFriendlyNumber },
             barCornerRadius: 2,
-            // A service breakdown reaches 13 rows, overflowing the tooltip, so it has to be scrollable.
             tooltip: { pinnable: true },
         }),
         [displayTimezone, tickFormat]
@@ -170,14 +158,6 @@ export function LogsSparkline({
                 >
                     <span className="text-xs text-muted">Volume over time</span>
                 </LemonButton>
-                {!collapsed && showServiceBreakdown && (
-                    <LemonSelect
-                        size="xsmall"
-                        value={breakdownBy}
-                        onChange={(value) => value && onBreakdownByChange(value)}
-                        options={BREAKDOWN_OPTIONS}
-                    />
-                )}
             </div>
             {!collapsed && (
                 // Quill chart roots are `flex-1`, so the sized box has to be a flex column.

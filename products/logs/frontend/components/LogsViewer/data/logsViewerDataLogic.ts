@@ -21,18 +21,11 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    LogMessage,
-    LogsQuery,
-    LogsSparklineBreakdownBy,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
+import { LogMessage, LogsQuery, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
@@ -149,7 +142,6 @@ export function shouldSkipFilterGroupChange(
 export interface logsViewerDataLogicValues {
     customColumns: string[] | undefined // logsViewerConfigLogic
     orderBy: LogsOrderBy // logsViewerConfigLogic
-    sparklineBreakdownBy: LogsSparklineBreakdownBy // logsViewerConfigLogic
     filterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
     personId: string | undefined // logsViewerFiltersLogic
@@ -209,9 +201,6 @@ export interface logsViewerDataLogicActions {
     ) => {
         orderBy: LogsOrderBy
         source: 'header' | 'toolbar'
-    } // logsViewerConfigLogic
-    setSparklineBreakdownBy: (sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
-        sparklineBreakdownBy: LogsSparklineBreakdownBy
     } // logsViewerConfigLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
@@ -445,10 +434,7 @@ export interface logsViewerDataLogicMeta {
             liveTailExpired: boolean
         ) => string | undefined
         parsedLogs: (logs: LogMessage[]) => ParsedLogMessage[]
-        sparklineData: (
-            sparkline: any[],
-            sparklineBreakdownBy: LogsSparklineBreakdownBy
-        ) => {
+        sparklineData: (sparkline: any[]) => {
             data: {
                 color: string | undefined
                 name: string
@@ -491,13 +477,13 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             logsViewerFiltersLogic({ id }),
             ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm'],
             logsViewerConfigLogic({ id }),
-            ['setSparklineBreakdownBy', 'setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
+            ['setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
         values: [
             logsViewerFiltersLogic({ id }),
             ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'personId'],
             logsViewerConfigLogic({ id }),
-            ['sparklineBreakdownBy', 'orderBy', 'customColumns'],
+            ['orderBy', 'customColumns'],
         ],
     })),
 
@@ -770,7 +756,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             searchTerm: values.filters.searchTerm,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             ...unsetColumnQueryFields(),
-                            sparklineBreakdownBy: values.sparklineBreakdownBy,
                             personId: values.personId,
                         },
                         signal,
@@ -852,13 +837,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             },
         ],
         sparklineData: [
-            (s) => [s.sparkline, s.sparklineBreakdownBy],
-            (sparkline: any[] | null, sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
+            (s) => [s.sparkline],
+            (sparkline: any[] | null) => {
                 if (!sparkline) {
                     return { dates: [], data: [] }
                 }
-
-                const breakdownKey = sparklineBreakdownBy
 
                 let lastTime = ''
                 let i = -1
@@ -870,7 +853,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             lastTime = currentItem.time
                             i++
                         }
-                        const key = currentItem[breakdownKey]
+                        const key = currentItem.severity
                         if (!key) {
                             return accumulator
                         }
@@ -903,20 +886,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 const data = Object.entries(accumulated)
                     .filter(([name]) => name !== OTHER_BREAKDOWN_VALUE)
                     .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([name, values], index) => ({
+                    .map(([name, values]) => ({
                         name,
                         values: padToDatesLength(values as number[]),
-                        color:
-                            sparklineBreakdownBy === 'service'
-                                ? dataColorVars[index % dataColorVars.length]
-                                : {
-                                      fatal: 'danger-dark',
-                                      error: 'danger',
-                                      warn: 'warning',
-                                      info: 'brand-blue',
-                                      debug: 'muted',
-                                      trace: 'muted-alt',
-                                  }[name],
+                        color: {
+                            fatal: 'danger-dark',
+                            error: 'danger',
+                            warn: 'warning',
+                            info: 'brand-blue',
+                            debug: 'muted',
+                            trace: 'muted-alt',
+                        }[name],
                     }))
                 const otherValues = accumulated[OTHER_BREAKDOWN_VALUE]
                 if (otherValues) {
@@ -1025,9 +1005,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setOrderBy: ({ orderBy, source }) => {
             posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
             actions.runQuery()
-        },
-        setSparklineBreakdownBy: () => {
-            actions.fetchSparkline()
         },
         // Structural column changes refetch only when the lowered wire value differs from what
         // the last query sent — resizing or reordering columns never re-runs the query.
@@ -1233,12 +1210,8 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 }
             }
         },
-        // insert logs into the sparkline data (only works for severity breakdown)
+        // insert logs into the sparkline data
         addLogsToSparkline: (logs: LogMessage[]) => {
-            // Only update incrementally for severity breakdown - service would need service_name from logs
-            if (values.sparklineBreakdownBy !== 'severity') {
-                return
-            }
             // if the sparkline hasn't loaded do nothing.
             if (!values.sparkline || values.sparkline.length < 2) {
                 return
