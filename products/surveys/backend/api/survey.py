@@ -135,6 +135,9 @@ SURVEY_API_TRANSLATION_FIELDS = frozenset(
         "thankYouMessageHeader",
         "thankYouMessageDescription",
         "thankYouMessageCloseButtonText",
+        "introScreenHeader",
+        "introScreenDescription",
+        "introScreenButtonText",
     ]
 )
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -146,6 +149,9 @@ SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
     "thankYouMessageHeader",
     "thankYouMessageDescription",
     "thankYouMessageCloseButtonText",
+    "introScreenHeader",
+    "introScreenDescription",
+    "introScreenButtonText",
 )
 SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
     "id",
@@ -210,6 +216,15 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     )
     thankYouMessageCloseButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated thank-you close button text."
+    )
+    introScreenHeader = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen header."
+    )
+    introScreenDescription = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen description."
+    )
+    introScreenButtonText = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen button text."
     )
 
 
@@ -546,6 +561,31 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
         required=False,
     )
     thankYouMessageCloseButtonText = serializers.CharField(required=False)
+    displayIntroScreen = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show an intro screen before the first question. Defaults to false. "
+        "The intro screen is not a question: dismissing it records no response and does not count "
+        "toward completion or partial-response metrics.",
+    )
+    introScreenHeader = serializers.CharField(
+        required=False,
+        help_text="Headline shown on the intro screen.",
+    )
+    introScreenDescription = serializers.CharField(
+        required=False,
+        help_text="Description shown on the intro screen. Rendered as text or HTML depending on "
+        "introScreenDescriptionContentType.",
+    )
+    introScreenDescriptionContentType = serializers.ChoiceField(
+        choices=["html", "text"],
+        required=False,
+        help_text="How to render the intro screen description: 'text' (plain text) or 'html'.",
+    )
+    introScreenButtonText = serializers.CharField(
+        required=False,
+        help_text="Label for the button that dismisses the intro screen and shows the first question. "
+        "Defaults to 'Get started'.",
+    )
     borderColor = serializers.CharField(required=False)
     placeholder = serializers.CharField(required=False)
     shuffleQuestions = serializers.BooleanField(required=False)
@@ -1004,6 +1044,22 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
+        intro_screen_header = value.get("introScreenHeader")
+        if intro_screen_header and nh3.is_html(intro_screen_header):
+            value["introScreenHeader"] = nh3_clean_with_allow_list(intro_screen_header)
+
+        intro_screen_description = value.get("introScreenDescription")
+        if intro_screen_description and nh3.is_html(intro_screen_description):
+            value["introScreenDescription"] = nh3_clean_with_allow_list(intro_screen_description)
+
+        intro_screen_button_text = value.get("introScreenButtonText")
+        if intro_screen_button_text and nh3.is_html(intro_screen_button_text):
+            value["introScreenButtonText"] = nh3_clean_with_allow_list(intro_screen_button_text)
+
+        intro_screen_description_content_type = value.get("introScreenDescriptionContentType")
+        if intro_screen_description_content_type and intro_screen_description_content_type not in ["text", "html"]:
+            raise serializers.ValidationError("introScreenDescriptionContentType must be one of ['text', 'html']")
+
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
@@ -1116,6 +1172,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 "thankYouMessageHeader",
                 "thankYouMessageDescription",
                 "thankYouMessageCloseButtonText",
+                "introScreenHeader",
+                "introScreenDescription",
+                "introScreenButtonText",
             ]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):

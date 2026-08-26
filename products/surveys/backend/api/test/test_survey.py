@@ -550,6 +550,28 @@ class TestSurvey(APIBaseTest):
         assert "default" not in result
         assert "en" not in result
 
+    def test_sdk_payload_includes_intro_screen_translation_fields(self) -> None:
+        # Guards SURVEY_API_TRANSLATION_FIELDS: fields missing from it never reach the SDKs.
+        result = get_survey_api_translations(
+            {
+                "es": {
+                    "introScreenHeader": "Bienvenido",
+                    "introScreenDescription": "Dos preguntas rápidas",
+                    "introScreenButtonText": "Comenzar",
+                    "unknownField": "Should be dropped",
+                },
+            },
+            base_language="en",
+        )
+
+        assert result == {
+            "es": {
+                "introScreenHeader": "Bienvenido",
+                "introScreenDescription": "Dos preguntas rápidas",
+                "introScreenButtonText": "Comenzar",
+            }
+        }
+
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_returns_draft_patch(self, mock_generate_survey_translation):
@@ -799,6 +821,36 @@ class TestSurvey(APIBaseTest):
         assert "<script>" not in survey.translations["es"]["thankYouMessageDescription"]
         assert "<strong>Cerrar</strong>" in survey.translations["es"]["thankYouMessageCloseButtonText"]
         assert "<script>" not in survey.translations["es"]["thankYouMessageCloseButtonText"]
+
+    def test_intro_screen_translations_are_persisted_and_sanitized(self):
+        # Guards the validate_translations allowlist: fields missing from it are silently dropped.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Question?"}],
+                "appearance": {"displayIntroScreen": True, "introScreenHeader": "Welcome!"},
+                "translations": {
+                    "es": {
+                        "introScreenHeader": "<i>Bienvenido</i><script>xss()</script>",
+                        "introScreenDescription": "<em>Dos preguntas rápidas</em><script>bad()</script>",
+                        "introScreenButtonText": "<strong>Comenzar</strong><script>evil()</script>",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.translations is not None
+        assert "<i>Bienvenido</i>" in survey.translations["es"]["introScreenHeader"]
+        assert "<script>" not in survey.translations["es"]["introScreenHeader"]
+        assert "<em>Dos preguntas rápidas</em>" in survey.translations["es"]["introScreenDescription"]
+        assert "<script>" not in survey.translations["es"]["introScreenDescription"]
+        assert "<strong>Comenzar</strong>" in survey.translations["es"]["introScreenButtonText"]
+        assert "<script>" not in survey.translations["es"]["introScreenButtonText"]
 
     def test_inline_question_translations_sanitize_all_fields(self):
         response = self.client.post(
@@ -4515,6 +4567,75 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert Survey.objects.filter(id=response_data["id"]).exists()
         assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "html"
         assert response_data["appearance"]["thankYouMessageDescription"] == "<b>This is a thank you message</b>"
+
+    @parameterized.expand(["text", "html"])
+    def test_create_survey_with_intro_screen(self, content_type: str):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "displayIntroScreen": True,
+                    "introScreenHeader": "Welcome!",
+                    "introScreenDescription": "<b>Two quick questions</b>",
+                    "introScreenDescriptionContentType": content_type,
+                    "introScreenButtonText": "Get started",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["appearance"]["displayIntroScreen"] is True
+        assert response_data["appearance"]["introScreenHeader"] == "Welcome!"
+        assert response_data["appearance"]["introScreenDescription"] == "<b>Two quick questions</b>"
+        assert response_data["appearance"]["introScreenDescriptionContentType"] == content_type
+        assert response_data["appearance"]["introScreenButtonText"] == "Get started"
+
+    def test_validate_intro_screen_description_content_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "introScreenDescription": "Two quick questions",
+                    "introScreenDescriptionContentType": "text/html",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "introScreenDescriptionContentType must be one of ['text', 'html']"
+
+    def test_intro_screen_appearance_fields_are_sanitized(self):
+        # Guards the nh3 sanitization in validate_appearance: without it, stored XSS
+        # reaches every SDK that renders the intro screen.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "type": "popover",
+                "appearance": {
+                    "displayIntroScreen": True,
+                    "introScreenHeader": "<b>Welcome</b><script>alert(0)</script>",
+                    "introScreenDescription": "<em>Quick questions</em><script>evil()</script>",
+                    "introScreenButtonText": "<strong>Start</strong><script>bad()</script>",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        appearance = response_data["appearance"]
+        assert "<script>" not in appearance["introScreenHeader"]
+        assert "<b>Welcome</b>" in appearance["introScreenHeader"]
+        assert "<script>" not in appearance["introScreenDescription"]
+        assert "<em>Quick questions</em>" in appearance["introScreenDescription"]
+        assert "<script>" not in appearance["introScreenButtonText"]
+        assert "<strong>Start</strong>" in appearance["introScreenButtonText"]
 
     def test_create_survey_with_white_label(self):
         self.organization.available_product_features = []

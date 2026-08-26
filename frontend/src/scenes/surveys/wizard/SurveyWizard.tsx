@@ -22,7 +22,7 @@ import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/type
 import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { SurveyPublicContentNotice } from '../components/SurveyPublicContentNotice'
-import { NewSurvey } from '../constants'
+import { INTRO_SCREEN_PAGE_INDEX, NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
@@ -110,13 +110,22 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const [guidedEditingLanguage, setGuidedEditingLanguage] = useState<string | null>(null)
     const activeEditingLanguage = surveyTranslationsEnabled ? guidedEditingLanguage : null
 
+    const minPreviewIndex = survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0
     const maxPreviewIndex = survey.appearance?.displayThankYouMessage
         ? survey.questions.length
         : survey.questions.length - 1
 
     useEffect(() => {
-        setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
-    }, [maxPreviewIndex])
+        setPreviewPageIndex((current) => {
+            if (current < minPreviewIndex) {
+                return minPreviewIndex
+            }
+            if (current > maxPreviewIndex) {
+                return Math.max(minPreviewIndex, maxPreviewIndex)
+            }
+            return current
+        })
+    }, [minPreviewIndex, maxPreviewIndex])
 
     useEffect(() => {
         if (!surveyTranslationsEnabled && guidedEditingLanguage !== null) {
@@ -508,6 +517,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                     survey={previewSurvey}
                                     previewPageIndex={previewPageIndex}
                                     onPreviewSubmit={(response) => {
+                                        // The intro screen is not a question, so getNextSurveyStep
+                                        // cannot resolve it: its button always advances to question 0.
+                                        if (previewPageIndex === INTRO_SCREEN_PAGE_INDEX) {
+                                            setPreviewPageIndex(0)
+                                            return
+                                        }
                                         const next = getNextSurveyStep(previewSurvey, previewPageIndex, response)
                                         if (
                                             next === SurveyQuestionBranchingType.End &&
@@ -524,17 +539,24 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                 />
                             </div>
                             {(previewSurvey.questions.length > 1 ||
-                                previewSurvey.appearance?.displayThankYouMessage) && (
+                                previewSurvey.appearance?.displayThankYouMessage ||
+                                previewSurvey.appearance?.displayIntroScreen) && (
                                 <div className="flex items-center justify-center gap-2 mt-2">
                                     <LemonButton
                                         type="secondary"
                                         size="small"
                                         icon={<IconChevronLeft />}
-                                        onClick={() => setPreviewPageIndex(Math.max(0, previewPageIndex - 1))}
-                                        disabledReason={previewPageIndex === 0 ? 'First question' : undefined}
+                                        onClick={() =>
+                                            setPreviewPageIndex(Math.max(minPreviewIndex, previewPageIndex - 1))
+                                        }
+                                        disabledReason={
+                                            previewPageIndex <= minPreviewIndex ? 'First screen' : undefined
+                                        }
                                     />
                                     <span className="text-muted text-xs min-w-[60px] text-center">
-                                        {`${previewPageIndex + 1} / ${maxPreviewIndex + 1}`}
+                                        {`${previewPageIndex - minPreviewIndex + 1} / ${
+                                            maxPreviewIndex - minPreviewIndex + 1
+                                        }`}
                                     </span>
                                     <LemonButton
                                         type="secondary"

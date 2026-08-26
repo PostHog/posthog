@@ -8,7 +8,7 @@ import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { Survey, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
-import { NewSurvey } from './constants'
+import { INTRO_SCREEN_PAGE_INDEX, NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 
@@ -36,6 +36,12 @@ export function SurveyFormAppearance({
                 survey={survey as Survey}
                 previewPageIndex={previewPageIndex}
                 onPreviewSubmit={(response) => {
+                    // The intro screen is not a question, so getNextSurveyStep cannot resolve it:
+                    // its button always advances to question 0.
+                    if (previewPageIndex === INTRO_SCREEN_PAGE_INDEX) {
+                        handleSetSelectedPageIndex(0)
+                        return
+                    }
                     const nextStep = getNextSurveyStep(survey, previewPageIndex, response)
                     if (nextStep === SurveyQuestionBranchingType.End && !survey.appearance?.displayThankYouMessage) {
                         return
@@ -44,7 +50,14 @@ export function SurveyFormAppearance({
                         nextStep === SurveyQuestionBranchingType.End ? survey.questions.length : nextStep
                     )
                 }}
-                onPreviewBack={() => handleSetSelectedPageIndex(Math.max(0, previewPageIndex - 1))}
+                onPreviewBack={() =>
+                    handleSetSelectedPageIndex(
+                        Math.max(
+                            survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0,
+                            previewPageIndex - 1
+                        )
+                    )
+                }
             />
             <LemonField.Pure label="Current question" className="max-w-xs gap-1" htmlFor="current-question-select">
                 <LemonSelect
@@ -54,6 +67,14 @@ export function SurveyFormAppearance({
                     truncateText={{ maxWidthClass: 'max-w-60' }}
                     value={previewPageIndex}
                     options={[
+                        ...(survey.appearance?.displayIntroScreen
+                            ? [
+                                  {
+                                      label: 'Intro screen',
+                                      value: INTRO_SCREEN_PAGE_INDEX,
+                                  },
+                              ]
+                            : []),
                         ...survey.questions.map((question, index) => ({
                             label: `${index + 1}. ${question.question ?? ''}`,
                             value: index,

@@ -289,6 +289,8 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        introScreenHeader: sanitizeHTML(appearance.introScreenHeader ?? ''),
+        introScreenDescription: sanitizeHTML(appearance.introScreenDescription ?? ''),
         surveyPopupDelaySeconds:
             surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
     }
