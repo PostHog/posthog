@@ -850,6 +850,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
         self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
+        scoped_team_ids: Optional[Sequence[int]] = None
 
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
@@ -876,14 +877,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     # billing evaluates the same permission from its own cache, so flag rollout
                     # windows can still return a downstream permission denial.
                     raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
-                return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                error_response = {
+                    "statusText": e.args[0],
+                    "detail": detail_object.get("error_message", detail_object),
+                    "code": detail_object.get("code"),
+                }
+                team_id_options = detail_object.get("team_id_options")
+                if isinstance(team_id_options, list):
+                    if scoped_team_ids is not None:
+                        scoped_team_id_set = set(scoped_team_ids)
+                        team_id_options = [team_id for team_id in team_id_options if team_id in scoped_team_id_set]
+                    error_response["team_id_options"] = team_id_options
+                return Response(error_response, status=status.HTTP_400_BAD_REQUEST)
             else:
                 raise
 

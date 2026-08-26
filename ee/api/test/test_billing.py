@@ -1308,6 +1308,60 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
         self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
 
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_preserves_structured_query_size_error_team_options(self, mock_get_usage_data):
+        mock_get_usage_data.side_effect = Exception(
+            "Bad Request",
+            400,
+            {
+                "code": "usage_breakdown_too_large",
+                "error_message": "Select a product.",
+                "team_id_options": [self.team.pk],
+            },
+        )
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "statusText": "Bad Request",
+                "detail": "Select a product.",
+                "code": "usage_breakdown_too_large",
+                "team_id_options": [self.team.pk],
+            },
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_get_usage_filters_query_size_error_team_options_for_scoped_tokens(
+        self, mock_feature_enabled, mock_get_usage_data
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        mock_feature_enabled.side_effect = self._member_access_flags
+        other_team = Team.objects.create(organization=self.organization, name="Other visible project")
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+        mock_get_usage_data.side_effect = Exception(
+            "Bad Request",
+            400,
+            {
+                "code": "usage_breakdown_too_large",
+                "error_message": "Select a product.",
+                "team_id_options": [self.team.pk, other_team.pk],
+            },
+        )
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["team_id_options"], [self.team.pk])
+
     @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
     def test_get_spend_success(self, mock_get_spend_data):
         mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
