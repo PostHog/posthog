@@ -47,8 +47,8 @@ vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
 }));
-vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
-  useInboxAllReports: () => ({ counts: { pulls: 1 } }),
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxDecisionCount", () => ({
+  useInboxDecisionCount: () => 1,
 }));
 vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
   ProjectSwitcher: () => (
@@ -81,6 +81,7 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import {
   clearKeepListForRoute,
   shouldKeepListForRoute,
@@ -132,6 +133,7 @@ describe("NavRail", () => {
     mocks.fullPath = "/";
     mocks.href = "/";
     useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
+    useActivityFilterStore.setState({ mentionsEnabled: true });
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
     rememberVisits({});
@@ -170,6 +172,16 @@ describe("NavRail", () => {
       expect(dot).toHaveClass("absolute", "top-0", "right-0");
       expect(dot).toHaveTextContent("");
     }
+  });
+
+  it("hides the Activity notification dot when mentions are excluded", () => {
+    useActivityFilterStore.setState({ mentionsEnabled: false });
+
+    render(<NavRail />);
+
+    expect(
+      screen.getByLabelText("Activity").querySelector('[data-slot="dot"]'),
+    ).toBeNull();
   });
 
   // The route is the whole answer, so a destination can never be lit over a

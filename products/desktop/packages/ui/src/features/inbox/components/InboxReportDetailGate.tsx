@@ -117,10 +117,10 @@ export function InboxReportDetailGate({
   // fetch. Rendering the children then would briefly expose full triage actions
   // (create PR, discuss, archive) for a report that another session has already
   // suppressed, before the redirect kicks in. Hold the spinner until that same
-  // fetch settles. The Archive route stays render-from-cache (the PR's instant-open
-  // path): it's read-only and its one action, Restore, re-checks status server-side.
+  // fetch settles. Routes without status redirects and the Archive route render
+  // from cache: neither can expose actions for the wrong status route.
   const statusUnconfirmed =
-    !onDismissedRoute && isFetching && !isFetchedAfterMount;
+    statusRedirect && !onDismissedRoute && isFetching && !isFetchedAfterMount;
   const redirectReportId = resolvedReport?.id;
   useEffect(() => {
     if (!redirectTo || !redirectReportId) return;
