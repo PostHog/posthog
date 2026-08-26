@@ -2,7 +2,7 @@ import { DestinationDefinition, destinations } from '@segment/action-destination
 
 import { HogFunctionFilterEvent, HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
-import { EXTEND_OBJECT_KEY } from '../services/hog-executor.service'
+import { EXTEND_OBJECT_KEY } from '../services/hog-inputs.service'
 
 export type SegmentDestination = {
     template: HogFunctionTemplate
@@ -560,6 +560,16 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                                 default: preset.partnerAction,
                                 description: 'The partner action to use',
                                 required: true,
+                                secret: false,
+                            },
+                            {
+                                key: 'internal_omit_empty_values',
+                                label: 'Omit empty values',
+                                type: 'boolean',
+                                default: false,
+                                description:
+                                    'Leave out any field that ends up empty (null or an empty string) instead of sending it. Use this when a property is only set on some events and you do not want the destination to overwrite what it already has.',
+                                required: false,
                                 secret: false,
                             },
                         ],

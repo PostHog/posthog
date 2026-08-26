@@ -111,7 +111,8 @@ export interface ITaskCreationHost {
    * no warm run is known client-side.
    */
   takeWarmTaskLease(args: {
-    repository: string;
+    repository?: string | null;
+    repositories?: string[];
     branch?: string | null;
     runtimeAdapter?: string | null;
     model?: string | null;

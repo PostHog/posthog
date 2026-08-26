@@ -1,5 +1,6 @@
 import { dimensions, makeSeries } from '../testing'
 import {
+    applyValueBounds,
     autoFormatYTick,
     buildSegmentResolveValue,
     buildStackedPositionValue,
@@ -110,6 +111,16 @@ describe('hog-charts scales', () => {
             const series = [makeSeries({ key: 's1', data: [NaN, Infinity, -Infinity] })]
             const scale = createYScale(series, dimensions)
             expect(scale.domain()).toEqual([0, 1])
+        })
+
+        it('treats a series with null data as empty instead of throwing', () => {
+            // A query that returned no points can hand the chart `data: null`, which the `number[]`
+            // type forbids but the runtime still sees. Iterating it used to crash the whole chart.
+            const nullData = { ...makeSeries({ key: 'empty', data: [] }), data: null as unknown as number[] }
+            const withData = makeSeries({ key: 's1', data: [10, 20] })
+            const [domainMin, domainMax] = createYScale([withData, nullData], dimensions).domain()
+            expect(domainMin).toBe(0)
+            expect(domainMax).toBeGreaterThanOrEqual(20)
         })
 
         it('excludes visibility.excluded series from the domain calculation', () => {
@@ -235,32 +246,117 @@ describe('hog-charts scales', () => {
         })
     })
 
-    describe('createYScale — valueDomain [min, max] (fixed)', () => {
+    describe('createYScale — valueDomain with both ends pinned', () => {
         it('pins the domain regardless of data and skips nice()', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const scale = createYScale(series, dimensions, { valueDomain: [0, 40] })
+            const scale = createYScale(series, dimensions, { valueDomain: { min: 0, max: 40 } })
             expect(scale.domain()).toEqual([0, 40])
         })
 
         it('takes precedence over percent stack mode', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: [0, 200] })
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { min: 0, max: 200 } })
             expect(scale.domain()).toEqual([0, 200])
         })
 
         // A non-finite or collapsed fixed domain maps every value (and axis tick) to NaN, so the
         // chart paints nothing while x-only tooltips keep working. The domain must stay well-formed.
         it.each([
-            { name: 'NaN bounds', valueDomain: [NaN, NaN] as [number, number] },
-            { name: 'a NaN max (e.g. Math.max of empty data)', valueDomain: [0, NaN] as [number, number] },
-            { name: 'an infinite max', valueDomain: [0, Infinity] as [number, number] },
-            { name: 'collapsed bounds', valueDomain: [50, 50] as [number, number] },
+            { name: 'NaN bounds', valueDomain: { min: NaN, max: NaN } },
+            { name: 'a NaN max (e.g. Math.max of empty data)', valueDomain: { min: 0, max: NaN } },
+            { name: 'an infinite max', valueDomain: { min: 0, max: Infinity } },
+            { name: 'collapsed bounds', valueDomain: { min: 50, max: 50 } },
         ])('keeps a finite, non-degenerate domain for $name', ({ valueDomain }) => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
             const [min, max] = createYScale(series, dimensions, { valueDomain }).domain()
             expect(isFinite(min)).toBe(true)
             expect(isFinite(max)).toBe(true)
             expect(min).toBeLessThan(max)
+        })
+    })
+
+    describe('applyValueBounds', () => {
+        // Every chart's domain flows through this, so an unset-bounds path that shifts it would
+        // silently re-scale every existing chart.
+        it.each([
+            ['undefined', undefined],
+            ['an empty object', {}],
+            ['a NaN min', { min: NaN }],
+            ['an infinite max', { max: Infinity }],
+            ['a non-numeric min from a stored query', { min: '5' as unknown as number }],
+        ])('leaves the domain untouched for %s', (_name, bounds) => {
+            expect(applyValueBounds([0, 10], bounds)).toEqual([0, 10])
+        })
+
+        // A single bound past the data would otherwise invert the domain, mapping every value to NaN.
+        it.each([
+            ['a min above the data', { min: 50 }, [50, 60]],
+            ['a max below the data', { max: -20 }, [-30, -20]],
+        ])('keeps an ascending domain for %s', (_name, bounds, expected) => {
+            expect(applyValueBounds([0, 10], bounds)).toEqual(expected)
+        })
+
+        // Swapping the pair (what sanitizeFixedDomain does) would render an axis nobody asked for.
+        it.each([
+            ['inverted bounds', { min: 100, max: 10 }],
+            ['collapsed bounds', { min: 5, max: 5 }],
+        ])('falls back to the automatic domain for %s', (_name, bounds) => {
+            expect(applyValueBounds([0, 10], bounds)).toEqual([0, 10])
+        })
+
+        // A log domain reaching 0 maps every value to ±Infinity, blanking the chart.
+        it.each([
+            ['zero', { min: 0 }],
+            ['negative', { min: -5 }],
+        ])('drops a %s bound on a log scale', (_name, bounds) => {
+            expect(applyValueBounds([1, 100], bounds, { log: true })).toEqual([1, 100])
+        })
+
+        // Only the caller's bound is vetted for positivity, so on a log scale the end derived
+        // opposite it can land at or below zero, which maps every value to NaN.
+        it.each([
+            ['a max below the data', { max: 5 }, [0.05, 5]],
+            ['a min above the data', { min: 2000 }, [2000, 200000]],
+        ])('derives a positive opposite end for %s on a log scale', (_name, bounds, expected) => {
+            expect(applyValueBounds([10, 1000], bounds, { log: true })).toEqual(expected)
+        })
+    })
+
+    describe('createYScale — valueBounds', () => {
+        const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+
+        // Bounds must clamp back over goal-line stretching, not be widened by it afterwards.
+        it('applies bounds after goal-line { include } folding', () => {
+            const scale = createYScale(series, dimensions, {
+                valueDomain: { include: [500], max: 40 },
+            })
+            expect(scale.domain()[1]).toBe(40)
+        })
+
+        // Both set the axis floor and the explicit one wins, since the zero clamp is only a default.
+        // A consumer wanting its own baseline control to win holds the bound back before this point,
+        // as the trends adapter does.
+        it('applies a min over the zero-baseline clamp', () => {
+            const offset = [makeSeries({ key: 's1', data: [50, 60, 70] })]
+            expect(createYScale(offset, dimensions).domain()[0]).toBe(0)
+            expect(createYScale(offset, dimensions, { valueDomain: { min: 40 } }).domain()[0]).toBe(40)
+        })
+
+        // The empty-data domain is linear whatever scale type was asked for, so a non-positive bound
+        // is safe here and must not be dropped as though this were a log scale.
+        it('honors a non-positive bound on a log scale with no data', () => {
+            const scale = createYScale([], dimensions, { scaleType: 'log', valueDomain: { min: -5 } })
+            expect(scale.domain()).toEqual([-5, 1])
+        })
+
+        // A pin wins over percent layout because it asks for an exact window, while a single clamp
+        // only adjusts a data-derived range that percent layout has already replaced with 0..1.
+        it.each([
+            ['a pin overrides percentStack', { min: 5, max: 8 }, [5, 8]],
+            ['a partial clamp is ignored under percentStack', { max: 8 }, [0, 1]],
+        ])('%s', (_name, valueDomain, expected) => {
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain })
+            expect(scale.domain()).toEqual(expected)
         })
     })
 
@@ -371,6 +467,29 @@ describe('hog-charts scales', () => {
             // 50 is in the middle of left's [0, 1] domain → top of plot; and far below right's [0, 1000]
             // domain midpoint. Different scales → different pixels.
             expect(left(1)).not.toBeCloseTo(right(1), 0)
+        })
+
+        // Applying them to every axis would crush a secondary one onto a domain chosen for the
+        // primary axis's units.
+        it('applies valueBounds to the primary axis only', () => {
+            const small = makeSeries({ key: 'small', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const large = makeSeries({ key: 'large', data: [0, 1000], yAxisId: 'y1' })
+            const result = createScales([small, large], ['a', 'b'], dimensions, { valueDomain: { max: 5 } })
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBe(5)
+            expect(result.yAxes!.y1.scale.domain()[1]).toBe(1000)
+        })
+
+        // A reference line outside its axis's domain doesn't render, so an axis whose meaning fixes
+        // its range (a 0-1 probability) has to say so — the chart-level valueDomain above only
+        // reaches the primary axis.
+        it('honors a secondary axis own valueDomain', () => {
+            const value = makeSeries({ key: 'value', data: [0, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const score = makeSeries({ key: 'score', data: [0, 0.25], yAxisId: 'y1' })
+            const result = createScales([value, score], ['a', 'b'], dimensions, {
+                axes: [{ id: 'y1', valueDomain: { min: 0, max: 1 } }],
+            })
+            expect(result.yAxes!.y1.scale.domain()).toEqual([0, 1])
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBe(1000)
         })
 
         it.each([
@@ -611,6 +730,16 @@ describe('hog-charts scales', () => {
             expect(result.get('s2')!.bottom).toEqual([10])
             expect(result.get('s3')!.top).toEqual([60])
             expect(result.get('s3')!.bottom).toEqual([30])
+        })
+
+        it('stacks a series whose key collides with Object.prototype (e.g. __proto__)', () => {
+            const s1 = makeSeries({ key: '__proto__', data: [10, 20] })
+            const s2 = makeSeries({ key: 's2', data: [5, 15] })
+            const result = computeStackData([s1, s2], ['a', 'b'])
+
+            expect(result.get('__proto__')!.top).toEqual([10, 20])
+            expect(result.get('s2')!.top).toEqual([15, 35])
+            expect(result.get('s2')!.bottom).toEqual([10, 20])
         })
 
         it('excludes visibility.excluded series from the stack', () => {

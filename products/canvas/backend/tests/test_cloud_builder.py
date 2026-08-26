@@ -1,6 +1,7 @@
 import os
 import hashlib
 import tempfile
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.canvas.backend.build_service import run_cloud_builder, validate_builder_output
+from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
+from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -88,14 +90,124 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
         self.assertTrue(any(file["path"].endswith(".js") for file in files))
 
+    def test_bundles_every_allowlisted_platform_library(self) -> None:
+        # Transitive versions are not pinned, so a caret range can drift onto a
+        # dependency that dropped an export and break every canvas importing the
+        # library, while source validation still passes because the specifier is
+        # allowlisted. Namespace imports keep the whole module graph reachable,
+        # so a missing deep export fails here instead of in a user's publish.
+        imports: list[str] = []
+        for index, specifier in enumerate(sorted(allowed_import_specifiers())):
+            imports.append(f'import * as library{index} from "{specifier}"')
+            imports.append(f"void library{index}")
+
+        project = self._project("\n".join(imports))
+        project["dependencies"] = platform_dependencies()
+        result = run_cloud_builder(project)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
         self.assertIn('event.data?.type!=="connect"', runtime)
         self.assertIn("event.ports[0]", runtime)
+        self.assertIn("port.postMessage", runtime)
         self.assertIn("port?.postMessage", runtime)
+        self.assertIn('agent:{request:(prompt)=>call("agentRequest",{prompt})}', runtime)
+        self.assertIn('event.data?.type==="set-comment-highlights"', runtime)
+        self.assertIn('CSS.highlights.set("posthog-canvas-comment"', runtime)
+        self.assertNotIn("ph-canvas-comment-outline", runtime)
+        self.assertIn('type:"comment-activate"', runtime)
+        self.assertIn("event.preventDefault();event.stopPropagation()", runtime)
+        self.assertIn("if(!items.length||timer)return", runtime)
+        self.assertNotIn("clearTimeout(timer);timer=setTimeout(()=>render(items),100)", runtime)
+        self.assertIn('event.data?.type==="clear-text-selection"', runtime)
+        self.assertIn("getSelection()?.removeAllRanges()", runtime)
+        self.assertIn("if(selection&&!selection.isCollapsed)return", runtime)
         self.assertNotIn("parent.postMessage({channel,...message}", runtime)
+
+    def test_runtime_flushes_data_requests_queued_before_the_port_connects(self) -> None:
+        # The host delivers the MessagePort only after the artifact iframe's
+        # load event, so a ph.query issued while the app mounts runs before the
+        # port exists. Dropping it leaves the request to die on its 30s timeout.
+        # A request whose timeout already rejected must not be delivered on
+        # connect — the caller has given up, so executing it anyway would fire
+        # late host side effects.
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = {};",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "const received = [];",
+                "const port = { postMessage: (m) => received.push(m), addEventListener: () => {}, start: () => {} };",
+                'window.ph.query("SELECT expired").catch(() => {});',
+                "timers.get(timerId)();",
+                'window.ph.query("SELECT 1");',
+                'for (const fn of listeners.message) fn({ source: parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [port] });',
+                'const requests = received.filter((m) => m.type === "data-request" && m.method === "query");',
+                'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
+                'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
+                'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
+                "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
+    def test_runtime_rejects_pre_connect_action_invocations(self) -> None:
+        # Reads queue until the port connects, but a write queued during module
+        # initialization would fire on connect as the viewer — an on-open task
+        # or annotation the viewer never asked for. Writes must reject instead.
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = {};",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "const received = [];",
+                "const port = { postMessage: (m) => received.push(m), addEventListener: () => {}, start: () => {} };",
+                "let rejected = false;",
+                'window.ph.actions.invoke("tasks.create", { title: "on-open" }).catch(() => { rejected = true; });',
+                'for (const fn of listeners.message) fn({ source: parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [port] });',
+                "setImmediate(() => {",
+                'if (!rejected) { console.error("pre-connect action was not rejected"); process.exit(1); }',
+                'if (received.some((m) => m.type === "data-request" && m.method === "actionInvoke")) { console.error("pre-connect action was delivered on connect"); process.exit(1); }',
+                "process.exit(0);",
+                "});",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
 
     def test_runtime_bounds_host_side_effects(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
@@ -105,16 +217,229 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn('url.hostname.endsWith(".posthog.com")', runtime)
         self.assertIn("serialized.length>16384", runtime)
 
+    def _run_runtime_harness(self, runtime: str, harness: str) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "runtime.js").write_text(runtime)
+            (Path(directory) / "harness.mjs").write_text(harness)
+            process = subprocess.run(
+                [node_executable(), str(Path(directory) / "harness.mjs")],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(process.returncode, 0, process.stderr)
+
+    def test_runtime_reports_the_selection_once_it_settles(self) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = """
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+// A paragraph wrapper box plus two line boxes. The selection ends on the short
+// second line, so only a leaf-box anchor reports right=150, bottom=40.
+const WRAPPER = { left: 0, top: 0, right: 400, bottom: 60, width: 400, height: 60 };
+const FIRST_LINE = { left: 10, top: 0, right: 390, bottom: 20, width: 380, height: 20 };
+const LAST_LINE = { left: 10, top: 20, right: 150, bottom: 40, width: 140, height: 20 };
+
+const listeners = { message: [] };
+const documentListeners = {};
+// Ranges are created in report order: the text before the selection, the text
+// through its end, then the whole document.
+const rangeStrings = ["Hello ", "Hello world", "Hello world!"];
+let rangesCreated = 0;
+
+const container = { nodeType: 1 };
+const selectionRange = {
+    startContainer: container,
+    startOffset: 0,
+    endContainer: container,
+    endOffset: 0,
+    getClientRects: () => [WRAPPER, FIRST_LINE, LAST_LINE],
+    getBoundingClientRect: () => WRAPPER,
+};
+
+globalThis.window = globalThis;
+globalThis.parent = {};
+globalThis.location = { hash: "" };
+globalThis.Element = class Element {
+    constructor(inOverlay = false) { this.inOverlay = inOverlay; }
+    closest(selector) {
+        return this.inOverlay && selector === "[data-selection-comment-overlay]" ? this : null;
+    }
+};
+globalThis.MouseEvent = class MouseEvent {
+    constructor(button, target) {
+        this.button = button;
+        this.target = target;
+    }
+};
+globalThis.MutationObserver = class {
+    observe() {}
+};
+globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+globalThis.addEventListener = (type, handler) => (listeners[type] ??= []).push(handler);
+globalThis.getSelection = () => ({
+    isCollapsed: false,
+    rangeCount: 1,
+    getRangeAt: () => selectionRange,
+    removeAllRanges: () => {},
+});
+globalThis.document = {
+    readyState: "complete",
+    body: { contains: () => true },
+    head: { appendChild: () => {} },
+    documentElement: { classList: { toggle: () => {} }, style: {} },
+    defaultView: globalThis,
+    createElement: () => ({}),
+    createTreeWalker: () => ({ nextNode: () => null }),
+    createRange: () => {
+        const value = rangeStrings[rangesCreated++ % rangeStrings.length];
+        return { selectNodeContents: () => {}, setEnd: () => {}, toString: () => value };
+    },
+    addEventListener: (type, handler) => (documentListeners[type] ??= []).push(handler),
+};
+
+new Function(readFileSync(new URL("./runtime.js", import.meta.url), "utf8"))();
+
+const bridge = new MessageChannel();
+const received = [];
+bridge.port1.addEventListener("message", (event) => received.push(event.data));
+bridge.port1.start();
+for (const handler of listeners.message) {
+    handler({ source: globalThis.parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [bridge.port2] });
+}
+
+const fire = (type, event = {}) => {
+    for (const handler of documentListeners[type] ?? []) handler(event);
+};
+const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const selections = () => received.filter((message) => message.type === "text-selection");
+const clears = () => received.filter((message) => message.type === "text-selection-cleared");
+const outside = new Element();
+const overlay = new Element(true);
+
+// Secondary presses must not open the gesture gate, so the following idle
+// selection change still publishes normally.
+fire("pointerdown", new MouseEvent(2, outside));
+fire("selectionchange", {});
+await settle(120);
+assert.equal(selections().length, 1, "right-click left the selection gate open");
+
+// The published action stays visible when its own UI receives pointerdown.
+fire("pointerdown", new MouseEvent(0, overlay));
+await settle(20);
+assert.equal(clears().length, 0, "pressing the comment action cleared its selection");
+received.length = 0;
+
+// A drag: press, several selection updates, release. The gaps are longer than
+// the runtime's own 80ms debounce, so a runtime reporting on raw
+// selectionchange would have published a mid-drag selection by now.
+fire("pointerdown", new MouseEvent(0, outside));
+for (let step = 0; step < 3; step++) {
+    fire("selectionchange", {});
+    await settle(120);
+}
+assert.deepEqual(selections(), [], "the runtime reported a selection while the drag was still in progress");
+
+fire("pointerup", new MouseEvent(0, outside));
+await settle(200);
+
+const reports = selections();
+assert.equal(reports.length, 1, `expected one settled report, got ${reports.length}`);
+assert.equal(reports[0].selection.quote, "world");
+assert.deepEqual(
+    reports[0].selection.rect,
+    { top: LAST_LINE.top, right: LAST_LINE.right, bottom: LAST_LINE.bottom, left: LAST_LINE.left },
+    "the runtime anchored the action to the whole-range box instead of the last selected line"
+);
+
+fire("scroll", {});
+await settle(20);
+assert.equal(clears().length, 2, "scrolling did not clear the published selection");
+fire("scroll", {});
+await settle(20);
+assert.equal(clears().length, 2, "repeated scroll sent a duplicate clear message");
+bridge.port1.close();
+"""
+        self._run_runtime_harness(runtime, harness)
+
+    def test_runtime_applies_the_host_theme(self) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = """
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const classes = new Set();
+const toggles = [];
+const style = {};
+const listeners = { message: [] };
+globalThis.window = globalThis;
+globalThis.parent = {};
+globalThis.location = { hash: "#theme=dark" };
+globalThis.document = {
+    readyState: "complete",
+    body: {},
+    head: { appendChild: () => {} },
+    addEventListener: () => {},
+    createElement: () => ({}),
+    documentElement: {
+        classList: {
+            toggle: (name, force) => {
+                toggles.push([name, force]);
+                force ? classes.add(name) : classes.delete(name);
+            },
+        },
+        style,
+    },
+};
+globalThis.MutationObserver = class {
+    observe() {}
+};
+globalThis.addEventListener = (type, handler) => (listeners[type] ??= []).push(handler);
+
+new Function(readFileSync(new URL("./runtime.js", import.meta.url), "utf8"))();
+
+assert.ok(classes.has("dark"), "the theme fragment did not add the dark class before connect");
+assert.equal(style.colorScheme, "dark");
+
+const bridge = new MessageChannel();
+for (const handler of listeners.message) {
+    handler({ source: globalThis.parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [bridge.port2] });
+}
+bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme", theme: "solarized" });
+bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme" });
+bridge.port1.postMessage({ channel: "posthog-canvas", type: "set-theme", theme: "light" });
+const deadline = Date.now() + 5000;
+while (classes.has("dark") && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+}
+assert.ok(!classes.has("dark"), "the set-theme frame did not remove the dark class");
+assert.equal(style.colorScheme, "light");
+// Port delivery is ordered, so by the light flip the invalid frames were
+// already processed — exactly two toggles proves they were ignored, not
+// coerced to light.
+assert.deepEqual(toggles, [["dark", true], ["dark", false]]);
+bridge.port1.close();
+"""
+        self._run_runtime_harness(runtime, harness)
+
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
         project["capabilities"] = {
             "posthog": {"insights": ["abc"], "inlineQueries": False, "captureEvents": ["canvas viewed"]},
-            "network": {"origins": []},
+            "network": {"origins": ["https://api.example.com"]},
         }
 
-        _, manifest, _ = validate_builder_output(run_cloud_builder(project))
+        files, manifest, _ = validate_builder_output(run_cloud_builder(project))
 
         self.assertEqual(manifest["capabilities"], project["capabilities"])
+        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertIn("connect-src https://api.example.com", html)
 
     def test_rejects_unbounded_capabilities(self) -> None:
         project = self._project("")

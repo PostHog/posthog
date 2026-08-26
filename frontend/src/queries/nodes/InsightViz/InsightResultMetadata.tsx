@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     daysOfWeekLabel,
     getExcludedDaysOfWeek,
@@ -22,13 +20,10 @@ export const InsightResultMetadata = ({
     disableLastComputationRefresh,
 }: InsightResultMetadataProps): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { samplingFactor, trendsFilter, dateRange, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { samplingFactor, dateRange, querySource } = useValues(insightVizDataLogic(insightProps))
 
-    const quillDateFilterEnabled = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER] === 'test'
     // Only insights that apply daysOfWeek server-side get the note
-    const excludedDays =
-        quillDateFilterEnabled && querySupportsDaysOfWeek(querySource) ? getExcludedDaysOfWeek(dateRange) : []
+    const excludedDays = querySupportsDaysOfWeek(querySource) ? getExcludedDaysOfWeek(dateRange) : []
     const excludedLabel = daysOfWeekLabel(excludedDays)
     const excludedText = ['Weekends', 'Weekdays'].includes(excludedLabel) ? excludedLabel.toLowerCase() : excludedLabel
 
@@ -47,16 +42,10 @@ export const InsightResultMetadata = ({
                     Excluding {excludedText}
                 </span>
             ) : null}
-            {trendsFilter?.hideWeekends ? (
+            {dateRange?.excludeIncompletePeriods ? (
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
-                    Weekends hidden
-                </span>
-            ) : null}
-            {quillDateFilterEnabled && dateRange?.excludeIncompletePeriods ? (
-                <span className="text-secondary">
-                    <span className="mx-1">•</span>
-                    Incomplete period excluded
+                    Incomplete periods excluded
                 </span>
             ) : null}
         </>

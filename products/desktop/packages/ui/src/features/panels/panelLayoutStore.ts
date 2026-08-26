@@ -1,3 +1,5 @@
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { contentHash } from "@posthog/core/code-review/contentHash";
 import {
   addRecentFile,
   addActionTab as coreAddActionTab,
@@ -18,7 +20,10 @@ import {
   createInitialTaskLayout,
   splitPanelTree,
 } from "@posthog/core/panels/panelLayoutTransforms";
-import { createFileTabId } from "@posthog/core/panels/panelStoreHelpers";
+import {
+  activeArtifactId,
+  createFileTabId,
+} from "@posthog/core/panels/panelStoreHelpers";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
 import { ANALYTICS_EVENTS, getFileExtension } from "@posthog/shared";
 import {
@@ -66,7 +71,16 @@ export interface PanelLayoutStore {
   openAutoresearchTab: (taskId: string) => void;
   openArtifactTab: (
     taskId: string,
-    artifact: { runId: string; artifactId: string; name: string },
+    artifact: {
+      runId: string;
+      artifactId: string;
+      name: string;
+      objectKind?: string;
+    },
+  ) => void;
+  openPostHogObjectTab: (
+    taskId: string,
+    object: { kind: string; id: string; name: string },
   ) => void;
   keepTab: (taskId: string, panelId: string, tabId: string) => void;
   closeTab: (taskId: string, panelId: string, tabId: string) => void;
@@ -246,7 +260,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
       openChannelContextInSplit: (taskId, context) => {
         const tabId = `context-${context.channelName ?? "channel"}`;
-        const label = `${context.channelName ? `#${context.channelName} ` : ""}CONTEXT.md`;
+        const label = `${context.channelName ? `${channelDisplayLabel(context.channelName)} ` : ""}CONTEXT.md`;
         set((state) =>
           updateTaskLayout(
             state,
@@ -305,6 +319,32 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
                   type: "artifact",
                   runId: artifact.runId,
                   artifactId: artifact.artifactId,
+                  objectKind: artifact.objectKind,
+                },
+                "main",
+              ) as Partial<TaskLayout>,
+          ),
+        );
+      },
+
+      openPostHogObjectTab: (taskId, object) => {
+        // Ids can be long (a hogql reference's id is the SQL itself); the tab
+        // id only has to be stable per object, not carry the whole value. Hash
+        // the full id so two ids sharing a long prefix can't collide onto one tab.
+        const tabId = `posthog-object:${object.kind}:${contentHash(object.id)}`;
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              coreOpenReadonlyTab(
+                layout,
+                tabId,
+                object.name,
+                {
+                  type: "posthog-object",
+                  objectKind: object.kind,
+                  objectId: object.id,
                 },
                 "main",
               ) as Partial<TaskLayout>,
@@ -528,3 +568,14 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
     },
   ),
 );
+
+/**
+ * The artifact the reader is looking at, so a pane elsewhere (the task's
+ * comment list) can narrow itself to whatever is on screen.
+ */
+export function useActiveArtifactId(taskId: string): string | null {
+  return usePanelLayoutStore((state) => {
+    const layout = state.taskLayouts[taskId];
+    return layout ? activeArtifactId(layout) : null;
+  });
+}

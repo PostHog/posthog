@@ -16,6 +16,14 @@ export const usageOutput = z.object({
       exhausted: z.boolean(),
       used_usd: z.number().nullish(),
       limit_usd: z.number().nullish(),
+      breakdown: z
+        .object({
+          token_credits: z.number().nullish(),
+          compute_credits: z.number().nullish(),
+          cpu_millicore_seconds: z.number().nullish(),
+          memory_mib_seconds: z.number().nullish(),
+        })
+        .nullish(),
     })
     .optional(),
   is_rate_limited: z.boolean(),

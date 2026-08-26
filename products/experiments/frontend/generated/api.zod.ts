@@ -975,6 +975,8 @@ export const experimentsEndCreateBodyConclusionCommentMax = 4000
 export const experimentsEndCreateBodyOpenCleanupPrDefault = false
 export const experimentsEndCreateBodyRepositoryMax = 255
 
+export const experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault = false
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -1005,7 +1007,13 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsEndCreateBodyRepositoryMax)
         .nullish()
         .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsEndCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
         ),
 })
 
@@ -1129,6 +1137,7 @@ export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
 export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
 export const experimentsShipVariantCreateBodyRepositoryMax = 255
 
+export const experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault = false
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -1161,7 +1170,13 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsShipVariantCreateBodyRepositoryMax)
         .nullish()
         .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used."
+        ),
+    set_repository_as_team_default: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodySetRepositoryAsTeamDefaultDefault)
+        .describe(
+            "When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise)."
         ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod

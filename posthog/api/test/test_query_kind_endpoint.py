@@ -23,6 +23,8 @@ class TestQueryKindEndpoint(APIBaseTest):
         [
             ("environment", "/api/environments/{team_id}/query/HogQLQuery/"),
             ("project", "/api/projects/{team_id}/query/HogQLQuery/"),
+            # digit-containing kind — the route regex used to reject these with a 405
+            ("environment_digit_kind", "/api/environments/{team_id}/query/PathsV2Query/"),
         ]
     )
     def test_query_kind_endpoint_rejects_mismatch(self, _name: str, url_template: str) -> None:

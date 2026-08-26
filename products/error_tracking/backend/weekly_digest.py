@@ -1,4 +1,5 @@
 import datetime
+from dataclasses import asdict
 from typing import Any
 
 from django.conf import settings
@@ -15,6 +16,8 @@ from posthog.models import Team
 from posthog.schema_enums import ProductKey
 from posthog.utils import compact_number
 
+from products.error_tracking.backend.facade.contracts import SOURCE_MAPS_DOCS_URL, CrashFreeSummary, ExceptionSummary
+
 logger = structlog.get_logger(__name__)
 
 DIGEST_WEBHOOK_TIMEOUT_SECONDS = 10
@@ -23,9 +26,6 @@ DIGEST_WEBHOOK_TIMEOUT_SECONDS = 10
 # join when test-account filters include person properties) legitimately run past 60s. Matches
 # the error_tracking ClickHouse profile's execution ceiling — keep the two in sync.
 DIGEST_MAX_EXECUTION_TIME_SECONDS = 120
-
-# Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
-SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 
 
 def get_org_ids_with_exceptions() -> list[str]:
@@ -39,7 +39,7 @@ def get_org_ids_with_exceptions() -> list[str]:
     return org_ids
 
 
-def query_daily_rows(team: Team) -> list:
+def query_daily_rows(team: Team, filter_test_accounts: bool = True) -> list:
     """Per-day counts over 14 days. Explicit LIMIT: HogQL appends LIMIT 100 to unlimited selects.
 
     Missing ``$exception_issue_id`` = ingestion failure. Query errors propagate so the task retries
@@ -69,7 +69,7 @@ def query_daily_rows(team: Team) -> list:
             LIMIT 14
         """,
         team=team,
-        filters=HogQLFilters(filterTestAccounts=True),
+        filters=HogQLFilters(filterTestAccounts=filter_test_accounts),
         # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
@@ -78,12 +78,12 @@ def query_daily_rows(team: Team) -> list:
     return response.results or []
 
 
-def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -> dict:
+def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -> ExceptionSummary | None:
     """Exception counts, ingestion failures, and previous-week count. This week = 1-7 days ago, previous = 8-14."""
     if daily_rows is None:
         daily_rows = query_daily_rows(team)
     if not daily_rows:
-        return {}
+        return None
 
     # ClickHouse returns team-timezone dates, so bucket against the team-local today, not UTC
     today = timezone.now().astimezone(team.timezone_info).date()
@@ -98,11 +98,11 @@ def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -
         elif 8 <= days_ago <= 14:
             prev_exception_count += day_count
 
-    return {
-        "exception_count": exception_count,
-        "ingestion_failure_count": ingestion_failure_count,
-        "prev_exception_count": prev_exception_count,
-    }
+    return ExceptionSummary(
+        exception_count=exception_count,
+        ingestion_failure_count=ingestion_failure_count,
+        prev_exception_count=prev_exception_count,
+    )
 
 
 ELIGIBLE_ROLES_FOR_AUTO_DIGEST = {"engineering", "data", "founder"}
@@ -113,7 +113,7 @@ DIGEST_PROJECT_SETTING_KEY = "error_tracking_weekly_digest_project_enabled"
 
 
 def auto_select_project_for_user(
-    user: Any, org_id: int, team_exception_counts: dict[int, dict], persist: bool = True
+    user: Any, org_id: int, team_exception_counts: dict[int, ExceptionSummary], persist: bool = True
 ) -> bool:
     """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
     and persist the selection to their notification settings.
@@ -149,7 +149,7 @@ def auto_select_project_for_user(
         user=user,
         team_data=team_exception_counts,
         setting_key=setting_key,
-        sort_key=lambda d: d["exception_count"],
+        sort_key=lambda d: d.exception_count,
         persist=persist,
     )
 
@@ -194,7 +194,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     return results if isinstance(results, list) else []
 
 
-def get_crash_free_sessions(team: Team) -> dict:
+def get_crash_free_sessions(team: Team, filter_test_accounts: bool = True) -> CrashFreeSummary | None:
     """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
     from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.query import execute_hogql_query
@@ -209,7 +209,7 @@ def get_crash_free_sessions(team: Team) -> dict:
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:crash_free_sessions")
 
     # A ClickHouse failure propagates (task fails and retries) rather than being swallowed into an
-    # empty result. A successful query with no sessions still returns {} below.
+    # empty result. A successful query with no sessions still returns None below.
     response = execute_hogql_query(
         query="""
             SELECT
@@ -224,7 +224,7 @@ def get_crash_free_sessions(team: Team) -> dict:
             AND {filters}
         """,
         team=team,
-        filters=HogQLFilters(filterTestAccounts=True),
+        filters=HogQLFilters(filterTestAccounts=filter_test_accounts),
         # Unfiltered 14-day session scan — the heaviest query here. Must stay off the online cluster.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
@@ -232,32 +232,27 @@ def get_crash_free_sessions(team: Team) -> dict:
     )
 
     if not response.results or not response.results[0]:
-        return {}
+        return None
 
     total_sessions, crash_sessions, prev_total_sessions, prev_crash_sessions = response.results[0]
     if total_sessions == 0:
-        return {}
+        return None
 
     crash_free_rate = round((1 - crash_sessions / total_sessions) * 100, 2)
     prev_crash_free_rate = (
         round((1 - prev_crash_sessions / prev_total_sessions) * 100, 2) if prev_total_sessions > 0 else None
     )
 
-    result: dict = {
-        "total_sessions": total_sessions,
-        "crash_free_rate": crash_free_rate,
-    }
-
-    result["crash_free_rate_change"] = (
-        compute_week_over_week_change(crash_free_rate, prev_crash_free_rate, higher_is_better=True)
-        if prev_crash_free_rate is not None
-        else None
+    return CrashFreeSummary(
+        total_sessions=total_sessions,
+        crash_free_rate=crash_free_rate,
+        crash_free_rate_change=(
+            compute_week_over_week_change(crash_free_rate, prev_crash_free_rate, higher_is_better=True)
+            if prev_crash_free_rate is not None
+            else None
+        ),
+        total_sessions_change=compute_week_over_week_change(total_sessions, prev_total_sessions, higher_is_better=True),
     )
-    result["total_sessions_change"] = compute_week_over_week_change(
-        total_sessions, prev_total_sessions, higher_is_better=True
-    )
-
-    return result
 
 
 def get_daily_exception_counts(team: Team, daily_rows: list | None = None) -> list[dict]:
@@ -287,11 +282,11 @@ def get_daily_exception_counts(team: Team, daily_rows: list | None = None) -> li
     return daily_counts
 
 
-def _query_issue_rows(team: Team) -> list:
+def _query_issue_rows(team: Team, filter_test_accounts: bool = True) -> list:
     """Ranked ``(issue_id, occurrence_count, daily_counts, is_new)`` rows for the last 7 days.
 
     ``LIMIT 5 BY is_new`` (≤10 rows) feeds both the top-issues and new-issues sections: the overall
-    top 5 is always a subset of the per-group union. ``issue_id_v2`` and ``issue_first_seen`` come
+    top 5 is always a subset of the per-group union. ``issue_id`` and ``issue_first_seen`` come
     from the fingerprint issue state table, so merged issues are attributed and dated like the error
     tracking UI. Newness is computed in-query — embedding issue ids would make the rendered SQL grow
     with issue cardinality (ClickHouse caps query text at 1 MiB).
@@ -313,7 +308,7 @@ def _query_issue_rows(team: Team) -> list:
                 if(min(first_seen) >= toStartOfDay(now()) - INTERVAL 7 DAY, 1, 0) AS is_new
             FROM (
                 SELECT
-                    issue_id_v2 AS issue_id,
+                    issue_id,
                     toDate(timestamp) AS day,
                     count() AS day_count,
                     min(issue_first_seen) AS first_seen
@@ -321,7 +316,7 @@ def _query_issue_rows(team: Team) -> list:
                 WHERE event = '$exception'
                 AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
                 AND timestamp < toStartOfDay(now())
-                AND isNotNull(issue_id_v2)
+                AND isNotNull(issue_id)
                 AND {filters}
                 GROUP BY issue_id, day
             )
@@ -331,7 +326,7 @@ def _query_issue_rows(team: Team) -> list:
             LIMIT 10
         """,
         team=team,
-        filters=HogQLFilters(filterTestAccounts=True),
+        filters=HogQLFilters(filterTestAccounts=filter_test_accounts),
         # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.ERROR_TRACKING,
@@ -445,11 +440,17 @@ def get_source_maps_recommendation_for_team(team: Team) -> dict | None:
     }
 
 
-def build_team_digest_data(team: Team, daily_rows: list | None = None) -> dict[str, Any] | None:
+def build_team_digest_data(
+    team: Team, daily_rows: list | None = None, filter_test_accounts: bool = True
+) -> dict[str, Any] | None:
     """Assemble all digest data for one team, or None when it had no exceptions this week.
 
     ``daily_rows`` lets a caller that already queried the team's 14-day rows hand them in
     instead of paying for the same query twice.
+
+    ``filter_test_accounts=False`` builds from unfiltered queries, for teams whose test account
+    filters make every filtered query fail. The result carries ``test_account_filters_skipped``
+    so the email template can disclose that the filters were not applied.
     """
     # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
     # import the helper at call time so this module doesn't pull the task graph.
@@ -457,25 +458,26 @@ def build_team_digest_data(team: Team, daily_rows: list | None = None) -> dict[s
 
     # Two bounded ClickHouse passes + crash-free: three queries per team instead of five.
     if daily_rows is None:
-        daily_rows = query_daily_rows(team)
+        daily_rows = query_daily_rows(team, filter_test_accounts)
     counts = get_exception_summary_for_team(team, daily_rows)
-    if not counts or counts["exception_count"] == 0:
+    if counts is None or counts.exception_count == 0:
         return None
 
-    issue_rows = _query_issue_rows(team)
+    issue_rows = _query_issue_rows(team, filter_test_accounts)
 
     return {
         "team": team,
-        "exception_count": counts["exception_count"],
+        "exception_count": counts.exception_count,
         "exception_change": compute_week_over_week_change(
-            counts["exception_count"], counts["prev_exception_count"], higher_is_better=False
+            counts.exception_count, counts.prev_exception_count, higher_is_better=False
         ),
-        "ingestion_failure_count": counts["ingestion_failure_count"],
+        "ingestion_failure_count": counts.ingestion_failure_count,
         "top_issues": get_top_issues_for_team(team, issue_rows),
         "new_issues": get_new_issues_for_team(team, issue_rows),
         "daily_counts": get_daily_exception_counts(team, daily_rows),
-        "crash_free": get_crash_free_sessions(team),
+        "crash_free": get_crash_free_sessions(team, filter_test_accounts),
         "source_maps_recommendation": get_source_maps_recommendation_for_team(team),
+        "test_account_filters_skipped": not filter_test_accounts,
         "error_tracking_url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking?utm_source=error_tracking_weekly_digest",
         "ingestion_failures_url": build_ingestion_failures_url(team.pk),
     }
@@ -497,11 +499,11 @@ def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
     section["team_name"] = data["team"].name
     section["exception_count"] = compact_number(data["exception_count"])
     section["ingestion_failure_count_display"] = compact_number(data["ingestion_failure_count"])
-    if data["crash_free"]:
-        section["crash_free"] = {
-            **data["crash_free"],
-            "total_sessions": compact_number(data["crash_free"]["total_sessions"]),
-        }
+    crash_free = data["crash_free"]
+    # The digest webhook payload represents "no crash-free data" as {}, not null
+    section["crash_free"] = (
+        {**asdict(crash_free), "total_sessions": compact_number(crash_free.total_sessions)} if crash_free else {}
+    )
     section["top_issues"] = [serialize_issue(i) for i in data["top_issues"]]
     section["new_issues"] = [serialize_issue(i) for i in data["new_issues"]]
     return section

@@ -45,6 +45,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -78,7 +79,7 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
@@ -175,6 +176,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         export_asset_activity,
         deliver_subscription,
         deliver_subscription_v2,
+        notify_subscription_delivery_failure,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
@@ -190,6 +192,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         export_asset_activity,
         deliver_subscription,
         deliver_subscription_v2,
+        notify_subscription_delivery_failure,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
@@ -529,7 +532,7 @@ async def test_deliver_subscription_report_slack(
 async def test_process_subscription_records_missing_slack_integration_failure(
     mock_get_slack: MagicMock,
     mock_build_snapshot: MagicMock,
-    mock_send_notification: MagicMock,
+    _mock_send_notification: MagicMock,
     temporal_client: Client,
     team,
     user,
@@ -595,14 +598,13 @@ async def test_process_subscription_records_missing_slack_integration_failure(
                 "message": "Slack integration disconnected",
                 "type": "missing_integration",
             },
+            "human_readable_error": "Slack integration disconnected",
         }
     ]
     mock_get_slack.assert_not_called()
 
-    # Subscription is auto-disabled and owner is notified.
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
-    mock_send_notification.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -650,7 +652,7 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
     env = ActivityEnvironment()
 
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         # Always patched — only consulted on the slack branch, harmless otherwise.
         patch(
             "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
@@ -671,7 +673,6 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
 
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
-    send_mock.assert_called_once()
     capture_mock.assert_called_once()
     # Must return cleanly — NOT raise
     assert result is not None
@@ -757,7 +758,7 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
 
     # First call: unsupported_target triggers auto-disable + per-recipient failure.
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         patch(
             "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
         ) as capture_mock,
@@ -768,7 +769,6 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
     error = first_result.recipient_results[0].error
     assert error is not None
     assert error["type"] == "unsupported_target"
-    send_mock.assert_called_once()
     capture_mock.assert_called_once()
 
     await sync_to_async(subscription.refresh_from_db)()
@@ -821,7 +821,7 @@ async def test_validate_subscription_for_delivery(
 
     env = ActivityEnvironment()
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         patch(
             "products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"
         ) as capture_mock,
@@ -838,7 +838,6 @@ async def test_validate_subscription_for_delivery(
             assert abort_info.failed_recipient is None
     else:
         assert abort_info is None
-    assert send_mock.called is expects_failed_recipient
     assert capture_mock.called is expects_failed_recipient
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is expected_final_enabled
@@ -963,7 +962,6 @@ async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_e
         # Two captures: the real SlackApiError, and the synthetic Exception from the auto-disable helper.
         assert capture_mock.call_count == 2
         assert subscription.enabled is False
-        send_mock.assert_called_once()
         assert result is not None
         assert result.recipient_results[0].status == "failed"
         assert result.recipient_results[0].error == {
@@ -2158,7 +2156,7 @@ async def test_deliver_subscription_emits_success_slo_when_disabling(
     mock_exporter: MagicMock,
     mock_get_slack: MagicMock,
     mock_build_snapshot: MagicMock,
-    mock_send_notification: MagicMock,
+    _mock_send_notification: MagicMock,
     temporal_client: Client,
     team,
     user,
@@ -2230,7 +2228,6 @@ async def test_deliver_subscription_emits_success_slo_when_disabling(
     # Sanity: auto-disable wired correctly.
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
-    mock_send_notification.assert_called_once()
 
     delivery_completed_calls = [
         c

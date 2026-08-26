@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Tooltip as LemonTooltip } from '@posthog/lemon-ui'
 
-import { cn } from 'lib/utils/css-classes'
-import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
+import { Button, Skeleton } from 'lib/ui/quill'
+import { BREAKDOWN_NULL_STRING_LABEL, isNullBreakdown } from 'scenes/insights/utils'
 
-import { errorTrackingIssueSceneConfigurationLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneConfigurationLogic'
-import { breakdownFiltersLogic } from './breakdownFiltersLogic'
+import { PropertyOperator } from '~/types'
+
+import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
 import { BreakdownsStackedBar } from './BreakdownsStackedBar'
 import { BreakdownPreset, BreakdownsEvents } from './consts'
 import { miniBreakdownsLogic } from './miniBreakdownsLogic'
@@ -16,53 +17,70 @@ interface BreakdownsTileButtonProps {
     item: BreakdownPreset
 }
 
-export function BreakdownsTileButton({ item }: BreakdownsTileButtonProps): JSX.Element {
-    const { breakdownProperty } = useValues(breakdownFiltersLogic)
-    const { setBreakdownProperty } = useActions(breakdownFiltersLogic)
-    const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
-    const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
-
-    const isSelected = category === 'breakdowns' && breakdownProperty === item.property
-
-    return (
-        <button
-            onClick={() => {
-                setBreakdownProperty(item.property)
-                setCategory('breakdowns')
-                posthog.capture(BreakdownsEvents.MiniBreakdownsPropertySelected, {
-                    property: item.property,
-                })
-            }}
-            className={cn(
-                'w-full px-2.5 py-2 text-left border-l-[3px] cursor-pointer',
-                isSelected ? 'border-l-brand-yellow' : 'border-l-transparent'
-            )}
-        >
-            <BreakdownPreview title={item.title} property={item.property} />
-        </button>
-    )
-}
-
-function BreakdownPreview({ title, property }: { title: string; property: string }): JSX.Element {
-    const { getBreakdownForProperty, responseLoading } = useValues(miniBreakdownsLogic)
+export function BreakdownsTileButton({ item: { title, property } }: BreakdownsTileButtonProps): JSX.Element {
+    const { getBreakdownForProperty, responseLoading, responseError } = useValues(miniBreakdownsLogic)
+    const { loadResponse, openBreakdownDetails } = useActions(miniBreakdownsLogic)
+    const { applyPropertyFilter } = useActions(issueFilterPreviewLogic)
     const { properties, totalCount } = getBreakdownForProperty(property)
 
     const hasOnlyNullBreakdown = properties.length === 1 && properties[0].label === BREAKDOWN_NULL_STRING_LABEL
+    const hasNoData = !responseLoading && !responseError && (properties.length === 0 || hasOnlyNullBreakdown)
 
     return (
-        <div className="flex items-center gap-2">
-            <div className="font-semibold text-xs w-[30%]">{title}</div>
-            <div className="w-[70%]">
-                {responseLoading ? (
-                    <div className="h-4 flex items-center justify-center">
-                        <LemonSkeleton />
+        <>
+            <LemonTooltip title={hasNoData ? 'No data available for this property' : undefined}>
+                <span className="min-w-0">
+                    <Button
+                        variant="default"
+                        size="sm"
+                        disabled={hasNoData}
+                        className="h-[22px] w-full min-w-0 justify-end rounded-none border-r border-border ps-2.5 pe-2 text-right text-xs font-semibold"
+                        onClick={() => {
+                            openBreakdownDetails({ property, title })
+                            posthog.capture(BreakdownsEvents.MiniBreakdownsPropertySelected, { property })
+                        }}
+                    >
+                        <span className="truncate">{title}</span>
+                    </Button>
+                </span>
+            </LemonTooltip>
+            <div className="flex h-[22px] min-w-0 items-center ps-2 pe-4">
+                {responseError ? (
+                    <LemonTooltip title={responseError}>
+                        <button
+                            className="text-danger flex h-6 w-full items-center justify-center text-xs underline decoration-dotted"
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                loadResponse()
+                            }}
+                        >
+                            Failed to load, click to retry
+                        </button>
+                    </LemonTooltip>
+                ) : responseLoading ? (
+                    <div className="flex h-3 w-full items-center justify-center">
+                        <Skeleton className="h-3 w-full rounded-sm bg-border">
+                            <span>Loading…</span>
+                        </Skeleton>
                     </div>
-                ) : properties.length === 0 || hasOnlyNullBreakdown ? (
-                    <div className="text-muted text-xs h-4 flex items-center justify-center">No data</div>
+                ) : hasNoData ? (
+                    <div className="text-muted flex h-6 items-center justify-center text-xs">No data</div>
                 ) : (
-                    <BreakdownsStackedBar properties={properties} totalCount={totalCount} propertyName={property} />
+                    <BreakdownsStackedBar
+                        properties={properties}
+                        totalCount={totalCount}
+                        propertyName={property}
+                        propertyLabel={title}
+                        onValueClick={(item) => {
+                            applyPropertyFilter(
+                                property,
+                                isNullBreakdown(item.label) ? null : item.label,
+                                isNullBreakdown(item.label) ? PropertyOperator.IsNotSet : PropertyOperator.Exact
+                            )
+                        }}
+                    />
                 )}
             </div>
-        </div>
+        </>
     )
 }

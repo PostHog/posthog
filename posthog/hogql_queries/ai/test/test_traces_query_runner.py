@@ -1079,6 +1079,35 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results[0].events), 1)
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
 
+    def test_property_filter_matches_an_explicit_empty_string(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_with_empty_name",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_span_name": ""},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_with_name",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_span_name": "chat"},
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                properties=[
+                    EventPropertyFilter(key="$ai_span_name", value=[""], operator=PropertyOperator.EXACT),
+                ],
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+
+        self.assertEqual({result.id for result in response.results}, {"trace_with_empty_name"})
+
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):
         _create_person(distinct_ids=["person1"], team=self.team)

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 from posthog.temporal.ingestion_acceptance_test.config import Config
 from posthog.temporal.ingestion_acceptance_test.runner import (
     AcceptanceTest,
-    RunningTestInfo,
     RunningTests,
+    RunningTestSnapshot,
     TestContext,
     run_tests,
 )
@@ -203,16 +203,16 @@ class TestSnapshotWithPolls:
                 {100: "TestA::test_one", 200: "TestB::test_two"},
                 {100: "event UUID 'abc-123'", 200: "person with distinct_id 'xyz-456'"},
                 [
-                    RunningTestInfo("TestA::test_one", "event UUID 'abc-123'"),
-                    RunningTestInfo("TestB::test_two", "person with distinct_id 'xyz-456'"),
+                    RunningTestSnapshot("TestA::test_one", "event UUID 'abc-123'"),
+                    RunningTestSnapshot("TestB::test_two", "person with distinct_id 'xyz-456'"),
                 ],
             ),
             (
                 {100: "TestA::test_one", 200: "TestB::test_two"},
                 {100: "event UUID 'abc-123'"},
                 [
-                    RunningTestInfo("TestA::test_one", "event UUID 'abc-123'"),
-                    RunningTestInfo("TestB::test_two", None),
+                    RunningTestSnapshot("TestA::test_one", "event UUID 'abc-123'"),
+                    RunningTestSnapshot("TestB::test_two", None),
                 ],
             ),
             ({}, {}, []),
@@ -223,7 +223,7 @@ class TestSnapshotWithPolls:
         self,
         tests_by_tid: dict[int, str],
         polls_by_tid: dict[int, str],
-        expected: list[RunningTestInfo],
+        expected: list[RunningTestSnapshot],
     ) -> None:
         rt = RunningTests()
         rt._tests = tests_by_tid

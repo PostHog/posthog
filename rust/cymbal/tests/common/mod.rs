@@ -258,6 +258,7 @@ fn done_outcome(item: &ResolveItem) -> ResolveOutcome {
         id: item.id,
         result: Some(resolve_outcome::Result::Done(Done {
             resolved_exception_json: item.exception_json.clone(),
+            release_id: String::new(),
         })),
     }
 }

@@ -95,7 +95,7 @@ class LoopRunsTestCase(TestCase):
         # non-deterministic (fails open when the gateway is down, blocks when it's up locally).
         # Default it to "allowed" so happy-path fires are deterministic; the gate-specific tests
         # override this with their own patch.
-        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate = patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
         # Cancelling a displaced run signals its Temporal workflow; mock it so tests neither hit
@@ -220,7 +220,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response")
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response")
     def test_usage_gate_blocked_records_failure_and_flags_attention_without_creating_a_run(
         self, mock_gate, mock_dispatch
     ):
@@ -240,7 +240,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response")
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response")
     def test_usage_gate_blocked_pauses_loop_after_reaching_failure_threshold(
         self, mock_gate, mock_pause, mock_dispatch
     ):
@@ -302,7 +302,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
             LOOP_RATE_CAP_PER_DAY,
         )
 
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
     def test_team_wide_rate_cap_blocks_a_loop_under_its_own_cap(self, _mock_gate):
         # Two loops each below the per-loop cap, but together over the team aggregate: the
         # team cap must still stop the fire, or N loops would each spend the per-loop cap.
@@ -330,7 +330,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(result.reason, "team_rate_capped")
         mock_dispatch.assert_called_once_with(fresh, "needs_attention", {"reason": "team_rate_capped"})
 
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
     def test_rejected_fires_do_not_consume_the_team_rate_budget(self, _mock_gate):
         # Regression: rejected fires still record a LoopFire row (for idempotent replay) but must
         # not count toward the caps. Otherwise spamming unique keys at an already-capped loop drains
@@ -479,6 +479,30 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
         self.assertEqual(task_run.state["config_snapshot"]["connectors"], loop.connectors)
         self.assertEqual(task_run.state["config_snapshot"]["notifications"], loop.notifications)
         self.assertEqual(task_run.state["config_snapshot"]["repositories"], loop.repositories)
+
+    @parameterized.expand(
+        [
+            ("repo_less_loop_gets_read_only_github", False, True),
+            ("repo_pinned_loop_uses_repository_integration", True, False),
+        ]
+    )
+    def test_fire_grants_github_read_access_only_to_repo_less_loops(self, _name, pin_repository, expected_flag):
+        repositories = []
+        if pin_repository:
+            integration = Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+            repositories = [{"github_integration_id": integration.id, "full_name": "acme/repo"}]
+        loop = self.create_loop(repositories=repositories)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, f"fire-{_name}", "rendered context")
+
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        if expected_flag:
+            self.assertIs(task_run.state["github_read_access"], True)
+        else:
+            self.assertNotIn("github_read_access", task_run.state)
 
     @parameterized.expand(
         [
@@ -734,7 +758,7 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         super().setUp()
         # The cloud usage gate is a billing boundary; with no limit it returns None. Mock it so a
         # fire actually spawns a run regardless of the local env's billing state (CI returns None).
-        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate = patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
         self.channel = Channel(
@@ -790,7 +814,13 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             (
                 "update_context_only",
                 {"update_context": True},
-                ["channel-instructions-retrieve", "channel-instructions-update"],
+                [
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
+                ],
             ),
             (
                 "canvas_only",
@@ -807,7 +837,11 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
                 {"update_context": True, "canvas_id": CANVAS_ID},
                 [
                     CANVAS_ID,
-                    "channel-instructions-retrieve",
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
                     "canvas-source-retrieve",
                     "canvas-publish-create",
                     "expected_current_version_id",
@@ -850,7 +884,10 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         self.assertIsInstance(scopes, list)
         if outputs.get("update_context"):
+            self.assertIn("task:read", scopes)
             self.assertIn("task:write", scopes)
+            self.assertIn("loop_context_internal:write", scopes)
+            self.assertNotIn("organization:write", scopes)
         if outputs.get("canvas_id"):
             self.assertIn("canvas:write", scopes)
             self.assertIn("canvas:read", scopes)
@@ -870,6 +907,19 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         task_run = TaskRun.objects.get(id=result.task_run_id)
         self.assertNotIn("living deliverables", task_run.state["pending_user_message"])
         self.assertEqual(scopes, "read_only")
+
+    def test_context_update_adds_loop_scope_to_full_preset(self):
+        loop = self.create_loop(
+            connectors={"posthog_mcp_scopes": "full"},
+            context_target=self.context_target(update_context=True),
+        )
+        trigger = self.create_trigger(loop)
+
+        _, scopes = self.fire_and_capture(loop, trigger)
+
+        self.assertIsInstance(scopes, list)
+        self.assertIn("loop_context_internal:write", scopes)
+        self.assertIn("task:write", scopes)
 
     def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
         loop = self.create_loop()
@@ -1020,6 +1070,21 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
             "run_failed",
             {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
         )
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
+    def test_compute_billing_denial_pauses_without_retrying(self, mock_pause, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="backend detail")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run, error_type="ComputeBillingLimitError")
+
+        loop.refresh_from_db()
+        self.assertFalse(loop.enabled)
+        self.assertEqual(loop.disabled_reason, DISABLED_REASON_USAGE_LIMITED)
+        self.assertEqual(loop.last_error, "Your organization has reached its PostHog Desktop credit limit.")
+        mock_pause.assert_called_once()
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")

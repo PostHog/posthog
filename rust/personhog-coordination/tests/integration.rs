@@ -770,7 +770,8 @@ async fn rapid_pod_joins(
                 .iter()
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
-            let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
+            let members = personhog_coordination::strategy::Member::active_all(&pods);
+            let desired = strategy.compute_assignments(&current, &members, MANY_PARTITIONS);
             assignment_coordination::util::compute_required_handoffs(&current, &desired).is_empty()
         }
     })
@@ -1058,7 +1059,8 @@ async fn debounce_batches_rapid_pod_changes(
                 .iter()
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
-            let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
+            let members = personhog_coordination::strategy::Member::active_all(&pods);
+            let desired = strategy.compute_assignments(&current, &members, MANY_PARTITIONS);
             assignment_coordination::util::compute_required_handoffs(&current, &desired).is_empty()
         }
     })
@@ -1418,6 +1420,7 @@ async fn a_dead_new_owner_handoff_is_reaffirmed_to_the_current_owner() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -1548,6 +1551,7 @@ async fn stale_handoff_address_never_overwrites_a_fresher_registration() {
             started_at: 0,
             handoff_id: "h-stale-addr".to_string(),
             freeze_quorum: None,
+            freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
         })
@@ -1772,6 +1776,7 @@ async fn late_joining_router_during_warming_begins_stash() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -1839,6 +1844,7 @@ async fn dead_old_owner_in_freezing_advances_to_completion() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -1894,6 +1900,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -1976,6 +1983,7 @@ async fn a_dead_new_owner_handoff_in_warming_is_reaffirmed() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2077,6 +2085,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2160,6 +2169,7 @@ async fn draining_old_owner_blocks_phase_advance() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2265,6 +2275,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2272,7 +2283,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
     store.put_handoff(&handoff).await.unwrap();
 
     // Start the coordinator and a real pod. The new pod registering
-    // triggers a pod-change event and runs `cleanup_stale_handoffs`,
+    // triggers a pod-change event and runs the dead-new-owner cancellation,
     // which must leave the handoff alone: the new owner is live, and the
     // old owner's state is not cleanup's concern.
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
@@ -2375,6 +2386,7 @@ async fn a_handoff_that_can_never_reach_quorum_is_cancelled() {
                 .as_secs() as i64,
             handoff_id: "wedged-handoff".to_string(),
             freeze_quorum: Some(vec!["silent-router".to_string()]),
+            freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
         })
@@ -2414,7 +2426,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both owner pods: the new owner so `cleanup_stale_handoffs`
+    // Register both owner pods: the new owner so the dead-new-owner cancellation
     // doesn't delete the injected handoff, the old owner so the scenario
     // matches a live in-flight handoff. They don't run real handlers — we
     // just need their etcd registrations to exist.
@@ -2460,6 +2472,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2531,7 +2544,7 @@ async fn initial_assignment_skips_draining_phase() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register the new_owner pod so `cleanup_stale_handoffs` doesn't
+    // Register the new_owner pod so the dead-new-owner cancellation doesn't
     // delete the injected handoff for missing-target reasons.
     let lease = store.grant_lease(60).await.unwrap();
     let new_pod = RegisteredPod {
@@ -2560,6 +2573,7 @@ async fn initial_assignment_skips_draining_phase() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2622,6 +2636,7 @@ async fn dead_old_owner_in_draining_recovers() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2724,6 +2739,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2787,6 +2803,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -2874,6 +2891,7 @@ async fn a_dead_new_owner_handoff_in_draining_is_reaffirmed() {
         started_at: 0,
         handoff_id: String::new(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -3123,6 +3141,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         started_at: 0,
         handoff_id: "first".to_string(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -3142,6 +3161,7 @@ async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
         started_at: 0,
         handoff_id: "second".to_string(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -3193,6 +3213,7 @@ async fn stale_plan_is_rejected_when_the_assignment_moved() {
         started_at: 0,
         handoff_id: id.to_string(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,
@@ -3273,6 +3294,7 @@ async fn fresh_plan_is_rejected_when_an_assignment_appeared() {
         started_at: 0,
         handoff_id: id.to_string(),
         freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
         new_owner_address: None,

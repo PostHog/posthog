@@ -1,0 +1,208 @@
+.VisionPreview {
+    --vision-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    overflow: hidden;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    // Hidden filter state. Direct children of .VisionPreview so `:checked ~` can reach the rest.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__chips {
+        display: flex;
+        gap: 0.375rem;
+        padding: 0.625rem 0.75rem;
+    }
+
+    &__chip {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        user-select: none;
+        border: 1px solid var(--color-border-primary);
+        border-radius: 999px;
+        transition:
+            color 150ms ease,
+            background-color 150ms ease,
+            border-color 150ms ease;
+    }
+
+    &__chip:hover {
+        color: var(--color-text-primary);
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        padding: 0.25rem 0.625rem 0.625rem;
+    }
+
+    &__row {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        padding: 0.5rem 0.625rem;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+        transition: opacity 150ms ease;
+    }
+
+    &__scanner {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__text {
+        margin: 0;
+        font-size: 0.6875rem;
+        line-height: 1.4;
+        color: var(--color-text-secondary);
+    }
+}
+
+// The radios stay keyboard-focusable even while visually hidden, so the active chip
+// label needs a visible focus indicator (WCAG 2.4.7).
+#vision-preview-all:focus-visible ~ .VisionPreview__chips .VisionPreview__chip--all,
+#vision-preview-monitor:focus-visible ~ .VisionPreview__chips .VisionPreview__chip--monitor,
+#vision-preview-scorer:focus-visible ~ .VisionPreview__chips .VisionPreview__chip--scorer,
+#vision-preview-classifier:focus-visible ~ .VisionPreview__chips .VisionPreview__chip--classifier,
+#vision-preview-summarizer:focus-visible ~ .VisionPreview__chips .VisionPreview__chip--summarizer {
+    outline: 2px solid var(--vision-preview-accent);
+    outline-offset: 1px;
+}
+
+// Active filter chip, driven purely by the hidden radios.
+#vision-preview-all:checked ~ .VisionPreview__chips .VisionPreview__chip--all,
+#vision-preview-monitor:checked ~ .VisionPreview__chips .VisionPreview__chip--monitor,
+#vision-preview-scorer:checked ~ .VisionPreview__chips .VisionPreview__chip--scorer,
+#vision-preview-classifier:checked ~ .VisionPreview__chips .VisionPreview__chip--classifier,
+#vision-preview-summarizer:checked ~ .VisionPreview__chips .VisionPreview__chip--summarizer {
+    color: var(--vision-preview-accent);
+    background: color-mix(in oklab, var(--vision-preview-accent) 12%, transparent);
+    border-color: color-mix(in oklab, var(--vision-preview-accent) 45%, transparent);
+}
+
+// Picking a scanner type dims the rows that don't belong to it.
+#vision-preview-monitor:checked ~ .VisionPreview__rows .VisionPreview__row:not([data-t='monitor']),
+#vision-preview-scorer:checked ~ .VisionPreview__rows .VisionPreview__row:not([data-t='scorer']),
+#vision-preview-classifier:checked ~ .VisionPreview__rows .VisionPreview__row:not([data-t='classifier']),
+#vision-preview-summarizer:checked ~ .VisionPreview__rows .VisionPreview__row:not([data-t='summarizer']) {
+    opacity: 0.25;
+}
+
+.VisionSpark {
+    --vision-spark-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    padding: 0.625rem 0.75rem;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+    }
+
+    &__value {
+        display: flex;
+        gap: 0.5rem;
+        align-items: baseline;
+        margin-top: 0.375rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        line-height: 1.1;
+    }
+
+    &__delta {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-green-500);
+    }
+
+    &__chart {
+        margin-top: 0.5rem;
+    }
+
+    &__svg {
+        width: 100%;
+        height: 40px;
+    }
+
+    &__area {
+        fill: color-mix(in oklab, var(--vision-spark-accent) 13%, transparent);
+    }
+
+    &__line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--vision-spark-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    &__trace {
+        fill: none;
+        stroke: var(--vision-spark-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: VisionSpark__trace 4s linear infinite;
+    }
+
+    &__caption {
+        margin-top: 0.5rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-tertiary);
+    }
+}
+
+@keyframes VisionSpark__trace {
+    from {
+        stroke-dashoffset: 100;
+    }
+
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .VisionSpark__trace {
+        animation: none;
+    }
+}
+
+.VisionSpark--static .VisionSpark__trace {
+    animation: none;
+}

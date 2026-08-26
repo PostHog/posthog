@@ -1,5 +1,5 @@
 import type {
-  AgentSessionEvent,
+  JsonAgentSessionEvent,
   RpcClient,
   RpcCommand,
   RpcResponse,
@@ -7,6 +7,13 @@ import type {
 import { z } from "zod/v4";
 
 export type { RpcCommand, RpcResponse } from "@earendil-works/pi-coding-agent";
+
+export interface PiMcpPermissionResponseCommand {
+  id: string;
+  type: "mcp_permission_response";
+  requestId: string;
+  decision: "allow" | "allow_always" | "reject";
+}
 
 export const piRpcCommandSchema = z
   .object({
@@ -43,7 +50,7 @@ export function parsePiRpcResponse(value: unknown): RpcResponse {
 
 export interface PiRpcTransport {
   request(command: RpcCommand): Promise<unknown>;
-  onEvent?(listener: (event: AgentSessionEvent) => void): () => void;
+  onEvent?(listener: (event: JsonAgentSessionEvent) => void): () => void;
   start?(): Promise<void>;
   stop?(): Promise<void>;
 }

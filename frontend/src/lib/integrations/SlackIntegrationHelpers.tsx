@@ -12,7 +12,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -104,8 +105,16 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
+        slackIntegrationInactiveMessage,
     } = useValues(logic)
     const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
+    // Reconnecting overwrites the existing integration, which the API reserves for project admins
+    // (`has_team_management_access`). Without this the banner would send a member through OAuth
+    // only to have the write rejected at the end.
+    const reconnectRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
     const [localValue, setLocalValue] = useState<string | null>(null)
     // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
     // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
@@ -241,6 +250,28 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 options={options}
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
+
+            {slackIntegrationInactiveMessage ? (
+                <LemonBanner type="warning" className="mt-1">
+                    <div className="flex justify-between gap-2 items-center">
+                        <span>
+                            {slackIntegrationInactiveMessage}
+                            {reconnectRestrictionReason ? ' Ask a project admin to reconnect it.' : ''}
+                        </span>
+                        {reconnectRestrictionReason ? null : (
+                            <Link
+                                to={api.integrations.authorizeUrl({
+                                    kind: 'slack',
+                                    next: window.location.pathname + '?target_type=slack',
+                                })}
+                                disableClientSideRouting
+                            >
+                                Reconnect Slack
+                            </Link>
+                        )}
+                    </div>
+                </LemonBanner>
+            ) : null}
 
             {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
                 <p className="text-secondary text-xs mt-1 mb-0">

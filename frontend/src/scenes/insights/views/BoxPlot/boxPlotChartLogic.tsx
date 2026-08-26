@@ -16,6 +16,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../../../queries/schema/schema-general'
 import type { IntervalType } from '../../../../types'
 import { keyForInsightLogicProps } from '../../sharedUtils'
 
@@ -45,6 +46,7 @@ export interface boxPlotChartLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery

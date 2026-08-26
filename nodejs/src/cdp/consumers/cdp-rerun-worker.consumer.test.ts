@@ -6,10 +6,10 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
-import { RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
+import { RERUN_PAGE_ERROR_BACKOFF_MAX_MS, RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
 import { RerunJobQueues } from '../rerun/rerun-paginator.service'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
-import { CdpRerunWorkerConsumer } from './cdp-rerun-worker.consumer'
+import { CdpRerunWorkerConsumer, pageRetryDelayMs } from './cdp-rerun-worker.consumer'
 
 // Minimal stub for a job queue backend — the consumer only calls the producer
 // lifecycle hooks; the paginator (which would call queueInvocations) is stubbed.
@@ -216,6 +216,20 @@ describe('CdpRerunWorkerConsumer', () => {
                 expect(job.ack).toHaveBeenCalledTimes(1)
             }
             expect(mockProcessPage).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('pageRetryDelayMs', () => {
+        // A retry storm against a ClickHouse that is already degraded is what
+        // produces the streak in the first place, so the delay has to grow with
+        // it while a healthy page keeps the flat cadence.
+        it.each([
+            [0, 500],
+            [1, 1000],
+            [4, 8000],
+            [20, RERUN_PAGE_ERROR_BACKOFF_MAX_MS],
+        ])('delays %i consecutive errors by %ims', (consecutiveErrors, expected) => {
+            expect(pageRetryDelayMs(consecutiveErrors)).toBe(expected)
         })
     })
 

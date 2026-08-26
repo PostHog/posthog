@@ -125,6 +125,9 @@ mod test {
             function: "onClick".to_string(),
             lineno: Some(14),
             map_id: Some(map_id),
+            context_line: None,
+            pre_context: Vec::new(),
+            post_context: Vec::new(),
             method_synthetic: false,
             meta: CommonFrameMetadata::default(),
         };

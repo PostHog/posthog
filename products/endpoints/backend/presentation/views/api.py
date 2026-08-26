@@ -53,10 +53,10 @@ from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
 )
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.endpoints.backend.facade.api import (
     REWRITE_CONTRACT,
     EndpointCrudService,
@@ -737,6 +737,7 @@ class EndpointViewSet(
                 "original_reason": result.original_reason,
             },
             team=self.team,
+            request=request,
         )
 
         return Response(

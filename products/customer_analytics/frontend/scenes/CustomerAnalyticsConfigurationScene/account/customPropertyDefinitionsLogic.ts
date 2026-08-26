@@ -38,18 +38,62 @@ import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './
 
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
 export type CustomPropertyTargetType = 'account' | 'person' | 'group'
+export type CustomPropertyTargetTypeFilter = 'all' | CustomPropertyTargetType
 
 // Poll until a source's run settles so the UI reflects completion without a manual refresh: fast at
 // first (a small table finishes in seconds), then slower, and bounded so a stuck run can't poll
-// forever. 10 × 3s + 30 × 10s ≈ 5.5 minutes.
+// forever. 10 × 3s + 120 × 15s ≈ 30 minutes — a "Sync now" waits on a full warehouse import, which
+// takes far longer than the person-property step it triggers.
 const RUNS_POLL_INTERVAL_MS = 3000
-const RUNS_POLL_SLOW_INTERVAL_MS = 10000
+const RUNS_POLL_SLOW_INTERVAL_MS = 15000
 const RUNS_POLL_FAST_ATTEMPTS = 10
-const RUNS_POLL_MAX_ATTEMPTS = 40
+const RUNS_POLL_MAX_ATTEMPTS = 130
 
 // A run that has reached one of these is finished — anything else (including no run row yet, which
 // is the state right after a trigger while the workflow starts up) means keep polling.
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed'])
+
+// What a person/group source reads. Both land as a Delta table the sync reads the same way; the kind
+// picks which field the create call sends (`external_data_schema` or `saved_query`).
+export type WarehouseSourceKind = 'table' | 'view'
+
+export interface WarehouseSourceRef {
+    kind: WarehouseSourceKind
+    id: string
+}
+
+// The picker holds one string so a single LemonInputSelect can offer tables and views together.
+const WAREHOUSE_SOURCE_SEPARATOR = ':'
+
+export function encodeWarehouseSource(kind: WarehouseSourceKind, id: string): string {
+    return `${kind}${WAREHOUSE_SOURCE_SEPARATOR}${id}`
+}
+
+export function decodeWarehouseSource(value: string | null): WarehouseSourceRef | null {
+    if (!value) {
+        return null
+    }
+    const separatorAt = value.indexOf(WAREHOUSE_SOURCE_SEPARATOR)
+    const kind = value.slice(0, separatorAt)
+    const id = value.slice(separatorAt + 1)
+    if ((kind !== 'table' && kind !== 'view') || !id) {
+        return null
+    }
+    return { kind, id }
+}
+
+// A picker entry: the encoded value, its display label, and which kind it is (rendered as a tag).
+export interface WarehouseSourceOption {
+    value: string
+    label: string
+    kind: WarehouseSourceKind
+}
+
+// The create call's binding field and id for the picked source.
+export interface ProfileSourceBinding {
+    field: 'external_data_schema' | 'saved_query'
+    id: string
+}
 
 // One warehouse-column → person-property pair in the person-target editor. Serialized to the
 // backend's `column_property_map` object ({column: property}) on save; the optional per-mapping
@@ -83,8 +127,9 @@ export interface CustomPropertyFormValues {
     savedQuery: string | null
     sourceColumn: string | null
     keyColumn: string | null
-    // Person/group target: the warehouse table (its schema id backs the source) + the column mappings.
-    warehouseTable: string | null
+    // Person/group target: what the source reads (a synced table or a materialized view, encoded by
+    // `encodeWarehouseSource`) plus the column mappings.
+    warehouseSource: string | null
     columnMappings: ColumnPropertyMapping[]
     isEnabled: boolean
 }
@@ -101,7 +146,7 @@ const DEFAULT_FORM_VALUES: CustomPropertyFormValues = {
     savedQuery: null,
     sourceColumn: null,
     keyColumn: null,
-    warehouseTable: null,
+    warehouseSource: null,
     columnMappings: [{ column: '', property: '', description: '' }],
     isEnabled: true,
 }
@@ -193,19 +238,23 @@ export interface customPropertyDefinitionsLogicValues {
     customPropertyFormTouches: Record<string, boolean>
     customPropertyFormValidationErrors: DeepPartialMap<CustomPropertyFormValues, ValidationErrorType>
     definitions: CustomPropertyDefinitionApi[]
+    definitionsInitialLoading: boolean
     definitionsLoading: boolean
     editingDefinition: CustomPropertyDefinitionApi | null
     editingReferences: readonly CustomPropertyReferenceApi[]
     filteredDefinitions: CustomPropertyDefinitionApi[]
     hasSyncedWarehouseTables: boolean | null
+    hasWarehouseSourceOptions: boolean | null
     isCustomPropertyFormSubmitting: boolean
     isCustomPropertyFormValid: boolean
+    mappableColumns: WarehouseColumn[]
     materializedViews: DataWarehouseSavedQuery[]
     modalVisible: boolean
     newWorkflowUrl: string | null
     newWorkflowUrlLoading: boolean
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    profileSourceBinding: ProfileSourceBinding | null
     runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
     runsLoadingBySourceId: Record<string, boolean>
     savedQueries: DataWarehouseSavedQuery[]
@@ -214,12 +263,13 @@ export interface customPropertyDefinitionsLogicValues {
     selectedSourceColumns: string[]
     selectedTableColumns: WarehouseColumn[]
     selectedTableColumnsLoading: boolean
-    selectedWarehouseSchemaId: string | null
     serializedColumnDescriptions: Record<string, string>
     serializedColumnPropertyMap: Record<string, string>
     showCustomPropertyFormErrors: boolean
+    targetTypeFilter: CustomPropertyTargetTypeFilter
     targetTypeLocked: boolean
     triggeringSourceIds: string[]
+    warehouseSourceOptions: WarehouseSourceOption[]
     warehouseTables: DataWarehouseTable[]
     warehouseTablesLoading: boolean
 }
@@ -316,8 +366,8 @@ export interface customPropertyDefinitionsLogicActions {
         savedQueries: DataWarehouseSavedQuery[]
         payload?: any
     }
-    loadSelectedTableColumns: ({ tableId }: { tableId: string | null }) => {
-        tableId: string | null
+    loadSelectedTableColumns: ({ source }: { source: string | null }) => {
+        source: string | null
     }
     loadSelectedTableColumnsFailure: (
         error: string,
@@ -329,12 +379,12 @@ export interface customPropertyDefinitionsLogicActions {
     loadSelectedTableColumnsSuccess: (
         selectedTableColumns: WarehouseColumn[],
         payload?: {
-            tableId: string | null
+            source: string | null
         }
     ) => {
         selectedTableColumns: WarehouseColumn[]
         payload?: {
-            tableId: string | null
+            source: string | null
         }
     }
     loadWarehouseTables: ({ search }?: { search?: string }) => {
@@ -357,6 +407,9 @@ export interface customPropertyDefinitionsLogicActions {
         payload?: {
             search?: string
         }
+    }
+    mapAllColumns: () => {
+        value: true
     }
     openCreateModal: (
         targetType?: CustomPropertyTargetType,
@@ -403,6 +456,9 @@ export interface customPropertyDefinitionsLogicActions {
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
+    setTargetTypeFilter: (targetTypeFilter: CustomPropertyTargetTypeFilter) => {
+        targetTypeFilter: CustomPropertyTargetTypeFilter
+    }
     submitCustomPropertyForm: () => {
         value: boolean
     }
@@ -433,15 +489,29 @@ export interface customPropertyDefinitionsLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface customPropertyDefinitionsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        definitionsInitialLoading: (definitionsLoading: boolean, definitions: CustomPropertyDefinitionApi[]) => boolean
         materializedViews: (savedQueries: DataWarehouseSavedQuery[]) => DataWarehouseSavedQuery[]
         selectedSourceColumns: (
             savedQueries: DataWarehouseSavedQuery[],
             customPropertyForm: CustomPropertyFormValues
         ) => string[]
-        selectedWarehouseSchemaId: (
+        warehouseSourceOptions: (
             warehouseTables: DataWarehouseTable[],
+            materializedViews: DataWarehouseSavedQuery[]
+        ) => WarehouseSourceOption[]
+        hasWarehouseSourceOptions: (
+            hasSyncedWarehouseTables: boolean | null,
+            materializedViews: DataWarehouseSavedQuery[]
+        ) => boolean | null
+        profileSourceBinding: (
+            warehouseTables: DataWarehouseTable[],
+            materializedViews: DataWarehouseSavedQuery[],
             customPropertyForm: CustomPropertyFormValues
-        ) => string | null
+        ) => ProfileSourceBinding | null
+        mappableColumns: (
+            selectedTableColumns: WarehouseColumn[],
+            customPropertyForm: CustomPropertyFormValues
+        ) => WarehouseColumn[]
         serializedColumnPropertyMap: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
         serializedColumnDescriptions: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
         columnMappingWarnings: (
@@ -450,7 +520,8 @@ export interface customPropertyDefinitionsLogicMeta {
         ) => (string | null)[]
         filteredDefinitions: (
             definitions: CustomPropertyDefinitionApi[],
-            searchTerm: string
+            searchTerm: string,
+            targetTypeFilter: CustomPropertyTargetTypeFilter
         ) => CustomPropertyDefinitionApi[]
         editingReferences: (
             definitions: CustomPropertyDefinitionApi[],
@@ -491,7 +562,12 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         openEditModal: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         closeModal: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setTargetTypeFilter: (targetTypeFilter: CustomPropertyTargetTypeFilter) => ({ targetTypeFilter }),
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
+        // Fill a mapping row for every column the source exposes that isn't mapped yet. A wide table
+        // is the common case for this feature, and adding twenty rows by hand is the friction it
+        // exists to remove.
+        mapAllColumns: true,
         // Person sources only. triggerSync re-runs the underlying warehouse sync; triggerBackfill
         // starts a full-table backfill. add/removeTriggeringSource drive the per-row double-submit
         // guard, keyed by source so triggering one row never re-enables another's in-flight button.
@@ -516,6 +592,12 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        targetTypeFilter: [
+            'all' as CustomPropertyTargetTypeFilter,
+            {
+                setTargetTypeFilter: (_, { targetTypeFilter }) => targetTypeFilter,
             },
         ],
         modalVisible: [
@@ -587,8 +669,22 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             [] as CustomPropertyDefinitionApi[],
             {
                 loadDefinitions: async (): Promise<CustomPropertyDefinitionApi[]> => {
-                    const response = await customPropertyDefinitionsList(String(values.currentProjectId))
-                    return response.results
+                    // Follow pagination so search and the table cover every definition, not just the
+                    // backend's first page (bounded so a runaway count can't pull forever).
+                    const PAGE_SIZE = 300
+                    const MAX_PAGES = 10
+                    const collected: CustomPropertyDefinitionApi[] = []
+                    for (let page = 0; page < MAX_PAGES; page += 1) {
+                        const response = await customPropertyDefinitionsList(String(values.currentProjectId), {
+                            limit: PAGE_SIZE,
+                            offset: page * PAGE_SIZE,
+                        })
+                        collected.push(...response.results)
+                        if (!response.next) {
+                            break
+                        }
+                    }
+                    return collected
                 },
                 deleteDefinition: async ({ id }: { id: string }): Promise<CustomPropertyDefinitionApi[]> => {
                     await customPropertyDefinitionsDestroy(String(values.currentProjectId), id)
@@ -635,15 +731,16 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                             break
                         }
                     }
-                    // Only synced tables carry an external_schema, which is what a person source binds to.
+                    // Only synced tables carry an external_schema, which is what a table binding needs.
                     const synced = collected.filter((table) => !!table.external_schema)
                     // Keep the currently-selected table in the list even if the active search filters it
                     // out, so the picker can still render its label rather than a bare id.
-                    const selectedId = values.customPropertyForm.warehouseTable
+                    const selected = decodeWarehouseSource(values.customPropertyForm.warehouseSource)
+                    const selectedId = selected?.kind === 'table' ? selected.id : null
                     if (selectedId && !synced.some((table) => table.id === selectedId)) {
-                        const selected = values.warehouseTables.find((table) => table.id === selectedId)
-                        if (selected) {
-                            return [selected, ...synced]
+                        const known = values.warehouseTables.find((table) => table.id === selectedId)
+                        if (known) {
+                            return [known, ...synced]
                         }
                     }
                     return synced
@@ -653,25 +750,44 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         selectedTableColumns: [
             [] as WarehouseColumn[],
             {
-                loadSelectedTableColumns: async ({
-                    tableId,
-                }: {
-                    tableId: string | null
-                }): Promise<WarehouseColumn[]> => {
-                    if (!tableId) {
+                loadSelectedTableColumns: async (
+                    { source }: { source: string | null },
+                    breakpoint
+                ): Promise<WarehouseColumn[]> => {
+                    const ref = decodeWarehouseSource(source)
+                    if (!ref) {
                         return []
                     }
-                    const table = await api.dataWarehouseTables.get(tableId)
-                    const columns: WarehouseColumn[] = (table.columns ?? []).map((column) => ({
-                        name: column.name,
-                        type: String(column.type),
-                        description: null,
-                    }))
+                    // A view's columns are already on the saved query the picker was built from, so only
+                    // the table branch pays for a fetch.
+                    let tableName: string
+                    let columns: WarehouseColumn[]
+                    if (ref.kind === 'view') {
+                        const view = values.savedQueries.find((query) => query.id === ref.id)
+                        if (!view) {
+                            return []
+                        }
+                        tableName = view.name
+                        columns = (view.columns ?? []).map((column) => ({
+                            name: column.name,
+                            type: String(column.type),
+                            description: null,
+                        }))
+                    } else {
+                        const table = await api.dataWarehouseTables.get(ref.id)
+                        breakpoint()
+                        tableName = table.hogql_name || table.name
+                        columns = (table.columns ?? []).map((column) => ({
+                            name: column.name,
+                            type: String(column.type),
+                            description: null,
+                        }))
+                    }
                     // Seed each column's canonical description from the warehouse catalog. Best-effort:
                     // descriptions are often unset for warehouse columns, and the catalog query mustn't
                     // block picking columns, so any failure leaves descriptions null.
+                    const descriptionByColumn = new Map<string, string>()
                     try {
-                        const tableName = table.hogql_name || table.name
                         const response = (await api.query({
                             kind: NodeKind.HogQLQuery,
                             query: hogql`
@@ -680,7 +796,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                                 where table_name = ${tableName}
                             `,
                         })) as HogQLQueryResponse
-                        const descriptionByColumn = new Map<string, string>()
                         for (const row of (response.results ?? []) as unknown[][]) {
                             const name = row[0] as string | null
                             const description = row[1] as string | null
@@ -688,13 +803,16 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                                 descriptionByColumn.set(name, description)
                             }
                         }
-                        return columns.map((column) => ({
-                            ...column,
-                            description: descriptionByColumn.get(column.name) ?? null,
-                        }))
                     } catch {
-                        return columns
+                        // Descriptions stay null on failure — the catalog query must not block picking columns.
                     }
+                    // Drop this result if a newer source selection has started since, so a slow table fetch
+                    // can't overwrite the columns of the source the user has since picked.
+                    breakpoint()
+                    return columns.map((column) => ({
+                        ...column,
+                        description: descriptionByColumn.get(column.name) ?? null,
+                    }))
                 },
             },
         ],
@@ -747,13 +865,13 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 savedQuery,
                 sourceColumn,
                 keyColumn,
-                warehouseTable,
+                warehouseSource,
             }: CustomPropertyFormValues) => {
-                // Person and group both feed from a warehouse table; account can also via a view.
+                // Person and group read a synced table or a materialized view; account reads a view.
                 const isProfile = targetType === 'person' || targetType === 'group'
                 const isAccountWarehouse = !isProfile && sourceMode === 'data_warehouse'
-                // The table + column map are create-only, so only require them when creating a new
-                // profile source — an existing source keeps only key_column and enabled editable.
+                // The binding + column map are create-only, so only require them when creating a new
+                // profile source. An existing source keeps only key_column and enabled editable.
                 const isNewProfileSource = isProfile && !values.editingDefinition?.source
                 return {
                     name: !name?.trim() ? 'Name is required' : undefined,
@@ -767,7 +885,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     sourceColumn: isAccountWarehouse && !sourceColumn ? 'Select the value column' : undefined,
                     keyColumn:
                         (isAccountWarehouse || isProfile) && !keyColumn?.trim() ? 'Enter the key column' : undefined,
-                    warehouseTable: isNewProfileSource && !warehouseTable ? 'Select a warehouse table' : undefined,
+                    warehouseSource:
+                        isNewProfileSource && !warehouseSource ? 'Select a table or view to read from' : undefined,
                 }
             },
             submit: async (formValues: CustomPropertyFormValues) => {
@@ -786,27 +905,28 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 try {
                     const { targetType, sourceMode, savedQuery, sourceColumn, keyColumn, isEnabled } = formValues
                     const existingSource = editing?.source ?? null
-                    // Person and group sources share the same warehouse binding (schema + column map).
+                    // Person and group sources map columns from one warehouse object: a synced table's
+                    // schema, or a materialized view.
                     if (targetType === 'person' || targetType === 'group') {
-                        const schemaId = values.selectedWarehouseSchemaId
+                        const binding = values.profileSourceBinding
                         if (existingSource) {
                             // The binding + column map are create-only on the backend; only key_column
-                            // and is_enabled are mutable on a person source.
+                            // and is_enabled are mutable on a profile source.
                             await customPropertySourcesPartialUpdate(projectId, existingSource.id, {
                                 key_column: keyColumn ?? '',
                                 is_enabled: isEnabled,
                             })
-                        } else if (!schemaId) {
-                            // Form validation passed but the table's schema no longer resolves — it was
-                            // deleted or unsynced between load and save. Surface it instead of silently
-                            // creating the definition without its source.
-                            throw new Error('The selected warehouse table is no longer available')
+                        } else if (!binding) {
+                            // Form validation passed but the picked table or view no longer resolves: it
+                            // was deleted, unsynced, or unmaterialized between load and save. Surface it
+                            // instead of silently creating the definition without its source.
+                            throw new Error('The selected table or view is no longer available')
                         } else if (!keyColumn?.trim()) {
                             throw new Error('Enter the distinct ID column')
                         } else {
                             await customPropertySourcesCreate(projectId, {
                                 definition: definition.id,
-                                external_data_schema: schemaId,
+                                [binding.field]: binding.id,
                                 column_property_map: values.serializedColumnPropertyMap,
                                 column_descriptions: values.serializedColumnDescriptions,
                                 key_column: keyColumn.trim(),
@@ -840,6 +960,13 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         },
     })),
     selectors({
+        // Only true before the list has ever landed. `definitionsLoading` also goes true on every
+        // poll while a sync runs, and a table that blanks itself every few seconds is unusable.
+        definitionsInitialLoading: [
+            (s) => [s.definitionsLoading, s.definitions],
+            (definitionsLoading: boolean, definitions: CustomPropertyDefinitionApi[]): boolean =>
+                definitionsLoading && definitions.length === 0,
+        ],
         materializedViews: [
             (s) => [s.savedQueries],
             (savedQueries: DataWarehouseSavedQuery[]): DataWarehouseSavedQuery[] =>
@@ -852,34 +979,105 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 return (view?.columns ?? []).map((column) => column.name)
             },
         ],
-        // The chosen warehouse table's schema id — what a person source actually binds to.
-        selectedWarehouseSchemaId: [
-            (s) => [s.warehouseTables, s.customPropertyForm],
-            (warehouseTables: DataWarehouseTable[], form: CustomPropertyFormValues): string | null =>
-                warehouseTables.find((table) => table.id === form.warehouseTable)?.external_schema?.id ?? null,
+        // Tables and views in one list, each tagged with its kind, so the picker offers both.
+        warehouseSourceOptions: [
+            (s) => [s.warehouseTables, s.materializedViews],
+            (
+                warehouseTables: DataWarehouseTable[],
+                materializedViews: DataWarehouseSavedQuery[]
+            ): WarehouseSourceOption[] => [
+                ...warehouseTables.map((table) => ({
+                    value: encodeWarehouseSource('table', table.id),
+                    label: table.hogql_name || table.name,
+                    kind: 'table' as const,
+                })),
+                ...materializedViews.map((view) => ({
+                    value: encodeWarehouseSource('view', view.id),
+                    label: view.name,
+                    kind: 'view' as const,
+                })),
+            ],
         ],
-        // The person-target column mappings as the backend's `column_property_map` object.
+        // Whether the project has anything a profile source could read. A project with views but no
+        // synced tables is still usable, so the empty state has to consider both.
+        hasWarehouseSourceOptions: [
+            (s) => [s.hasSyncedWarehouseTables, s.materializedViews],
+            (hasSyncedWarehouseTables: boolean | null, materializedViews: DataWarehouseSavedQuery[]): boolean | null =>
+                materializedViews.length > 0 ? true : hasSyncedWarehouseTables,
+        ],
+        // What the create call sends for the picked source: a table resolves to its schema id, a view
+        // binds by its own id. Null when the pick no longer resolves.
+        profileSourceBinding: [
+            (s) => [s.warehouseTables, s.materializedViews, s.customPropertyForm],
+            (
+                warehouseTables: DataWarehouseTable[],
+                materializedViews: DataWarehouseSavedQuery[],
+                form: CustomPropertyFormValues
+            ): ProfileSourceBinding | null => {
+                const ref = decodeWarehouseSource(form.warehouseSource)
+                if (!ref) {
+                    return null
+                }
+                if (ref.kind === 'view') {
+                    return materializedViews.some((view) => view.id === ref.id)
+                        ? { field: 'saved_query', id: ref.id }
+                        : null
+                }
+                const schemaId = warehouseTables.find((table) => table.id === ref.id)?.external_schema?.id
+                return schemaId ? { field: 'external_data_schema', id: schemaId } : null
+            },
+        ],
+        // Columns a bulk map would add: everything the source exposes except the key column, whose
+        // values identify the person or group rather than describing it, and columns already mapped.
+        mappableColumns: [
+            (s) => [s.selectedTableColumns, s.customPropertyForm],
+            (selectedTableColumns: WarehouseColumn[], form: CustomPropertyFormValues): WarehouseColumn[] => {
+                const keyColumn = form.keyColumn?.trim()
+                const alreadyMapped = new Set(
+                    form.columnMappings.map((mapping) => mapping.column.trim()).filter(Boolean)
+                )
+                return selectedTableColumns.filter(
+                    (column) => column.name !== keyColumn && !alreadyMapped.has(column.name)
+                )
+            },
+        ],
+        // The person-target column mappings as the backend's `column_property_map` object. The key
+        // column is never mapped: its values identify the person/group. Bulk mapping already excludes
+        // the key column, but the key can be changed afterwards, and the map is create-only, so a key
+        // column left in a row here would be written as a property with no way to undo it.
         serializedColumnPropertyMap: [
             (s) => [s.customPropertyForm],
-            (form: CustomPropertyFormValues): Record<string, string> =>
-                Object.fromEntries(
-                    form.columnMappings
-                        .filter((mapping) => mapping.column.trim() && mapping.property.trim())
-                        .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
-                ),
-        ],
-        // The per-mapping descriptions as the backend's `column_descriptions` object ({column:
-        // description}), only for complete mappings that carry a non-empty description.
-        serializedColumnDescriptions: [
-            (s) => [s.customPropertyForm],
-            (form: CustomPropertyFormValues): Record<string, string> =>
-                Object.fromEntries(
+            (form: CustomPropertyFormValues): Record<string, string> => {
+                const keyColumn = form.keyColumn?.trim()
+                return Object.fromEntries(
                     form.columnMappings
                         .filter(
-                            (mapping) => mapping.column.trim() && mapping.property.trim() && mapping.description.trim()
+                            (mapping) =>
+                                mapping.column.trim() && mapping.property.trim() && mapping.column.trim() !== keyColumn
+                        )
+                        .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
+                )
+            },
+        ],
+        // The per-mapping descriptions as the backend's `column_descriptions` object ({column:
+        // description}), only for complete mappings that carry a non-empty description. The key column
+        // is excluded alongside its property, so both stay consistent.
+        serializedColumnDescriptions: [
+            (s) => [s.customPropertyForm],
+            (form: CustomPropertyFormValues): Record<string, string> => {
+                const keyColumn = form.keyColumn?.trim()
+                return Object.fromEntries(
+                    form.columnMappings
+                        .filter(
+                            (mapping) =>
+                                mapping.column.trim() &&
+                                mapping.property.trim() &&
+                                mapping.description.trim() &&
+                                mapping.column.trim() !== keyColumn
                         )
                         .map((mapping) => [mapping.column.trim(), mapping.description.trim()])
-                ),
+                )
+            },
         ],
         // Warn-only collision check per mapping: a chosen person-property name that is `$`-prefixed,
         // an identity property, or already defined on persons could overwrite existing values.
@@ -903,16 +1101,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             },
         ],
         filteredDefinitions: [
-            (s) => [s.definitions, s.searchTerm],
-            (definitions: CustomPropertyDefinitionApi[], searchTerm: string): CustomPropertyDefinitionApi[] => {
+            (s) => [s.definitions, s.searchTerm, s.targetTypeFilter],
+            (
+                definitions: CustomPropertyDefinitionApi[],
+                searchTerm: string,
+                targetTypeFilter: CustomPropertyTargetTypeFilter
+            ): CustomPropertyDefinitionApi[] => {
                 const query = searchTerm.trim().toLowerCase()
-                if (!query) {
-                    return definitions
-                }
                 return definitions.filter(
                     (definition) =>
-                        definition.name.toLowerCase().includes(query) ||
-                        definition.description?.toLowerCase().includes(query)
+                        (targetTypeFilter === 'all' || (definition.target_type ?? 'account') === targetTypeFilter) &&
+                        (!query ||
+                            definition.name.toLowerCase().includes(query) ||
+                            definition.description?.toLowerCase().includes(query))
                 )
             },
         ],
@@ -931,6 +1132,29 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        mapAllColumns: () => {
+            if (!values.mappableColumns.length) {
+                return
+            }
+            // Rows the user already started are kept, and the columns behind them are excluded from
+            // mappableColumns, so a bulk map never duplicates or discards hand-entered work. A row
+            // counts as started if it holds a column, property, or description, so a property typed
+            // before its column (including one left after a source switch clears columns but keeps
+            // the name) survives. Only fully empty placeholder rows drop out.
+            const started = values.customPropertyForm.columnMappings.filter(
+                (mapping) => mapping.column.trim() || mapping.property.trim() || mapping.description.trim()
+            )
+            actions.setCustomPropertyFormValue('columnMappings', [
+                ...started,
+                ...values.mappableColumns.map((column) => ({
+                    column: column.name,
+                    // Same name on both sides: it is what the per-row picker already seeds, and a
+                    // rename is a decision for the person, not a default worth guessing at.
+                    property: column.name,
+                    description: column.description ?? '',
+                })),
+            ])
+        },
         openCreateModal: ({ targetType }) => {
             actions.resetCustomPropertyForm()
             if (targetType) {
@@ -967,9 +1191,9 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 savedQuery: definition.source?.saved_query ?? null,
                 sourceColumn: definition.source?.source_column ?? null,
                 keyColumn: definition.source?.key_column ?? null,
-                // The warehouse-table binding is create-only, so on edit we surface the existing map
-                // (read-only in the modal) rather than resolving the table back for the picker.
-                warehouseTable: null,
+                // The warehouse binding is create-only, so on edit we surface the existing map
+                // (read-only in the modal) rather than resolving the source back for the picker.
+                warehouseSource: null,
                 columnMappings: isProfile
                     ? parseColumnPropertyMap(
                           definition.source?.column_property_map,
@@ -980,17 +1204,25 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             })
         },
         loadWarehouseTablesSuccess: () => {
-            // On edit the table binding is create-only and hidden, but the distinct-ID column stays
-            // editable — so resolve the bound table from the source's schema and load its columns to
-            // drive that picker. Resolving here (not in openEditModal) waits for the table list to load.
+            // On edit the binding is create-only and hidden, but the distinct-ID column stays editable,
+            // so resolve the bound table from the source's schema and load its columns to drive that
+            // picker. Resolving here (not in openEditModal) waits for the table list to load.
             const source = values.editingDefinition?.source
             if (source?.external_data_schema) {
                 const table = values.warehouseTables.find(
                     (candidate) => candidate.external_schema?.id === source.external_data_schema
                 )
                 if (table) {
-                    actions.loadSelectedTableColumns({ tableId: table.id })
+                    actions.loadSelectedTableColumns({ source: encodeWarehouseSource('table', table.id) })
                 }
+            }
+        },
+        loadSavedQueriesSuccess: () => {
+            // The view-bound counterpart of the above: a view-backed source keeps its key column
+            // editable too, and its columns come off the saved query rather than a table fetch.
+            const source = values.editingDefinition?.source
+            if (source?.saved_query && !source.external_data_schema) {
+                actions.loadSelectedTableColumns({ source: encodeWarehouseSource('view', source.saved_query) })
             }
         },
         submitCustomPropertyFormSuccess: () => {

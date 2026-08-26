@@ -51,6 +51,7 @@ import {
     isLegacyExperimentQuery,
     metricResults,
     percentageDistribution,
+    toConcurrencyPayload,
     toExperimentWritePayload,
 } from './utils'
 
@@ -2065,5 +2066,64 @@ describe('toExperimentWritePayload', () => {
         expect(toExperimentWritePayload({ parameters: { variant_notes: {} } } as unknown as Experiment)).toEqual({
             parameters: { variant_notes: {} },
         })
+    })
+})
+
+describe('toConcurrencyPayload', () => {
+    const unmodified = {
+        id: 7,
+        version: 4,
+        metrics: [{ uuid: 'm1' }],
+        metrics_secondary: [],
+        saved_metrics: [{ saved_metric: 11, metadata: { type: 'secondary' } }],
+        start_date: '2026-07-02T23:10:00Z',
+        end_date: null,
+        name: 'Checkout test',
+        description: 'Original description',
+        exposure_criteria: { filterTestAccounts: true },
+        stats_config: { method: 'bayesian' },
+        running_time_calculation: { recommended_running_time: 12 },
+        holdout_id: 5,
+        conclusion: null,
+        conclusion_comment: null,
+        parameters: {},
+        excluded_variants: [],
+        only_count_matured_users: false,
+    } as unknown as Experiment
+
+    it('sends the version plus metric collections and scalar bases for server-side three-way merge', () => {
+        const payload = toConcurrencyPayload(unmodified)
+
+        expect(payload.version).toEqual(4)
+        expect(payload.original_experiment).toEqual(
+            expect.objectContaining({
+                metrics: unmodified.metrics,
+                metrics_secondary: [],
+                saved_metrics_ids: [{ id: 11, metadata: { type: 'secondary' } }],
+                name: 'Checkout test',
+                description: 'Original description',
+                start_date: '2026-07-02T23:10:00Z',
+                end_date: null,
+                exposure_criteria: { filterTestAccounts: true },
+                stats_config: { method: 'bayesian' },
+                running_time_calculation: { recommended_running_time: 12 },
+                holdout_id: 5,
+            })
+        )
+    })
+
+    it('sends explicit nulls for absent scalar bases so the server can tell "empty" from "unknown"', () => {
+        // An undefined base is dropped by JSON serialization; the server then falls back to
+        // rejecting any change to that field, which is exactly the over-rejection being fixed.
+        const payload = toConcurrencyPayload({
+            ...unmodified,
+            start_date: undefined,
+            holdout_id: undefined,
+            exposure_criteria: undefined,
+        } as unknown as Experiment)
+
+        expect(payload.original_experiment?.start_date).toBeNull()
+        expect(payload.original_experiment?.holdout_id).toBeNull()
+        expect(payload.original_experiment?.exposure_criteria).toBeNull()
     })
 })

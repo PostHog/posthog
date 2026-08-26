@@ -70,6 +70,8 @@ export interface OnboardingFlowContext {
      * via `featureFlagLogic.findMounted()` (an imperative read never re-fires the flow).
      */
     featureFlags: FeatureFlagsSet
+    /** Experiment arm + AI-subscription availability — drives the trailing weekly-report step. */
+    showAIReportsStep: boolean
 }
 
 export type StepProvider = (ctx: OnboardingFlowContext) => OnboardingStepDescriptor[]

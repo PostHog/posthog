@@ -77,6 +77,12 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
 MAX_EVENT_DESCRIPTION_LENGTH = 500
 
+NOT_SEEN_RECENTLY_MARKER = "(not seen in the last 30 days)"
+NOT_SEEN_RECENTLY_LEGEND = (
+    f"Events marked {NOT_SEEN_RECENTLY_MARKER} are listed for reference only. This project has sent none of them "
+    "recently, so never present them as data it is collecting."
+)
+
 
 def sanitize_event_description(text: str) -> str:
     """Neutralize an untrusted event description before it goes into the model's context.
@@ -198,18 +204,24 @@ def _process_events_data(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    event_source: EventSource = EventSource.POSTHOG_AI,
 ) -> tuple[list[dict], dict[str, str], bool]:
     """Common logic for processing events and building event data."""
     query = TeamTaxonomyQuery(limit=limit, offset=offset)
     response = TeamTaxonomyQueryRunner(query, team, user=user).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-        analytics_props={"source": EventSource.POSTHOG_AI},
+        user=user,
+        analytics_props={"source": event_source},
     )
 
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
         raise ValueError("Failed to generate events prompt.")
 
     has_more = bool(response.hasMore)
+
+    # The runner pads its results with well-known event names at count 0, so a zero count means the
+    # project has no such event in the query window — not that the event is merely rare.
+    not_seen_recently = {item.event for item in response.results if item.count == 0}
 
     events: list[str] = [
         # Add "All events" to the mapping
@@ -237,7 +249,9 @@ def _process_events_data(
 
     processed_events = []
     for event_name in events:
-        event_data = {"name": event_name}
+        event_data: dict[str, Any] = {"name": event_name}
+        if event_name in not_seen_recently:
+            event_data["not_seen_recently"] = True
 
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
             # Only skip if it's not in context (context events should always be included)
@@ -328,6 +342,8 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user
         if "description" in event_data:
             desc_tag = ET.SubElement(event_tag, "description")
             desc_tag.text = event_data["description"]
+        if event_data.get("not_seen_recently"):
+            ET.SubElement(event_tag, "not_seen_recently").text = "true"
 
     return ET.tostring(root, encoding="unicode")
 
@@ -338,14 +354,25 @@ def format_events_yaml(
     user: User,
     limit: int | None = None,
     offset: int | None = None,
+    event_source: EventSource = EventSource.POSTHOG_AI,
 ) -> str:
-    processed_events, _, has_more = _process_events_data(events_in_context, team, user, limit=limit, offset=offset)
+    processed_events, _, has_more = _process_events_data(
+        events_in_context, team, user, limit=limit, offset=offset, event_source=event_source
+    )
 
     formatted_events = ["events:"]
+    any_not_seen_recently = False
     for event_data in processed_events:
         name = event_data["name"]
         description = event_data.get("description", "")
-        formatted_events.append(f"- `{name}` - {description}" if description else f"- `{name}`")
+        line = f"- `{name}` - {description}" if description else f"- `{name}`"
+        if event_data.get("not_seen_recently"):
+            any_not_seen_recently = True
+            line += f" {NOT_SEEN_RECENTLY_MARKER}"
+        formatted_events.append(line)
+
+    if any_not_seen_recently:
+        formatted_events.append(f"\n# {NOT_SEEN_RECENTLY_LEGEND}")
 
     if has_more:
         next_offset = (offset or 0) + (limit or 500)
@@ -482,14 +509,18 @@ def cast_assistant_query(
         raise ValueError(f"Unsupported query type: {query.kind}")
 
 
-def build_insight_url(team: Team, id: str) -> str:
-    """Build the URL for an insight."""
-    return f"/project/{team.id}/insights/{id}"
+def build_insight_url(id: str) -> str:
+    """Build the URL for an insight.
+
+    Unprefixed by `/project/<id>`: these URLs are handed to the model, which is instructed to omit
+    that prefix, and the app resolves them against the project the user is already in.
+    """
+    return f"/insights/{id}"
 
 
-def build_dashboard_url(team: Team, id: int) -> str:
-    """Build the URL for a dashboard."""
-    return f"/project/{team.id}/dashboard/{id}"
+def build_dashboard_url(id: int) -> str:
+    """Build the URL for a dashboard. Unprefixed, for the same reason as `build_insight_url`."""
+    return f"/dashboard/{id}"
 
 
 def extract_stream_update(update: Any) -> Any:

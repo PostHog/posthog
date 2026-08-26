@@ -3,12 +3,12 @@ import { TaskExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 import {
     EnhancedToolCall,
     RecordingsWidgetDef,
-    SessionSummarizationWidgetDef,
+    ReplayVisionScanWidgetDef,
     ToolRegistration,
     getToolDefinitionFromToolCall,
 } from './max-constants'
 
-export type ToolCallWidgetDef = RecordingsWidgetDef | SessionSummarizationWidgetDef
+export type ToolCallWidgetDef = RecordingsWidgetDef | ReplayVisionScanWidgetDef
 
 /**
  * Returns the human-readable description of a tool call plus the widget definition (data,

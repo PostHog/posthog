@@ -35,7 +35,7 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _social_auth_backend() -> BaseAuth:
@@ -201,7 +201,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 52
+        cls.base_app_num_queries = 53
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -355,7 +355,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
         with self.assertNumQueries(
             FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
-        ):  # +1 from activity logging _get_before_update(), +1 from passkey credential review check
+        ):  # +1 from activity logging _get_before_update(), +1 from the credential review checks
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -859,6 +859,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         [
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
+            # digit-containing kind — the allowlist regex used to miss these. The kind is
+            # made up on purpose: the middleware matches on the path alone, and a real kind
+            # here would execute a product-owned query runner from a core test.
+            ("query_kind_digit", "query/SomeV2Query/", {"query": {"kind": "SomeV2Query"}}),
+            ("query_upgrade", "query/upgrade/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
             (
                 "external_data_schemas_incremental_fields",
@@ -884,6 +889,18 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         )
 
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
+    def test_read_only_impersonation_blocks_query_cancellation(self):
+        self.login_as_other_user_read_only()
+
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        # DELETE /query/<id>/ cancels a query. The ID below matches the allowlisted query
+        # path pattern, so only the method check keeps this blocked.
+        response = self.client.delete(f"/api/projects/{self.team.id}/query/SomeQueryId123/")
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_read_only"
 
     def test_regular_impersonation_allows_write(self):
         """Verify regular (non-read-only) impersonation can still write."""
@@ -1853,6 +1870,22 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
 
+    def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
+        # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
+        # renaming it silently stops crash ingestion.
+        response = self.client.get("/")
+        header = response["Reporting-Endpoints"]
+        assert 'posthog="https://us.i.posthog.com/report/' in header
+        assert 'default="https://us.i.posthog.com/report/' in header
+        assert f"distinct_id={self.user.distinct_id}" in header
+
+    def test_reporting_endpoints_omit_distinct_id_when_logged_out(self):
+        self.client.logout()
+        response = self.client.get("/login")
+        header = response["Reporting-Endpoints"]
+        assert 'default="https://us.i.posthog.com/report/' in header
+        assert "distinct_id" not in header
+
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
@@ -2028,8 +2061,10 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     from django.http import HttpResponse
     from django.test import RequestFactory
 
-    from posthog.clickhouse.query_tagging import get_query_tags
+    from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
     from posthog.middleware import CHQueries
+
+    reset_query_tags()
 
     captured: dict = {}
 

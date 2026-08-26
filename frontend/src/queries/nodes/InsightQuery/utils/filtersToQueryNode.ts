@@ -80,7 +80,11 @@ import {
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
 
 const insightTypeToNodeKind: Record<
-    Exclude<InsightType, InsightType.JSON | InsightType.SQL | InsightType.HOG | InsightType.WEB_ANALYTICS>,
+    // Journeys insights are query-native and never come from legacy filters
+    Exclude<
+        InsightType,
+        InsightType.JSON | InsightType.SQL | InsightType.HOG | InsightType.WEB_ANALYTICS | InsightType.JOURNEYS
+    >,
     ProductAnalyticsInsightNodeKind
 > = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,

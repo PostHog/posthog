@@ -11,6 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ApplyPresetApi,
     AuditCountsApi,
+    AvailableToolsResponseApi,
+    CallToolRequestApi,
+    CallToolResponseApi,
     GatewayConfigUpdateApi,
     GatewayMemberSummaryApi,
     GatewayPoliciesUpsertApi,
@@ -738,7 +741,20 @@ export const getMcpGatewayServiceAccountsAccessCreateUrl = (projectId: string, i
 }
 
 /**
- * Grant or revoke this agent's access to one gateway server.
+ * Share, or stop sharing, one gateway server with this agent.
+ *
+ * Sharing is personal. `enabled=true` delegates the caller's own
+ * connection, and the agent may use it only when acting for the caller,
+ * unless the caller sends `scope=team` to lend it to the project's agent
+ * runs generally. Scope only ever applies to the caller's own share: it is
+ * their credential to lend, so no admin permission is involved and no
+ * member can change someone else's share.
+ * `enabled=false` removes the caller's own share and leaves other members'
+ * shares, and the agent's tool policies, in place.
+ *
+ * Project admins can send `all=true` alongside `enabled=false` to remove
+ * every member's share of this server with this agent, along with the
+ * agent's tool policies for it.
  */
 export const mcpGatewayServiceAccountsAccessCreate = async (
     projectId: string,
@@ -861,6 +877,31 @@ export const mcpServerInstallationsDestroy = async (
     return apiMutator<void>(getMcpServerInstallationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getMcpServerInstallationsCallToolCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/${id}/call_tool/`
+}
+
+/**
+ * Invoke one tool on a connected MCP server.
+ *
+ * The request/response shape is plain REST rather than the JSON-RPC envelope
+ * `proxy` speaks, because the caller here is an agent surface (the PostHog MCP's
+ * `exec`) that wants one tool result, not an MCP transport of its own.
+ */
+export const mcpServerInstallationsCallToolCreate = async (
+    projectId: string,
+    id: string,
+    callToolRequestApi: CallToolRequestApi,
+    options?: RequestInit
+): Promise<CallToolResponseApi> => {
+    return apiMutator<CallToolResponseApi>(getMcpServerInstallationsCallToolCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(callToolRequestApi),
     })
 }
 
@@ -1020,6 +1061,29 @@ export const mcpServerInstallationsAuthorizeRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMcpServerInstallationsAuthorizeRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpServerInstallationsAvailableToolsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_server_installations/available_tools/`
+}
+
+/**
+ * Every tool the caller can currently reach, across all their connections.
+ *
+ * One request instead of one per connection: an agent surface resolving its
+ * tool list on each session cannot afford a fan-out. `do_not_use` and removed
+ * tools are omitted — an agent should not see what it cannot call — while
+ * `needs_approval` tools are listed with their state so the caller can explain
+ * the block rather than report the capability as missing.
+ */
+export const mcpServerInstallationsAvailableToolsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AvailableToolsResponseApi> => {
+    return apiMutator<AvailableToolsResponseApi>(getMcpServerInstallationsAvailableToolsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

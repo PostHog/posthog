@@ -5,6 +5,7 @@ import { z } from "zod";
 export const prReviewCommentUserSchema = z.object({
   login: z.string(),
   avatar_url: z.string(),
+  isBot: z.boolean().optional(),
 });
 
 export const prReviewCommentSchema = z.object({
@@ -156,6 +157,7 @@ export type GetPrChecksOutput = z.infer<typeof getPrChecksOutput>;
 export const prConversationCommentSchema = z.object({
   id: z.number(),
   author: z.string(),
+  isBot: z.boolean().optional(),
   avatarUrl: z.string().nullable(),
   body: z.string(),
   createdAt: z.string(),

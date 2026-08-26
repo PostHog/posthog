@@ -39,6 +39,10 @@ import {
   EXTERNAL_APPS_WORKSPACE_CLIENT,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import {
+  FILE_READ_CLIENT,
+  type FileReadClient,
+} from "@posthog/core/files/identifiers";
 import type {
   GitInteractionEffects,
   GitInteractionService,
@@ -107,12 +111,10 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import type {
-  FileReadClient,
   GithubPrTitleClient,
   TitleGeneratorLogger,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
 import {
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
@@ -214,6 +216,10 @@ import {
   type McpSandboxProxyUrlProvider,
 } from "@posthog/ui/features/mcp-apps/identifiers";
 import {
+  MISSION_CONTROL_CLIENT,
+  type MissionControlClient,
+} from "@posthog/ui/features/mission-control/identifiers";
+import {
   NAVIGATION_TASK_BINDER,
   type NavigationTaskBinder,
 } from "@posthog/ui/features/navigation/taskBinder";
@@ -226,9 +232,17 @@ import {
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
 import {
+  QUICK_ASK_SETTINGS_CLIENT,
+  type QuickAskSettingsClient,
+} from "@posthog/ui/features/quick-ask/identifiers";
+import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
+import {
+  ARTIFACT_HTML_FRAME_COMPONENT,
+  type ArtifactHtmlFrameComponent,
+} from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,
@@ -292,10 +306,13 @@ export interface RendererBindings {
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
   [BROWSER_TABS_CLIENT]: BrowserTabsClient;
   [DISCORD_PRESENCE_CLIENT]: DiscordPresenceClient;
+  [QUICK_ASK_SETTINGS_CLIENT]: QuickAskSettingsClient;
+  [MISSION_CONTROL_CLIENT]: MissionControlClient;
   [SHELL_CLIENT]: ShellClient;
   [FOCUS_CONTROLLER_DEPS]: FocusControllerDeps;
   [DIFF_WORKER_FACTORY]: DiffWorkerFactory;
   [REVIEW_HOST]: ReviewHost;
+  [ARTIFACT_HTML_FRAME_COMPONENT]: ArtifactHtmlFrameComponent;
   [MCP_TOOL_BLOCK_COMPONENT]: McpToolBlockComponent;
   [MCP_APP_HOST_COMPONENT]: McpAppHostComponent;
   [MCP_SANDBOX_PROXY_URL]: McpSandboxProxyUrlProvider;
@@ -337,7 +354,7 @@ export interface RendererBindings {
   [CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES]: ResolveSkillBundleDependencies;
   [CLOUD_ARTIFACT_READ_FILE_AS_BASE64]: ReadFileAsBase64;
   [LLM_GATEWAY_SERVICE]: LlmGatewayService;
-  [TITLE_GENERATOR_FILE_READ_CLIENT]: FileReadClient;
+  [FILE_READ_CLIENT]: FileReadClient;
   [TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT]: GithubPrTitleClient;
   [TITLE_GENERATOR_LOGGER]: TitleGeneratorLogger;
 

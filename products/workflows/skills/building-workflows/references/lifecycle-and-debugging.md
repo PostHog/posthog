@@ -37,10 +37,11 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 - `workflows-list-invocations` — per-recipient outcomes (one per person/event): status, error_kind/error_message, distinct_id, person_id, timings. Filter `status=failed`.
 - `workflows-get-invocation` — a single invocation incl. `invocation_globals` (the raw triggering payload that ran). The broad→narrow drill-down (global-stats → stats → invocations → get-invocation → logs) is in [SKILL.md](../SKILL.md).
 
-**Discover function templates** (for `function` nodes and webhook/manual/tracking_pixel triggers)
+**Discover function templates** (for `function` nodes)
 
 - `cdp-function-templates-list` — the live catalog of function templates (filter `type=destination`). Source of truth for which integrations exist; don't hardcode template ids.
 - `cdp-function-templates-retrieve` — one template's full detail including its `inputs_schema`. Read this before building a `function` node's `inputs`.
+- Don't come here for `webhook` / `manual` / `tracking_pixel` triggers or `function_email` / `function_sms` / `function_push` steps — those take fixed literal template ids that this catalog never lists. See [graph-schema.md](graph-schema.md).
 
 **Email templates** (compose and edit with the `designing-email-templates` skill)
 

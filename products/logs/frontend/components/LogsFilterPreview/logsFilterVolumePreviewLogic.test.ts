@@ -16,15 +16,19 @@ const nonEmptyGroup: UniversalFiltersGroup = {
 describe('logsFilterVolumePreviewLogic', () => {
     let logic: ReturnType<typeof logsFilterVolumePreviewLogic.build>
     let sparklineCalls: number
+    let rankBysSeen: (string | undefined)[]
     let sparklineFails: boolean
 
     beforeEach(() => {
         sparklineCalls = 0
+        rankBysSeen = []
         sparklineFails = false
         useMocks({
             post: {
-                '/api/environments/:team_id/logs/sparkline/': () => {
+                '/api/environments/:team_id/logs/sparkline/': async ({ request }) => {
                     sparklineCalls += 1
+                    const body = (await request.clone().json()) as { query?: { sparklineRankBy?: string } }
+                    rankBysSeen.push(body?.query?.sparklineRankBy)
                     return sparklineFails ? [500, { detail: 'boom' }] : [200, SPARKLINE_ROWS]
                 },
             },
@@ -40,7 +44,7 @@ describe('logsFilterVolumePreviewLogic', () => {
 
     it('does not query for an empty filter group', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setFilterGroup({ type: FilterLogicalOperator.And, values: [] })
+            logic.actions.setPreviewRequest({ type: FilterLogicalOperator.And, values: [] }, 'count')
         }).toFinishAllListeners()
 
         expect(logic.values.filterPreview).toBeNull()
@@ -49,7 +53,7 @@ describe('logsFilterVolumePreviewLogic', () => {
 
     it('loads the preview for a non-empty filter group', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setFilterGroup(nonEmptyGroup)
+            logic.actions.setPreviewRequest(nonEmptyGroup, 'count')
         })
             .toDispatchActions(['loadFilterPreviewSuccess'])
             .toFinishAllListeners()
@@ -58,9 +62,38 @@ describe('logsFilterVolumePreviewLogic', () => {
         expect(sparklineCalls).toEqual(1)
     })
 
+    it('sends the rank metric so the backend collapses around the right top-N', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setPreviewRequest(nonEmptyGroup, 'bytes')
+        })
+            .toDispatchActions(['loadFilterPreviewSuccess'])
+            .toFinishAllListeners()
+
+        expect(rankBysSeen).toEqual(['bytes'])
+    })
+
+    it('refetches when only the rank metric changes', async () => {
+        // The filter is identical, but a bytes-ranked top-10 is a different set of services from a
+        // count-ranked one, so the cached count-ranked response can't be reused.
+        await expectLogic(logic, () => {
+            logic.actions.setPreviewRequest(nonEmptyGroup, 'count')
+        })
+            .toDispatchActions(['loadFilterPreviewSuccess'])
+            .toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setPreviewRequest(nonEmptyGroup, 'bytes')
+        })
+            .toDispatchActions(['loadFilterPreviewSuccess'])
+            .toFinishAllListeners()
+
+        expect(sparklineCalls).toEqual(2)
+        expect(rankBysSeen).toEqual(['count', 'bytes'])
+    })
+
     it('drops the previous result when a later filter fails to load', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setFilterGroup(nonEmptyGroup)
+            logic.actions.setPreviewRequest(nonEmptyGroup, 'count')
         })
             .toDispatchActions(['loadFilterPreviewSuccess'])
             .toFinishAllListeners()
@@ -70,7 +103,7 @@ describe('logsFilterVolumePreviewLogic', () => {
         // as if it described the newly selected filter.
         sparklineFails = true
         await expectLogic(logic, () => {
-            logic.actions.setFilterGroup({ ...nonEmptyGroup, type: FilterLogicalOperator.Or })
+            logic.actions.setPreviewRequest({ ...nonEmptyGroup, type: FilterLogicalOperator.Or }, 'count')
         })
             .toDispatchActions(['loadFilterPreviewFailure'])
             .toFinishAllListeners()
@@ -80,8 +113,8 @@ describe('logsFilterVolumePreviewLogic', () => {
 
     it('debounces rapid filter edits into a single request', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setFilterGroup(nonEmptyGroup)
-            logic.actions.setFilterGroup({ ...nonEmptyGroup, type: FilterLogicalOperator.Or })
+            logic.actions.setPreviewRequest(nonEmptyGroup, 'count')
+            logic.actions.setPreviewRequest({ ...nonEmptyGroup, type: FilterLogicalOperator.Or }, 'count')
         })
             .toDispatchActions(['loadFilterPreviewSuccess'])
             .toFinishAllListeners()

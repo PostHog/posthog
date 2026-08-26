@@ -277,8 +277,8 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
                 },
             },
         ],
-        // The Group view's configuration: the ordered dimensions to group by (behind the
-        // logs-group-by flag). Kept separate from viewMode so the choice survives switching
+        // The Group view's configuration: the ordered dimensions to group by. Kept separate
+        // from viewMode so the choice survives switching
         // lenses within a visit — Logs and back returns to the same grouping. Empty = no key
         // chosen yet (empty state). Not persisted across visits — grouping is an explicit,
         // per-visit exploration like Patterns.

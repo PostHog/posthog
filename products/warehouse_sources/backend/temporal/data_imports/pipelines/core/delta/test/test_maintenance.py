@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import deltalake
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (
+    COMPACT_OFFSET_OVERFLOW_RETRIES,
+    DeltaMaintenance,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 
 _MAINTENANCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance"
@@ -166,6 +169,57 @@ class TestCompactTable:
 
         assert mock_delta.optimize.compact.call_count == 2
         mock_delta.update_incremental.assert_called_once()
+
+
+class TestCompactOffsetOverflow:
+    """Regression coverage for the byte-array-offset-overflow panic (delta-rs binning several
+    already-safe files into one rewrite whose combined text column crosses the 32-bit offset
+    limit — see errors.is_offset_overflow_compaction_error)."""
+
+    @pytest.mark.asyncio
+    async def test_retries_with_smaller_target_size_then_succeeds(self):
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(
+            side_effect=[
+                deltalake.exceptions.DeltaError(
+                    'Generic error: task 1237385 panicked with message "byte array offset overflow"'
+                ),
+                {"numFilesAdded": 1},
+            ]
+        )
+        mock_delta.vacuum = MagicMock(return_value=[])
+
+        await _make_maintenance(mock_delta).compact_table()
+
+        assert mock_delta.optimize.compact.call_count == 2
+        first_target_size = mock_delta.optimize.compact.call_args_list[0].kwargs["target_size"]
+        second_target_size = mock_delta.optimize.compact.call_args_list[1].kwargs["target_size"]
+        assert second_target_size == first_target_size // 2
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_exhausting_retries(self):
+        # A table whose overflow can't be avoided at any reasonable bin size must still surface to
+        # error tracking instead of looping the retry ladder forever.
+        overflow_error = deltalake.exceptions.DeltaError(
+            'Generic error: task 42 panicked with message "byte array offset overflow"'
+        )
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(side_effect=overflow_error)
+
+        with pytest.raises(deltalake.exceptions.DeltaError):
+            await _make_maintenance(mock_delta)._compact(mock_delta)
+
+        assert mock_delta.optimize.compact.call_count == COMPACT_OFFSET_OVERFLOW_RETRIES + 1
+
+    @pytest.mark.asyncio
+    async def test_unrelated_delta_error_is_not_retried(self):
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(side_effect=deltalake.exceptions.DeltaError("no protocol found"))
+
+        with pytest.raises(deltalake.exceptions.DeltaError):
+            await _make_maintenance(mock_delta)._compact(mock_delta)
+
+        mock_delta.optimize.compact.assert_called_once()
 
 
 class TestVacuum:

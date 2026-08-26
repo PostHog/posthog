@@ -1,5 +1,6 @@
 database "posthog" {
   table "sharded_events_recent" {
+    override = true
     order_by     = ["team_id", "toStartOfHour(inserted_at)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toStartOfDay(inserted_at)"
     ttl          = "toDateTime(inserted_at) + toIntervalDay(7)"

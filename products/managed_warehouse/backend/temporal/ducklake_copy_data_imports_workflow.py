@@ -73,7 +73,6 @@ from products.managed_warehouse.backend.temporal.metrics import (
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-from products.warehouse_sources.backend.facade.pipelines import DUCKGRES_BATCH_SINK_FLAG, is_duckgres_sink_team_member
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
@@ -288,13 +287,7 @@ class DuckLakeCopyDataImportsVerificationResult:
 
 @activity.defn
 async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowGateInputs) -> bool:
-    """Evaluate whether the DuckLake data imports copy workflow should run for a team.
-
-    The mutual exclusion with the Duckgres v3 batch sink is per-source and lives in
-    prepare_data_imports_ducklake_metadata_activity (v3 sources the sink owns are
-    dropped there), not here: the sink only follows a team's v3 sources, so a
-    sink-enabled team can still have non-v3 sources that this workflow must copy.
-    """
+    """Evaluate whether the DuckLake data imports copy workflow should run for a team."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -351,38 +344,8 @@ async def _prepare_data_imports_ducklake_metadata(
         await logger.ainfo("DuckLake copy requested but no schema_ids were provided - skipping")
         return []
 
-    # Resolve the same per-team schema the v3 sink uses (table_suffix-aware), so the
-    # historical copy and the live sink never diverge on schema name. All schemas in the
-    # batch belong to one team, so this is loop-invariant — resolve it once.
+    # All schemas in the batch belong to one team, so resolve the destination once.
     ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
-
-    # Per-source mutual exclusion with the Duckgres v3 batch sink. The sink owns a
-    # registered team's v3 sources (it mirrors them live + backfills history), so
-    # drop those here; non-v3 sources stay on the copy workflow because the sink never
-    # touches them. A flagged team without a duckgres control-plane team row remains
-    # on this copy path until it completes the enable flow.
-    # is_pipeline_v3_enabled is the same gate the v3 router uses, so "copy" and
-    # "sink" never disagree on who owns a source (and both fail to "copy owns it").
-    # Lazy import: create_job_model pulls in temporalio.activity + the data_warehouse
-    # facade, which we don't want on this module's import path.
-    from products.warehouse_sources.backend.facade.pipelines import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
-        is_pipeline_v3_enabled,
-    )
-
-    sink_enabled = is_dev_mode()
-    try:
-        gate_team = await database_sync_to_async(Team.objects.only("uuid", "organization_id").get)(id=inputs.team_id)
-        if not sink_enabled and await database_sync_to_async(is_duckgres_sink_team_member)(inputs.team_id):
-            sink_enabled = feature_enabled_or_false(
-                DUCKGRES_BATCH_SINK_FLAG,
-                str(gate_team.uuid),
-                groups={"organization": str(gate_team.organization_id), "project": str(gate_team.id)},
-                send_feature_flag_events=False,
-            )
-    except Exception as error:
-        await logger.awarning("Failed to resolve duckgres batch sink ownership; copying all schemas", error=str(error))
-        capture_exception(error)
-    sink_owns_source_type: dict[str, bool] = {}
 
     model_list: list[DuckLakeCopyDataImportsMetadata] = []
 
@@ -394,18 +357,6 @@ async def _prepare_data_imports_ducklake_metadata(
         normalized_name = schema.normalized_name
         source_type = schema.source.source_type
 
-        if sink_enabled:
-            if source_type not in sink_owns_source_type:
-                sink_owns_source_type[source_type] = await database_sync_to_async(is_pipeline_v3_enabled)(
-                    inputs.team_id, source_type
-                )
-            if sink_owns_source_type[source_type]:
-                await logger.ainfo(
-                    "Skipping schema owned by the duckgres batch sink (v3 source)",
-                    schema_id=str(schema.id),
-                    source_type=source_type,
-                )
-                continue
         source_table_uri = _data_imports_source_table_uri(schema)
         staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
             source_table_uri, team_id=inputs.team_id
@@ -560,7 +511,7 @@ def _copy_data_imports_via_duckgres(
     schema = inputs.model.ducklake_schema_name
     table = f"{schema}.{inputs.model.ducklake_table_name}"
 
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, application_name="ducklake-copy") as conn:
         setup_duckgres_session(conn)
         create_staging_read_secret(conn, bucket)
         logger.info(
@@ -750,7 +701,7 @@ def _verify_data_imports_ducklake_copy_via_duckgres(
         inputs=inputs,
     )
 
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, application_name="ducklake-copy") as conn:
         setup_duckgres_session(conn)
         create_staging_read_secret(conn, urlparse(inputs.model.staging_uri).netloc)
         return _run_data_imports_verification_checks(

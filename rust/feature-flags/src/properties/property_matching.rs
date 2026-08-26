@@ -170,7 +170,10 @@ pub fn match_property(
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
     if partial_props && !matching_property_values.contains_key(key) {
-        tracing::warn!("Missing property for matching: {}", property.key);
+        // debug, not warn: this fires per filter per flag while person properties are
+        // degraded, and the request-level miss is already recorded at error level with
+        // a counter in get_person_properties_from_evaluation_state.
+        tracing::debug!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
             property.key

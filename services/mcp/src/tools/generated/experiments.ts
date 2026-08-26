@@ -29,6 +29,7 @@ import {
     ExperimentsDuplicateCreateParams,
     ExperimentsEndCreateBody,
     ExperimentsEndCreateParams,
+    ExperimentsFlagCleanupTaskRetrieveParams,
     ExperimentsFreezeExposureCreateParams,
     ExperimentsLaunchCreateParams,
     ExperimentsListQueryParams,
@@ -42,6 +43,7 @@ import {
     ExperimentsResetCreateParams,
     ExperimentsResumeCreateParams,
     ExperimentsRetrieveParams,
+    ExperimentsSessionEventDeltasCreateParams,
     ExperimentsShipVariantCreateBody,
     ExperimentsShipVariantCreateParams,
     ExperimentsTimeseriesResultsRetrieveParams,
@@ -52,7 +54,14 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    pickResponseFields,
+    withInformationalResponse,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
@@ -137,6 +146,24 @@ const experimentCalculateRunningTime = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const ExperimentCleanupTaskSchema = ExperimentsFlagCleanupTaskRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentsFlagCleanupTaskRetrieveParams.shape['id']),
+})
+
+const experimentCleanupTask = (): ToolBase<typeof ExperimentCleanupTaskSchema, Schemas.ExperimentFlagCleanupTask> => ({
+    name: 'experiment-cleanup-task',
+    schema: ExperimentCleanupTaskSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentCleanupTaskSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentFlagCleanupTask>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/flag_cleanup_task/`,
+        })
+        const filtered = omitResponseFields(result, ['can_view_task']) as typeof result
+        return filtered
     },
 })
 
@@ -412,7 +439,15 @@ const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unkno
 
 const ExperimentEndSchema = ExperimentsEndCreateParams.omit({ project_id: true })
     .extend(ExperimentsEndCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsEndCreateParams.shape['id']) })
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentsEndCreateParams.shape['id']),
+        open_cleanup_pr: ExperimentsEndCreateBody.shape['open_cleanup_pr'].describe(
+            "When true, a background PostHog Code task removes the experiment's feature flag code and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
+        ),
+        repository: ExperimentsEndCreateBody.shape['repository'].describe(
+            "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
+        ),
+    })
 
 const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
@@ -742,18 +777,34 @@ const ExperimentMetricsRecalculationLatestRetrieveSchema = ExperimentsMetricsRec
 const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
     typeof ExperimentMetricsRecalculationLatestRetrieveSchema,
     WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
-> => ({
-    name: 'experiment-metrics-recalculation-latest-retrieve',
-    schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
-        })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
-    },
-})
+> =>
+    withUiApp('experiment-results', {
+        name: 'experiment-metrics-recalculation-latest-retrieve',
+        schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
+        handler: async (
+            context: Context,
+            params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>
+        ) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
+            })
+            const filtered = omitResponseFields(result, [
+                'results.*.result.hogql',
+                'results.*.result.clickhouse_sql',
+                'results.*.result.cache_key',
+                'results.*.result.is_cached',
+                'results.*.result.cache_target_age',
+                'results.*.result.next_allowed_client_refresh',
+                'results.*.result.calculation_trigger',
+                'results.*.result.query_status',
+                'results.*.result.stats_version',
+                'results.*.result.insight',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
+        },
+    })
 
 const ExperimentMetricsRecalculationRetrieveSchema = ExperimentsMetricsRecalculationRetrieveParams.omit({
     project_id: true,
@@ -771,7 +822,19 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/${encodeURIComponent(String(params.recalculation_id))}/`,
         })
-        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
+        const filtered = omitResponseFields(result, [
+            'results.*.result.hogql',
+            'results.*.result.clickhouse_sql',
+            'results.*.result.cache_key',
+            'results.*.result.is_cached',
+            'results.*.result.cache_target_age',
+            'results.*.result.next_allowed_client_refresh',
+            'results.*.result.calculation_trigger',
+            'results.*.result.query_status',
+            'results.*.result.stats_version',
+            'results.*.result.insight',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
     },
 })
 
@@ -986,7 +1049,15 @@ const experimentSavedMetricsRetrieve = (): ToolBase<
 
 const ExperimentShipVariantSchema = ExperimentsShipVariantCreateParams.omit({ project_id: true })
     .extend(ExperimentsShipVariantCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']) })
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']),
+        open_cleanup_pr: ExperimentsShipVariantCreateBody.shape['open_cleanup_pr'].describe(
+            "When true, a background PostHog Code task removes the experiment's feature flag code, keeping the shipped variant's code path, and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
+        ),
+        repository: ExperimentsShipVariantCreateBody.shape['repository'].describe(
+            "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
+        ),
+    })
 
 const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
@@ -1042,23 +1113,34 @@ const ExperimentTimeseriesResultsSchema = ExperimentsTimeseriesResultsRetrievePa
     .extend(ExperimentsTimeseriesResultsRetrieveQueryParams.shape)
     .extend({ id: z.preprocess(castStringToInt, ExperimentsTimeseriesResultsRetrieveParams.shape['id']) })
 
-const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResultsSchema, unknown> =>
-    withUiApp('experiment-results', {
-        name: 'experiment-timeseries-results',
-        schema: ExperimentTimeseriesResultsSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentTimeseriesResultsSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<unknown>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
-                query: {
-                    fingerprint: params.fingerprint,
-                    metric_uuid: params.metric_uuid,
-                },
-            })
-            return result
-        },
-    })
+const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResultsSchema, unknown> => ({
+    name: 'experiment-timeseries-results',
+    schema: ExperimentTimeseriesResultsSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentTimeseriesResultsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/timeseries_results/`,
+            query: {
+                fingerprint: params.fingerprint,
+                metric_uuid: params.metric_uuid,
+            },
+        })
+        const filtered = omitResponseFields(result, [
+            'timeseries.*.hogql',
+            'timeseries.*.clickhouse_sql',
+            'timeseries.*.cache_key',
+            'timeseries.*.is_cached',
+            'timeseries.*.cache_target_age',
+            'timeseries.*.next_allowed_client_refresh',
+            'timeseries.*.calculation_trigger',
+            'timeseries.*.query_status',
+            'timeseries.*.stats_version',
+            'timeseries.*.insight',
+        ]) as typeof result
+        return filtered
+    },
+})
 
 const ExperimentUnarchiveSchema = ExperimentsUnarchiveCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsUnarchiveCreateParams.shape['id']),
@@ -1216,10 +1298,35 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
         },
     })
 
+const ExperimentsSessionEventDeltasCreateSchema = ExperimentsSessionEventDeltasCreateParams.omit({
+    project_id: true,
+}).extend({ id: z.preprocess(castStringToInt, ExperimentsSessionEventDeltasCreateParams.shape['id']) })
+
+const experimentsSessionEventDeltasCreate = (): ToolBase<
+    typeof ExperimentsSessionEventDeltasCreateSchema,
+    WithInformationalResponse<WithPostHogUrl<Schemas.ExperimentSessionEventDeltaResponse>>
+> => ({
+    name: 'experiments-session-event-deltas-create',
+    schema: ExperimentsSessionEventDeltasCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentsSessionEventDeltasCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentSessionEventDeltaResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/session_event_deltas/`,
+        })
+        return withInformationalResponse(
+            await withPostHogUrl(context, result, `/experiments/${params.id}`),
+            'experiment-watch-cards',
+            'Use it only to point the user at recordings worth watching for this experiment.'
+        )
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-activity': experimentActivity,
     'experiment-archive': experimentArchive,
     'experiment-calculate-running-time': experimentCalculateRunningTime,
+    'experiment-cleanup-task': experimentCleanupTask,
     'experiment-copy-to-project': experimentCopyToProject,
     'experiment-create': experimentCreate,
     'experiment-create-from-prompt': experimentCreateFromPrompt,
@@ -1253,4 +1360,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-unarchive': experimentUnarchive,
     'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
+    'experiments-session-event-deltas-create': experimentsSessionEventDeltasCreate,
 }

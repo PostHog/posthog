@@ -14,6 +14,8 @@ All schemes route through the same dispatcher. The host portion of the URL selec
 
 If the app is not running, the OS launches it and the link is queued until the renderer is ready. If the app is minimised, it is restored and focused before the link is handled.
 
+Links can also be dispatched from inside the app: the `deepLink.open` tRPC route forwards a URL through the same handlers, with no OS hop. Remote announcement CTAs use this — author payloads with the production scheme; dev builds swap in their scheme automatically.
+
 ## User-facing links
 
 These are the deep links you would share with someone or wire up from another tool.
@@ -76,27 +78,34 @@ The link is rejected if `url` is missing, is not a `github.com` URL, or does not
 
 ### `posthog-code://task/<taskId>[/run/<taskRunId>]`
 
-Open an existing task. Optionally jump to a specific run.
+Open an existing task. Optionally jump to a specific run, or focus a comment thread inside the task.
 
-| Segment | Required | Description |
+| Segment / Parameter | Required | Description |
 |---|---|---|
 | `<taskId>` | Yes | Task ID |
 | `run/<taskRunId>` | No | Specific run to open |
+| `comment` | No | Comment thread (root comment id) to focus after the task opens |
+| `scope` | No | Comment target scope when the thread lives on a sub-resource: `desktop_canvas` or `task_artifact`. Defaults to the task itself. |
+| `item` | No | Row id of the canvas/artifact the thread lives on; required alongside `scope` |
 
 ```
 posthog-code://task/abc123
 posthog-code://task/abc123/run/xyz789
+posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 ```
 
-### `posthog-code://inbox/<reportId>`
+An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
-Open a specific inbox report.
+### `posthog-code://inbox[/<reportId>]`
+
+Open Self-driving, or a specific report inside it.
 
 | Segment | Required | Description |
 |---|---|---|
-| `<reportId>` | Yes | Inbox report ID |
+| `<reportId>` | No | Inbox report ID. Omit to open the inbox itself. |
 
 ```
+posthog-code://inbox
 posthog-code://inbox/report_abc123
 ```
 
@@ -127,20 +136,6 @@ a loop's detail page.
 
 ```
 posthog-code://loop/abc123
-```
-
-### `posthog-code://approval/<requestId>`
-
-Open the agent fleet approvals inbox focused on a specific tool-approval request.
-Emitted by the agent-runner on a gated tool call so non-PostHog-Code clients
-(Slack, MCP) can land on the approval; the request id alone resolves it.
-
-| Segment / Parameter | Required | Description |
-|---|---|---|
-| `<requestId>` | Yes | Agent tool-approval request id (e.g. `ar_...`). |
-
-```
-posthog-code://approval/ar_abc123
 ```
 
 ### `posthog-code://canvas/<channelId>/<dashboardId>`
@@ -247,7 +242,6 @@ In development the same payload is delivered to `http://localhost:8238/mcp-oauth
 | `inbox` | [packages/core/src/links/inbox-link.ts](../packages/core/src/links/inbox-link.ts) |
 | `scout` | [packages/core/src/links/scout-link.ts](../packages/core/src/links/scout-link.ts) |
 | `loop` | [packages/core/src/links/loop-link.ts](../packages/core/src/links/loop-link.ts) |
-| `approval` | [packages/core/src/links/approval-link.ts](../packages/core/src/links/approval-link.ts) |
 | `canvas` | [packages/core/src/links/canvas-link.ts](../packages/core/src/links/canvas-link.ts) |
 | `channel` | [packages/core/src/links/channel-link.ts](../packages/core/src/links/channel-link.ts) |
 | `new`, `plan`, `issue` | [packages/core/src/links/new-task-link.ts](../packages/core/src/links/new-task-link.ts) |

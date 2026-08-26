@@ -122,6 +122,10 @@ export enum FeatureFlagsTab {
     TESTING = 'testing',
 }
 
+export function isFeatureFlagsTab(tab: unknown): tab is FeatureFlagsTab {
+    return typeof tab === 'string' && (Object.values(FeatureFlagsTab) as string[]).includes(tab)
+}
+
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
     /* not in the API response */
     filters?: FeatureFlagsFilters | null

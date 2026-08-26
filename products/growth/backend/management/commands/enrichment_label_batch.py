@@ -69,6 +69,15 @@ class Command(BaseCommand):
             default=0.5,
             help="Fail the run if succeeded/attempted drops below this fraction",
         )
+        parser.add_argument(
+            "--expected-version",
+            default=None,
+            help=(
+                "If set, abort before spending if the label's current active version doesn't match. "
+                "Guards a caller that resolved the active version separately (e.g. a scheduler deciding "
+                "what to count as pending) against a version bump racing its own call."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         label: str = options["label"]
@@ -76,6 +85,7 @@ class Command(BaseCommand):
         workers: int = options["workers"]
         max_failures: int = options["max_failures"]
         min_success_rate: float = options["min_success_rate"]
+        expected_version: str | None = options["expected_version"]
         if workers < 1:
             raise CommandError("--workers must be at least 1")
         if limit is not None and limit < 1:
@@ -86,6 +96,11 @@ class Command(BaseCommand):
         config = get_active_config(label)
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
+        if expected_version is not None and config.version != expected_version:
+            raise CommandError(
+                f"label {label!r} active version is {config.version!r}, expected {expected_version!r}; "
+                "the active version changed after the caller resolved it, aborting"
+            )
         try:
             validate_input_fields(config)
             validate_output_fields(config)
@@ -133,6 +148,13 @@ class Command(BaseCommand):
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
             "aborted": 0,
+            # A declined-at-enumeration-time org (the common case) never increments "attempted"
+            # at all - see _attempt_targets. This one is for the rarer case _process's own
+            # re-check catches: a fetch that WAS approved when enumerated (so "attempted" already
+            # counted it) but got revoked before its own turn. Both cases add to
+            # "skipped_no_ai_consent" for reporting; only this one needs subtracting out of
+            # "attempted" below, or it would double-subtract.
+            "consent_revoked_after_attempt": 0,
         }
         counts_lock = threading.Lock()
         failure_streak = 0
@@ -178,8 +200,12 @@ class Command(BaseCommand):
                         counts["skipped_existing"] += 1
                     return
                 if not ai_processing_approved(fetch.organization_id):
+                    # This fetch passed the enumeration-time check (or "attempted" wouldn't have
+                    # counted it) and got revoked between then and now - see
+                    # test_revoking_mid_run_is_honored_for_orgs_still_queued.
                     with counts_lock:
                         counts["skipped_no_ai_consent"] += 1
+                        counts["consent_revoked_after_attempt"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
                 output = classify_payload(config, fetch.payload, signup_domain, client)
@@ -266,6 +292,19 @@ class Command(BaseCommand):
                         with counts_lock:
                             counts["skipped_existing"] += 1
                         continue
+                    # Checked here, before the limit, and again in _process at spend-time: a
+                    # declined org costs nothing, so it must not consume a --limit slot - --limit
+                    # is a spend bound. Checking only at spend-time (the old behavior) let more
+                    # than --limit declined orgs ordered ahead of an approved one exhaust the
+                    # whole run without a single verdict written, which a consent-filtered
+                    # candidate count downstream (see products/growth/dags/ai_enrichment.py) can't
+                    # tell apart from a real failure. The spend-time re-check stays for a
+                    # revocation landing after this point but before that fetch's own turn (see
+                    # test_revoking_mid_run_is_honored_for_orgs_still_queued).
+                    if not ai_processing_approved(fetch.organization_id):
+                        with counts_lock:
+                            counts["skipped_no_ai_consent"] += 1
+                        continue
                     if limit is not None and counts["attempted"] >= limit:
                         return
                     # Not lock-guarded: this generator is only ever driven by one thread at a time
@@ -294,9 +333,13 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted, and consent skips for the same
-        # reason: an archive of orgs that all declined is a correct empty run, not a failed one.
-        tried = counts["attempted"] - counts["aborted"] - counts["skipped_no_ai_consent"]
+        # work that was queued but never actually attempted. Consent skips are excluded for the
+        # same reason (an archive of orgs that all declined is a correct empty run, not a failed
+        # one), but only "consent_revoked_after_attempt" needs subtracting here - a declined org
+        # caught at enumeration time never incremented "attempted" to begin with (see
+        # _attempt_targets), so subtracting the full skipped_no_ai_consent count here would
+        # double-subtract and could push "tried" negative.
+        tried = counts["attempted"] - counts["aborted"] - counts["consent_revoked_after_attempt"]
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
         summary = (

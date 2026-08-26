@@ -216,6 +216,23 @@ mod tests {
     }
 
     #[test]
+    fn set_wins_over_set_once_for_the_same_key() {
+        let result = compute_event_property_updates(
+            "$set",
+            &json!({"plan": "pro"}),
+            &json!({"plan": "free"}),
+            &[],
+            &json!({}),
+        );
+        assert!(result.has_changes);
+        assert_eq!(
+            result.to_set["plan"],
+            json!("pro"),
+            "the request contract: when a key appears in both set and set_once, set wins"
+        );
+    }
+
+    #[test]
     fn apply_updates_sets_properties() {
         let updates = PropertyUpdates {
             to_set: HashMap::from([

@@ -1172,6 +1172,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                             behavior: 'smooth',
                             block: 'center',
                         })
+                        actions.setScrollToProductKey(null)
                     }
                 }, 0)
             }
@@ -1386,9 +1387,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         },
     })),
-    events(({ actions, values }) => ({
+    events(({ actions, values, props }) => ({
         afterMount: () => {
-            actions.setScrollToProductKey(values.scrollToProductKey)
+            if (values.scrollToProductKey === props.product.type) {
+                actions.setScrollToProductKey(values.scrollToProductKey)
+            }
             actions.billingLoaded()
         },
     })),

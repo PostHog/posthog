@@ -103,7 +103,7 @@ class LoopTriggerProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTea
 
 
 class HasLoopsAccess(BasePermission):
-    """Gate every Loops endpoint on `has_loops_access` (tasks access plus the `loops` flag).
+    """Gate every Loops endpoint on its independent `loops` flag.
 
     Exempts PSAK-authenticated service calls (`trigger`, and `runs` readback): a PSAK is a
     project-scoped service credential, not a real user, so the person-targeted `loops` flag
@@ -165,7 +165,13 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = LoopWriteSerializer(
             data=data,
             partial=partial,
-            context={"team": self.team, "team_id": self.team.id, "user_id": self._user_id()},
+            context={
+                "team": self.team,
+                "team_id": self.team.id,
+                "user_id": self._user_id(),
+                # Model entitlement is evaluated per acting user, so the write path needs the request.
+                "request": self.request,
+            },
         )
         serializer.is_valid(raise_exception=True)
         return serializer

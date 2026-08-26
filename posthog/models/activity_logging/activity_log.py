@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -15,6 +15,7 @@ from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
@@ -24,6 +25,12 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+ACTIVITY_LOG_WRITE_FAILURES = Counter(
+    "activity_log_write_failures_total",
+    "Activity log rows that failed to write",
+    labelnames=["deferred"],
+)
 
 ActivityScope = Literal[
     "Cohort",
@@ -39,6 +46,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Canvas",
     "Endpoint",
     "EndpointVersion",
     "Dashboard",
@@ -53,6 +61,7 @@ ActivityScope = Literal[
     "Team",
     "Project",
     "ErrorTrackingIssue",
+    "DataWarehouseExpression",
     "DataWarehouseSavedQuery",
     "LegalDocument",
     "Organization",
@@ -80,6 +89,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
     "LLMTrace",
@@ -96,9 +106,11 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
     "TableCertification",
+    "DataQualityCheck",
     "Billing",
     "Loop",
 ]
@@ -312,6 +324,14 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         "temporary_token",
         "pending_email",
     ],
+    # Support-ticket comment bodies are gated on ticket access and must not be readable via
+    # activity_log:read. Both ticket comment scopes mask `content`: internal ticket discussions
+    # ("Ticket") and customer-facing ticket messages ("conversations_ticket" — the literal scope
+    # the conversations product writes, not an ActivityScope member, hence the cast). Comment rows
+    # never go through changes_between; the Comment post_save signal consults these entries
+    # directly, keyed by the comment's own scope.
+    "Ticket": ["content"],
+    cast(AuditableScope, "conversations_ticket"): ["content"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -344,6 +364,13 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "emit": "emit findings",
         "pause_reason": "pause reason",
         "auto_pause_exempt": "never pause for inactivity",
+    },
+    # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
+    "SignalTeamConfig": {
+        "autostart_enabled": "PR generation",
+        "default_autostart_priority": "project PR threshold",
+        "default_slack_notification_channel": "team Slack channel",
+        "autostart_base_branches": "base branch overrides",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -425,7 +452,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     },
     {
         "scope": "User",
-        "activities": ["created", "updated"],
+        "activities": ["created", "updated", "deleted"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -465,6 +492,25 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        # Support-ticket comment rows: bodies are gated on ticket access, and rows written before
+        # write-time masking (see field_with_masked_contents) still hold plaintext content readable
+        # with only activity_log:read. People with ticket access read the discussion on the ticket
+        # itself, so nothing needs these rows in the feeds. Ticket lifecycle activities
+        # (created/updated) stay visible — only comment rows are hidden.
+        "scope": "Ticket",
+        "activities": ["commented", "created task"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # As above, for customer-facing ticket messages (the literal scope the conversations
+        # product writes).
+        "scope": "conversations_ticket",
+        "activities": ["commented", "created task"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
@@ -478,6 +524,16 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+    ],
+    "DataQualityCheck": [
+        # Written by the runner, not by a person editing the check.
+        "last_run_at",
+        "last_status",
+        "subject_name",
+        "subject_status",
+        # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "saved_query",
+        "table",
     ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason
@@ -497,13 +553,17 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+        "scim_request_logs",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
-        "identity_provider_config",
+        "_identity_provider_config",
     ],
     "IdentityProviderConfig": [
         "organization",
-        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
-        "domains",
+        # Reverse relations, not plain field diffs — and diffing them reads every related row, which
+        # for SCIM request logs is the tenant's whole request history.
+        "linked_identity_provider_configs",
+        "scim_provisioned_users",
+        "scim_request_logs",
     ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
@@ -629,6 +689,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "_old_api_token",
     ],
     "Project": ["id", "created_at"],
+    "DataWarehouseExpression": ["deleted_at"],
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
@@ -775,6 +836,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "table",
     ],
     "Evaluation": [
+        # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
+        "directory",
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
     ],
@@ -994,22 +1057,37 @@ def dict_changes_between(
     return changes
 
 
+def _report_activity_log_write_failure(e: Exception, error_context: dict, deferred: bool) -> None:
+    logger.warn(
+        "activity_log.failed_to_write_to_activity_log",
+        **error_context,
+        exception=e,
+    )
+    capture_exception(e)
+    ACTIVITY_LOG_WRITE_FAILURES.labels(deferred=str(deferred).lower()).inc()
+
+
 def _handle_activity_log_transaction(create_fn, error_context: dict):
     try:
         # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
         if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
-            transaction.on_commit(create_fn)
+            # The transaction already committed by the time this callback runs, so its own guard
+            # keeps a slow audit write from failing a request whose data is already durable.
+            def _deferred_create():
+                try:
+                    create_fn()
+                except Exception as e:
+                    _report_activity_log_write_failure(e, error_context, deferred=True)
+                    if settings.TEST:
+                        raise
+
+            transaction.on_commit(_deferred_create)
             return None
         else:
             return create_fn()
 
     except Exception as e:
-        logger.warn(
-            "activity_log.failed_to_write_to_activity_log",
-            **error_context,
-            exception=e,
-        )
-        capture_exception(e)
+        _report_activity_log_write_failure(e, error_context, deferred=False)
         if settings.TEST:
             raise
         return None
@@ -1128,7 +1206,15 @@ class LogActivityEntry(TypedDict, total=False):
     force_save: bool
 
 
-def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500) -> list[ActivityLog]:
+def bulk_log_activity(
+    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True
+) -> list[ActivityLog]:
+    """Write activity log rows in bulk.
+
+    Each row created also fires `post_save`, which produces a CDP internal event so customer
+    destinations and workflows can react. Pass `notify=False` for a maintenance sweep, where that
+    fan-out would put one event per affected row onto the internal-events topic.
+    """
     if not log_entries:
         return []
 
@@ -1163,8 +1249,9 @@ def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500
     def _do_bulk_create():
         created_logs = ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
 
-        for log in created_logs:
-            post_save.send(sender=ActivityLog, instance=log, created=True)
+        if notify:
+            for log in created_logs:
+                post_save.send(sender=ActivityLog, instance=log, created=True)
 
         return created_logs
 

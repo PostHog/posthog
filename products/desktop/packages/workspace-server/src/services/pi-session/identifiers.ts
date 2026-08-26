@@ -9,7 +9,9 @@ export interface PiRpcClientFactory {
     input: Pick<
       PiRpcClientOptions,
       "cwd" | "model" | "sessionFile" | "projectTrusted"
-    >,
+    > & {
+      taskId: string;
+    },
   ): Promise<PiRpcClient>;
 }
 

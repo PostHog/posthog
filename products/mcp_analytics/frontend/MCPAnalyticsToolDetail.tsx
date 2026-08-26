@@ -29,7 +29,6 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -40,7 +39,7 @@ import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-gener
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
-import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { formatMs, formatMsAsSeconds, formatNumber } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
@@ -112,7 +111,7 @@ interface ResultColumn {
 
 const neighborColumns: ResultColumn[] = [
     { header: 'Tool', expand: true, render: (r) => <span className="font-mono">{String(r[0] ?? '')}</span> },
-    { header: 'In same conversation', align: 'right', render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)) },
+    { header: 'In same conversation', align: 'right', render: (r) => formatNumber(Number(r[1] ?? 0)) },
 ]
 
 // Card-wrapped quill table matching the dashboard table cards.
@@ -259,7 +258,7 @@ function StatTiles({
         {
             label: 'Calls',
             value: calls,
-            formatValue: humanFriendlyNumber,
+            formatValue: formatNumber,
             data: spark(daily.calls),
             color: theme.colors[0],
             goodDirection: 'up',
@@ -291,7 +290,7 @@ function StatTiles({
         {
             label: 'Users',
             value: summary?.users ?? 0,
-            formatValue: humanFriendlyNumber,
+            formatValue: formatNumber,
             data: spark(daily.users),
             color: theme.colors[0],
             goodDirection: 'up',
@@ -299,7 +298,7 @@ function StatTiles({
         {
             label: 'Sessions',
             value: summary?.conversations ?? 0,
-            formatValue: humanFriendlyNumber,
+            formatValue: formatNumber,
             data: spark(daily.sessions),
             color: theme.colors[6],
             goodDirection: 'up',
@@ -341,8 +340,7 @@ function IntentCoverageTag({
     return (
         <Tooltip title="Share of calls where $mcp_intent was captured. Inferred intents are server fallbacks; context_parameter intents come from the client.">
             <span className="text-[11px] text-secondary">
-                {humanFriendlyNumber(coverage.with_intent)} of {humanFriendlyNumber(coverage.total)} calls captured
-                intent ({pct}%)
+                {formatNumber(coverage.with_intent)} of {formatNumber(coverage.total)} calls captured intent ({pct}%)
             </span>
         </Tooltip>
     )
@@ -504,6 +502,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         dateRangeLabel,
         dateFilter,
         interval,
+        pinnedInterval,
         incompleteTail,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
@@ -532,7 +531,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
                     name: 'Tool quality',
-                    path: mcpToolQualityUrlWithDates(dateFilter),
+                    path: mcpToolQualityUrlWithDates(dateFilter, pinnedInterval),
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
@@ -655,18 +654,18 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Calls',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                                render: (r) => formatNumber(Number(r[1] ?? 0)),
                             },
                             {
                                 header: 'Errors',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
+                                render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Sessions',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[4] ?? 0)),
+                                render: (r) => formatNumber(Number(r[4] ?? 0)),
                             },
                         ]}
                     />
@@ -679,12 +678,12 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                             {
                                 header: 'Calls',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                                render: (r) => formatNumber(Number(r[1] ?? 0)),
                             },
                             {
                                 header: 'Errors',
                                 align: 'right',
-                                render: (r) => humanFriendlyNumber(Number(r[2] ?? 0)),
+                                render: (r) => formatNumber(Number(r[2] ?? 0)),
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
@@ -716,7 +715,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                         {
                             header: 'Occurrences',
                             align: 'right',
-                            render: (r) => humanFriendlyNumber(Number(r[1] ?? 0)),
+                            render: (r) => formatNumber(Number(r[1] ?? 0)),
                         },
                         { header: 'Last seen', render: (r) => <TZLabel time={String(r[2])} /> },
                         {

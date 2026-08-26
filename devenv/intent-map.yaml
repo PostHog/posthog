@@ -20,7 +20,8 @@ capabilities:
 
     event_ingestion:
         description: 'Kafka-based event pipeline for event capture'
-        requires: [core_infra]
+        # The combined-mode ingestion server's AI consumer reads persons through PersonHog
+        requires: [core_infra, personhog]
         docker_profiles: []
 
     property_definitions:
@@ -146,14 +147,14 @@ capabilities:
         docker_profiles: []
 
     nodejs_realtime_cohorts:
-        description: 'Node.js Realtime Cohorts - precalculated filters and cohort membership'
+        description: 'Node.js Realtime Cohorts - cohort membership persistence'
         requires: [event_ingestion]
         docker_profiles: []
 
     nodejs_session_replay:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
-        docker_profiles: [replay]
+        docker_profiles: [replay, dynamodb]
 
     nodejs_logs:
         description: 'Node.js Logs - log ingestion'
@@ -209,6 +210,11 @@ capabilities:
         description: 'Development debugging tools (Kafka UI, Flower, etc.)'
         requires: [core_infra]
         docker_profiles: [dev_tools]
+
+    webhook_tester:
+        description: 'Local HTTP sink for webhook steps and destinations (localhost:2080)'
+        requires: [core_infra]
+        docker_profiles: [webhook_tester]
 
     mcp_server:
         description: 'MCP server for AI assistant integration'
@@ -391,6 +397,7 @@ intents:
                 temporal_workflows,
                 nodejs_cdp_workflows,
                 cyclotron,
+                webhook_tester,
             ]
 
     tracing:
@@ -436,6 +443,7 @@ intents:
 always_required:
     - backend
     - frontend
+    - ngrok
     - typegen
     - docker-compose
     # Migrations (DBs created by postgres init scripts, run for everyone)

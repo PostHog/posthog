@@ -10,10 +10,13 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -58,7 +61,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * This is the union of:
  * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - ErrorTrackingConsumerConfig: error tracking pipeline, cymbal, overflow
- * - HogTransformerServiceConfig: CDP keys needed by the hog transformer running in-process
+ * - HogTransformerServiceConfig: the transformation-only keys the in-process hog transformer reads.
+ *   No CDP delivery config (Redis, watcher, SES, fetch) - transformations run the synchronous
+ *   Hog core alone, so those keys are deliberately absent rather than inherited.
  * - Infrastructure configs: Kafka broker, Postgres, Redis, consumer tuning
  * - Remaining CommonConfig picks: server mode, services, observability
  */
@@ -73,12 +78,14 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     CookielessServerConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
         | 'PLUGIN_SERVER_MODE'
         | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
@@ -158,7 +165,7 @@ export class ErrorTrackingServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const teamManager = new TeamManager(this.postgres)
+        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -185,11 +192,14 @@ export class ErrorTrackingServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: outputs,
-            teamManager,
         }
 
         // 3. Error tracking consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
+
+        // One client for the process: the batch factory runs per batch, and each client owns a transport.
+        const usageClient = createUsageIngestionClient(this.config, 'exceptions')
+        const usageTeamMatcher = usageReportTeamMatcher(this.config)
 
         serviceLoaders.push(async () => {
             const consumer = new ErrorTrackingConsumer(
@@ -213,10 +223,14 @@ export class ErrorTrackingServer implements NodeServer {
                     outputs,
                     teamManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-                    groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository),
+                    groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository, {
+                        loaderRetry: DEFAULT_LOADER_RETRY,
+                    }),
                     cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,
+                    createEventUsageBatch: () =>
+                        new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: usageTeamMatcher }),
                 }
             )
             await consumer.start()

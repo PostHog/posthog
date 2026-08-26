@@ -61,7 +61,9 @@ def _build_url(path: str, params: Optional[dict[str, Any]] = None) -> str:
 def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    # 408 is a transient request timeout on OpenRouter's side; retry it like 429/5xx rather than
+    # letting it raise_for_status() into a fatal, non-retried HTTPError.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise OpenRouterRetryableError(f"OpenRouter API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:

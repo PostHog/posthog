@@ -1,0 +1,135 @@
+# serializer version: 1
+# name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot
+  '''
+  SELECT kind AS kind,
+         step_index AS step_index,
+         multiIf(ifNull(equals(kind, 'dropoff'), 0), item, equals(source_is_top, 1), item, tuple('$$__posthog_other__$$', '')) AS source_item,
+         multiIf(ifNull(notEquals(kind, 'edge'), 1), target_item, equals(target_is_top, 1), target_item, tuple('$$__posthog_other__$$', '')) AS grouped_target_item,
+         uniqExactMerge(actor_state) AS actor_count
+  FROM
+    (SELECT kind AS kind,
+            step_index AS step_index,
+            item AS item,
+            target_item AS target_item,
+            actor_state AS actor_state,
+            max(if(and(ifNull(equals(kind, 'node'), 0), lessOrEquals(row_rank, 3)), 1, 0)) OVER (PARTITION BY step_index, item) AS source_is_top,
+            max(if(and(ifNull(equals(kind, 'node'), 0), lessOrEquals(row_rank, 3)), 1, 0)) OVER (PARTITION BY if(ifNull(equals(kind, 'edge'), 0), plus(step_index, 1), step_index), if(ifNull(equals(kind, 'edge'), 0), target_item, item)) AS target_is_top
+     FROM
+       (SELECT kind AS kind,
+               step_index AS step_index,
+               item AS item,
+               target_item AS target_item,
+               actor_count AS actor_count,
+               actor_state AS actor_state,
+               row_number() OVER (PARTITION BY kind, step_index
+                                  ORDER BY actor_count DESC, (item).1 ASC, (item).2 ASC) AS row_rank
+        FROM
+          (SELECT element.1 AS kind,
+                  element.2 AS step_index,
+                  element.3 AS item,
+                  element.4 AS target_item,
+                  uniqExact(actor_id) AS actor_count,
+                  uniqExactState(actor_id) AS actor_state
+           FROM
+             (SELECT actor_id AS actor_id,
+                     arraySort(x -> x.1, groupArray(tuple(timestamp, path_item))) AS event_tuples,
+                     arrayPopBack(arrayPushFront(arrayMap(x -> x.1, event_tuples), NULL)) AS previous_timestamps,
+                     arraySplit((x, previous_timestamp) -> ifNull(ifNull(greater(x.1, plus(previous_timestamp, toIntervalSecond(1800))), 0), 1), event_tuples, previous_timestamps) AS journeys,
+                     arrayMap(journey -> arrayMap(event_tuple -> event_tuple.2, journey), journeys) AS journey_items,
+                     arrayMap(journey -> arrayFilter((item, i) -> or(ifNull(equals(i, 1), 0), ifNull(notEquals(item, journey[minus(i, 1)]), isNotNull(item)
+                                                                                                     or isNotNull(journey[minus(i, 1)]))), journey, arrayEnumerate(journey)), journey_items) AS collapsed_journeys,
+                     arrayMap(journey -> arraySlice(journey, 1, 5), collapsed_journeys) AS trimmed_journeys,
+                     arrayFlatten(arrayMap(journey -> arrayMap((item, i) -> tuple('node', i, item, tuple('', '')), journey, arrayEnumerate(journey)), trimmed_journeys)) AS node_elements,
+                     arrayFlatten(arrayMap(journey -> arrayMap((pair, i) -> tuple('edge', i, pair.1, pair.2), arrayZip(arrayPopBack(journey), arrayPopFront(journey)), arrayEnumerate(arrayZip(arrayPopBack(journey), arrayPopFront(journey)))), trimmed_journeys)) AS edge_elements,
+                     arrayMap(journey_length -> tuple('dropoff', journey_length, tuple('', ''), tuple('', '')), arrayFilter(journey_length -> ifNull(lessOrEquals(journey_length, 5), 0), arrayMap(journey -> length(journey), collapsed_journeys))) AS drop_off_elements,
+                     arrayConcat(node_elements, edge_elements, drop_off_elements) AS elements
+              FROM
+                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                        if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+                        tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), NULL), '')) AS path_item
+                 FROM events
+                 LEFT OUTER JOIN
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-03-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-03-31 23:59:59', 'UTC'))), in(events.event, ['$pageview'])))
+              GROUP BY actor_id) ARRAY
+           JOIN elements AS element
+           GROUP BY kind,
+                    step_index,
+                    item,
+                    target_item)))
+  GROUP BY kind,
+           step_index,
+           source_item,
+           grouped_target_item
+  ORDER BY kind ASC,
+           step_index ASC,
+           actor_count DESC,
+           source_item ASC,
+           grouped_target_item ASC
+  LIMIT 89 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot.1
+  '''
+  SELECT pair.1 AS source_item,
+         pair.2 AS target_item,
+         uniqExact(actor_id) AS actor_count
+  FROM
+    (SELECT actor_id AS actor_id,
+            arraySort(x -> x.1, groupArray(tuple(timestamp, path_item))) AS event_tuples,
+            arrayPopBack(arrayPushFront(arrayMap(x -> x.1, event_tuples), NULL)) AS previous_timestamps,
+            arraySplit((x, previous_timestamp) -> ifNull(ifNull(greater(x.1, plus(previous_timestamp, toIntervalSecond(1800))), 0), 1), event_tuples, previous_timestamps) AS journeys,
+            arrayMap(journey -> arrayMap(event_tuple -> event_tuple.2, journey), journeys) AS journey_items,
+            arrayMap(journey -> arrayFilter((item, i) -> or(ifNull(equals(i, 1), 0), ifNull(notEquals(item, journey[minus(i, 1)]), isNotNull(item)
+                                                                                            or isNotNull(journey[minus(i, 1)]))), journey, arrayEnumerate(journey)), journey_items) AS collapsed_journeys,
+            arrayMap(journey -> arraySlice(journey, 1, 5), collapsed_journeys) AS trimmed_journeys,
+            arrayFlatten(arrayMap(journey -> arrayMap((item, i) -> tuple('node', i, item, tuple('', '')), journey, arrayEnumerate(journey)), trimmed_journeys)) AS node_elements,
+            arrayFlatten(arrayMap(journey -> arrayMap((pair, i) -> tuple('edge', i, pair.1, pair.2), arrayZip(arrayPopBack(journey), arrayPopFront(journey)), arrayEnumerate(arrayZip(arrayPopBack(journey), arrayPopFront(journey)))), trimmed_journeys)) AS edge_elements,
+            arrayMap(journey_length -> tuple('dropoff', journey_length, tuple('', ''), tuple('', '')), arrayFilter(journey_length -> ifNull(lessOrEquals(journey_length, 5), 0), arrayMap(journey -> length(journey), collapsed_journeys))) AS drop_off_elements,
+            arrayConcat(node_elements, edge_elements, drop_off_elements) AS elements
+     FROM
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
+               tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '')), NULL), '')) AS path_item
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2023-03-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-03-31 23:59:59', 'UTC'))), in(events.event, ['$pageview'])))
+     GROUP BY actor_id) ARRAY
+  JOIN arrayFilter(pair -> in(pair, tuple(tuple(tuple('$pageview', '/'), tuple('$pageview', '/pricing')))), arrayDistinct(arrayFlatten(arrayMap(journey -> arrayZip(arrayPopBack(journey), arrayPopFront(journey)), collapsed_journeys)))) AS pair
+  GROUP BY pair
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=23622320128,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
+  '''
+# ---

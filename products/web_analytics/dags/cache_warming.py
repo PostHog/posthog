@@ -920,24 +920,24 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                     return "skipped_duplicate"
                 seen_cache_keys.add((team.pk, cache_key))
 
-            entry = QueryCache(team_id=team.pk, cache_key=cache_key).lookup().entry
-            query_info["_was_cold"] = entry is None
+            freshness = QueryCache(team_id=team.pk, cache_key=cache_key).freshness()
+            query_info["_was_cold"] = freshness is None
 
             # The cache entry doubles as the warm/cold discriminator: a shape
             # warmed at least once has one (possibly stale); a never-warmed shape
             # doesn't. refresh keeps the warm set fresh without paying for cold
             # builds; backfill expands coverage without re-touching the warm set.
-            if mode == "refresh" and entry is None:
+            if mode == "refresh" and freshness is None:
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_cold").inc()
                 return "skipped_cold"
-            if mode == "backfill" and entry is not None:
+            if mode == "backfill" and freshness is not None:
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_already_warmed").inc()
                 return "skipped_already_warmed"
 
-            cached_data = entry.as_full_response() if entry else None
-
-            if cached_data is not None:
-                last_refresh = parse_datetime(cached_data["last_refresh"])
+            # The probe answers from Redis alone: S3-backed entries carry last_refresh in the
+            # pointer record, so no blob is fetched to make the staleness decision.
+            if freshness is not None and freshness.last_refresh is not None:
+                last_refresh = parse_datetime(freshness.last_refresh)
                 aged_refresh = (
                     last_refresh - _staleness_jitter(query_info["normalized_query_hash"], last_refresh)
                     if last_refresh
@@ -1080,7 +1080,10 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
                 context.log.info(
                     f"Warming progress: {processed}/{total} ({100 * processed // total}%) "
-                    f"at {rate:.0f}/s, ETA ~{eta_min:.0f}m — {breakdown}"
+                    # Cold passes run well under 1 shape/s, so only per-minute
+                    # precision distinguishes slow-but-healthy progress from the
+                    # crawl the pass deadline guards against.
+                    f"at {rate * 60:.0f}/min, ETA ~{eta_min:.0f}m — {breakdown}"
                 )
                 last_log_at = now
         pool.shutdown(wait=False)
@@ -1172,6 +1175,14 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         "dagster/web_analytics_cache_warming": "web_analytics_cache_warming",
+        # Run-level backstop, enforced by Dagster run monitoring. The in-op
+        # guards (stall windows, pass deadline) only bound executing shard
+        # code; a run can also zombie at the orchestration layer — steps dying
+        # to infra and idling between retries — while mutual exclusion skips
+        # every scheduled tick. Sized above the worst legitimate case (3h shard
+        # deadline + retry + step scheduling), far below the days a zombie
+        # otherwise holds the slot.
+        "dagster/max_runtime": 6 * 3600,
         # The agent default is 2 CPUs / 8Gi (charts: argocd/dagster/values). The
         # sharded pass runs one subprocess per shard, each compiling HogQL on its
         # own core, so the run pod needs CPU for the shards and memory for that

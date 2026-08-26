@@ -12,6 +12,7 @@ import {
   piSessionRpcInput,
   piSessionStartOutput,
   piSessionTaskInput,
+  respondMcpToolPermissionInput,
   resumePiSessionInput,
   setPiProjectTrustInput,
   startPiSessionInput,
@@ -66,6 +67,35 @@ export const piSessionRouter = router({
     .mutation(({ ctx, input }) =>
       getService(ctx.container).clearQueue(input.taskId),
     ),
+
+  respondMcpToolPermission: publicProcedure
+    .input(respondMcpToolPermissionInput)
+    .mutation(({ ctx, input }) =>
+      getService(ctx.container).respondMcpToolPermission(
+        input.taskId,
+        input.request,
+        input.decision,
+      ),
+    ),
+
+  onMcpToolPermissionRequest: publicProcedure
+    .input(piSessionTaskInput)
+    .subscription(async function* (opts) {
+      const service = getService(opts.ctx.container);
+      const iterable = service.toIterable("mcpPermissionRequest", {
+        signal: opts.signal,
+      });
+      for (const request of service.getPendingMcpToolPermissions(
+        opts.input.taskId,
+      )) {
+        yield request;
+      }
+      for await (const payload of iterable) {
+        if (payload.taskId === opts.input.taskId) {
+          yield payload.request;
+        }
+      }
+    }),
 
   getProjectTrust: publicProcedure
     .input(piSessionTaskInput)

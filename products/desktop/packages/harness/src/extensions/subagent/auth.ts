@@ -78,7 +78,21 @@ export async function resolveModelAuth(
     );
   }
 
-  return { model, apiKey: auth.apiKey, headers: auth.headers };
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(auth.headers ?? {})) {
+    if (value === null) {
+      throw new SubagentAuthError(
+        `The model "${model.provider}/${model.id}" uses provider headers that cannot be delegated safely. Choose another model for the subagent.`,
+      );
+    }
+    headers[name] = value;
+  }
+
+  return {
+    model,
+    apiKey: auth.apiKey,
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+  };
 }
 
 /**

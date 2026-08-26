@@ -1,5 +1,5 @@
 //! Evaluate compiled cohort-filter bytecode against an event, coercing non-bool results to
-//! `false` to match the Node consumer.
+//! `false` to match `@posthog/hogvm`'s semantics.
 //!
 //! ## Metric-emission contract
 //!

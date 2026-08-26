@@ -8,16 +8,22 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import compute_quota_limit_response
+from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+from products.tasks.backend.facade.onboarding import start_onboarding_session
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
+    ChannelDeleteConflictSerializer,
     ChannelFeedMessageSerializer,
     ChannelFeedMessageWriteSerializer,
     ChannelInstructionsSerializer,
@@ -26,6 +32,8 @@ from products.tasks.backend.presentation.serializers import (
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
     ChannelWriteSerializer,
+    OnboardingSessionSerializer,
+    ProvisionedChannelsSerializer,
     TaskActivityMarkReadResponseSerializer,
     TaskActivityMarkReadSerializer,
     TaskActivityPageSerializer,
@@ -33,6 +41,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskActivitySerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
+    TaskRunErrorResponseSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
@@ -52,9 +61,10 @@ PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    API for task channels — the shared feeds tasks are kicked off in. Listing lazily
-    provisions the requester's personal "#me" channel; creation is resolve-or-create
-    by normalized name so clients can map channel-like surfaces onto backend channels.
+    API for task channels — the shared feeds tasks are kicked off in. The
+    provision_defaults action get-or-creates the requester's personal "#me" channel and
+    the team's shared "#general" channel; creation is resolve-or-create by normalized
+    name so clients can map channel-like surfaces onto backend channels.
     """
 
     authentication_classes = [
@@ -71,6 +81,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions", "context_generation"]
     scope_object_write_actions = [
         "create",
+        "provision_defaults",
+        "onboarding_session",
         "partial_update",
         "destroy",
         "publish_instructions",
@@ -83,25 +95,91 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    @staticmethod
+    def _sandbox_task_id(request: Request) -> UUID | None:
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return None
+        return authenticator.access_token.sandbox_task_id
+
     @extend_schema(
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
         summary="List channels",
-        description="All live public channels plus the requester's personal #me channel (created on first list).",
+        description=(
+            "All live public channels plus the requester's personal #me channel when it exists, "
+            "sorted by name. Listing does not provision; call provision_defaults to create the "
+            "default channels."
+        ),
     )
     def list(self, request, *args, **kwargs):
         channels = tasks_facade.list_channels(self.team_id, self._user_id())
         return Response(ChannelSerializer(channels, many=True).data)
 
     @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=ProvisionedChannelsSerializer,
+                description="The channel list plus which default channels this call created",
+            )
+        },
+        summary="Provision default channels",
+        description=(
+            "Get-or-create the requester's personal #me channel and the team's shared #general "
+            "channel, and report which of the two this call created. Idempotent."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="provision_defaults")
+    def provision_defaults(self, request: Request, **kwargs) -> Response:
+        user_id = self._user_id()
+        if user_id is None:
+            raise PermissionDenied("Provisioning default channels requires a user.")
+        provisioned = tasks_facade.provision_default_channels(self.team_id, user_id)
+        return Response(ProvisionedChannelsSerializer(provisioned).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(response=OnboardingSessionSerializer, description="The session that was started"),
+            409: OpenApiResponse(description="This team has no #general space to open a session in"),
+        },
+        summary="Start a first-run onboarding session",
+        description=(
+            "Open the agent session a new user lands in, in the team's #general space. Reads the "
+            "company's homepage, so it takes a few seconds and is deliberately not part of "
+            "provisioning, which blocks the app opening. Callers fire it without awaiting it when "
+            "provision_defaults reports personal_created."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="onboarding_session")
+    def onboarding_session(self, request: Request, **kwargs) -> Response:
+        if not isinstance(request.user, User):
+            raise PermissionDenied("Starting an onboarding session requires a user.")
+        task_id = start_onboarding_session(self.team, request.user)
+        if task_id is None:
+            return Response({"detail": "No #general space to open a session in."}, status=409)
+        return Response(OnboardingSessionSerializer({"task_id": task_id}).data)
+
+    @extend_schema(
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
         summary="Resolve or create a public channel",
-        description="Returns the existing public channel with the (normalized) name, creating it if needed.",
+        description=(
+            "Returns the existing public channel with the (normalized) name, creating it if needed. "
+            "A channel created here is starred for the requester unless star is false. "
+            "The general name returns the team's general space; names that read as a private "
+            'space ("me", "personal") are rejected.'
+        ),
     )
     def create(self, request, **kwargs):
         serializer = ChannelWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        channel = tasks_facade.resolve_channel(self.team_id, self._user_id(), name=serializer.validated_data["name"])
+        channel = tasks_facade.resolve_channel(
+            self.team_id,
+            self._user_id(),
+            name=serializer.validated_data["name"],
+            star=serializer.validated_data["star"],
+        )
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ChannelSerializer(channel).data)
@@ -119,6 +197,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be renamed")
+        if result == "general":
+            raise PermissionDenied("The general space can't be renamed")
         if result == "invalid_name":
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":
@@ -128,13 +208,29 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(ChannelSerializer(channel).data)
 
-    @extend_schema(responses={204: None}, summary="Delete a public channel")
+    @extend_schema(
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                response=ChannelDeleteConflictSerializer,
+                description="The space still contains tasks or canvases.",
+            ),
+        },
+        summary="Delete a public channel",
+    )
     def destroy(self, request, pk=None, **kwargs):
-        result = tasks_facade.delete_channel(pk, self.team_id)
+        result = tasks_facade.delete_channel(pk, self.team_id, self._user_id())
         if result == "not_found":
             raise NotFound()
         if result == "personal":
-            raise PermissionDenied("Personal channels cannot be deleted")
+            raise PermissionDenied("Your private space cannot be deleted")
+        if result == "general":
+            raise PermissionDenied("The general space can't be deleted")
+        if result == "not_empty":
+            return Response(
+                {"detail": "Remove this space's tasks and canvases before deleting it."},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(responses={200: ChannelSerializer}, summary="Get a channel")
@@ -162,6 +258,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(**PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS)
     @instructions.mapping.put
     def publish_instructions(self, request, pk=None, **kwargs):
+        sandbox_task_id = self._sandbox_task_id(request)
+        if sandbox_task_id is not None and not tasks_facade.task_can_publish_channel_instructions(
+            sandbox_task_id, self.team_id, pk
+        ):
+            raise PermissionDenied("This loop can update only the CONTEXT.md configured for this run.")
+
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -389,8 +491,7 @@ class _ActivityPageEnvelopeSchema(AutoSchema):
 
 class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    API for the requester's activity feed — one row per task they are involved in (created,
-    @-mentioned in, or authored a thread message on), most-recent activity first.
+    API for the requester's task lifecycle and comment activity feed.
     """
 
     authentication_classes = [
@@ -417,8 +518,8 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="List the requester's task activity",
         description=(
-            "Tasks the requester is involved in (created, mentioned, or messaged), one row per task, "
-            "most-recent activity first, restricted to tasks they can see."
+            "Task lifecycle rows collapse per task. Comment notifications remain separate. "
+            "Results are most-recent first and restricted to tasks the requester can see."
         ),
     )
     def list(self, request, *args, **kwargs):
@@ -440,15 +541,16 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Mark task activity read",
         description=(
-            "Clear the unread flag on the requester's feed rows for the given tasks. Read state is per "
-            "task, so opening a task through any surface clears the same row."
+            "Clear collapsed task activity through task timestamps and individual comment activity "
+            "through activity IDs."
         ),
     )
     @action(detail=False, methods=["post"], url_path="mark_read", required_scopes=["task:write"])
     @validated_request(request_serializer=TaskActivityMarkReadSerializer)
     def mark_read(self, request, *args, **kwargs):
         activities = [
-            (activity["task_id"], activity["seen_before"]) for activity in request.validated_data["activities"]
+            (activity["task_id"], activity["seen_before"], activity.get("activity_id"))
+            for activity in request.validated_data["activities"]
         ]
         marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)
         return Response(
@@ -529,13 +631,20 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: TaskThreadMessageSerializer,
             400: OpenApiResponse(description="No signalable run, or message already forwarded"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Organization reached its PostHog Desktop usage limit",
+            ),
         },
         summary="Send a thread message to the agent",
         description="Task author only: forwards the message into the task's latest live run.",
     )
     @action(detail=True, methods=["post"], url_path="send_to_agent", required_scopes=["task:write"])
     def send_to_agent(self, request, pk=None, **kwargs):
-        kind, message = tasks_facade.forward_thread_message(pk, self._task_id(), self.team_id, self._user_id())
+        try:
+            kind, message = tasks_facade.forward_thread_message(pk, self._task_id(), self.team_id, self._user_id())
+        except ComputeBillingLimitExceeded as error:
+            return compute_quota_limit_response(error.reason)
         if kind == "not_found":
             raise NotFound()
         if kind == "forbidden":

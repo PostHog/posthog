@@ -64,11 +64,7 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmen
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
-from posthog.temporal.session_replay.gemini_cleanup_sweep import create_gemini_cleanup_sweep_schedule
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
-from posthog.temporal.session_replay.summarization_sweep.reconciler import (
-    create_summarization_sweep_reconciler_schedule,
-)
 from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
     create_surfacing_score_export_sweep_schedule,
 )
@@ -80,9 +76,16 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.context_layer.backend.temporal.schedule import create_context_layer_dream_schedule
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
+from products.customer_analytics.backend.facade.temporal import (
+    create_account_track_rule_coordinator_schedule,
+    create_calendar_sync_coordinator_schedule,
+)
+from products.data_quality.backend.facade.temporal import create_cleanup_data_quality_check_runs_schedule
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
     create_github_job_logs_coordinator_schedule,
@@ -91,14 +94,17 @@ from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
+    create_error_tracking_weekly_digest_schedule,
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
+from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
@@ -109,6 +115,9 @@ from products.web_analytics.backend.temporal.weekly_digest.types import WAWeekly
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
+
+# The retired summarization sweep created one schedule per team under this prefix.
+LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX = "session-summarization-team-"
 
 
 async def cleanup_sync_vectors_schedule(client: Client):
@@ -391,7 +400,7 @@ async def create_sync_events_retention_schedule(client: Client):
                 ),
             ),
             id="sync-events-retention-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -462,7 +471,7 @@ async def create_wa_weekly_digest_schedule(client: Client):
             "wa-weekly-digest",
             WAWeeklyDigestInput(),
             id="wa-weekly-digest-schedule",
-            task_queue=settings.MESSAGING_TASK_QUEUE,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -497,7 +506,7 @@ async def create_wa_digest_notification_schedule(client: Client):
             "wa-digest-notification",
             WADigestNotificationInput(),
             id="wa-digest-notification-schedule",
-            task_queue=settings.MESSAGING_TASK_QUEUE,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -631,10 +640,23 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
     legacy_schedule_ids = [
         "video-segment-clustering-coordinator-schedule",
         "session-summarization-sweep-schedule",
+        "session-summarization-sweep-reconciler-schedule",
+        # Swept Gemini files uploaded by the session-summary workflow; nothing uploads them now.
+        "session-summary-cleanup-sweep-schedule",
     ]
     for schedule_id in legacy_schedule_ids:
         if await a_schedule_exists(client, schedule_id):
             await a_delete_schedule(client, schedule_id)
+
+    # The sweep also created one schedule per team, and the reconciler that used to reap them is gone.
+    # Left alone they fire every few minutes forever against a workflow type no worker registers.
+    try:
+        async for schedule in await client.list_schedules():
+            if schedule.id.startswith(LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX):
+                await a_delete_schedule(client, schedule.id)
+    except Exception:
+        # Reaping is best effort: a listing failure must not stop the rest of schedule setup.
+        logger.exception("temporal.cleanup_legacy_summarization_team_schedules_failed")
 
 
 async def cleanup_cohort_calculation_schedules(client: Client):
@@ -645,8 +667,8 @@ async def cleanup_cohort_calculation_schedules(client: Client):
     and owns reconciliation too (its workers/reconcile.rs and sweep/reconcile.rs), so nothing here
     needs to run on a cadence any more.
 
-    The workflows stay registered on the messaging worker only until the Python implementation is
-    deleted. In-flight executions finish on their own; deleting a schedule doesn't cancel them.
+    The Python implementation is gone; this remains only to reap schedules in regions that
+    haven't converged yet, and is safe to delete once they all have.
     """
     legacy_schedule_ids = [
         "realtime-cohort-calculation-p0-p50",
@@ -829,6 +851,8 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 schedules = [
     cleanup_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
+    create_schedule_due_billing_alert_checks_schedule,
+    create_context_layer_dream_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
     create_error_tracking_recommendations_refresh_schedule,
@@ -846,7 +870,6 @@ schedules = [
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
     cleanup_legacy_session_summarization_schedules,
-    create_summarization_sweep_reconciler_schedule,
     create_surfacing_score_export_sweep_schedule,
     create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
@@ -862,26 +885,31 @@ schedules = [
     create_business_knowledge_refresh_coordinator_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
+    create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
     create_logs_alert_check_schedule,
+    create_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
+    create_account_track_rule_coordinator_schedule,
+    create_calendar_sync_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
+    create_replay_vision_read_meter_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
+    create_cleanup_data_quality_check_runs_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
     # deployment's own Redis index, so per-deployment scoping is inherent.
-    schedules.append(create_gemini_cleanup_sweep_schedule)
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)

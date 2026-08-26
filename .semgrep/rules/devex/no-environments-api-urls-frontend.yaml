@@ -89,7 +89,6 @@ rules:
               - '/frontend/src/scenes/health/categoryDetail/healthCategoryDetailLogic.ts'
               - '/frontend/src/scenes/health/healthSceneLogic.tsx'
               - '/frontend/src/scenes/health/pipelineStatus/pipelineHealthLogic.ts'
-              - '/frontend/src/scenes/heatmaps/scenes/heatmap/heatmapLogic.ts'
               - '/frontend/src/scenes/insights/insightUsageLogic.ts'
               - '/frontend/src/scenes/insights/utils.tsx'
               - '/frontend/src/scenes/project-homepage/projectHomepageLogic.tsx'

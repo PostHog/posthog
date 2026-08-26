@@ -33,7 +33,7 @@ describe('queries', () => {
     describe('error tracking query tags', () => {
         it('tags issue event queries as error tracking', () => {
             const actual = errorTrackingIssueEventsQuery({
-                fingerprints: ['abc'],
+                issueId: '01936e7f-d7ff-7314-b2d4-7627981e34f0',
                 filterTestAccounts: false,
                 filterGroup: {
                     type: FilterLogicalOperator.And,
@@ -52,9 +52,9 @@ describe('queries', () => {
             expect(actual.tags).toEqual({ productKey: ProductKey.ERROR_TRACKING })
         })
 
-        it('escapes quotes in fingerprints and search text', () => {
+        it('filters issue events by the resolved issue ID and escapes search text', () => {
             const actual = errorTrackingIssueEventsQuery({
-                fingerprints: ["fp_with_'quote"],
+                issueId: '01936e7f-d7ff-7314-b2d4-7627981e34f0',
                 filterTestAccounts: false,
                 filterGroup: {
                     type: FilterLogicalOperator.And,
@@ -71,7 +71,8 @@ describe('queries', () => {
             })
 
             const where = (actual.where ?? []).join(' ')
-            expect(where).toContain("'fp_with_\\'quote'")
+            expect(where).toContain("issue_id = toUUID('01936e7f-d7ff-7314-b2d4-7627981e34f0')")
+            expect(where).not.toContain('$exception_fingerprint')
             expect(where).toContain("'%O\\'Brien%'")
         })
 
@@ -93,6 +94,18 @@ describe('queries', () => {
             })
 
             expect(actual.source.tags).toEqual({ productKey: ProductKey.ERROR_TRACKING })
+            expect(actual.source).toMatchObject({
+                series: [
+                    {
+                        properties: [
+                            {
+                                key: "issue_id = 'issue-id'",
+                                type: 'hogql',
+                            },
+                        ],
+                    },
+                ],
+            })
         })
     })
 })

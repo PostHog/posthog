@@ -1,7 +1,7 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
-import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG } from '../Notebook/markdownNotebookV2'
+import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG, getSqlV2PropsFromQueryProp } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 
 export type PythonNodeSummary = {
@@ -54,6 +54,10 @@ export type NotebookDependencyNode = {
     uses: string[]
     code?: string
     returnVariable?: string
+    // SQLV2 only: the data source the cell runs against, so a chain-dispatched run targets the
+    // same one its own Run button would.
+    connectionId?: string | null
+    sendRawQuery?: boolean
 }
 
 export type NotebookDependencyGraph = {
@@ -351,6 +355,7 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
                 type: nodeType,
                 attrs: {
                     ...block.props,
+                    ...(nodeType === NotebookNodeType.SQLV2 ? getSqlV2PropsFromQueryProp(block.props) : null),
                     // Prefer the persisted nodeId prop: the parsed block id is a content
                     // fingerprint, which drifts from the live cell id as soon as any prop
                     // changes (running a cell writes runId/result into its props).
@@ -810,6 +815,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 usedSqlV2ReturnVariables.add(normalizeSqlIdentifier(returnVariable))
             }
             const code = typeof attrs.code === 'string' ? attrs.code : ''
+            const connectionId =
+                typeof attrs.connectionId === 'string' && attrs.connectionId ? attrs.connectionId : null
             nodes.push({
                 nodeId: attrs.nodeId ?? '',
                 nodeType: NotebookNodeType.SQLV2,
@@ -819,6 +826,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 uses: extractDuckSqlTables(code),
                 code,
                 returnVariable,
+                connectionId,
+                sendRawQuery: !!connectionId && !!attrs.sendRawQuery,
             })
         }
 

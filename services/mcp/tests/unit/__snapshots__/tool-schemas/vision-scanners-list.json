@@ -1,0 +1,46 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "created_by": {
+            "description": "Filter to scanners created by the given user IDs (comma-separated).",
+            "type": "string"
+        },
+        "emits_signals": {
+            "description": "Filter to scanners that emit Signals.",
+            "type": "boolean"
+        },
+        "enabled": {
+            "description": "Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.",
+            "type": "string"
+        },
+        "experiment_id": {
+            "description": "Filter to scanners whose targeting watches the given experiment.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "order_by": {
+            "description": "Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, created_by, credits_this_month. Prefix with `-` for descending.",
+            "type": "string"
+        },
+        "scanner_type": {
+            "description": "Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Case-insensitive substring match across name, description, and the prompt in scanner_config.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "Filter to scanners carrying at least one of the given tags (comma-separated).",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

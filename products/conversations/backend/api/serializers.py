@@ -8,7 +8,7 @@ from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
 from posthog.models import Team
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 
 from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
@@ -217,7 +217,9 @@ def validate_url_domain(url: str, team: Team) -> bool:
     if not domains:
         return False
 
-    if has_authority_bypass_chars(url):
+    # The restore link is emailed with this authority intact, so it has to be unambiguous
+    # rather than merely parseable.
+    if has_ambiguous_authority(url):
         return False
 
     parsed = urlparse(url)
@@ -259,7 +261,7 @@ def validate_url_matches_request_origin(request, url: str) -> bool:
 
     origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
 
-    if has_authority_bypass_chars(url):
+    if has_ambiguous_authority(url):
         return False
 
     parsed_url = urlparse(url)

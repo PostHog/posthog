@@ -1,6 +1,8 @@
 import {
   type CanvasAnalyticsConfig,
+  type CanvasCommentHighlight,
   type CanvasNavIntent,
+  type CanvasTextSelection,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import { logger } from "@posthog/ui/shell/logger";
@@ -14,19 +16,20 @@ import {
   useRef,
 } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
-import { buildSandboxDocument, type SandboxMode } from "./sandboxRuntime";
+import { translateCanvasTextSelection } from "./canvasSelection";
+import { buildSandboxDocument } from "./sandboxRuntime";
 
 const log = logger.scope("freeform-canvas");
+const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 
 export interface FreeformCanvasProps {
   /** The single-file React source to render. */
   code: string;
-  /** edit = in-app authoring (full data shim); view = published/shared. */
-  mode: SandboxMode;
   /**
    * Resolves a data-request from the canvas. The host owns the real token; this
-   * runs the authenticated call and returns only the result. In view mode the
-   * implementation must reject anything outside the frozen query allowlist.
+   * runs the authenticated call and returns only the result. Ungated by design —
+   * this sandbox only ever runs a canvas its own author is editing. A published
+   * canvas renders in BuiltCanvas, which checks its build's capabilities first.
    */
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
   /** Called when the canvas reports a compile/runtime error (self-repair loop). */
@@ -39,6 +42,10 @@ export interface FreeformCanvasProps {
    * just forwards it — the caller maps it to actual routing.
    */
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
+  commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
   /**
    * Bootstrap config for in-iframe posthog-js (analytics + session replay).
    * Absent = no capture/replay. Only the PUBLIC key is here; the private token
@@ -52,11 +59,14 @@ export interface FreeformCanvasProps {
 // a JS object — only structured-clone messages cross the boundary.
 export function FreeformCanvas({
   code,
-  mode,
   onDataRequest,
   onError,
   onRendered,
   onNavigate,
+  onTextSelection,
+  onCommentActivate,
+  commentHighlights = EMPTY_COMMENT_HIGHLIGHTS,
+  clearTextSelectionKey = 0,
   analytics,
 }: FreeformCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -68,13 +78,13 @@ export function FreeformCanvas({
   // shouldn't trigger re-renders.
   const readyRef = useRef(false);
 
-  // The document is keyed on mode + the analytics host (which the CSP must open
-  // for posthog-js), not on code: code is injected via `init`, so changing it
+  // The document is keyed on the analytics host (which the CSP must open for
+  // posthog-js), not on code: code is injected via `init`, so changing it
   // never reloads the iframe — it re-renders in place.
   const analyticsHost = analytics?.apiHost;
   const srcDoc = useMemo(
-    () => buildSandboxDocument(mode, analyticsHost),
-    [mode, analyticsHost],
+    () => buildSandboxDocument(analyticsHost),
+    [analyticsHost],
   );
 
   // Latest props, read by the once-bound listener + the (stable) postInit.
@@ -83,20 +93,24 @@ export function FreeformCanvas({
     onError,
     onRendered,
     onNavigate,
+    onTextSelection,
+    onCommentActivate,
     code,
-    mode,
     analytics,
     theme,
+    commentHighlights,
   });
   latest.current = {
     onDataRequest,
     onError,
     onRendered,
     onNavigate,
+    onTextSelection,
+    onCommentActivate,
     code,
-    mode,
     analytics,
     theme,
+    commentHighlights,
   };
 
   const postInit = useCallback(() => {
@@ -106,15 +120,15 @@ export function FreeformCanvas({
         channel: "posthog-canvas",
         type: "init",
         code: p.code,
-        mode: p.mode,
         analytics: p.analytics,
         theme: p.theme,
+        highlights: p.commentHighlights,
       },
       "*",
     );
   }, []);
 
-  // The iframe reloads only when srcDoc changes (mode / analytics host); on
+  // The iframe reloads only when srcDoc changes (the analytics host); on
   // reload it re-announces "ready", so mark it not-ready until then. Ref write
   // only — no state update, no extra render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: srcDoc identity tracks a reload.
@@ -145,6 +159,17 @@ export function FreeformCanvas({
         },
         onRendered: () => latest.current.onRendered?.(),
         onNavigate: (intent) => latest.current.onNavigate?.(intent),
+        onTextSelection: (selection) => {
+          if (!selection) {
+            latest.current.onTextSelection?.(null);
+            return;
+          }
+          const frame = iframeRef.current?.getBoundingClientRect();
+          latest.current.onTextSelection?.(
+            translateCanvasTextSelection(selection, frame),
+          );
+        },
+        onCommentActivate: (id) => latest.current.onCommentActivate?.(id),
       }),
       hasUserActivation: () => navigator.userActivation?.isActive === true,
       openExternal: openExternalUrl,
@@ -175,8 +200,8 @@ export function FreeformCanvas({
     return () => window.removeEventListener("message", onMessage);
   }, [postInit]);
 
-  // Re-send init when the code / mode / analytics change, if the iframe is ready.
-  // NB: reference code/mode/analytics DIRECTLY here (not via postInit, which
+  // Re-send init when the code / analytics change, if the iframe is ready.
+  // NB: reference code/analytics DIRECTLY here (not via postInit, which
   // reads them off a ref) — otherwise the exhaustive-deps lint strips them from
   // the array as "unused" and the effect goes stale, never re-posting on change.
   // Theme is NOT a dep: a re-init remounts the app (new Blob module = fresh
@@ -189,13 +214,33 @@ export function FreeformCanvas({
         channel: "posthog-canvas",
         type: "init",
         code,
-        mode,
         analytics,
         theme: latest.current.theme,
+        highlights: latest.current.commentHighlights,
       },
       "*",
     );
-  }, [code, mode, analytics]);
+  }, [code, analytics]);
+
+  useEffect(() => {
+    if (!readyRef.current) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        channel: "posthog-canvas",
+        type: "set-comment-highlights",
+        highlights: commentHighlights,
+      },
+      "*",
+    );
+  }, [commentHighlights]);
+
+  useEffect(() => {
+    if (!readyRef.current || clearTextSelectionKey === 0) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      { channel: "posthog-canvas", type: "clear-text-selection" },
+      "*",
+    );
+  }, [clearTextSelectionKey]);
 
   // Live theme change: re-theme the running canvas in place (no remount), so a
   // host theme toggle — or an OS light/dark flip under "system" — preserves all

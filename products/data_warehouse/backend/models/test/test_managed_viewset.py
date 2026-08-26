@@ -81,6 +81,36 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
         reconcile.assert_called_once()
 
+    def test_failed_dag_sync_does_not_mint_a_v1_schedule(self):
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        with (
+            patch(
+                "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
+                side_effect=Exception("dependency resolution failed"),
+            ),
+            patch(
+                "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+                side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+            ),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
+            ) as sync_wf,
+            patch(
+                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            managed_viewset.sync_views()
+
+        sync_wf.assert_not_called()
+        assert not DataWarehouseSavedQuery.objects.filter(
+            managed_viewset=managed_viewset, is_materialized=True
+        ).exists()
+
     def test_sync_views_creates_views(self):
         """Test that enabling managed viewset creates the expected views"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(

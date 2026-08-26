@@ -1,3 +1,4 @@
+pub mod authority;
 pub mod coordinator;
 pub mod error;
 pub mod hash;

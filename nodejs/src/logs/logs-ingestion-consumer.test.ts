@@ -27,6 +27,7 @@ import { Hub, Team } from '~/types'
 import { getDefaultTracesIngestionConsumerConfig } from './config'
 import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
+import { logsPatternBodyKindCounter } from './log-pattern-stage'
 import { LogRecord, decodeLogRecords, encodeLogRecords } from './log-record-avro'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
@@ -2115,6 +2116,12 @@ describe('LogsIngestionConsumer', () => {
             return tracesConsumer
         }
 
+        it('leaves pattern masking off even on a wildcard allowlist, because a trace record has no body', () => {
+            const tracesConsumer = createTracesIngestionConsumer({ LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' })
+
+            expect(tracesConsumer['isPatternMaskingEnabledForTeam'](team.id)).toEqual(false)
+        })
+
         it('meters usage as traces, not logs', async () => {
             const tracesConsumer = createTracesIngestionConsumer()
             tracesConsumer['queueUsageMetric'](team.id, 'bytes_ingested', 500)
@@ -2190,7 +2197,6 @@ describe('LogsIngestionConsumer', () => {
                 messageBudgetMs: 100,
                 batchBudgetMs: 2000,
                 maxErrorLogsPerFunctionPerMessage: 3,
-                hogWatcherSampleRate: 0,
             })
         }
 
@@ -2311,6 +2317,38 @@ describe('LogsIngestionConsumer', () => {
 
             const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
             expect(logsMessages).toHaveLength(1)
+        })
+    })
+
+    describe('pattern masking (measure-only)', () => {
+        let maskingConsumer: LogsIngestionConsumer | undefined
+
+        afterEach(async () => {
+            await maskingConsumer?.stop()
+            maskingConsumer = undefined
+        })
+
+        it.each([
+            ['a wildcard allowlist runs the masking stage', () => '*', true],
+            ['an empty allowlist does not run the masking stage', () => '', false],
+            ["the team's id in the allowlist runs the masking stage", () => String(team.id), true],
+            ["only another team's id in the allowlist does not run the masking stage", () => String(team2.id), false],
+        ])('%s', async (_name, allowlist, expectMasked) => {
+            const bodyKindIncSpy = jest.spyOn(logsPatternBodyKindCounter, 'inc')
+            maskingConsumer = await createLogsIngestionConsumer(hub, {
+                LOGS_PATTERN_MASKING_ENABLED_TEAMS: allowlist(),
+            })
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(maskingConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
+            if (expectMasked) {
+                expect(bodyKindIncSpy).toHaveBeenCalled()
+            } else {
+                expect(bodyKindIncSpy).not.toHaveBeenCalled()
+            }
         })
     })
 })

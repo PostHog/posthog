@@ -137,7 +137,10 @@ Two entry paths coexist, sharing one install hero.
    `emptyStateStatusForOnboardingState()`. **Projects that have never been set up render the
    setup screen in place — there is no redirect into the app-wide `/onboarding` flow.**
    `manifest.tsx` declares the `setupProbe` (`hasDataEvents: ['$mcp_tool_call']`,
-   `waitingEvents: ['$mcp_initialize']`).
+   `waitingEvents: ['$mcp_initialize']`). That `waitingEvents` probe never resolves for a
+   stateless-only server, which emits no `$mcp_initialize`: such a project reads as
+   `needs-setup` until its first tool call and then goes straight to `has-data`, skipping
+   `waiting-for-data`. See [stateless-and-sessions.md](stateless-and-sessions.md).
 2. **The legacy app-wide `/onboarding` flow** is still registered, under
    `frontend/src/scenes/onboarding/legacy/stepProviderRegistry.ts` — the `legacy/` segment
    signals it is being phased out. Registering a product there takes roughly six touches:

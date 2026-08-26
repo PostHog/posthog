@@ -8,6 +8,8 @@ import structlog
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
+
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.grouping import (
     AssignAndEmitSignalInput,
@@ -290,7 +292,7 @@ async def _process_signal_safe(
         return None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ParallelBatchResult:
     processed_signals: list[_ProcessedBatchSignal]
     emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]]
@@ -391,7 +393,11 @@ async def _process_parallel_batch(
 
         if result.assign_result.promoted:
             promoted_reports[result.assign_result.report_id] = (
-                SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=result.assign_result.report_id),
+                SignalReportSummaryWorkflowInputs(
+                    team_id=signal.team_id,
+                    report_id=result.assign_result.report_id,
+                    debounce_seconds=result.assign_result.research_debounce_seconds,
+                ),
                 result.assign_result.run_count,
             )
 

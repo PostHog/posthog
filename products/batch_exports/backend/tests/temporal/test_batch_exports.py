@@ -9,7 +9,12 @@ from django.test import override_settings
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.temporal.batch_exports import generate_query_ranges, get_data_interval, iter_records
+from products.batch_exports.backend.temporal.batch_exports import (
+    DataInterval,
+    generate_query_ranges,
+    get_data_interval,
+    iter_records,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -325,23 +330,23 @@ async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
         (
             "hour",
             "2023-08-01T00:00:00+00:00",
-            (
-                dt.datetime(2023, 7, 31, 23, 0, 0, tzinfo=dt.UTC),
-                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.UTC),
+            DataInterval(
+                start=dt.datetime(2023, 7, 31, 23, 0, 0, tzinfo=dt.UTC),
+                end=dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.UTC),
             ),
         ),
         (
             "day",
             "2023-08-01T00:00:00+00:00",
-            (
-                dt.datetime(2023, 7, 31, 0, 0, 0, tzinfo=dt.UTC),
-                dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.UTC),
+            DataInterval(
+                start=dt.datetime(2023, 7, 31, 0, 0, 0, tzinfo=dt.UTC),
+                end=dt.datetime(2023, 8, 1, 0, 0, 0, tzinfo=dt.UTC),
             ),
         ),
     ],
 )
 def test_get_data_interval(interval, data_interval_end, expected):
-    """Test get_data_interval returns the expected data interval tuple."""
+    """Test get_data_interval returns the expected data interval."""
     result = get_data_interval(interval, data_interval_end)
     assert result == expected
 
@@ -371,8 +376,8 @@ def test_get_data_interval_dst_transition(interval, data_interval_end, expected_
     or 25h apart (fall back). get_data_interval must produce a matching window
     so intervals don't overlap or have gaps.
     """
-    start, end = get_data_interval(interval, data_interval_end, timezone="US/Eastern")
-    actual_duration_hours = (end - start).total_seconds() / 3600
+    data_interval = get_data_interval(interval, data_interval_end, timezone="US/Eastern")
+    actual_duration_hours = (data_interval.end - data_interval.start).total_seconds() / 3600
 
     assert actual_duration_hours == expected_duration_hours, (
         f"Expected {expected_duration_hours}h interval for DST transition day, got {actual_duration_hours}h"
@@ -490,6 +495,19 @@ def test_get_data_interval_dst_transition(interval, data_interval_end, expected_
     ids=["1", "2", "3", "4", "5", "6"],
 )
 def test_generate_query_ranges(remaining_range, done_ranges, expected):
-    """Test get_data_interval returns the expected data interval tuple."""
+    """Test generate_query_ranges returns the expected query ranges."""
     result = list(generate_query_ranges(remaining_range, done_ranges))
     assert result == expected
+
+
+@pytest.mark.parametrize("delta", [dt.timedelta(0), dt.timedelta(hours=1)])
+def test_data_interval_accepts_ordered_bounds(delta: dt.timedelta) -> None:
+    end = dt.datetime(2023, 8, 1, tzinfo=dt.UTC)
+    interval = DataInterval(start=end - delta, end=end)
+    assert interval.end - interval.start == delta
+
+
+def test_data_interval_rejects_reversed_bounds() -> None:
+    end = dt.datetime(2023, 8, 1, tzinfo=dt.UTC)
+    with pytest.raises(ValueError, match="start"):
+        DataInterval(start=end + dt.timedelta(seconds=1), end=end)

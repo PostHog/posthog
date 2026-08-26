@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseMcpToolName,
   readAgentToolName,
+  readMcpInstallationId,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,
@@ -93,6 +94,7 @@ describe("readMcpToolDescriptor / readMcpToolName", () => {
       posthog: {
         toolName: "ignored",
         mcp: { server: "posthog", tool: "exec" },
+        mcpInstallationId: "installation-1",
       },
     };
     expect(readMcpToolDescriptor(meta)).toEqual({
@@ -100,6 +102,7 @@ describe("readMcpToolDescriptor / readMcpToolName", () => {
       tool: "exec",
     });
     expect(readMcpToolName(meta)).toBe("mcp__posthog__exec");
+    expect(readMcpInstallationId(meta)).toBe("installation-1");
   });
 
   it("parses the legacy claudeCode mcp__ name when there is no structured channel", () => {

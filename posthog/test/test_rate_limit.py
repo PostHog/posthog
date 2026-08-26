@@ -885,12 +885,35 @@ class TestAIObservabilitySummarizationRateThrottle(SimpleTestCase):
         _find_personal_api_key: Mock,
         _team_can_bypass: Mock,
     ) -> None:
-        request = Mock(user=Mock(is_authenticated=True), path="/api/projects/1/llm_analytics/evaluation_summary/")
+        request = Mock(user=Mock(is_authenticated=True), path="/api/projects/1/llm_analytics/summarization/")
         view = Mock(team_id=1)
 
         with patch.object(throttle_class, "rate", "1/minute"):
             self.assertTrue(throttle_class().allow_request(request, view))
             self.assertFalse(throttle_class().allow_request(request, view))
+
+
+class TestLeakedKeyReportThrottle(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    def test_scope_and_rate(self) -> None:
+        throttle = rate_limit.LeakedKeyReportThrottle()
+        self.assertEqual(throttle.scope, "leaked_key_report")
+        self.assertEqual(throttle.rate, "10/minute")
+
+    def test_limits_requests_per_ip(self) -> None:
+        request = Mock(headers={}, META={"REMOTE_ADDR": "203.0.113.5"})
+        other_request = Mock(headers={}, META={"REMOTE_ADDR": "203.0.113.6"})
+        view = Mock()
+
+        with patch.object(rate_limit.LeakedKeyReportThrottle, "rate", "1/minute"):
+            self.assertTrue(rate_limit.LeakedKeyReportThrottle().allow_request(request, view))
+            self.assertFalse(rate_limit.LeakedKeyReportThrottle().allow_request(request, view))
+            self.assertTrue(rate_limit.LeakedKeyReportThrottle().allow_request(other_request, view))
 
 
 class _PSAKTeamThrottleForTest(rate_limit.ProjectSecretApiKeyTeamRateThrottle):

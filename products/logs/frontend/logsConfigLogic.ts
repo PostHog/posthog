@@ -14,7 +14,7 @@ export const DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID
 
 // Mirrors the backend default in products/logs/backend/models.py. Ordered: session ID
 // detection checks keys in list order and the first match wins.
-export const DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ['posthogSessionId']
+export const DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ['sessionId']
 
 export interface LogsConfig {
     // Legacy single-key alias — always the first entry of logs_distinct_id_attribute_keys.

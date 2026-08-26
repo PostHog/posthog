@@ -298,7 +298,7 @@ const PropertyOperator = z.enum([
     'not_icontains_multi',
 ])
 
-const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 
 const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
 
@@ -390,7 +390,7 @@ const LogEntryPropertyFilter = z.object({
 
 const GroupPropertyFilter = z.object({
     group_key_names: z.record(z.string(), z.string()).optional(),
-    group_type_index: z.union([z.coerce.number().int(), z.null()]).optional(),
+    group_type_index: z.union([z.number().int(), z.null()]).optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -414,7 +414,7 @@ const FlagPropertyFilter = z.object({
         .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
         .default('flag_evaluates_to'),
     type: z.literal('flag').describe('Feature flag dependency').default('flag'),
-    value: z.union([z.coerce.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
+    value: z.union([z.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
 })
 
 const HogQLPropertyFilter = z.object({
@@ -507,6 +507,54 @@ const WorkflowVariablePropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const BehavioralEventSource = z.enum(['events', 'actions'])
+
+const TimeUnitType = z.enum(['day', 'week', 'month', 'year'])
+
+const InlineBehavioralType = z.enum(['performed_event', 'performed_event_multiple'])
+
+const BehavioralPropertyFilter = z.object({
+    event_filters: z
+        .array(
+            z.union([
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+            ])
+        )
+        .describe(
+            'Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups'
+        )
+        .optional(),
+    event_type: BehavioralEventSource,
+    explicit_datetime: z
+        .string()
+        .describe('Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval')
+        .optional(),
+    explicit_datetime_to: z.string().optional(),
+    key: z.string().describe("Event name, or action id when event_type is 'actions'"),
+    label: z.string().optional(),
+    negation: z.coerce
+        .boolean()
+        .describe(
+            'Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators'
+        )
+        .optional(),
+    operator: PropertyOperator.describe('Count comparison for performed_event_multiple, defaults to exact').optional(),
+    operator_value: z.coerce.number().int().describe('Count threshold for performed_event_multiple').optional(),
+    time_interval: TimeUnitType.optional(),
+    time_value: z.coerce.number().int().describe('Relative time window size, paired with time_interval').optional(),
+    type: z
+        .literal('behavioral')
+        .describe(
+            "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP"
+        )
+        .default('behavioral'),
+    value: InlineBehavioralType,
+})
+
 const AnyPropertyFilter = z.union([
     EventPropertyFilter,
     PersonPropertyFilter,
@@ -531,6 +579,7 @@ const AnyPropertyFilter = z.union([
     RevenueAnalyticsPropertyFilter,
     AccountCustomPropertyFilter,
     WorkflowVariablePropertyFilter,
+    BehavioralPropertyFilter,
 ])
 
 const MCPHarnessBreakdownQuery = z.object({

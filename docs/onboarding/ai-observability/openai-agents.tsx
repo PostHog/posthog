@@ -78,18 +78,17 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                             instrument(
                                 client=posthog,
-                                distinct_id="user_123", # optional
+                                distinct_id=lambda trace: (trace.metadata or {}).get("posthog_distinct_id"),
                                 privacy_mode=False, # optional
                                 groups={"company": "company_id_in_your_db"}, # optional
-                                properties={"conversation_id": "abc123"}, # optional
                             )
                         `}
                     />
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **do not** pass a distinct ID to
-                            `instrument()`. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, **do not** pass a distinct ID —
+                            here or per run. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -105,7 +104,14 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                         {dedent`
                             Run your OpenAI agents as normal. PostHog automatically captures \`$ai_generation\`
                             events for LLM calls and \`$ai_span\` events for agent execution, tool calls, and
-                            handoffs. The example below defines a tool and lets the agent call it.
+                            handoffs. Pass the user and conversation on the run's \`RunConfig\`:
+
+                            - \`group_id\` groups the run's traces into a conversation — it becomes \`$ai_session_id\`.
+                            - \`trace_metadata["posthog_distinct_id"]\` attributes the run's events to a user — the
+                              \`distinct_id\` lambda from the previous step reads it off each trace. Any other
+                              \`trace_metadata\` keys land on the trace as \`$ai_trace_metadata\`.
+
+                            The example below defines a tool and lets the agent call it.
                         `}
                     </Markdown>
 
@@ -128,7 +134,10 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                             result = Runner.run_sync(
                                 agent,
                                 "What's the weather in Paris?",
-                                run_config=RunConfig(group_id="conversation-abc"),
+                                run_config=RunConfig(
+                                    group_id="conversation_abc",
+                                    trace_metadata={"posthog_distinct_id": "user_123"},
+                                ),
                             )
                             print(result.final_output)
                         `}

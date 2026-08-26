@@ -12,6 +12,7 @@ import {
     capabilitiesForGrouping,
     capabilityGroupingFromVariant,
 } from 'scenes/max/maxCapabilities'
+import { type PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic, parseCommandString } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -56,7 +57,7 @@ export interface HomepageGridItem {
     itemType?: string | null
 }
 
-const GRID_LIMIT = 5
+const GRID_LIMIT = 8
 
 const PREVIOUS_HOMEPAGE_KEY = 'ai-first-previous-homepage'
 
@@ -88,6 +89,7 @@ export interface aiFirstHomepageLogicValues {
     dashboardsLoading: boolean // dashboardsModel
     pinnedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[] // dashboardsModel
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    effectivePhaiView: PhaiViewMode // maxGlobalLogic
     conversationId: string | null // maxLogic
     threadLogicKey: string // maxLogic
     cachedStarred: FileSystemEntry[] // projectTreeDataLogic
@@ -221,6 +223,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['chatDraftFor'],
             featureFlagLogic,
             ['featureFlags'],
+            maxGlobalLogic,
+            ['effectivePhaiView'],
         ],
         actions: [
             maxLogic({ panelId: HOMEPAGE_TAB_ID }),
@@ -406,6 +410,18 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             // resurrect it as "unsent input" the next time the homepage is mounted.
             actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
 
+            // The homepage chat only drives the legacy runtime, so on the new PostHog AI surface a prompt
+            // submitted here would start a LangGraph conversation that surface never shows. Hand it to
+            // /ai instead, which seeds its composer from `ask` and submits it. An AI submit with no
+            // prompt is a chat being restored from `?mode=ai&chat=…` — that still opens here.
+            if (mode === 'ai' && values.effectivePhaiView === 'new' && values.query.trim()) {
+                router.actions.push(urls.ai(undefined, values.query))
+                // Undo the mode flip the reducers just made, so the legacy homepage thread never mounts
+                // and fires a second, competing send while the route change lands.
+                actions.returnToIdle()
+                return
+            }
+
             if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
             }
@@ -456,8 +472,15 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        submitQuery: () => {
+        submitQuery: ({ mode: submittedMode }) => {
             const { mode, query } = values
+            // On the new PostHog AI surface the homepage never owns an AI route: a submit with a prompt
+            // is navigated to /ai by the listener (which reads the query before clearing it), and one
+            // without is a restore that arrived on this URL already. Keyed off the submitted mode rather
+            // than `values.mode`, which the listener may already have reset.
+            if (submittedMode === 'ai' && values.effectivePhaiView === 'new') {
+                return undefined
+            }
             if (mode === 'ai') {
                 return [
                     urls.projectHomepage(),

@@ -6,9 +6,13 @@ scan (``PrecomputationMode.DIRECT``). Two checks per metric:
 
 - stability (A vs B): two precomputed reads seconds apart must agree. Funnel reads are fully frozen, so the
   tolerance is strict; mean/ratio metrics join live event values onto frozen exposures, so only the exposure
-  counts are held to the strict tolerance.
+  counts are held to the strict tolerance. Retention resolves both of its numbers from metric events, so
+  both get the loose tolerance.
 - correctness (B vs C): the precomputed read must agree with the events table within a loose tolerance that
-  covers live ingestion between the cache writes and the direct scan.
+  covers live ingestion between the cache writes and the direct scan. Sum deviations also need to clear
+  an absolute per-variant difference (``MIN_CORRECTNESS_SUM_DELTA``), because on sparse metrics a handful
+  of users' worth of expected live-vs-frozen drift (person merges, late-arriving events) exceeds any
+  relative tolerance. Exposure counts are never floored.
 
 The bug class this guards (multi-node ClickHouse read-your-writes, see
 ``products/analytics_platform/backend/lazy_computation/CONSISTENCY.md``) cannot be reproduced in dev/CI
@@ -69,6 +73,7 @@ from products.experiments.backend.temporal.models import (
     OUTCOME_SKIPPED,
     CanaryMetricResult,
     CanaryMetricTarget,
+    CanaryOutcome,
     CanaryReportInputs,
     CanaryRunSnapshot,
     CanaryVariantStats,
@@ -84,11 +89,21 @@ STRICT_TOLERANCE = 0.001
 # of ingestion between the cache writes and the comparison read.
 LOOSE_TOLERANCE = 0.02
 
+# Correctness sum deviations below this absolute per-variant difference don't count. Frozen snapshots
+# legitimately drift from the live scan by a handful of users' events (post-freeze person merges,
+# late-arriving events), and on a sparse metric (tens of conversions over millions of exposures) that
+# handful already exceeds any relative tolerance and would page as the run's worst divergence.
+# The floor is in raw metric units and deliberately conservative: it only mutes differences below 100
+# units, so value-sum metrics with large units still page on relative drift alone. It never applies to
+# exposure counts, which are in users and where a beyond-tolerance divergence is always worth paging on.
+MIN_CORRECTNESS_SUM_DELTA = 100.0
+
 # Below this, a single user moves a variant by more than the strict tolerance and comparison is meaningless.
 MIN_EXPOSURES_PER_VARIANT = 100
 
-# Only metric types that use the precompute path. Retention metrics don't, so a paired run tests nothing.
-ELIGIBLE_METRIC_TYPES = ("funnel", "mean", "ratio")
+# Metric types that use the precompute path: all of them read precomputed exposures, and funnel,
+# mean, and retention also read precomputed metric events when eligible.
+ELIGIBLE_METRIC_TYPES = ("funnel", "mean", "ratio", "retention")
 
 # Experiments must have been running this long to be sampled — comfortably past the runner's 12h
 # precomputation gate, with enough accumulated exposures for the comparison to be meaningful.
@@ -172,7 +187,12 @@ def sample_canary_targets_sync(inputs: ExperimentPrecomputeCanaryInputs) -> list
     if inputs.experiment_id is not None:
         return _forensics_targets(inputs.experiment_id, inputs.metric_uuids)
 
-    quotas = {"funnel": inputs.funnel_quota, "mean": inputs.mean_quota, "ratio": inputs.ratio_quota}
+    quotas = {
+        "funnel": inputs.funnel_quota,
+        "mean": inputs.mean_quota,
+        "ratio": inputs.ratio_quota,
+        "retention": inputs.retention_quota,
+    }
     experiments = _eligible_experiments()
     random.shuffle(experiments)
 
@@ -217,9 +237,9 @@ def sample_canary_targets_sync(inputs: ExperimentPrecomputeCanaryInputs) -> list
 # ---------------------------------------------------------------------------
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CanaryVerdict:
-    outcome: str
+    outcome: CanaryOutcome
     stability_deviation: float | None = None
     correctness_deviation: float | None = None
     detail: str | None = None
@@ -229,11 +249,12 @@ def relative_deviation(a: float, b: float) -> float:
     return abs(a - b) / max(abs(a), abs(b), 1.0)
 
 
-def _max_deviation(run_x: CanaryRunSnapshot, run_y: CanaryRunSnapshot) -> float:
+def _max_deviation(run_x: CanaryRunSnapshot, run_y: CanaryRunSnapshot, min_sum_delta: float = 0.0) -> float:
     deviations = [0.0]
     for key, stats_x in run_x.variants.items():
         stats_y = run_y.variants[key]
-        deviations.append(relative_deviation(stats_x.sum, stats_y.sum))
+        if abs(stats_x.sum - stats_y.sum) > min_sum_delta:
+            deviations.append(relative_deviation(stats_x.sum, stats_y.sum))
         deviations.append(relative_deviation(stats_x.number_of_samples, stats_y.number_of_samples))
     return max(deviations)
 
@@ -241,9 +262,13 @@ def _max_deviation(run_x: CanaryRunSnapshot, run_y: CanaryRunSnapshot) -> float:
 def _stability_violated(metric_type: str, run_a: CanaryRunSnapshot, run_b: CanaryRunSnapshot) -> bool:
     for key, stats_a in run_a.variants.items():
         stats_b = run_b.variants[key]
-        if relative_deviation(stats_a.number_of_samples, stats_b.number_of_samples) > STRICT_TOLERANCE:
+        # Funnel/mean/ratio sample counts come from frozen exposures. Retention counts users with
+        # a start event, resolved from metric events that can be live-scanned (flag off, or an
+        # ineligible metric), so its count gets the loose bound too.
+        samples_tolerance = LOOSE_TOLERANCE if metric_type == "retention" else STRICT_TOLERANCE
+        if relative_deviation(stats_a.number_of_samples, stats_b.number_of_samples) > samples_tolerance:
             return True
-        # Funnel sums are reads of frozen caches; mean/ratio sums join live event values and drift.
+        # Funnel sums are reads of frozen caches; mean/ratio/retention sums join live event values and drift.
         sum_tolerance = STRICT_TOLERANCE if metric_type == "funnel" else LOOSE_TOLERANCE
         if relative_deviation(stats_a.sum, stats_b.sum) > sum_tolerance:
             return True
@@ -279,7 +304,7 @@ def evaluate_canary_runs(
         )
 
     stability_deviation = _max_deviation(run_a, run_b)
-    correctness_deviation = _max_deviation(run_b, run_c)
+    correctness_deviation = _max_deviation(run_b, run_c, min_sum_delta=MIN_CORRECTNESS_SUM_DELTA)
     diverged = _stability_violated(metric_type, run_a, run_b) or correctness_deviation > LOOSE_TOLERANCE
 
     return CanaryVerdict(
@@ -465,7 +490,7 @@ def _send_slack_alert(divergent: list[CanaryMetricResult], counts: dict[str, int
 
 
 def report_canary_results_sync(report: CanaryReportInputs) -> None:
-    counts = dict.fromkeys(ALL_OUTCOMES, 0)
+    counts: dict[str, int] = dict.fromkeys(ALL_OUTCOMES, 0)
     for result in report.results:
         counts[result.outcome] = counts.get(result.outcome, 0) + 1
 

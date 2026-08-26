@@ -23,6 +23,11 @@ pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
+pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
+pub const RELEASE_ID_CACHE_MISSES: &str = "cymbal_release_id_cache_misses";
+// Which source produced an event's release, labeled by `source`:
+// "release_id" / "mobile_hash" / "symbol_set" / "none".
+pub const EVENT_RELEASE_RESOLUTION: &str = "cymbal_event_release_resolution";
 // Client-expanded native inline groups, labeled by outcome: "replaced" when the
 // server expansion of the group's address superseded the client frames, "kept"
 // when resolution failed and the client expansion passed through.
@@ -85,6 +90,11 @@ pub const ASSIGNMENT_RULES_FOUND: &str = "cymbal_assignment_rules_found";
 pub const ASSIGNMENT_RULES_TRIED: &str = "cymbal_assignment_rules_tried";
 pub const AUTO_ASSIGNMENTS: &str = "cymbal_auto_assignments";
 pub const ASSIGNMENT_RULES_DISABLED: &str = "cymbal_assignment_rules_disabled";
+pub const SEVERITY_RULES_PROCESSING_TIME: &str = "cymbal_severity_rules_processing_time";
+pub const SEVERITY_RULES_FOUND: &str = "cymbal_severity_rules_found";
+pub const SEVERITY_RULES_TRIED: &str = "cymbal_severity_rules_tried";
+pub const SEVERITY_RULES_MATCHED: &str = "cymbal_severity_rules_matched";
+pub const SEVERITY_RULES_DISABLED: &str = "cymbal_severity_rules_disabled";
 pub const GROUPING_RULES_DISABLED: &str = "cymbal_grouping_rules_disabled";
 pub const GROUPING_RULES_PROCESSING_TIME: &str = "cymbal_grouping_rules_processing_time";
 pub const GROUPING_RULES_FOUND: &str = "cymbal_grouping_rules_found";
@@ -162,3 +172,12 @@ pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
 pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
 pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";
+
+// `outcome` is either `admitted` or `limited` and never both, so the two series
+// sum to the notifications the limiter judged.
+pub const ISSUE_CREATED_RATE_LIMIT_OUTCOMES: &str = "cymbal_issue_created_rate_limit_outcomes";
+pub const ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN: &str = "cymbal_issue_created_rate_limit_fail_open";
+// Tokens handed back after a charge that started no workflow, labeled `refunded`
+// or `error`. Kept off the `outcomes` counter, because a refund is not a
+// judgment on a notification and would break that counter's two-series sum.
+pub const ISSUE_CREATED_RATE_LIMIT_REFUNDS: &str = "cymbal_issue_created_rate_limit_refunds";

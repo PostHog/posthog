@@ -43,6 +43,8 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
     materialized_view_sync_failed: false,
+    materialized_view_sync_failed_daily: true,
+    materialized_view_sync_failed_immediate: false,
     web_analytics_weekly_digest: true,
 }
 
@@ -509,13 +511,14 @@ export function UpdateEmailPreferences(): JSX.Element {
             </div>
         ),
         [NotificationBlock.MaterializedViewSync]: (
-            <div className="border rounded p-4">
+            <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
                     setting="materialized_view_sync_failed"
                     label="Materialized view sync failures"
                     description="Get notified when a materialized view fails to sync"
                     dataAttr="materialized_view_sync_failed_enabled"
                 />
+                <MatviewFailureEmailOptions />
             </div>
         ),
     }
@@ -540,6 +543,31 @@ export function UpdateEmailPreferences(): JSX.Element {
                     {blocks[key]}
                 </div>
             ))}
+        </div>
+    )
+}
+
+const MatviewFailureEmailOptions = (): JSX.Element | null => {
+    const { user } = useValues(userLogic)
+
+    if (!user?.notification_settings?.materialized_view_sync_failed) {
+        return null
+    }
+
+    return (
+        <div className="pl-6 space-y-3">
+            <SimpleSwitch
+                setting="materialized_view_sync_failed_daily"
+                label="Daily digest"
+                description="One email a day listing every failing view."
+                dataAttr="materialized_view_sync_failed_daily"
+            />
+            <SimpleSwitch
+                setting="materialized_view_sync_failed_immediate"
+                label="Right away"
+                description="An email when a view starts failing. While it keeps failing, only the daily digest lists it."
+                dataAttr="materialized_view_sync_failed_immediate"
+            />
         </div>
     )
 }

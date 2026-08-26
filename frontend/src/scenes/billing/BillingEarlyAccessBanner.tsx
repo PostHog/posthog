@@ -29,7 +29,7 @@ export function BillingEarlyAccessBanner(): JSX.Element {
                             onClick={() =>
                                 openSupportForm({
                                     kind: 'support',
-                                    target_area: 'billing',
+                                    billing_issue: true,
                                     isEmailFormOpen: true,
                                 })
                             }

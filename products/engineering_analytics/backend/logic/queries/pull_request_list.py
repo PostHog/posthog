@@ -57,30 +57,15 @@ _SELECT = f"""
     LIMIT {_LIMIT + 1}
 """
 
-# Per merged PR: last transition is a ready -> merged_at minus it; no transition rows and the
-# PR's whole open-to-merge life inside the observed window -> never left ready, so open-to-merge
-# IS ready-to-merge; otherwise NULL (re-drafted, or unobservable). Both window bounds are load-
-# bearing: created_at before the window means pre-window flips are possible, and merged_at past
-# the window means the transitions may simply not have synced yet (every merge lands a `merged`
-# issue event, so an in-range merge with no transition rows is proof of never drafting). The
-# coalesce guards normalize a missed join, which lands NULL or 0 depending on join_use_nulls.
-_READY_TO_MERGE = """
-        multiIf(
-            pr.merged_at IS NULL, NULL,
-            coalesce(re.last_is_ready, 0) = 1, dateDiff('second', re.last_transition_at, pr.merged_at),
-            coalesce(re.pr_number, 0) = 0
-                AND pr.created_at >= __READY_WINDOW_START__
-                AND pr.merged_at <= __READY_WINDOW_END__, pr.open_to_merge_seconds,
-            NULL
-        ) AS ready_to_merge_seconds
-"""
-_READY_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
-
 
 # Per-push CI rounds for the visible PRs, for the push-history sparkline. Verdicts collapse like
 # ``ci_rollup``: latest run per (push, workflow) via argMax, then any decisive failure turns the
 # round red and any not-yet-completed run marks it pending. Wall time is the round's earliest run
 # start to its latest completed run end (``updated_at`` is the end time the duration column uses).
+#
+# Merge-queue gate runs are excluded for the same reason as ``runs_by_pr`` (see its docstring), and
+# for one specific to here: they are the newest rounds a PR has, since they happen at merge time, so
+# leaving them in would push the author's real pushes out of the capped window below.
 #
 # ``LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)`` bounds the scan to the most
 # recent N pushes per PR *in ClickHouse* (rows are ordered newest-first, so the cap keeps the newest),
@@ -102,7 +87,7 @@ _PUSH_HISTORY_SELECT = """
             argMax(status, run_started_at) AS s,
             argMax(conclusion, run_started_at) AS c
         FROM __RUNS_SOURCE__ AS r
-        WHERE pr_number IN {pr_numbers}
+        WHERE pr_number IN {pr_numbers} AND NOT is_merge_queue
         GROUP BY repo_owner, repo_name, pr_number, head_sha, workflow_name
     )
     GROUP BY repo_owner, repo_name, pr_number, head_sha
@@ -152,20 +137,10 @@ def query_pull_request_list(
     if author:
         author_clause = "AND pr.author_handle = {author}"
         placeholders["author"] = ast.Constant(value=author)
-    # Without the optional issue-events table the column degrades to NULL rather than
-    # referencing the absent ready_by_pr CTE.
-    window = curated.issue_events_window()
-    if window is not None:
-        ready_column = _READY_TO_MERGE.replace("__READY_WINDOW_START__", window.start).replace(
-            "__READY_WINDOW_END__", window.end
-        )
-        ready_join = _READY_JOIN
-    else:
-        ready_column = "NULL AS ready_to_merge_seconds"
-        ready_join = ""
+    ready = curated.ready_to_merge_sql()
     select = (
-        _SELECT.replace("__READY_TO_MERGE__", ready_column)
-        .replace("__READY_JOIN__", ready_join)
+        _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
+        .replace("__READY_JOIN__", ready.join)
         .replace("__AUTHOR__", author_clause)
     )
     response = curated.run(

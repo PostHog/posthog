@@ -16,8 +16,6 @@ import { subscriptions } from 'kea-subscriptions'
 import { dashboardsSubscribeNudgeCreate } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardSubscribeNudgeResponseApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -31,11 +29,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, DashboardPlacement } from '~/types'
 
+import {
+    fetchHasSubscriptionForDashboard,
+    fetchTeamSubscriptionCount,
+} from 'products/subscriptions/frontend/components/Subscriptions/subscriptionQueries'
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
-import { isFreeTierCreateAtLimit } from 'products/subscriptions/frontend/components/Subscriptions/views/EditSubscription'
-import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
+import { canNudgeToSubscribe } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { DashboardType, QueryBasedInsightModel } from '../../types'
 import type { DashboardViewLog } from './dashboardSubscribeNudgeStoreLogic'
 
@@ -53,9 +53,7 @@ export interface dashboardSubscribeNudgeLogicValues {
     notifiedDashboardIds: number[] // dashboardSubscribeNudgeStoreLogic
     suppressedDashboardIds: number[] // dashboardSubscribeNudgeStoreLogic
     viewLog: DashboardViewLog // dashboardSubscribeNudgeStoreLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
-    flagVariant: boolean | string | undefined
     freeTierSubscriptionCount: number | null
     freeTierSubscriptionCountLoading: boolean
     hasExistingSubscription: boolean | null
@@ -168,8 +166,7 @@ export interface dashboardSubscribeNudgeLogicMeta {
             hasExistingSubscription: boolean | null,
             isWithinSubscriptionLimit: boolean
         ) => boolean
-        flagVariant: (isEligible: boolean, featureFlags: FeatureFlagsSet) => boolean | string | undefined
-        showNudge: (flagVariant: boolean | string | undefined) => boolean
+        showNudge: (isEligible: boolean) => boolean
     }
 }
 
@@ -186,8 +183,6 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
     key((props) => props.dashboardId),
     connect((props: DashboardSubscribeNudgeLogicProps) => ({
         values: [
-            featureFlagLogic,
-            ['featureFlags'],
             dashboardLogic({ id: props.dashboardId }),
             ['dashboard', 'canEditDashboard', 'placement'],
             userLogic,
@@ -212,19 +207,11 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             null as boolean | null,
             {
                 loadExistingSubscription: async (_?: unknown, breakpoint?: BreakPointFunction) => {
-                    // If a subscriptionsLogic for this dashboard is already mounted (e.g. the
-                    // subscriptions modal was opened), reuse its data instead of refetching.
                     const mounted = subscriptionsLogic.findMounted({ dashboardId: props.dashboardId })
                     if (mounted && !mounted.values.subscriptionsLoading) {
                         return mounted.values.subscriptions.length > 0
                     }
-                    // limit=1 keeps the payload tiny; `count` reflects the dashboard's full total.
-                    const response = await subscriptionsList(String(getCurrentTeamId()), {
-                        dashboard: props.dashboardId,
-                        limit: 1,
-                    })
-                    breakpoint?.()
-                    return (response.count ?? 0) > 0
+                    return await fetchHasSubscriptionForDashboard(props.dashboardId, breakpoint)
                 },
             },
         ],
@@ -232,11 +219,8 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         freeTierSubscriptionCount: [
             null as number | null,
             {
-                loadFreeTierSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) => {
-                    const response = await subscriptionsList(String(getCurrentTeamId()), { limit: 1 })
-                    breakpoint?.()
-                    return response.count ?? 0
-                },
+                loadFreeTierSubscriptionCount: async (_?: unknown, breakpoint?: BreakPointFunction) =>
+                    await fetchTeamSubscriptionCount(breakpoint),
             },
         ],
         nudgeNotification: [
@@ -298,15 +282,10 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 isDashboardEligible: boolean
             ): boolean => isPastViewThreshold && !isSuppressed && !isNotified && isDashboardEligible,
         ],
-        // Paid orgs are never limited. Free-tier orgs must have room under the free-tier cap —
-        // and unlike EditSubscription (where a null count fails open because the user explicitly
-        // asked and the backend is the hard gate), a proactive nudge fails closed on an unknown
-        // count: don't advertise an action we can't confirm they can complete.
         isWithinSubscriptionLimit: [
             (s) => [s.hasSubscriptionsFeature, s.freeTierSubscriptionCount],
             (hasSubscriptionsFeature: boolean, freeTierSubscriptionCount: number | null): boolean =>
-                hasSubscriptionsFeature ||
-                (freeTierSubscriptionCount !== null && !isFreeTierCreateAtLimit(freeTierSubscriptionCount)),
+                canNudgeToSubscribe(hasSubscriptionsFeature, freeTierSubscriptionCount),
         ],
         isEligible: [
             (s) => [s.isCandidate, s.hasExistingSubscription, s.isWithinSubscriptionLimit],
@@ -316,18 +295,7 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 isWithinSubscriptionLimit: boolean
             ): boolean => isCandidate && hasExistingSubscription === false && isWithinSubscriptionLimit,
         ],
-        // CRITICAL: `featureFlags[...]` is a proxy access that reports the flag's exposure event the
-        // first time it's read. Only touch it once `isEligible` is true, so the experiment's exposure
-        // ($feature_flag_called) fires only for the population that could actually receive the nudge.
-        flagVariant: [
-            (s) => [s.isEligible, s.featureFlags],
-            (isEligible: boolean, featureFlags: FeatureFlagsSet): string | boolean | undefined =>
-                isEligible ? featureFlags[FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE] : undefined,
-        ],
-        showNudge: [
-            (s) => [s.flagVariant],
-            (flagVariant: boolean | string | undefined): boolean => flagVariant === 'test',
-        ],
+        showNudge: [(s) => [s.isEligible], (isEligible: boolean): boolean => isEligible],
     }),
     listeners(({ actions, values, props }) => ({
         reportDashboardViewed: () => {
@@ -403,8 +371,8 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         },
     })),
     subscriptions(({ actions, values, cache }) => ({
-        // The nudge is requested off the fully-gated state itself (eligibility + test variant),
-        // so it also fires when feature flags resolve after the subscription check completed.
+        // The nudge is requested off the gated eligibility state, which resolves asynchronously once
+        // the subscription checks complete, so subscribing here catches that late transition.
         showNudge: (showNudge: boolean) => {
             if (showNudge && !cache.nudgeRequested && !values.nudgeNotificationLoading) {
                 cache.nudgeRequested = true

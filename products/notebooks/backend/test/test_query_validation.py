@@ -50,9 +50,17 @@ class TestNormalizeNotebookQueryNodes:
         doc = _wrap(VALID_DATA_VIZ)
         assert _extract_query(normalize_notebook_query_nodes(doc)) == VALID_DATA_VIZ
 
-    def test_passes_through_valid_insight_viz_node(self) -> None:
-        doc = _wrap(VALID_INSIGHT_VIZ)
-        assert _extract_query(normalize_notebook_query_nodes(doc)) == VALID_INSIGHT_VIZ
+    @parameterized.expand(
+        [
+            ("trends", VALID_INSIGHT_VIZ),
+            # The accepted kinds are derived from the schema, so a source kind newer than this
+            # file (PathsV2Query) must pass without an allowlist edit.
+            ("paths_v2", {"kind": "InsightVizNode", "source": {"kind": "PathsV2Query", "pathsV2Filter": {}}}),
+        ]
+    )
+    def test_passes_through_valid_insight_viz_node(self, _name: str, query: dict[str, Any]) -> None:
+        doc = _wrap(query)
+        assert _extract_query(normalize_notebook_query_nodes(doc)) == query
 
     def test_unwraps_insight_viz_node_wrapping_data_visualization_node(self) -> None:
         # The exact bug observed in notebook wUll: AI agent wrapped a SQL chart in an

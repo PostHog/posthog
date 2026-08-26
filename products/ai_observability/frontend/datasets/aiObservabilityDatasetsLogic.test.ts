@@ -5,7 +5,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { initKeaTests } from '~/test/init'
 
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
-import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import {
+    DATASETS_PER_PAGE,
+    aiObservabilityDatasetsLogic,
+    getDatasetDetailUrl,
+    getDatasetListUrl,
+    getDatasetNavigationSearchParams,
+} from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
 
 jest.mock('./datasetsApi', () => ({
@@ -30,6 +36,7 @@ describe('aiObservabilityDatasetsLogic', () => {
         archived: false,
         current_revision: null,
         current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockDataset2: Dataset = {
@@ -44,6 +51,7 @@ describe('aiObservabilityDatasetsLogic', () => {
         archived: false,
         current_revision: null,
         current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockDatasetsResponse = {
@@ -60,6 +68,30 @@ describe('aiObservabilityDatasetsLogic', () => {
         mockDatasetsApi.listDatasets.mockResolvedValue(mockDatasetsResponse)
         mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset1, archived: true })
         mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset1)
+    })
+
+    it('keeps list pagination without carrying detail-specific state between dataset routes', () => {
+        const searchParams = {
+            dataset_status: 'archived',
+            item: 'item-1',
+            item_status: 'archived',
+            limit: 100,
+            order_by: 'name',
+            page: 2,
+            revision: 12,
+            search: 'support',
+            tab: 'metadata',
+        }
+
+        expect(getDatasetNavigationSearchParams(searchParams)).toEqual({
+            dataset_status: 'archived',
+            datasets_page: 2,
+            order_by: 'name',
+            search: 'support',
+        })
+        expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).toContain('datasets_page=2')
+        expect(getDatasetListUrl(searchParams)).toContain('datasets_page=2')
+        expect(getDatasetDetailUrl(mockDataset1.id, searchParams)).not.toContain('item=')
     })
 
     describe('filters functionality', () => {
@@ -81,6 +113,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 page: 2,
                 search: 'test search',
                 order_by: 'name',
+                archived: false,
             })
         })
 
@@ -110,6 +143,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 page: 1,
                 search: '',
                 order_by: '-created_at',
+                archived: false,
             })
         })
 
@@ -152,6 +186,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 order_by: '-created_at',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -170,6 +205,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 order_by: '-created_at',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -184,6 +220,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 order_by: '-created_at',
                 offset: DATASETS_PER_PAGE * 2,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -197,6 +234,23 @@ describe('aiObservabilityDatasetsLogic', () => {
                 order_by: 'name',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
+            })
+        })
+
+        it('loads archived datasets when the archived filter is selected', async () => {
+            const logic = aiObservabilityDatasetsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ archived: true }, false, false)
+            }).toFinishAllListeners()
+
+            expect(mockDatasetsApi.listDatasets).toHaveBeenLastCalledWith({
+                order_by: '-created_at',
+                offset: 0,
+                limit: DATASETS_PER_PAGE,
+                archived: true,
             })
         })
     })

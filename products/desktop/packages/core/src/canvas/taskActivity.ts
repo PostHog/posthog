@@ -3,12 +3,14 @@ import type {
   TaskActivityKind,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import type { CommentTarget } from "../comments/anchors";
+import { channelDisplayName } from "./channelName";
 
 /**
  * The Activity feed — tasks the current user is involved in (created, mentioned
  * in, or messaged in) — as served by the backend task-activity index
- * (`getTaskActivity`). One row per task, newest activity first; the client only
- * maps DTOs to items.
+ * (`getTaskActivity`). Task state collapses per task, while comment notifications
+ * are individual entries; the client only maps DTOs to items.
  */
 
 export interface TaskActivityItem {
@@ -25,6 +27,8 @@ export interface TaskActivityItem {
   snippet: string;
   author: UserBasic | null;
   messageId: string | null;
+  commentId?: string | null;
+  commentTarget?: CommentTarget | null;
   isUnread: boolean;
 }
 
@@ -37,12 +41,20 @@ export function toTaskActivityItems(
     taskId: row.task_id,
     taskTitle: row.task_title || "Untitled task",
     channelId: row.channel_id ?? null,
-    channelName: row.channel_name ?? null,
+    channelName: channelDisplayName(row.channel_name ?? null),
     activityAt: row.activity_at,
     activityKind: row.activity_kind,
     snippet: row.snippet,
     author: row.latest_author ?? null,
     messageId: row.latest_message_id ?? null,
+    commentId: row.latest_comment_id ?? null,
+    commentTarget:
+      row.latest_comment_scope && row.latest_comment_item_id
+        ? {
+            scope: row.latest_comment_scope as CommentTarget["scope"],
+            itemId: row.latest_comment_item_id,
+          }
+        : null,
     isUnread: row.is_unread,
   }));
 }

@@ -12,7 +12,7 @@ import botocore.exceptions
 from products.data_warehouse.backend.s3_proxy import boto_proxy_config_kwargs
 
 
-def get_s3_client(*, endpoint_url: Optional[str] = None):
+def get_s3_client(*, endpoint_url: Optional[str] = None, skip_instance_cache: bool = False):
     # Defaults for localhost dev and test suites
     if settings.USE_LOCAL_SETUP:
         return s3fs.S3FileSystem(
@@ -29,8 +29,18 @@ def get_s3_client(*, endpoint_url: Optional[str] = None):
     # why a caller-supplied endpoint_url keeps its traffic on it. endpoint_url is only forwarded when
     # set: fsspec's instance cache keys on the literal kwargs, so passing endpoint_url=None explicitly
     # would split the shared cached client into a second instance.
+    #
+    # fsspec's instance cache also keys on the calling thread id, so callers invoked from a thread
+    # pool (e.g. Temporal's sync-activity executor) get one cached, never-evicted S3FileSystem per
+    # thread instead of the single shared instance the caching comment above assumes. skip_instance_cache
+    # opts a caller out of that cache entirely for one-off calls where a leaked-forever cache entry
+    # (and the open sockets/file handles it holds) isn't worth the connection-reuse it'd otherwise buy.
     extra = {"endpoint_url": endpoint_url} if endpoint_url is not None else {}
-    return s3fs.S3FileSystem(config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url), **extra)
+    return s3fs.S3FileSystem(
+        config_kwargs=boto_proxy_config_kwargs(endpoint_url=endpoint_url),
+        skip_instance_cache=skip_instance_cache,
+        **extra,
+    )
 
 
 @contextlib.asynccontextmanager
@@ -74,29 +84,51 @@ async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional
     try:
         yield s3
     finally:
-        # Uncached instances aren't finalized by the fsspec registry, so close the aiobotocore client
-        # explicitly (s3fs's set_session docs: "to be closed later with await .close()") to avoid
-        # leaking HTTP connections in long-lived workers. Never close the shared cached instance —
-        # other callers hold references to it.
+        # Uncached instances aren't finalized by the fsspec registry, so close the aiobotocore
+        # client(s) explicitly (s3fs's set_session docs: "to be closed later with await .close()")
+        # to avoid leaking HTTP connections in long-lived workers. Close via _s3creator rather than
+        # just _s3: with region caching on (the default), s3fs lazily opens a second, region-specific
+        # client the first time a bucket resolves to a different region (S3BucketRegionCache.get_bucket_client),
+        # and only _s3creator tracks that second client — closing _s3 alone leaks it. _s3creator's
+        # __aexit__ closes everything it opened either way (see s3fs's own close_session, which does
+        # the same). Never close the shared cached instance — other callers hold references to it.
         with contextlib.suppress(Exception):
-            if s3._s3 is not None:
-                await s3._s3.close()
+            await s3._s3creator.__aexit__(None, None, None)
 
 
 def get_size_of_folder(path: str) -> float:
-    s3 = get_s3_client()
+    # skip_instance_cache: this runs from Temporal's sync-activity thread pool, so the shared
+    # fsspec cache (keyed by thread id, see get_s3_client) would otherwise leak one S3FileSystem
+    # per calling thread forever. A one-off client, closed below, avoids that.
+    s3 = get_s3_client(skip_instance_cache=True)
 
-    files = s3.find(path, detail=True)
-    file_values = files.values() if isinstance(files, dict) else files
+    try:
+        files = s3.find(path, detail=True)
+        file_values = files.values() if isinstance(files, dict) else files
 
-    total_bytes = sum(f["Size"] for f in file_values if f["type"] != "directory")
-    total_mib = total_bytes / (1024 * 1024)
-
-    return total_mib
+        total_bytes = sum(f["Size"] for f in file_values if f["type"] != "directory")
+        return total_bytes / (1024 * 1024)
+    finally:
+        with contextlib.suppress(Exception):
+            if s3._s3 is not None:
+                s3fs.S3FileSystem.close_session(s3.loop, s3._s3creator)
 
 
 def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: Optional[str] = None) -> None:
-    s3_client = boto3.client("s3", aws_access_key_id=s3_key, aws_secret_access_key=s3_secret, endpoint_url=s3_endpoint)
+    try:
+        s3_client = boto3.client(
+            "s3", aws_access_key_id=s3_key, aws_secret_access_key=s3_secret, endpoint_url=s3_endpoint
+        )
+    except ValueError as e:
+        # botocore refuses to build a client for endpoint hostnames it deems malformed (e.g. a
+        # container service name containing an underscore), yet delta-rs's object store — which does
+        # the pipeline's actual reads and writes — talks to the same endpoint fine. This bucket check
+        # is a best-effort convenience for local/self-hosted setups where the bucket is provisioned
+        # out of band, so skip it rather than abort the sync; the storage layer surfaces a real error
+        # later if the bucket is genuinely absent.
+        if "Invalid endpoint" in str(e):
+            return
+        raise
 
     parsed = urlparse(s3_url)
     if parsed.scheme != "s3":
@@ -116,6 +148,14 @@ def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: 
             raise
 
         if int(error_code) == 404:
-            s3_client.create_bucket(Bucket=bucket_name)
+            try:
+                s3_client.create_bucket(Bucket=bucket_name)
+            except botocore.exceptions.ClientError as create_error:
+                # Concurrent callers can both see the 404 above before either creates the bucket; the
+                # loser's create_bucket then reports it already owns the bucket the winner just made.
+                # That's the intended end state, not a failure.
+                create_error_code = create_error.response.get("Error", {}).get("Code")
+                if create_error_code != "BucketAlreadyOwnedByYou":
+                    raise
         else:
             raise

@@ -168,7 +168,7 @@ Lower priority: `issuing/*`, `treasury/*`, `terminal/*`, `identity/*`, `financia
 Diffed against the [Google Ads API v25 field reference](https://developers.google.com/google-ads/api/fields/v25/overview)
 on 2026-08-04, using each resource's attributed/segmenting resource lists and the per-field
 "selectable with" lists to check every field, segment and metric combination.
-35 tables and the best-covered source we have.
+40 tables and the best-covered source we have.
 
 - [x] `campaign_budget` — budgets and budget pacing.
 - [x] `age_range_view`, `gender_view` — demographic breakdowns.
@@ -185,7 +185,14 @@ on 2026-08-04, using each resource's attributed/segmenting resource lists and th
       `ad_group_ad_asset_view` or `asset_field_type_view` and is still open.
 - [x] Hourly segmentation, as `campaign_hourly_stats`. (device segmentation was already there — every
       existing `*_stats` table selects `segments.device`)
-- [x] Conversion stats segmented by `conversion_action` (we have the actions but not their stats).
+- [x] Conversion stats segmented by `conversion_action`, at campaign, ad group and keyword level
+      (`campaign_conversion_action_stats`, `ad_group_conversion_action_stats`,
+      `keyword_conversion_action_stats`). All off by default — the per-action fan-out multiplies rows.
+- [x] `customer` — account entity table (timezone, currency, auto-tagging, manager status, conversion
+      tracking), distinct from the daily `customer_stats` fact table.
+- [x] `ad_group_criterion`, `campaign_criterion` — every targeting criterion including negative keywords
+      and other exclusions. The `keyword` table is backed by `keyword_view`, which by API design only
+      returns positive, servable keywords, so negatives were previously unreachable. Both off by default.
 
 ### Meta Ads — spec-verified
 
@@ -330,7 +337,9 @@ Four tables, and the two that matter most for an auth provider are missing.
 - [x] `allowlist_identifiers`, `blocklist_identifiers`.
 - [x] `domains`, `saml_connections`, `enterprise_connections` — enterprise SSO configuration.
 - [x] `billing` and `commerce` — Clerk's newer billing surface (shipped as `commerce_plans` and `commerce_subscription_items`)
-- [x] `oauth_applications`, `api_keys`, `m2m_tokens`, `machines`, `clients`.
+- [x] `oauth_applications`, `api_keys`, `m2m_tokens`, `machines`.
+- [ ] `clients` — retired. Clerk deprecated `GET /v1/clients` and it now answers 410, with no
+      replacement listing endpoint.
 - [ ] `email_addresses`, `phone_numbers` as their own tables.
 - [x] `jwt_templates`, `redirect_urls`, `role_sets`, `email_templates`, `sms_templates`
 - [ ] `actor_tokens`, `sign_in_tokens`, `webhooks`
@@ -368,6 +377,23 @@ campaign_stats_daily_demographics, ad_stats_daily_country, ad_stats_daily_demogr
       and make also return no conversion metrics).
 - [ ] Organization-level tables — funding sources, billing centers, invoices, members (skipped: all
       scoped to an organization ID this source does not collect).
+
+### Reddit Ads — spec-verified
+
+Reddit Ads is done; the section above still covers TikTok.
+Diffed against the Reddit Ads v3 OpenAPI spec (`https://ads-api.reddit.com/api/v3/openapi.json`) on 2026-08-04.
+
+Have: campaigns, ad_groups, ads, campaign_report, ad_group_report, ad_report, ad_account,
+custom_audiences, saved_audiences, pixels, funding_instruments, lead_gen_forms, profiles,
+structured_posts, campaign_country_report, campaign_gender_report, campaign_placement_report,
+campaign_community_report, campaign_os_type_report, campaign_keyword_report.
+
+- [x] Creative metadata — `structured_posts`, fanned out over the account's profiles. Reddit hangs creatives off profiles, not off the ad account, and ad rows carry the `post_id` to join on.
+- [x] Breakdown dimensions on the report tables — gender, country, placement, device (`OS_TYPE`), community and keyword, each a campaign-grain report table defaulted to `should_sync_default=False`. Reddit returns breakdowns as extra dimensions on the same `POST /reports` call, capped at three per request, so each dimension is its own table rather than a new param. Age is not shippable: `AGE` is absent from the spec's `breakdowns` enum (it appears only in a stale request example). `KEYWORD` is requested as a breakdown only: its membership of the `fields` enum was not re-checked against the spec.
+- [x] Ad account table — `ad_account`, carrying `currency` and `time_zone_id`.
+- [x] Audiences and pixel definitions — `custom_audiences`, `saved_audiences`, `pixels`. Conversion _events_ are write-only (`POST /pixels/{id}/conversion_events`), so there is nothing to sync.
+- Also added: `funding_instruments` (per-instrument currency and credit limit), `lead_gen_forms`, `profiles`.
+- Not built: `apps` (the response schema exposes only `id`); `creative_assets` (rows arrive wrapped in a per-item `result` envelope); product catalogs, feeds, sets and their imports (business-scoped, not reachable from the configured ad account); the targeting reference lists (`communities`, `interests`, `geolocations`, `languages`, `devices`, `carriers`) and `time_zones`, which are global catalogs rather than account data; `POST /ad_accounts/{id}/history` (an audit log, not warehouse-shaped); forecasting, bid suggestions and data-deletion jobs (write or estimate endpoints).
 
 ### Pinterest Ads — spec-verified
 
@@ -505,11 +531,11 @@ Nine hardcoded tables for what is fundamentally a schemaless CRM.
 
 ### Bing Ads (Microsoft Advertising) — needs confirmation
 
-Four tables: `campaigns` plus three performance reports.
+Five tables: `campaigns` plus four performance reports.
 No ad group, ad, or keyword entity tables at all, which is unusual relative to our other ad sources.
 
 - [ ] `ad_groups` and `ads` as entity tables. Today the ad group and ad performance reports reference IDs with nothing to join to.
-- [ ] `keywords` and `keyword_performance_report`.
+- [x] `keyword_performance_report` — daily performance by keyword. Still missing the `keywords` entity table, so `keyword_id` has nothing to join to.
 - [ ] `search_query_performance_report` — search terms, one of the main reasons to export Bing data.
 - [ ] `accounts` — currency and timezone.
 - [ ] `geographic_performance_report`, `user_location_performance_report`.
@@ -640,7 +666,8 @@ Seventeen tables (10 API endpoints plus 7 webhook event streams) and one of our 
 
 ### Postmark — needs confirmation
 
-Five tables. Delivery config is present, engagement is not.
+Five tables. Delivery config is present, engagement is not. `bounces` also accepts pushed rows
+through the Webhooks API (Bounce and SpamComplaint triggers).
 
 - [ ] Opens and clicks per message.
 - [ ] Outbound overview stats (sends, bounce rate, open rate, spam complaints).
@@ -718,12 +745,14 @@ Two tables (`forms`, `responses`).
 
 ### WooCommerce — needs confirmation
 
-Ten tables, decent coverage.
+Ten tables, decent coverage. Products, orders, coupons and customers can also sync via webhooks
+(`/webhooks`, HMAC-SHA256 signed deliveries) instead of polling.
 
 - [ ] Product variations.
 - [ ] Order refunds and order notes.
 - [ ] Reports endpoints.
-- [ ] Payment gateways, shipping methods, webhooks.
+- [ ] Payment gateways, shipping methods. Webhooks are now managed programmatically for sync, but
+      are not exposed as a table.
 
 ### Slack — needs confirmation
 
@@ -764,7 +793,7 @@ gaps, so that earlier "looks proportionate" read was wrong. See the appendix for
 The two worth pulling forward, because both are higher-adoption than most appendix entries:
 
 - **ActiveCampaign** — no `emailActivities` (per-contact opens and clicks), no e-commerce objects at all (`ecomOrders`, `ecomOrderProducts`, `ecomCustomers`), and no membership tables joining the contacts we sync to the lists and automations we also sync.
-- **Pipedrive** — no deal line items (`deals/{id}/products`), so deal revenue is only readable as a single number; `/deals` excludes archived deals, so closed pipeline history is silently missing; and no `deals/{id}/flow` changelog, so stage-transition and velocity analysis is impossible.
+- **Pipedrive** — no deal line items (`deals/{id}/products`), so deal revenue is only readable as a single number; `/deals` excludes archived deals, so closed pipeline history is silently missing; and no `deals/{id}/flow` changelog, so stage-transition and velocity analysis is impossible. Webhook ingest now supplements the poll for the seven API v2 entity tables (activities, deals, organizations, persons, pipelines, products, stages); the remaining v1-shaped tables stay poll-only.
 
 ## Full sweep results
 

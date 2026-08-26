@@ -41,4 +41,25 @@ describe("StreamingMarkdown", () => {
     expect(screen.getByText("All done.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Copy code")).toBeNull();
   });
+
+  it("shows a link label without exposing its incomplete destination", () => {
+    renderInTheme(
+      <StreamingMarkdown content="Download [the report](https://example.com/report?token=secret" />,
+    );
+
+    expect(screen.getByText("Download the report")).toBeInTheDocument();
+    expect(screen.queryByText(/example\.com/)).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("renders the link when its destination is complete", () => {
+    renderInTheme(
+      <StreamingMarkdown content="Download [the report](https://example.com/report)" />,
+    );
+
+    expect(screen.getByRole("link", { name: /the report/ })).toHaveAttribute(
+      "href",
+      "https://example.com/report",
+    );
+  });
 });

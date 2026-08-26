@@ -1,0 +1,57 @@
+syntax = "proto3";
+package personhog.lifecycle.v1;
+
+// DeletePersonsRequest identifies the persons to destroy. Arguments are
+// already person ids — there is no identity to resolve first, so the RPC
+// goes straight into the saga runner.
+message DeletePersonsRequest {
+  int64 team_id = 1;
+  // posthog_person.id values to delete. Max 250 per request.
+  repeated int64 person_ids = 2;
+  // Caller-generated operation id (UUID string). Persisted with the
+  // operation: a retried call carrying the same op_id attaches to the
+  // existing operation and returns its recorded outcome instead of starting
+  // a new one, so callers must reuse the op_id across retries.
+  string op_id = 3;
+}
+
+enum DeletePersonOutcome {
+  DELETE_PERSON_OUTCOME_UNSPECIFIED = 0;
+  // The person was destroyed (or the recorded outcome of a completed
+  // operation says it was).
+  DELETE_PERSON_OUTCOME_DELETED = 1;
+  // Another live lifecycle operation holds this person's mark; nothing was
+  // done for this person. Retry after that operation finishes.
+  DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT = 2;
+  // No live person row with this id exists in the team.
+  DELETE_PERSON_OUTCOME_NOT_FOUND = 3;
+}
+
+message DeletePersonResult {
+  int64 person_id = 1;
+  DeletePersonOutcome outcome = 2;
+}
+
+message DeletePersonsResponse {
+  // Echo of the request op_id.
+  string op_id = 1;
+  // One result per requested person id, same order as the request.
+  repeated DeletePersonResult results = 2;
+}
+
+// PersonHogLifecycle runs person-destroying operations as durable sagas:
+// all saga state lives in the lifecycle_op tables on the persons primary,
+// the service itself stays stateless.
+//
+// Ack semantics: the RPC drives the saga to Completed before responding —
+// an OK response means the operation's sync-plane work is committed and the
+// owning leaders have produced the death documents. On a crash or timeout
+// the caller retries with the same op_id; the retry attaches to the
+// existing operation, finishes any incomplete tail steps, and returns the
+// recorded outcome. A background sweeper backstops abandoned operations.
+//
+// Co-served on the identity server, but a separate service so callers are
+// insulated from any future split.
+service PersonHogLifecycle {
+  rpc DeletePersons(DeletePersonsRequest) returns (DeletePersonsResponse);
+}

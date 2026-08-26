@@ -1,6 +1,8 @@
-import { CaretLeftIcon, StarIcon } from "@phosphor-icons/react";
+import { ArrowUUpLeftIcon, StarIcon } from "@phosphor-icons/react";
 import {
   Button,
+  cn,
+  Kbd,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -15,6 +17,10 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { track } from "@posthog/ui/shell/analytics";
 
 // An overlay rather than a sibling: the back button fills the row, and nesting
@@ -34,9 +40,9 @@ function RowStar({ channel }: { channel: Channel }) {
         });
         toggleStar();
       }}
-      // Parks in the row's reserved well: 8px padding + 6px gap = 14px from the
+      // Parks in the row's reserved well: 8px padding + 3px gap = 11px from the
       // right edge.
-      className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground"
+      className="-translate-y-1/2 absolute top-1/2 right-2 text-muted-foreground"
     >
       <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
     </Button>
@@ -56,13 +62,14 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
   const current = channels.find((c) => c.id === channelId);
   const showStar = current != null && current.channelType !== "personal";
   const glyph = channelGlyph(current?.name, {
+    personal: current?.channelType === "personal",
     size: 14,
     space: spacesLayout,
     className: "text-muted-foreground",
   });
 
   return (
-    <div className="relative mx-2 mt-1">
+    <div className="relative h-10 border-border border-b px-1.5 pt-1.5 pb-2">
       <Tooltip>
         <TooltipTrigger
           render={
@@ -76,18 +83,27 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                   surface: "sidebar",
                   channel_id: channelId,
                 });
-                showChannelList();
+                showChannelList({ animate: true });
               }}
               // Quill's own height and radius, so this reads as one of the rows
-              // under it rather than a control sitting on top. The star well is
-              // unconditional (see the reserved span below): sized off its
-              // contents, a starrable channel ran taller than #me and everything
-              // below shifted on switch.
-              className="w-full gap-1.5 text-left"
+              // under it rather than a control sitting on top. The right padding
+              // is the star's well — the star is an overlay, because a button
+              // can't nest one, so without it the row's own content runs under
+              // the star. Padding rather than a spacer element: quill hides an
+              // empty one (`empty:hidden`), which is how the shortcut hint ended
+              // up sitting beneath the star.
+              className={cn(
+                "w-full gap-1.5 pr-1 text-left",
+                showStar && "pr-8",
+              )}
             >
-              <CaretLeftIcon
+              {/* The way out of a space, in the brand's own colour: a muted
+                  caret read as decoration on a header rather than the control
+                  it is, and people could not find their way back to the list. */}
+              <ArrowUUpLeftIcon
                 size={12}
-                className="shrink-0 text-muted-foreground"
+                weight="bold"
+                className="shrink-0 text-primary"
               />
               {/* Only #me still has a glyph under the layout, and its well is
                   drawn only when there's something in it — an empty 16px column
@@ -109,7 +125,23 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                   "Unavailable"
                 )}
               </span>
-              <span aria-hidden className="size-6 shrink-0" />
+              {/* Same key as the search box's hint: from inside a space it is
+                  the way back to the list, which is what this row does. */}
+              <Kbd className="mr-0! shrink-0 opacity-50">
+                {formatHotkey(SHORTCUTS.FOCUS_SPACE_SEARCH)}
+              </Kbd>
+              {/* The star's well. Its height is unconditional — it is what
+                  sets the row's height, and a row that changed height between a
+                  starrable space and #me made everything below it jump on
+                  switch. Its width is not: with no star to hold, an empty
+                  column just pushes the shortcut hint off the edge. */}
+              <span
+                aria-hidden
+                className={cn(
+                  "h-6 shrink-0 empty:hidden",
+                  showStar ? "w-6" : "w-0",
+                )}
+              />
             </Button>
           }
         />

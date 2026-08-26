@@ -49,6 +49,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -57,6 +58,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -66,9 +68,11 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
@@ -136,11 +140,12 @@ describe('ToolExecutor intent capture', () => {
     })
 
     // A native (non-exec) tool call with context: proves the native callTool path
-    // strips context and forwards intent. captureToolCall only fires *after*
-    // validation passes (the validation-error path returns before tracking), so its
-    // being called with the intent proves context was stripped before validation.
-    // (projects-get hits the API, which the harness can't fulfill, so we assert on
-    // the captured analytics, not the tool's own result.)
+    // strips context and forwards intent. The native path now also tracks schema
+    // rejections, so "captureToolCall fired" alone no longer implies validation
+    // passed — assert the absence of a validation error explicitly, otherwise an
+    // unstripped `context` (rejected as an unrecognized key) would satisfy this
+    // test. (projects-get hits the API, which the harness can't fulfill, so we
+    // assert on the captured analytics, not the tool's own result.)
     it('strips context before a native tool validates and still forwards intent', async () => {
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
@@ -150,8 +155,10 @@ describe('ToolExecutor intent capture', () => {
         )
 
         expect(captureSpy).toHaveBeenCalledTimes(1)
-        expect(captureSpy.mock.calls[0]![0].toolName).toBe('projects-get')
-        expect(captureSpy.mock.calls[0]![0].intent).toBe('looking up the current user')
+        const arg = captureSpy.mock.calls[0]![0]
+        expect(arg.toolName).toBe('projects-get')
+        expect(arg.intent).toBe('looking up the current user')
+        expect(arg.properties?.$mcp_error_type).not.toBe('validation')
 
         captureSpy.mockRestore()
     })

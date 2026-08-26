@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -43,9 +44,9 @@ function TableRefCell({ table, refKey }: { table: string; refKey: string }): JSX
 }
 
 export function RelationshipsTab(): JSX.Element {
-    const { filteredRows, proposalsLoading, joinsLoading, statusFilter, actionsInFlight, joinsById } =
+    const { filteredRows, proposalsLoading, joinsLoading, filters, actionsInFlight, joinsById } =
         useValues(relationshipsLogic)
-    const { setStatusFilter, acceptProposal, rejectProposal, loadProposals, loadJoins, deleteJoin } =
+    const { setFilters, acceptProposal, rejectProposal, loadProposals, loadJoins, deleteJoin } =
         useActions(relationshipsLogic)
     const { toggleNewJoinModal, toggleEditJoinModal } = useActions(viewLinkLogic)
 
@@ -159,13 +160,19 @@ export function RelationshipsTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex justify-between gap-2 flex-wrap items-center">
-                <LemonSegmentedButton
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    options={STATUS_FILTER_OPTIONS}
-                    size="small"
+                <LemonInput
+                    type="search"
+                    placeholder="Search relationships"
+                    value={filters.search}
+                    onChange={(search) => setFilters({ search })}
                 />
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <LemonSegmentedButton
+                        value={filters.status}
+                        onChange={(status) => setFilters({ status })}
+                        options={STATUS_FILTER_OPTIONS}
+                        size="small"
+                    />
                     <LemonButton
                         type="secondary"
                         icon={<IconRefresh />}

@@ -1,32 +1,134 @@
-"""Facade for the exports product — the surface other products may import.
+"""Public Python interface for creating and retrieving one-off exports."""
 
-Currently exposes synchronous PNG rendering so composed endpoints (e.g. a task run
-delivering a chart to Slack) can render server-side without shuttling bytes through
-API clients.
-"""
-
+from collections.abc import Collection
 from datetime import timedelta
 
 from django.conf import settings
+from django.http.response import HttpResponseBase
 
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
-from products.exports.backend.models.exported_asset import ExportedAsset
-from products.product_analytics.backend.models.insight import Insight
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.exports.backend.models.exported_asset import (
+    DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
+    ExportedAsset,
+    get_content_response,
+    save_content_from_file as _save_content_from_file,
+)
+from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.tasks.failure_handler import (
+    InvalidExportContext as InvalidExportContext,
+    RetryableExportError as RetryableExportError,
+)
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
+
+JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
 
 # Caps the whole workflow including retries; callers block on this, so it must stay
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
+EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
+
+
+def create_export_asset_async(
+    *,
+    team: Team,
+    created_by: User,
+    export_format: str,
+    export_context: dict[str, object],
+) -> ExportedAsset:
+    if export_format not in ExportedAsset.get_supported_format_values():
+        raise ValueError(f"Unsupported export format: {export_format}")
+
+    asset = ExportedAsset.objects.create(
+        team=team,
+        created_by=created_by,
+        export_format=export_format,
+        export_context=export_context,
+    )
+
+    async def _start() -> None:
+        client = await async_connect()
+        await client.start_workflow(
+            ExportAssetWorkflow.run,
+            ExportAssetWorkflowInputs(
+                exported_asset_id=asset.id,
+                team_id=team.id,
+                distinct_id=str(created_by.distinct_id),
+            ),
+            id=f"export-asset-{asset.id}",
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            execution_timeout=EXPORT_WORKFLOW_TIMEOUT,
+        )
+
+    try:
+        async_to_sync(_start)()
+    except Exception as error:
+        logger.info("export_workflow_failed_gracefully", asset_id=asset.id, error=str(error))
+        asset.refresh_from_db()
+        if not asset.exception:
+            asset.exception = "The export could not be started. Try again."
+            asset.exception_type = type(error).__name__
+            asset.save(update_fields=["exception", "exception_type"])
+    asset.refresh_from_db()
+    return asset
+
+
+def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
+    return ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
+
+
+def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:
+    return get_content_response(asset, download=download)
+
+
+def save_export_asset_content_from_file(
+    *,
+    asset: ExportedAsset,
+    file_path: str,
+    max_database_bytes: int | None = None,
+) -> None:
+    _save_content_from_file(asset, file_path, max_database_bytes=max_database_bytes)
+
+
+def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
+    """Which of the given insights have a subscription that has not been deleted.
+
+    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
+    to deliver this insight again.
+    """
+    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
+    # ids to ids and returns no row data.
+    # nosemgrep: idor-lookup-without-team
+    return set(
+        Subscription.objects.filter(insight_id__in=insight_ids, deleted=False).values_list("insight_id", flat=True)
+    )
+
+
+def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]:
+    """Which of the given dashboards have a subscription that has not been deleted.
+
+    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
+    to deliver this dashboard again.
+    """
+    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
+    # ids to ids and returns no row data.
+    # nosemgrep: idor-lookup-without-team
+    return set(
+        Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
+            "dashboard_id", flat=True
+        )
+    )
 
 
 def _validate_adhoc_export_context(export_context: dict) -> None:
@@ -36,6 +138,24 @@ def _validate_adhoc_export_context(export_context: dict) -> None:
     source = export_context.get("source")
     if not isinstance(source, dict) or source.get("kind") != "InsightVizNode":
         raise ValueError("export_context.source must be an InsightVizNode-wrapped query")
+
+
+def get_delivery_image_url(*, team_id: int, asset_id: int, expiry_delta: timedelta) -> str | None:
+    """Mint a delivery-purposed url for one of the team's own rendered images.
+
+    The token authenticates anonymously and bypasses the org's publicly-shared-resources
+    setting, so it is minted on demand rather than stored anywhere a lower-privileged
+    reader could reach. Callers are responsible for only passing an ``asset_id`` they
+    established server-side; the format and team filters bound the damage if one leaks —
+    an image url can never be turned into a CSV or XLSX download. The manager also
+    excludes assets past their TTL.
+    """
+    asset = ExportedAsset.objects.filter(
+        team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG
+    ).first()
+    if asset is None:
+        return None
+    return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
 
 
 def render_png_export(

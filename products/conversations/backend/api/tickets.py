@@ -39,9 +39,12 @@ from posthog.models.person.util import get_person_by_distinct_id, get_persons_by
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.models.role import Role
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
@@ -61,11 +64,11 @@ from products.conversations.backend.events import (
     capture_ticket_status_changed,
 )
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
-from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
 
-from ee.models.rbac.role import Role
+from .. import reply_dedupe
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -89,7 +92,41 @@ class TicketMessageSerializer(serializers.Serializer):
     is_private = serializers.BooleanField(
         read_only=True, help_text="True for internal notes not visible to the customer."
     )
+    version = serializers.IntegerField(read_only=True, help_text="Edit count. 0 means never edited.")
     created_at = serializers.DateTimeField(read_only=True)
+
+
+class TicketNoteUpdateRequestSerializer(serializers.Serializer):
+    """Payload for updating a private note on a ticket."""
+
+    message = serializers.CharField(
+        max_length=5000,
+        help_text="Updated note content in markdown.",
+    )
+    rich_content = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content "
+            "so the thread falls back to the markdown message."
+        ),
+    )
+
+    def validate_message(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("Message content is required.")
+        return value.strip()
+
+    def validate_rich_content(self, value: object) -> object:
+        if value is None:
+            return value
+        try:
+            serialized = json.dumps(value)
+        except (TypeError, ValueError) as e:
+            raise serializers.ValidationError("Rich content must be JSON-serializable.") from e
+        if len(serialized) > 100_000:
+            raise serializers.ValidationError("Rich content too large (max 100KB).")
+        return value
 
 
 class TicketReplyRequestSerializer(serializers.Serializer):
@@ -358,6 +395,13 @@ TICKET_ID_PARAM = OpenApiParameter(
     description="The ticket's UUID or its numeric ticket number.",
 )
 
+NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
+    name="message_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description="The UUID of the private note (comment) to edit or delete.",
+)
+
 
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TICKET_ID_PARAM]),
@@ -370,7 +414,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "compose",
+        "reply",
+        "ai_feedback",
+        "note",
+        "delete_note",
+    ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -1094,14 +1148,76 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "author_type": author_type,
             "author_name": author_name,
             "is_private": item_context.get("is_private") is True,
+            "version": comment.version,
             "created_at": comment.created_at,
         }
+
+    def _get_editable_private_note(
+        self, ticket: Ticket, message_id: str, *, action: str
+    ) -> tuple[Comment | None, Response | None]:
+        """Look up a private note the caller may edit/delete, or return an error response.
+
+        `action` is the present-tense verb ("edit" / "delete") used in author-facing errors.
+        """
+        action_participle = {"edit": "edited", "delete": "deleted"}[action]
+
+        try:
+            uuid.UUID(str(message_id))
+        except (ValueError, TypeError, AttributeError):
+            return None, Response(
+                {"detail": "Note not found.", "error_type": "note_not_found"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            comment = Comment.objects.get(
+                id=message_id,
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                deleted=False,
+            )
+        except Comment.DoesNotExist:
+            return None, Response(
+                {"detail": "Note not found.", "error_type": "note_not_found"},
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        item_context = comment.item_context or {}
+        if item_context.get("is_private") is not True:
+            return None, Response(
+                {"detail": f"Only private notes can be {action_participle}.", "error_type": "not_private_note"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        if comment.created_by_id != self.request.user.id:
+            return None, Response(
+                {
+                    "detail": f"You can only {action} your own private notes.",
+                    "error_type": "not_note_author",
+                },
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
+
+        return comment, None
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],
         request=TicketReplyRequestSerializer,
         responses={
+            200: OpenApiResponse(
+                response=TicketMessageSerializer,
+                description=(
+                    "An identical message was already posted by a recent request. The original "
+                    "message is returned and nothing new is written."
+                ),
+            ),
             201: OpenApiResponse(response=TicketMessageSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(
+                response=TicketErrorSerializer,
+                description="An identical message is still being created by another request.",
+            ),
         },
     )
     @action(
@@ -1116,6 +1232,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         With is_private=false, the reply is delivered to the customer via the
         ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
         the message is stored as an internal note only visible to team members.
+
+        Retrying an identical message from the same author within a short window returns the
+        original message with a 200 rather than posting it twice, and a 409 while a concurrent
+        request is still creating it.
         """
         ticket = self.get_object()
 
@@ -1129,22 +1249,147 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        is_private = data["is_private"]
+        item_context = {"author_type": "support", "is_private": data["is_private"]}
 
-        comment = Comment.objects.create(
-            team=self.team,
-            created_by=request.user,
+        def create_comment() -> Comment:
+            return Comment.objects.create(
+                team=self.team,
+                created_by=request.user,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=data["message"],
+                rich_content=data.get("rich_content"),
+                item_context=item_context,
+            )
+
+        fingerprint = reply_dedupe.ReplyFingerprint.build(
+            team_id=self.team_id,
+            created_by_id=request.user.id,
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=data["message"],
             rich_content=data.get("rich_content"),
-            item_context={"author_type": "support", "is_private": is_private},
+            item_context=item_context,
+        )
+        if fingerprint is None:
+            return self._reply_response(create_comment(), ticket, created=True)
+
+        guarded = reply_dedupe.create_deduplicated(fingerprint, create_comment)
+        if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
+            return Response(
+                {
+                    "detail": reply_dedupe.REPLY_IN_PROGRESS_DETAIL,
+                    "error_type": reply_dedupe.REPLY_IN_PROGRESS_ERROR_TYPE,
+                },
+                status=drf_status.HTTP_409_CONFLICT,
+            )
+        return self._reply_response(
+            cast(Comment, guarded.comment), ticket, created=guarded.outcome is reply_dedupe.CreateOutcome.CREATED
         )
 
+    def _reply_response(self, comment: Comment, ticket: Ticket, *, created: bool) -> Response:
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
-            status=drf_status.HTTP_201_CREATED,
+            status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
         )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM, NOTE_MESSAGE_ID_PARAM],
+        request=TicketNoteUpdateRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TicketMessageSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            403: OpenApiResponse(response=TicketErrorSerializer),
+            404: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path=r"notes/(?P<message_id>[^/.]+)",
+        pagination_class=None,
+    )
+    def note(self, request, message_id: str | None = None, *args, **kwargs):
+        """Update a private note on a ticket.
+
+        Only the note's author can edit it. Customer-facing replies cannot be
+        edited (outbound delivery only runs on create).
+        """
+        ticket = self.get_object()
+        comment, error = self._get_editable_private_note(ticket, message_id or "", action="edit")
+        if error is not None:
+            return error
+        assert comment is not None
+
+        serializer = TicketNoteUpdateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        with transaction.atomic():
+            locked = Comment.objects.select_for_update().get(pk=comment.pk)
+            if locked.deleted:
+                return Response(
+                    {"detail": "Note not found.", "error_type": "note_not_found"},
+                    status=drf_status.HTTP_404_NOT_FOUND,
+                )
+            if locked.created_by_id != request.user.id:
+                return Response(
+                    {
+                        "detail": "You can only edit your own private notes.",
+                        "error_type": "not_note_author",
+                    },
+                    status=drf_status.HTTP_403_FORBIDDEN,
+                )
+            locked.content = data["message"]
+            # Always write rich_content: omitting it clears stale TipTap JSON so markdown-only
+            # MCP/API edits don't keep rendering the previous note body.
+            locked.rich_content = data.get("rich_content")
+            locked.version = locked.version + 1
+            locked.save(update_fields=["content", "rich_content", "version"])
+
+        return Response(TicketMessageSerializer(self._serialize_message(locked, ticket)).data)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM, NOTE_MESSAGE_ID_PARAM],
+        responses={
+            204: OpenApiResponse(description="Note soft-deleted."),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            403: OpenApiResponse(response=TicketErrorSerializer),
+            404: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @note.mapping.delete
+    def delete_note(self, request, message_id: str | None = None, *args, **kwargs):
+        """Soft-delete a private note on a ticket.
+
+        Only the note's author can delete it. Customer-facing replies cannot be
+        deleted via this endpoint.
+        """
+        ticket = self.get_object()
+        comment, error = self._get_editable_private_note(ticket, message_id or "", action="delete")
+        if error is not None:
+            return error
+        assert comment is not None
+
+        with transaction.atomic():
+            locked = Comment.objects.select_for_update().get(pk=comment.pk)
+            if locked.deleted:
+                return Response(
+                    {"detail": "Note not found.", "error_type": "note_not_found"},
+                    status=drf_status.HTTP_404_NOT_FOUND,
+                )
+            if locked.created_by_id != request.user.id:
+                return Response(
+                    {
+                        "detail": "You can only delete your own private notes.",
+                        "error_type": "not_note_author",
+                    },
+                    status=drf_status.HTTP_403_FORBIDDEN,
+                )
+            locked.deleted = True
+            locked.save(update_fields=["deleted"])
+
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],
@@ -1230,6 +1475,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         email_config = EmailChannel.objects.filter(
             id=data["email_config_id"],
             team=team,
+            kind=EmailChannelKind.SUPPORT,
             domain_verified=True,
         ).first()
         if not email_config:
@@ -1268,8 +1514,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=Status.OPEN,
                 widget_session_id=str(uuid.uuid4()),
                 email_config=email_config,
-                email_from=data["recipient_email"],
+                email_from=recipient_email,
                 email_subject=data.get("email_subject", ""),
+                # Ticket search, the person display and restore-by-email all read the
+                # customer's address from traits, so outbound tickets must carry it too.
+                anonymous_traits={"email": recipient_email},
                 # The recipient hasn't proven control of this address — a team member just typed it —
                 # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
                 identity_verified=None,

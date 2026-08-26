@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
@@ -13,11 +13,12 @@ import type {
     Series,
     TooltipConfig,
     TooltipContext,
+    ValueDomain,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import type { GoalLineConfig } from '../../utils/goal-lines'
+import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
@@ -30,6 +31,11 @@ export interface TimeSeriesBarChartConfig {
     yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
+    /** Value-axis domain control — omit for data-derived auto-scaling. A fixed `[min, max]` skips
+     *  `d3.nice()` and wins over the goal-line stretch (pin `[0, dataMax]` so the tallest bar
+     *  reaches the plot top on an axis-less chart); `{ include }` merges with it. See
+     *  {@link ValueDomain}. */
+    valueDomain?: ValueDomain
     /** Defaults to `stacked`. */
     barLayout?: BarChartConfig['barLayout']
     /** Defaults to `vertical`. */
@@ -99,6 +105,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         yAxis,
         valueLabels,
         goalLines,
+        valueDomain,
         barLayout,
         axisOrientation,
         barCornerRadius,
@@ -131,7 +138,11 @@ export function TimeSeriesBarChart<Meta = unknown>({
 
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.
-    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
+    const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, chartSeries)
+    const resolvedValueDomain = useMemo(
+        () => mergeValueDomains(valueDomain, goalLineDomain),
+        [valueDomain, goalLineDomain]
+    )
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
@@ -139,6 +150,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         margins,
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
+        xTickLabelRotation: xAxis?.tickLabelRotation,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
@@ -156,7 +168,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         barCornerRadius,
         bars: {
             divergingStack,
-            valueDomain,
+            valueDomain: resolvedValueDomain,
             fillStyle,
             bandPadding,
             minBarSize,

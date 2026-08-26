@@ -64,16 +64,23 @@ posthog:query-llm-traces-list
 { "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true }
 ```
 
-Then `query-llm-trace` on each. Reading ~20–30 across a use case usually surfaces the main modes.
+Then read each with `query-llm-trace`. Its one required argument is `traceId`, and the value to pass is
+the trace's `id` from the list:
+
+```json
+posthog:query-llm-trace
+{ "traceId": "<id from a query-llm-traces-list result>" }
+```
+
+Reading ~20–30 across a use case usually surfaces the main modes.
 
 ## Existing-eval spikes
 
-A jump in an existing eval's failures often exposes a new problem. Summarize the failures, then confirm
-the spike with a daily count:
+A jump in an existing eval's failures often exposes a new problem. Find the eval, then confirm the spike
+with a daily count and read the failing runs:
 
 ```json
 posthog:llma-evaluation-list { "enabled": true }
-posthog:llma-evaluation-summary-create { "evaluation_id": "<uuid>", "filter": "fail" }
 ```
 
 ```sql

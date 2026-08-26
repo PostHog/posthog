@@ -372,6 +372,20 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error('Subject is required')
             }
         },
+        saveTemplateFailure: ({ errorObject }) => {
+            // A 404 means the template no longer resolves for this environment - it was soft-deleted,
+            // or it belongs to a different environment than the one currently selected.
+            if (errorObject?.status === 404) {
+                lemonToast.error('This template no longer exists in this environment. It may have been deleted.', {
+                    button: {
+                        label: 'Back to library',
+                        action: () => router.actions.push(urls.workflows('library')),
+                    },
+                })
+                return
+            }
+            lemonToast.error('Failed to save template. Please try again.')
+        },
         saveTemplateSuccess: async ({ template }) => {
             lemonToast.success('Template saved')
             // Clear the unsaved-changes state before navigating so the beforeUnload guard

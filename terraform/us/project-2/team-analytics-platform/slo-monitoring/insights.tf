@@ -471,7 +471,7 @@ resource "posthog_insight" "slo_success_rate" {
 # ---------------------------------------------------------------------------
 resource "posthog_insight" "slo_volume" {
   name        = "SLO: 28d Volume by Operation"
-  description = "* = all regions, but events are only emitted from the US project (ph_scoped_capture hardcodes the US client)"
+  description = "* = all regions"
   query_json = jsonencode({
     kind = "DataVisualizationNode"
     source = {

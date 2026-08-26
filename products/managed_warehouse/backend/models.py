@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from django.db import models
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+
+from products.managed_warehouse.backend.model_observability import DuckgresServerManager, record_duckgres_server_access
 
 
 class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -16,6 +20,8 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     query connection is not the same endpoint), so its connection is recorded here
     too under the ``catalog_*`` fields.
     """
+
+    objects = DuckgresServerManager()
 
     organization = models.OneToOneField(
         "posthog.Organization",
@@ -48,11 +54,6 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # Region travels with the bucket: set alongside it, left NULL when no bucket is
     # recorded yet (status_for()'s self-heal fills both in once the control plane reports them).
     bucket_region = models.CharField(max_length=50, null=True, blank=True, default=None)
-    # Fleet-wide cap on the batch sink's concurrently processing groups for this
-    # org — each in-flight group holds at most one connection to the org's
-    # duckgres server, so this bounds the sink's connection footprint no matter
-    # how many consumer pods run. Soft cap: enforced at group-claim time.
-    sink_max_concurrency = models.IntegerField(default=4)
 
     class Meta:
         db_table = "posthog_duckgresserver"
@@ -73,78 +74,32 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         }
 
 
-class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    r"""Per-schema lifecycle of the Duckgres v3 batch sink.
+class ManagedWarehouseSourceLifecycle(models.Model):
+    """Non-secret generation fence for managed SQL-editor source lifecycle operations."""
 
-    The sink only applies live batches for a schema once its history has been
-    primed into duckgres (or it needs no priming). The backfill planner owns
-    the transitions:
-
-    PENDING_BACKFILL -> BACKFILLING -> PRIMED
-                              \-> (superseded by a live full refresh) -> PRIMED
-    PRIMED -> NEEDS_RESYNC (retention-loss gap) -> PENDING_BACKFILL
-    """
-
-    class State(models.TextChoices):
-        PENDING_BACKFILL = "pending_backfill", "Pending backfill"
-        BACKFILLING = "backfilling", "Backfilling"
-        PRIMED = "primed", "Primed"
-        NEEDS_RESYNC = "needs_resync", "Needs resync"
-
-    # db_constraint=False: a real FK constraint on posthog_team locks that hot
-    # table when this table is created (HotTableAlterPolicy). The tenant link is
-    # enforced at the app level.
-    team = models.ForeignKey(
-        "posthog.Team",
+    organization = models.OneToOneField(
+        "posthog.Organization",
         on_delete=models.CASCADE,
-        related_name="duckgres_sink_schema_states",
+        primary_key=True,
+        related_name="managed_warehouse_source_lifecycle",
         db_constraint=False,
     )
-    # ExternalDataSchema id. Not a FK: the queue addresses schemas by string id
-    # and the schema row may be soft-deleted while sink state must survive for
-    # cleanup decisions.
-    schema_id = models.UUIDField(unique=True)
-    state = models.CharField(max_length=32, choices=State.choices, default=State.PENDING_BACKFILL)
-    # Delta table version the backfill is pinned to.
-    snapshot_version = models.BigIntegerField(null=True, blank=True)
-    # Deprecated planning boundary retained for rows created by older planner
-    # revisions. New plans derive containment from Delta commit versions.
-    plan_cutoff = models.DateTimeField(null=True, blank=True)
-    backfill_run_uuid = models.CharField(max_length=200, null=True, blank=True)
-    chunk_count = models.IntegerField(null=True, blank=True)
-    chunks_applied = models.IntegerField(default=0)
-    last_error = models.TextField(null=True, blank=True)
-    # Failure streak since the last forward progress. Drives planner retry
-    # backoff and the failing-schema classification that splits these schemas'
-    # backlog out of the pageable blocked gauges. Reset on any progress.
-    consecutive_failures = models.IntegerField(default=0)
-    # When the current failure streak began — the durable "backfill owed since"
-    # anchor. Unlike batch-derived gauges it survives queue retention.
-    first_failed_at = models.DateTimeField(null=True, blank=True)
-    # Override CreatedMetaFields.created_by to drop the DB-level FK: a real
-    # constraint on posthog_user takes a lock on that hot table when this table
-    # is created (HotTableAlterPolicy). App-level enforcement is enough for an
-    # optional audit pointer.
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
-    )
-
-    # When the sink last applied a live (non-backfill) imported batch to duckgres for this
-    # schema, stamped by the sink at apply time. The web tier reads it from the main DB so
-    # the Data ops UI can report import activity without querying the warehouse-sources
-    # queue DB (which it has no access to). NULL = no live apply recorded since this field
-    # shipped. It's an event timestamp, not a liveness signal — history, never "stale".
-    queue_last_applied_at = models.DateTimeField(null=True, blank=True)
+    generation = models.PositiveBigIntegerField(default=0)
+    desired_active = models.BooleanField(default=True)
+    legacy_conversion_generation = models.PositiveBigIntegerField(null=True, blank=True)
 
     class Meta:
-        db_table = "posthog_duckgressinkschemastate"
-        verbose_name = "Duckgres sink schema state"
-        verbose_name_plural = "Duckgres sink schema states"
-        indexes = [models.Index(fields=["team", "state"], name="duckgres_sink_team_state_idx")]
+        db_table = "posthog_managedwarehousesourcelifecycle"
+
+
+@receiver(post_save, sender=DuckgresServer, dispatch_uid="observe_duckgres_server_save")
+def _observe_duckgres_server_save(*, created: bool, **kwargs: object) -> None:
+    record_duckgres_server_access("create" if created else "update")
+
+
+@receiver(post_delete, sender=DuckgresServer, dispatch_uid="observe_duckgres_server_delete")
+def _observe_duckgres_server_delete(**kwargs: object) -> None:
+    record_duckgres_server_access("delete")
 
 
 class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):

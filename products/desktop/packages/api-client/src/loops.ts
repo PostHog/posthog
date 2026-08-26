@@ -122,10 +122,19 @@ export namespace LoopSchemas {
     run_at?: string;
   };
 
+  /** One condition on the webhook body, for what the named filters below don't
+   * cover. `path` is a dot-path of object keys (`requested_team.slug`); the value
+   * there must equal one of `equals`. All conditions must match. */
+  export type LoopGithubTriggerPayloadFilter = {
+    path: string;
+    equals: string | Array<string>;
+  };
+
   export type LoopGithubTriggerFilters = {
     actions?: Array<string>;
     branches?: Array<string>;
     labels?: Array<string>;
+    payload?: Array<LoopGithubTriggerPayloadFilter>;
   };
 
   export type LoopGithubTriggerConfig = {

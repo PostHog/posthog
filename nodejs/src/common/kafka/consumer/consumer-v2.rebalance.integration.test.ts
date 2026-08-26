@@ -21,9 +21,11 @@ import { KafkaConsumerV2 } from './consumer-v2'
  *    the new owner resumes with zero redelivery,
  *  - cooperative-sticky revokes are incremental: the surviving consumer never drops to zero
  *    assignments while a partition moves,
- *  - the generation guard: a batch in flight when the revoke arrives skips its offset store,
- *    so its messages are redelivered on the moved partition (exactly once more) while the
- *    retained partition never re-reads them and the group commit stays at the pre-batch mark,
+ *  - the generation guard fences by the drain budget, not by the revoke: a batch still in flight
+ *    when the revoke arrives but settling inside the drain budget stores and commits its offsets
+ *    (no redelivery, because its side effects already ran), while a batch that outlives the budget
+ *    is fenced and its messages are redelivered on the moved partition rather than committed as
+ *    done,
  *  - the onPartitionsRevoked hook (the session replay flush-on-revoke contract): it runs
  *    after the drain while the partitions are still assigned, offsets it stores are committed
  *    exactly as the partitions are given up — including from an already-committed baseline
@@ -338,7 +340,7 @@ describe('KafkaConsumerV2 rebalance semantics (integration)', () => {
             }
         })
 
-        it('a batch in flight at revoke skips its offset store (generation guard): moved partition redelivers it, retained partition does not', async () => {
+        it('a batch in flight at revoke that settles inside the drain budget commits its offsets: no redelivery on either partition', async () => {
             const topic = `v2_int_reb_gen_${randomUUID()}`
             const groupId = `v2-int-reb-gen-${randomUUID()}`
             await createTopic(topic, 2)
@@ -401,10 +403,8 @@ describe('KafkaConsumerV2 rebalance semantics (integration)', () => {
                 ])
                 await waitFor(() => ledger.length >= wave1.length, 8_000)
 
-                const preGateCommit = new Map<number, number>()
                 for (const partition of [0, 1]) {
                     const highest = Math.max(...wave1.filter((r) => r.partition === partition).map((r) => r.offset))
-                    preGateCommit.set(partition, highest + 1)
                     await waitForAsync(
                         async () => (await fetchCommittedOffset(groupId, topic, partition)) === highest + 1,
                         10_000
@@ -420,9 +420,10 @@ describe('KafkaConsumerV2 rebalance semantics (integration)', () => {
                 ])
                 await waitFor(() => gated.every((g) => ledger.some((e) => e.value === g.value)), 8_000)
 
-                // B joins while the gated batch is still in flight. The revoke bumps the
-                // generation and drains — the drain blocks on our gate. Hold it long enough
-                // for the revoke to be firmly in progress, then release.
+                // B joins while the gated batch is still in flight. The revoke drains first — the
+                // drain blocks on our gate. Hold it long enough for the revoke to be firmly in
+                // progress, then release well inside the drain budget
+                // (CONSUMER_REBALANCE_TIMEOUT_MS, 20s by default).
                 consumerB = makeConsumer(groupId, topic, (msgs) => Promise.resolve(recordB(msgs)), {
                     autoOffsetStore: true,
                 })
@@ -434,33 +435,129 @@ describe('KafkaConsumerV2 rebalance semantics (integration)', () => {
                 const movedPartition = b.assignments()[0].partition
                 const retainedPartition = movedPartition === 0 ? 1 : 0
 
-                // The generation guard skipped the gated batch's store, so the moved partition's
-                // gated message is redelivered to B from the pre-gate commit point: seen exactly
-                // twice overall (once by A pre-revoke, once by B). The retained partition stays
-                // with A, whose in-memory position is already past its gated message: exactly once.
+                // The gated batch settled inside the drain budget, so its offsets were stored while
+                // both partitions were still assigned and committed as the moved one was given up.
+                // Neither gated message is redelivered: A saw each exactly once and B re-reads
+                // nothing. This is the duplicate-send guarantee — replaying here would fire a
+                // destination's outbound request a second time.
                 const gatedMoved = gated.find((g) => g.partition === movedPartition)!
                 const gatedRetained = gated.find((g) => g.partition === retainedPartition)!
-                await waitFor(() => ledger.filter((e) => e.value === gatedMoved.value).length >= 2, 15_000)
+                for (const partition of [movedPartition, retainedPartition]) {
+                    const gatedForPartition = gated.find((g) => g.partition === partition)!
+                    await waitForAsync(
+                        async () =>
+                            (await fetchCommittedOffset(groupId, topic, partition)) === gatedForPartition.offset + 1,
+                        15_000
+                    )
+                }
+                expect(ledger.filter((e) => e.value === gatedMoved.value).map((e) => e.consumerId)).toEqual(['A'])
+                expect(ledger.filter((e) => e.value === gatedRetained.value).map((e) => e.consumerId)).toEqual(['A'])
+
+                // Nothing else was re-read either: every (partition, offset) appears exactly once.
+                expect([...countByPartitionOffset(ledger).values()].filter((n) => n > 1)).toEqual([])
+            } finally {
+                defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS = savedMaxBackgroundTasks
+                await consumerA.disconnect()
+                await consumerB?.disconnect()
+                await deleteTopic(topic)
+            }
+        })
+
+        it('a batch outliving the drain budget is fenced: its offsets never commit and the moved partition redelivers it', async () => {
+            const topic = `v2_int_reb_fence_${randomUUID()}`
+            const groupId = `v2-int-reb-fence-${randomUUID()}`
+            await createTopic(topic, 2)
+
+            // Free background slots so the loop can take the revoke while the gated task is
+            // pending, and a drain budget short enough that the gate outlives it — the task then
+            // settles after the fence, which is what must block its offset store.
+            const savedMaxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+            const savedRebalanceTimeout = defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
+            defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS = 4
+            defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS = 2_000
+
+            const ledger: LedgerEntry[] = []
+            let gateArmed = false
+            let releaseGate: () => void = () => {}
+            const gate = new Promise<void>((resolve) => {
+                releaseGate = resolve
+            })
+
+            const record =
+                (consumerId: string, gated: boolean) =>
+                (messages: Message[]): { backgroundTask?: Promise<unknown> } => {
+                    for (const m of messages) {
+                        ledger.push({
+                            consumerId,
+                            partition: m.partition,
+                            offset: m.offset,
+                            key: m.key?.toString() ?? '',
+                            value: m.value?.toString() ?? '',
+                            seenAt: Date.now(),
+                        })
+                    }
+                    return gated && gateArmed ? { backgroundTask: gate } : {}
+                }
+
+            const consumerA = makeConsumer(groupId, topic, (msgs) => Promise.resolve(record('A', true)(msgs)), {
+                autoOffsetStore: true,
+            })
+            let consumerB: KafkaConsumerV2 | undefined
+
+            try {
+                await waitFor(() => consumerA.assignments().length === 2, 10_000)
+
+                const wave1 = await produceTracked(producer, topic, [
+                    { key: 'a0', partition: 0 },
+                    { key: 'b0', partition: 1 },
+                ])
+                await waitFor(() => ledger.length >= wave1.length, 8_000)
+                const preGateCommit = new Map<number, number>()
+                for (const produced of wave1) {
+                    preGateCommit.set(produced.partition, produced.offset + 1)
+                    await waitForAsync(
+                        async () =>
+                            (await fetchCommittedOffset(groupId, topic, produced.partition)) === produced.offset + 1,
+                        10_000
+                    )
+                }
+
+                gateArmed = true
+                const gated = await produceTracked(producer, topic, [
+                    { key: 'gated-p0', partition: 0 },
+                    { key: 'gated-p1', partition: 1 },
+                ])
+                await waitFor(() => gated.every((g) => ledger.some((e) => e.value === g.value)), 8_000)
+
+                // B joins. The drain gives up after 2s with the gate still closed, so the fence
+                // engages before the task settles.
+                consumerB = makeConsumer(groupId, topic, (msgs) => Promise.resolve(record('B', false)(msgs)), {
+                    autoOffsetStore: true,
+                })
+                const b = consumerB
+                await waitFor(() => consumerA.assignments().length === 1 && b.assignments().length === 1, 20_000)
+                releaseGate()
+
+                const movedPartition = b.assignments()[0].partition
+                const retainedPartition = movedPartition === 0 ? 1 : 0
+                const gatedMoved = gated.find((g) => g.partition === movedPartition)!
+
+                // Fenced: the gated batch's store was skipped, so the moved partition redelivers
+                // its message to B from the pre-gate commit. At-least-once is preserved — an
+                // unfinished batch must never be committed as done.
+                await waitFor(() => ledger.filter((e) => e.value === gatedMoved.value).length >= 2, 20_000)
                 expect(
                     ledger
                         .filter((e) => e.value === gatedMoved.value)
                         .map((e) => e.consumerId)
                         .sort()
                 ).toEqual(['A', 'B'])
-                expect(ledger.filter((e) => e.value === gatedRetained.value).map((e) => e.consumerId)).toEqual(['A'])
-
-                // Commits reflect the guard exactly: the retained partition's commit is still the
-                // pre-gate mark (its gated store was skipped and nothing re-stored it), while the
-                // moved partition advances past the gated message once B's redelivery settles.
-                await waitForAsync(
-                    async () => (await fetchCommittedOffset(groupId, topic, movedPartition)) === gatedMoved.offset + 1,
-                    15_000
-                )
                 expect(await fetchCommittedOffset(groupId, topic, retainedPartition)).toBe(
                     preGateCommit.get(retainedPartition)
                 )
             } finally {
                 defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS = savedMaxBackgroundTasks
+                defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS = savedRebalanceTimeout
                 await consumerA.disconnect()
                 await consumerB?.disconnect()
                 await deleteTopic(topic)

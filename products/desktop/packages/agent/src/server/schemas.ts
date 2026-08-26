@@ -1,3 +1,4 @@
+import type { McpServerConnection } from "@posthog/shared";
 import { z } from "zod/v4";
 
 export { posthogExecPermissionRegexSchema } from "../posthog-exec-permission";
@@ -20,7 +21,7 @@ export const handoffLocalGitStateSchema = z.object({
   upstreamMergeRef: nullishString,
 });
 
-const remoteMcpServerSchema = z.object({
+const remoteMcpServerSchema: z.ZodType<McpServerConnection> = z.object({
   type: z.enum(["http", "sse"]),
   name: z.string().min(1, "MCP server name is required"),
   url: z.url({ error: "MCP server url must be a valid URL" }),
@@ -28,8 +29,6 @@ const remoteMcpServerSchema = z.object({
 });
 
 export const mcpServersSchema = z.array(remoteMcpServerSchema);
-
-export type RemoteMcpServer = z.infer<typeof remoteMcpServerSchema>;
 
 export const claudeCodeConfigSchema = z.object({
   systemPrompt: z
@@ -100,9 +99,16 @@ export const refreshSessionParamsSchema = z.object({
   mcpServers: mcpServersSchema,
 });
 
+export const sideQuestionParamsSchema = z.object({
+  question: z.string().min(1, "question is required"),
+  // The adapter resolves the ACP session itself; accepted for symmetry with
+  // the other session-scoped commands.
+  sessionId: z.string().optional(),
+});
+
 /**
  * Names of desktop-only local MCP servers designated for relaying into this
- * run (docs/cloud-mcp-relay.md). Names only — the sandbox never learns the
+ * run (docs/CLOUD-MCP-RELAY.md). Names only — the sandbox never learns the
  * server's configuration.
  */
 export const relayMcpServerNamesSchema = z
@@ -144,6 +150,8 @@ export const commandParamsSchemas = {
   mcp_response: mcpResponseParamsSchema,
   "posthog/mcp_response": mcpResponseParamsSchema,
   "_posthog/mcp_response": mcpResponseParamsSchema,
+  side_question: sideQuestionParamsSchema,
+  "posthog/side_question": sideQuestionParamsSchema,
 } as const;
 
 export type CommandMethod = keyof typeof commandParamsSchemas;

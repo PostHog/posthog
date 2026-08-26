@@ -35,6 +35,9 @@ export type DeliveryFeedbackSource = 'email' | 'slack' | 'in_app'
 
 export const FEEDBACK_THANKS_DISPLAY_MS = 1000
 
+// Shown as a popup when someone votes a report down, asking what was wrong with it.
+export const NEGATIVE_FEEDBACK_SURVEY_ID = '019fd71b-1df8-0000-6b5f-2c35bb4aacc2'
+
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
     if (!url) {
         return undefined
@@ -58,6 +61,7 @@ export interface subscriptionSceneLogicValues {
     deliveryStatusFilter: SubscriptionsDeliveriesListStatus | null
     recentlyThankedDeliveries: Record<string, true>
     subscription: SubscriptionApi | null
+    subscriptionAccessDenied: boolean
     subscriptionLoading: boolean
 }
 
@@ -180,6 +184,13 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 deliverSubscriptionFailure: () => null,
             },
         ],
+        subscriptionAccessDenied: [
+            false,
+            {
+                loadSubscription: () => false,
+                loadSubscriptionFailure: (_, { errorObject }) => errorObject?.status === 403,
+            },
+        ],
         deliveryStatusFilter: [
             null as SubscriptionsDeliveriesListStatus | null,
             {
@@ -288,6 +299,12 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 // event per person + delivery, so a switched vote simply wins.
                 previous_feedback: selectors.deliveryFeedback(previousState)[deliveryId] ?? null,
             })
+            if (feedback === 'negative') {
+                // Show the follow-up survey directly rather than via its event trigger. The Slack
+                // link's router redirect strips the feedback params before trigger conditions
+                // evaluate, so displaySurvey is the reliable path for that flow.
+                posthog.displaySurvey(NEGATIVE_FEEDBACK_SURVEY_ID)
+            }
             // In-app thumbs show a per-row "Thanks" state instead of a toast.
             if (source !== 'in_app') {
                 lemonToast.success('Thanks for your feedback')
@@ -350,22 +367,33 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         },
     })),
     urlToAction(({ actions, props, values }) => ({
-        // Feedback links in delivered emails/Slack messages land here with these params;
-        // capture once, then strip them so a refresh doesn't double-capture.
+        // Links in delivered reports land here with these params; capture once,
+        // then strip them so a refresh doesn't double-capture.
         [urls.subscription(':id')]: ({ id }, searchParams) => {
             if (id !== props.id) {
                 return
             }
-            const { feedback_delivery, feedback, feedback_source, ...restSearchParams } = searchParams
-            if (!feedback_delivery || (feedback !== 'positive' && feedback !== 'negative')) {
+            const { feedback_delivery, feedback, feedback_source, delivery, ...restSearchParams } = searchParams
+            const clickedDelivery = feedback_delivery ?? delivery
+            if (!clickedDelivery) {
                 return
             }
-            const deliveryId = String(feedback_delivery)
-            if (values.deliveryFeedback[deliveryId]) {
-                // Persisted state remembers this delivery — don't re-capture from a re-clicked link.
-                lemonToast.info('Your feedback for this report was already recorded')
-            } else {
-                actions.submitDeliveryFeedback(deliveryId, feedback, feedback_source === 'slack' ? 'slack' : 'email')
+            const source = feedback_source === 'slack' ? 'slack' : 'email'
+            // Delivery engagement is a proxy for the report being read — subscribing alone is a weak signal.
+            posthog.capture('ai_report_clicked', {
+                subscription_id: parseInt(props.id, 10),
+                delivery_id: String(clickedDelivery),
+                link: feedback_delivery ? 'feedback' : 'manage',
+                source,
+            })
+            if (feedback_delivery && (feedback === 'positive' || feedback === 'negative')) {
+                const deliveryId = String(feedback_delivery)
+                if (values.deliveryFeedback[deliveryId]) {
+                    // Persisted state remembers this delivery — don't re-capture from a re-clicked link.
+                    lemonToast.info('Your feedback for this report was already recorded')
+                } else {
+                    actions.submitDeliveryFeedback(deliveryId, feedback, source)
+                }
             }
             router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
         },

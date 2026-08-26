@@ -25,9 +25,10 @@ tools:
             destructive: false
             idempotent: true
         title: Get available activity log filter options.
-        description: >
-            Get the available filter options for activity logs — scopes, activity types, and users that have logged
-            activity. Useful for building filter UIs or understanding what kinds of activity are tracked.
+        description:
+            Get the valid filter values for activity logs — the scopes, activity types, and users that actually have
+            logged activity in this project. Call this before advanced-activity-logs-list when you need to filter and
+            don't know the exact scope or activity strings to pass; skip it when you already know them.
         feature_entitlement: audit_logs
         url_prefix: /activity
     advanced-activity-logs-list:
@@ -48,6 +49,9 @@ tools:
             across the project. Responses can be large — pass `fields` to return only what your task needs (e.g.
             `["user.email", "activity", "scope", "created_at"]` to see who changed what), and only request
             `detail.changes` when you actually need the field-level diffs.
+        exclude_params:
+            - schema
+            - include_values
         param_overrides:
             page_size:
                 default: 10
@@ -267,8 +271,11 @@ tools:
             destructive: false
             idempotent: true
         title: Get comment counts.
-        description: |
-            Get the count of comments, optionally filtered by scope and item_id.
+        description:
+            Count comments, optionally narrowed to one resource by scope (e.g. Dashboard, Insight, FeatureFlag) and
+            item_id. Use when you only need the number — for example to check whether a resource has any discussion
+            before digging in. To read the comments themselves use comments-list; for a full reply chain use
+            comment-thread.
     comment-get:
         operation: comments_retrieve
         enabled: true
@@ -298,7 +305,19 @@ tools:
         enabled: false
     comments-create:
         operation: comments_create
-        enabled: false
+        enabled: true
+        scopes:
+            - comment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a comment or reply
+        description: >
+            Create a comment on an accessible resource, or reply by passing `source_comment`. For a canvas use scope
+            `desktop_canvas`, the canvas id as `item_id`, and item_context.taskId from the canvas's
+            `discussion_task_id`. Canvas visibility is enforced: public-channel canvases and the authenticated user's
+            personal-channel canvases are accessible.
     comments-destroy:
         operation: comments_destroy
         enabled: false
@@ -320,6 +339,9 @@ tools:
         enabled: false
     comments-reopen-create:
         operation: comments_reopen_create
+        enabled: false
+    comments-send-to-slack-create:
+        operation: comments_send_to_slack_create
         enabled: false
     comments-update:
         operation: comments_update
@@ -475,6 +497,9 @@ tools:
     personal-api-keys-list:
         operation: personal_api_keys_list
         enabled: false
+    remove-blocked-members-and-enforce-verified-domains-create:
+        operation: remove_blocked_members_and_enforce_verified_domains_create
+        enabled: false
     request-ai-access-create:
         operation: request_ai_access_create
         enabled: false
@@ -535,6 +560,9 @@ tools:
         enabled: false
     roles-update:
         operation: roles_update
+        enabled: false
+    teams-data-freshness-retrieve:
+        operation: teams_data_freshness_retrieve
         enabled: false
     user-home-settings-get:
         operation: user_home_settings_retrieve

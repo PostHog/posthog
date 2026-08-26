@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseOpenFence, splitMarkdownBlocks } from "./splitMarkdownBlocks";
+import {
+  markOpenLinkDestination,
+  maskOpenLinkDestination,
+  parseOpenFence,
+  splitMarkdownBlocks,
+} from "./splitMarkdownBlocks";
 
 describe("splitMarkdownBlocks", () => {
   it.each([
@@ -107,5 +112,112 @@ describe("parseOpenFence", () => {
       before: "```ts\ndone\n```\ntext\n",
       code: "partial",
     });
+  });
+});
+
+describe("maskOpenLinkDestination", () => {
+  it("shows the label while hiding an incomplete destination", () => {
+    expect(
+      maskOpenLinkDestination(
+        "Download [the report](https://example.com/a-very-long?token=secret",
+      ),
+    ).toBe("Download the report");
+  });
+
+  it("leaves a completed link unchanged", () => {
+    const markdown = "Download [the report](https://example.com/report) now";
+    expect(maskOpenLinkDestination(markdown)).toBe(markdown);
+  });
+
+  it("waits for nested destination parentheses to close", () => {
+    expect(maskOpenLinkDestination("See [docs](https://example.com/a(b)")).toBe(
+      "See docs",
+    );
+  });
+
+  it("ignores link syntax inside inline code", () => {
+    const markdown = "`[label](https://example.com/incomplete`";
+    expect(maskOpenLinkDestination(markdown)).toBe(markdown);
+  });
+
+  it("treats an unmatched backtick as literal text", () => {
+    expect(
+      maskOpenLinkDestination(
+        "Unmatched ` then [report](https://example.com/private",
+      ),
+    ).toBe("Unmatched ` then report");
+  });
+
+  it("supports nested brackets and escaped destination parentheses", () => {
+    expect(
+      maskOpenLinkDestination("See [the [new] docs](https://example.com/a\\("),
+    ).toBe("See the [new] docs");
+  });
+
+  it("shows image alt text while hiding an incomplete destination", () => {
+    expect(
+      maskOpenLinkDestination("Preview: ![chart](https://example.com/ch"),
+    ).toBe("Preview: chart");
+  });
+
+  it("masks the destination at every streaming boundary", () => {
+    const markdown =
+      "Download [the report](https://example.com/report?token=secret)";
+    const destinationStart = markdown.indexOf("https://");
+
+    for (let end = destinationStart; end < markdown.length; end++) {
+      const rendered = maskOpenLinkDestination(markdown.slice(0, end));
+      expect(rendered).not.toContain("example.com");
+      expect(rendered).not.toContain("token=secret");
+    }
+
+    expect(maskOpenLinkDestination(markdown)).toBe(markdown);
+  });
+
+  it("does not treat an escaped exclamation mark as an image marker", () => {
+    expect(
+      maskOpenLinkDestination("\\![label](https://example.com/incomplete"),
+    ).toBe("\\!label");
+  });
+
+  it("handles angle-bracket destinations containing parentheses", () => {
+    const complete = "[docs](<https://example.com/a(b>)";
+    expect(maskOpenLinkDestination(complete)).toBe(complete);
+    expect(maskOpenLinkDestination("[docs](<https://example.com/a(b>")).toBe(
+      "docs",
+    );
+  });
+
+  it.each([
+    '[docs](https://example.com "a title")',
+    "[docs](https://example.com 'a title')",
+    "[docs](https://example.com (a title))",
+    '[docs](<https://example.com/a(b)> "a title")',
+  ])("recognizes a completed destination with a title: %s", (markdown) => {
+    expect(maskOpenLinkDestination(markdown)).toBe(markdown);
+  });
+
+  it.each([
+    '[docs](https://example.com "an unfinished title',
+    "[docs](https://example.com (an unfinished title)",
+    '[docs](<https://example.com/a(b)> "title"',
+  ])("masks an incomplete destination or title: %s", (markdown) => {
+    expect(maskOpenLinkDestination(markdown)).toBe("docs");
+  });
+});
+
+describe("markOpenLinkDestination", () => {
+  it("replaces an incomplete destination with a renderable pending link", () => {
+    expect(
+      markOpenLinkDestination(
+        "Here is [the file](https://example.com/long",
+        "#pending",
+      ),
+    ).toBe("Here is [the file](#pending)");
+  });
+
+  it("leaves a completed link unchanged", () => {
+    const markdown = "Here is [the file](https://example.com/file)";
+    expect(markOpenLinkDestination(markdown, "#pending")).toBe(markdown);
   });
 });

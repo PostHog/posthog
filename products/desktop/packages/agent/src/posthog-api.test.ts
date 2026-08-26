@@ -46,6 +46,100 @@ describe("PostHogAPIClient", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  // The lookup gates session start, so a stalled socket must degrade to null
+  // rather than hang. The bound is what makes the best-effort catch reachable.
+  it("bounds the user-node lookup and returns null when it times out", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+    mockFetch.mockRejectedValue(
+      new DOMException("The operation was aborted.", "TimeoutError"),
+    );
+
+    await expect(client.getUserNode()).resolves.toBeNull();
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("loads policies for managed MCP servers and keeps unmanaged servers", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        results: [
+          {
+            tool_name: "search",
+            approval_state: "needs_approval",
+            description: "Search resources",
+          },
+        ],
+      }),
+    });
+
+    await expect(
+      client.getMcpRuntimeConfiguration([
+        {
+          type: "http",
+          name: "Cloudflare",
+          url: "https://app.posthog.com/api/environments/7/mcp_server_installations/installation-1/proxy/",
+          headers: [],
+        },
+        {
+          type: "http",
+          name: "custom",
+          url: "https://mcp.example.com/mcp",
+          headers: [],
+        },
+      ]),
+    ).resolves.toEqual({
+      servers: [
+        expect.objectContaining({ name: "Cloudflare" }),
+        expect.objectContaining({ name: "custom" }),
+      ],
+      policies: [
+        {
+          serverName: "Cloudflare",
+          toolName: "search",
+          installationId: "installation-1",
+          approvalState: "needs_approval",
+          description: "Search resources",
+        },
+      ],
+    });
+  });
+
+  it("omits a managed MCP server when its policies cannot be loaded", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Server error",
+      json: vi.fn().mockResolvedValue({ detail: "failed" }),
+    });
+
+    const configuration = await client.getMcpRuntimeConfiguration([
+      {
+        type: "http",
+        name: "broken",
+        url: "https://app.posthog.com/api/environments/7/mcp_server_installations/installation-1/proxy/",
+        headers: [],
+      },
+    ]);
+
+    expect(configuration).toEqual({ servers: [], policies: [] });
+  });
+
   it("downloads artifacts through the backend endpoint", async () => {
     const client = new PostHogAPIClient({
       apiUrl: "https://app.posthog.com",

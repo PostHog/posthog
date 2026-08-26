@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -32,7 +33,13 @@ def _is_transient_s3_connection_error(error: BaseException) -> bool:
     return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
-class NonRetryableException(Exception):
+class NonRetryableException(NonReportableError):
+    """Raised only for errors already classified as a permanent customer/upstream condition
+    (bad credentials, denied permissions, a deleted remote) via a source's
+    ``get_non_retryable_errors`` or an equivalent shared-code check, never for a fresh,
+    unclassified failure. Subclassing ``NonReportableError`` keeps that already-known condition
+    out of error tracking instead of reporting it as a new bug on every occurrence."""
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.
@@ -59,9 +66,11 @@ S3_DELETE_TIME_BUFFER = 600
 
 # A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
 # deleting source files for as long as its own rewrite takes - documented up to ~45s for a
-# fragmented table in core/delta/maintenance.py - which can outlive a single retry. Bound the retries
-# with backoff instead, mirroring _purge_s3_prefix's approach to the same class of race.
-_COPY_FILES_MAX_ATTEMPTS = 4
+# fragmented table in core/delta/maintenance.py, before vacuum even starts - which can outlive a
+# single retry. Bound the retries with backoff instead, mirroring _purge_s3_prefix's approach to
+# the same class of race. 6 attempts gives ~62s of cumulative backoff (2+4+8+16+32s), comfortably
+# past that documented worst case; 4 attempts (~14s) wasn't.
+_COPY_FILES_MAX_ATTEMPTS = 6
 
 
 def is_posthog_team(team_id: int) -> bool:
@@ -132,7 +141,12 @@ async def prepare_s3_files_for_querying(
                     rf"(?:^|.+/){re.escape(normalized_table_name)}\_\_query\_(\d+)(?:_[0-9a-f]{{8}})?\/?$"
                 )
 
-                all_files = await s3._ls(s3_folder_for_job, detail=True)
+                try:
+                    all_files = await s3._ls(s3_folder_for_job, detail=True)
+                except FileNotFoundError:
+                    # First materialization for this table/model: the job folder has no
+                    # prior content in S3 yet, so there's nothing to clean up.
+                    all_files = []
                 all_file_values = all_files.values() if isinstance(all_files, dict) else all_files
                 directories = [f["Key"] for f in all_file_values if f["type"] == "directory"]
 
@@ -190,6 +204,10 @@ async def prepare_s3_files_for_querying(
                 # S3's SlowDown rate limiting on the destination prefix.
                 await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+            is_transient_object_store_error,
+        )
+
         attempt = 0
         while True:
             attempt += 1
@@ -211,6 +229,18 @@ async def prepare_s3_files_for_querying(
                 )
                 await asyncio.sleep(2**attempt)
                 file_uris = await refresh_file_uris()
+            except OSError as e:
+                # s3fs wraps a CopyObject/PutObject 5xx (e.g. S3's InternalError, already retried to
+                # exhaustion at the boto layer) as a plain OSError. That's a blip on S3's side, not a
+                # bug here - retry the whole (idempotent) copy batch with backoff before giving up.
+                if attempt >= _COPY_FILES_MAX_ATTEMPTS or not is_transient_object_store_error(e):
+                    raise
+                await _log(
+                    f"Transient S3 error while copying files (attempt {attempt}/{_COPY_FILES_MAX_ATTEMPTS}), "
+                    f"retrying: {e}",
+                    level="error",
+                )
+                await asyncio.sleep(2**attempt)
 
         # Delete existing files after copying new ones
         if delete_existing and files_to_delete:

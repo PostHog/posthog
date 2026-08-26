@@ -12,7 +12,6 @@ export {
     createSkipCookielessRateLimitToOverflowStep,
 } from './rate-limit-to-overflow-step'
 export { createResolveTeamStep } from './resolve-team'
-export { createValidateAiEventTokensStep } from './validate-ai-event-tokens'
 export { createValidateEventMetadataStep } from './validate-event-metadata'
 export { createValidateEventPropertiesStep } from './validate-event-properties'
 export { createValidateEventSchemaStep } from './validate-event-schema'

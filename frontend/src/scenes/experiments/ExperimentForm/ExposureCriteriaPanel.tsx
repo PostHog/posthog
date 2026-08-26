@@ -17,6 +17,7 @@ import {
     EXPERIMENT_EXPOSURE_EVENT,
     EXPOSURE_DEFAULT_EVENT,
     exposureEventLabel,
+    getActivationConfig,
     resolvedExposureEvent,
 } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
@@ -25,6 +26,12 @@ import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 const DEFAULT_EXPOSURE_CONFIG: ExperimentEventExposureConfig = {
     kind: NodeKind.ExperimentEventExposureConfig,
     event: EXPOSURE_DEFAULT_EVENT,
+    properties: [],
+}
+
+const DEFAULT_ACTIVATION_CONFIG: ExperimentEventExposureConfig = {
+    kind: NodeKind.ExperimentEventExposureConfig,
+    event: '$pageview',
     properties: [],
 }
 
@@ -64,18 +71,55 @@ function InclusionActionFilter({
     )
 }
 
+function ActivationActionFilter({
+    experiment,
+    onChange,
+}: {
+    experiment: Experiment
+    onChange: ExposureCriteriaPanelProps['onChange']
+}): JSX.Element {
+    return (
+        <ActionFilter
+            bordered
+            filters={exposureConfigToFilter(
+                experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
+            )}
+            setFilters={({ events, actions }: Partial<FilterType>): void => {
+                const entity = events?.[0] || actions?.[0]
+                if (entity) {
+                    onChange({ activation_config: filterToExposureConfig(entity) })
+                }
+            }}
+            typeKey="experiment-activation-config"
+            buttonCopy="Add activation event"
+            showSeriesIndicator={false}
+            hideRename={true}
+            entitiesLimit={1}
+            mathAvailability={MathAvailability.None}
+            showNumericalPropsOnly={false}
+            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+        />
+    )
+}
+
 function ExposureCriteriaFields({
     experiment,
     onChange,
     hasFilters,
     defaultExposureEvent,
+    showActivationOption,
 }: {
     experiment: Experiment
     onChange: ExposureCriteriaPanelProps['onChange']
     hasFilters: boolean
     defaultExposureEvent: string
+    showActivationOption: boolean
 }): JSX.Element {
-    const isCustom = !!experiment.exposure_criteria?.exposure_config
+    // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
+    // still composes with activation, and the editor must classify it the way the backend does
+    const isActivation = !!getActivationConfig(experiment.exposure_criteria)
+    const isCustom = !isActivation && !!experiment.exposure_criteria?.exposure_config
 
     return (
         <div className="space-y-4">
@@ -90,11 +134,31 @@ function ExposureCriteriaFields({
                             <strong>exposed</strong> to the experiment.
                         </>
                     }
-                    selected={!isCustom}
+                    selected={!isCustom && !isActivation}
                     onClick={() => {
-                        onChange({ exposure_config: undefined })
+                        onChange({ exposure_config: undefined, activation_config: undefined })
                     }}
                 />
+                {(showActivationOption || isActivation) && (
+                    <SelectableCard
+                        title="Activation event"
+                        description={
+                            <>
+                                Require an additional event after <LemonTag>{defaultExposureEvent}</LemonTag>. Users
+                                enter the analysis when this event follows their first exposure, and metrics count from
+                                the activation event.
+                            </>
+                        }
+                        selected={isActivation}
+                        onClick={() => {
+                            // Re-clicking the selected card must not reset a configured event
+                            if (isActivation) {
+                                return
+                            }
+                            onChange({ exposure_config: undefined, activation_config: DEFAULT_ACTIVATION_CONFIG })
+                        }}
+                    />
+                )}
                 <SelectableCard
                     title="Custom"
                     description={
@@ -105,8 +169,13 @@ function ExposureCriteriaFields({
                     }
                     selected={isCustom}
                     onClick={() => {
+                        // Re-clicking the selected card must not reset a configured event
+                        if (isCustom) {
+                            return
+                        }
                         onChange({
                             exposure_config: DEFAULT_EXPOSURE_CONFIG,
+                            activation_config: undefined,
                         })
                     }}
                 />
@@ -115,6 +184,11 @@ function ExposureCriteriaFields({
             {isCustom && (
                 <div className="mb-4">
                     <InclusionActionFilter experiment={experiment} onChange={onChange} />
+                </div>
+            )}
+            {isActivation && (
+                <div className="mb-4">
+                    <ActivationActionFilter experiment={experiment} onChange={onChange} />
                 </div>
             )}
 
@@ -165,7 +239,13 @@ function ExposureCriteriaFields({
 }
 
 export function ExposureCriteriaPanel({ experiment, onChange, compact }: ExposureCriteriaPanelProps): JSX.Element {
-    const isCustom = !!experiment.exposure_criteria?.exposure_config
+    // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
+    // still composes with activation, and the editor must classify it the way the backend does
+    const isActivation = !!getActivationConfig(experiment.exposure_criteria)
+    const isCustom = !isActivation && !!experiment.exposure_criteria?.exposure_config
+    const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
+    // Keep an existing activation config editable even if the team is no longer flagged in
+    const showActivationOption = activationEventEnabled || isActivation
     const experimentExposureEventEnabled = useFeatureFlag('EXPERIMENT_EXPOSURE_EVENT')
     const defaultExposureEvent = resolvedExposureEvent(
         experiment,
@@ -186,14 +266,24 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             size="small"
                             dropdownMatchSelectWidth={false}
                             dropdownPlacement="bottom-end"
-                            value={isCustom ? 'custom' : 'default'}
+                            value={isCustom ? 'custom' : isActivation ? 'activation' : 'default'}
                             onChange={(value) => {
+                                // Re-selecting the current mode must not reset a configured event
+                                if ((value === 'custom' && isCustom) || (value === 'activation' && isActivation)) {
+                                    return
+                                }
                                 if (value === 'custom') {
                                     onChange({
                                         exposure_config: DEFAULT_EXPOSURE_CONFIG,
+                                        activation_config: undefined,
+                                    })
+                                } else if (value === 'activation') {
+                                    onChange({
+                                        exposure_config: undefined,
+                                        activation_config: DEFAULT_ACTIVATION_CONFIG,
                                     })
                                 } else {
-                                    onChange({ exposure_config: undefined })
+                                    onChange({ exposure_config: undefined, activation_config: undefined })
                                 }
                             }}
                             options={[
@@ -209,6 +299,22 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                                         </div>
                                     ),
                                 },
+                                ...(showActivationOption
+                                    ? [
+                                          {
+                                              value: 'activation' as const,
+                                              label: 'Activation event',
+                                              labelInMenu: (
+                                                  <div>
+                                                      <div>Activation event</div>
+                                                      <div className="text-xs text-muted font-normal">
+                                                          When an additional event follows {defaultExposureEvent}
+                                                      </div>
+                                                  </div>
+                                              ),
+                                          },
+                                      ]
+                                    : []),
                                 {
                                     value: 'custom' as const,
                                     label: 'Custom event',
@@ -225,6 +331,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                         />
                     </div>
                     {isCustom && <InclusionActionFilter experiment={experiment} onChange={onChange} />}
+                    {isActivation && <ActivationActionFilter experiment={experiment} onChange={onChange} />}
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
@@ -307,6 +414,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                                     onChange={onChange}
                                     hasFilters={hasFilters}
                                     defaultExposureEvent={defaultExposureEvent}
+                                    showActivationOption={showActivationOption}
                                 />
                             </div>
                         ),

@@ -14,6 +14,7 @@ import { Hub } from '../../../types'
 import { createHub } from '~/common/utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
+import { HogExecutorAsyncService } from '../hog-executor-async.service'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
 import { EmailService } from '../messaging/email.service'
@@ -25,6 +26,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
+import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
@@ -89,19 +91,22 @@ describe('Hogflow Executor', () => {
             new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        const hogExecutor = new HogExecutorService(
+        const hogExecutor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                siteUrl: hub.SITE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                teamManager: hub.teamManager,
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                pushNotificationService: undefined as any,
+            }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         const hogFlowFunctionsService = new HogFlowFunctionsService(
@@ -153,10 +158,14 @@ describe('Hogflow Executor', () => {
 
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
+        const stubCohortMembershipRepository: CohortMembershipRepository = {
+            getMemberCohortIds: () => Promise.resolve([]),
+        }
         executor = new HogFlowExecutorService(
             hogFlowFunctionsService,
             recipientPreferencesService,
-            emailValidationService
+            emailValidationService,
+            stubCohortMembershipRepository
         )
     })
 
@@ -1480,7 +1489,11 @@ describe('Hogflow Executor', () => {
                 expect(conversionEvents).toHaveLength(1)
                 expect(conversionEvents[0]).toMatchObject({
                     distinct_id: 'distinct_id',
-                    properties: { $workflow_id: hogFlow.id, $workflow_conversion_type: 'property' },
+                    properties: {
+                        $workflow_id: hogFlow.id,
+                        $workflow_version: hogFlow.version,
+                        $workflow_conversion_type: 'property',
+                    },
                 })
             })
 
@@ -1674,6 +1687,76 @@ describe('Hogflow Executor', () => {
                             expect.any(Error)
                         )
                         loggerErrorSpy.mockRestore()
+                    })
+
+                    // A delay that cannot work out when to continue is the one error on_error must not be
+                    // allowed to carry past: continuing runs the next step immediately, which for a "N days
+                    // before X" reminder sends it with nothing to be before. The handler marks the wait
+                    // unresolved and the executor has to honour that over on_error: 'continue'.
+                    it('does NOT continue past a delay whose date cannot be worked out, despite on_error continue', async () => {
+                        const flow = new FixtureHogFlowBuilder()
+                            .withWorkflow({
+                                actions: {
+                                    trigger: {
+                                        type: 'trigger',
+                                        config: {
+                                            type: 'event',
+                                            filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                        },
+                                    },
+                                    // Compiled by the HogQL compiler from `person.properties.expires_at`,
+                                    // which evaluates to null for a person without that property.
+                                    delay_1: {
+                                        type: 'delay',
+                                        config: {
+                                            delay_until: {
+                                                expression: 'person.properties.expires_at',
+                                                bytecode: [
+                                                    '_H',
+                                                    1,
+                                                    32,
+                                                    'expires_at',
+                                                    32,
+                                                    'properties',
+                                                    32,
+                                                    'person',
+                                                    1,
+                                                    3,
+                                                ],
+                                            },
+                                        } as any,
+                                    },
+                                    exit: { type: 'exit', config: {} },
+                                },
+                                edges: [
+                                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                                    { from: 'delay_1', to: 'exit', type: 'continue' },
+                                ],
+                            })
+                            .build()
+                        expect(flow.actions.find((a) => a.id === 'delay_1')!.on_error).toBe('continue')
+
+                        const invocation = createExampleHogFlowInvocation(flow)
+                        invocation.state.currentAction = {
+                            id: 'delay_1',
+                            startedAtTimestamp: DateTime.now().toMillis(),
+                        }
+
+                        const result = await executor.execute(invocation)
+
+                        expect(result.error).toContain('The date to wait for did not evaluate to a date')
+                        expect(result.finished).toBe(true)
+                        expect(result.invocation.state.currentAction?.id).toBe('delay_1')
+                        expect(result.logs.map((l) => l.message)).not.toEqual(
+                            expect.arrayContaining([expect.stringContaining('Workflow moved to action')])
+                        )
+                        expect(result.logs.map((l) => l.message)).toEqual(
+                            expect.arrayContaining([
+                                expect.stringContaining(
+                                    'Workflow is aborting because [Action:delay_1] could not work out the date to wait for'
+                                ),
+                            ])
+                        )
                     })
                 })
             })
@@ -2086,6 +2169,15 @@ describe('Hogflow Executor', () => {
 
             // Should not match because email contains @posthog.com
             expect(result.invocations).toHaveLength(0)
+            // These metrics are queued straight by the pipeline, not via an invocation result, so they
+            // need the version stamped here or a trigger change that filters everyone out is invisible
+            // in the per-version series.
+            expect(result.metrics).toEqual([
+                expect.objectContaining({
+                    metric_name: 'filtered',
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                }),
+            ])
         })
 
         it('should allow external users without @posthog.com email', async () => {
@@ -2453,6 +2545,53 @@ describe('Hogflow Executor', () => {
             // No variables should be set since no result was produced
             expect(result.invocation.state.variables).toBeUndefined()
         })
+
+        it('links a create-ai-task result to the task in the stored action result log', async () => {
+            // Mirrors the shape template-posthog-create-task returns on success: { id, run_id }.
+            // A non-empty inputs_schema sidesteps an insertRow quirk where an empty array param
+            // reaches the jsonb column as an empty object, not an empty array.
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-posthog-create-task',
+                name: 'Create AI task',
+                code: `return { 'id': 'task-1234', 'run_id': 'run-5678' }`,
+                inputs_schema: [{ key: 'prompt', type: 'string', required: false }],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        action_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-posthog-create-task',
+                                inputs: {},
+                            },
+                            output_variable: { key: 'task', result_path: null },
+                        } as any,
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'action_1', type: 'continue' },
+                        { from: 'action_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables?.task).toEqual({ id: 'task-1234', run_id: 'run-5678' })
+            expect(result.logs.some((l) => l.message.includes('task = [Task:task-1234|run-5678]'))).toBe(true)
+        })
     })
 
     describe('billing metrics', () => {
@@ -2817,11 +2956,19 @@ describe('Hogflow Executor', () => {
                 },
             })
 
+            // A watcher-degraded flow enters at priority 2; the routing must stash that
+            // exact value, not the 0 that per-action result clones reset queuePriority to
+            // before the email action runs (the trigger action executes first here).
+            invocation.queuePriority = 2
+
             // Step 1: Hogflow worker executes (queue !== 'email') — should route to email queue
             const hogflowResult = await executor.execute(invocation)
             expect(hogflowResult.finished).toBe(false)
             expect(hogflowResult.invocation.queue).toBe('email')
             expect(hogflowResult.invocation.queueParameters?.type).toBe('email')
+            // Uncategorized sends classify as bulk (priority 1).
+            expect(hogflowResult.invocation.queuePriority).toBe(1)
+            expect(hogflowResult.invocation.queueMetadata?.originPriority).toBe(2)
 
             // Step 2: Email worker picks up the job (queue === 'email') — should send inline and continue
             let emailResult = await executor.execute(hogflowResult.invocation)

@@ -15,7 +15,8 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -222,6 +223,7 @@ export function FinishExperimentModal(): JSX.Element {
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
     const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
     const [cleanupRepository, setCleanupRepository] = useState<string | null>(null)
+    const [setAsTeamDefault, setSetAsTeamDefault] = useState<boolean>(false)
 
     // Reset on open, not only on close: a failed end/ship closes the modal through the logic
     // without this component's close handler, which would leave a stale pick for the next open.
@@ -229,6 +231,7 @@ export function FinishExperimentModal(): JSX.Element {
         if (isFinishExperimentModalOpen) {
             setOpenCleanupPr(false)
             setCleanupRepository(null)
+            setSetAsTeamDefault(false)
         }
     }, [isFinishExperimentModalOpen])
 
@@ -240,6 +243,12 @@ export function FinishExperimentModal(): JSX.Element {
     // With several connected repositories and none saved on the experiment, the backend would
     // skip the cleanup rather than guess — so a pick is required here.
     const cleanupNeedsRepositoryPick = cleanupTarget?.source === 'ambiguous'
+    // The team default is environment-wide configuration, so offering to set it follows the
+    // same admin bar as the experiments_config settings endpoint.
+    const teamDefaultRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
@@ -249,6 +258,7 @@ export function FinishExperimentModal(): JSX.Element {
     const handleClose = (): void => {
         setOpenCleanupPr(false)
         setCleanupRepository(null)
+        setSetAsTeamDefault(false)
         restoreUnmodifiedExperiment()
         closeFinishExperimentModal()
     }
@@ -256,14 +266,16 @@ export function FinishExperimentModal(): JSX.Element {
     const handleEndExperiment = (): void => {
         const withCleanupPr = cleanupPrAvailable && openCleanupPr
         const repository = withCleanupPr && cleanupNeedsRepositoryPick ? cleanupRepository : null
+        const repositoryAsTeamDefault = !!repository && setAsTeamDefault && !teamDefaultRestrictionReason
         if (isSingleVariantShipped || !selectedVariantKey) {
-            endExperimentWithoutShipping(withCleanupPr, repository)
+            endExperimentWithoutShipping(withCleanupPr, repository, repositoryAsTeamDefault)
         } else {
             finishExperiment({
                 selectedVariantKey,
                 releaseToEveryone,
                 openCleanupPr: withCleanupPr,
                 repository,
+                setRepositoryAsTeamDefault: repositoryAsTeamDefault,
             })
         }
     }
@@ -449,17 +461,27 @@ export function FinishExperimentModal(): JSX.Element {
                                 </div>
                             )}
                             {openCleanupPr && cleanupNeedsRepositoryPick && (
-                                <LemonInputSelect
-                                    mode="single"
-                                    value={cleanupRepository ? [cleanupRepository] : []}
-                                    onChange={(repositories) => setCleanupRepository(repositories[0] ?? null)}
-                                    options={(cleanupTarget?.candidates ?? []).map((repository) => ({
-                                        key: repository,
-                                        label: repository,
-                                    }))}
-                                    placeholder="Select a repository"
-                                    data-attr="experiment-cleanup-repository"
-                                />
+                                <>
+                                    <LemonInputSelect
+                                        mode="single"
+                                        value={cleanupRepository ? [cleanupRepository] : []}
+                                        onChange={(repositories) => setCleanupRepository(repositories[0] ?? null)}
+                                        options={(cleanupTarget?.candidates ?? []).map((repository) => ({
+                                            key: repository,
+                                            label: repository,
+                                        }))}
+                                        placeholder="Select a repository"
+                                        data-attr="experiment-cleanup-repository"
+                                    />
+                                    {!teamDefaultRestrictionReason && (
+                                        <LemonCheckbox
+                                            checked={setAsTeamDefault}
+                                            onChange={setSetAsTeamDefault}
+                                            data-attr="experiment-cleanup-repository-team-default"
+                                            label="Use this repository for all experiments in this project"
+                                        />
+                                    )}
+                                </>
                             )}
                         </div>
                     )}

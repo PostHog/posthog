@@ -21,13 +21,16 @@ import type {
     ChangeRequestRejectApi,
     ChangeRequestsListParams,
     CommentApi,
+    CommentSlackThreadApi,
     CommentsListParams,
     ListParams,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
+    OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
@@ -49,6 +52,7 @@ import type {
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
+    SendCommentToSlackApi,
     WelcomeResponseApi,
 } from './api.schemas'
 
@@ -162,6 +166,31 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     })
 }
 
+export const getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/remove_blocked_members_and_enforce_verified_domains/`
+}
+
+/**
+ * Remove the members whose email domain is outside the organization's verified domains and turn
+ * `enforce_verified_domains` on, in one transaction. Owners are never removed; they keep gated
+ * access and can disable the setting themselves. Admin only.
+ *
+ * Use this only when the caller has confirmed the removals. To turn the setting on without
+ * touching memberships, PATCH `enforce_verified_domains` on the organization instead.
+ */
+export const removeBlockedMembersAndEnforceVerifiedDomainsCreate = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationRemoveBlockedMembersResponseApi> => {
+    return apiMutator<OrganizationRemoveBlockedMembersResponseApi>(
+        getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl(id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getRequestAiAccessCreateUrl = (id: string) => {
     return `/api/organizations/${id}/request_ai_access/`
 }
@@ -176,6 +205,23 @@ export const requestAiAccessCreate = async (
     return apiMutator<OrganizationAIAccessRequestResponseApi>(getRequestAiAccessCreateUrl(id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getTeamsDataFreshnessRetrieveUrl = (id: string) => {
+    return `/api/organizations/${id}/teams/data_freshness/`
+}
+
+/**
+ * When each project in the organization last received data, broken down by kind of data.
+ */
+export const teamsDataFreshnessRetrieve = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationDataFreshnessApi> => {
+    return apiMutator<OrganizationDataFreshnessApi>(getTeamsDataFreshnessRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -884,9 +930,16 @@ export const getCommentsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/comments/`
 }
 
+/**
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
+ */
 export const commentsCreate = async (
     projectId: string,
-    commentApi: NonReadonly<CommentApi>,
+    commentApi?: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsCreateUrl(projectId), {
@@ -915,7 +968,7 @@ export const getCommentsUpdateUrl = (projectId: string, id: string) => {
 export const commentsUpdate = async (
     projectId: string,
     id: string,
-    commentApi: NonReadonly<CommentApi>,
+    commentApi?: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsUpdateUrl(projectId, id), {
@@ -991,6 +1044,27 @@ export const commentsReopenCreate = async (
     return apiMutator<CommentApi>(getCommentsReopenCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getCommentsSendToSlackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/send_to_slack/`
+}
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team.
+ */
+export const commentsSendToSlackCreate = async (
+    projectId: string,
+    id: string,
+    sendCommentToSlackApi: SendCommentToSlackApi,
+    options?: RequestInit
+): Promise<CommentSlackThreadApi> => {
+    return apiMutator<CommentSlackThreadApi>(getCommentsSendToSlackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendCommentToSlackApi),
     })
 }
 

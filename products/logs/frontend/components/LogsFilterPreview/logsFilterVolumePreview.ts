@@ -1,13 +1,18 @@
-import { dataColorVars } from 'lib/colors'
-import { SparklineTimeSeries } from 'lib/components/Sparkline'
+import type { Series } from '@posthog/quill-charts'
+
 import { dayjs } from 'lib/dayjs'
 
+import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
+
+/** Must match `SPARKLINE_TOP_BREAKDOWN_VALUES` in `products/logs/backend/sparkline_query_runner.py`. */
 export const TOP_SERVICES_LIMIT = 10
 
 /**
  * Mirrors the `LIMIT 1000` in `products/logs/backend/sparkline_query_runner.py`. Rows are
- * (bucket × service), and the query orders by time ascending — so once the cap is hit it's the
- * *newest* buckets that get dropped, and any total derived from the response is an undercount.
+ * (bucket × breakdown value), and the query orders by time ascending — so if the cap were ever hit
+ * it would be the *newest* buckets that got dropped, making any total an undercount. The backend
+ * now folds the tail into one bucket, which bounds the response at roughly 50 × 11 rows, so this
+ * should be unreachable; it stays as a backstop in case the top-N there is ever raised.
  */
 export const SPARKLINE_ROW_LIMIT = 1000
 
@@ -20,11 +25,15 @@ export interface LogsFilterPreviewPoint {
     bytes_uncompressed?: number
 }
 
+/** The collapsed "Others" row reads as an aggregate rather than as another service. Resolved to a
+ *  canvas-usable color by the chart — a bar fill can't take `var(--…)`. */
+export const OTHER_BREAKDOWN_COLOR = 'var(--muted)'
+
 export interface LogsFilterPreviewSeriesData {
+    /** Raw bucket timestamps, one per bar. The chart's time axis formats them for display. */
     labels: string[]
-    series: SparklineTimeSeries[]
+    series: Series[]
     total: number
-    truncatedServiceCount: number
     /** Width of one bar/bucket in seconds; needed to translate a per-second rate limit into per-bucket units. */
     bucketSeconds: number
     /** Tallest stacked total across buckets; used to position the rate-limit reference line. */
@@ -65,35 +74,34 @@ export function buildSparklineSeries(
         bucketTotals.set(point.time, (bucketTotals.get(point.time) ?? 0) + value)
         total += value
     }
-    const labels = timeOrder.map((t) => dayjs(t).format('D MMM HH:mm'))
-    const rankedServices = Array.from(serviceTotals.entries()).sort(([, a], [, b]) => b - a)
-    const topServices = rankedServices.slice(0, TOP_SERVICES_LIMIT)
-    const otherServices = rankedServices.slice(TOP_SERVICES_LIMIT)
-    const truncatedServiceCount = otherServices.length
-    const series: SparklineTimeSeries[] = topServices.map(([service], index) => ({
-        name: service,
-        color: dataColorVars[index % dataColorVars.length],
-        values: timeOrder.map((t) => byService.get(service)?.get(t) ?? 0),
-    }))
-    if (otherServices.length > 0) {
-        // Roll up the long tail into a single "Others" series so the chart still adds up to total volume,
-        // and the rate-limit reference line lines up against an honest stacked max.
-        const othersValues = timeOrder.map((t) =>
-            otherServices.reduce((sum, [service]) => sum + (byService.get(service)?.get(t) ?? 0), 0)
-        )
+    // Sorted by volume so colours track the biggest talkers, but deliberately not sliced: the
+    // backend already folded everything past the top N into one bucket, ranked by this same metric.
+    // Slicing again here would re-collapse the collapsed row and label it as a single service.
+    const ranked = Array.from(serviceTotals.entries()).sort(([, a], [, b]) => b - a)
+    const valuesFor = (service: string): number[] => timeOrder.map((t) => byService.get(service)?.get(t) ?? 0)
+    // No explicit colour: the chart assigns the data palette by series index, which is what the
+    // volume ranking above is for.
+    const series: Series[] = ranked
+        .filter(([service]) => service !== OTHER_BREAKDOWN_VALUE)
+        .map(([service]) => ({
+            key: service,
+            label: service,
+            data: valuesFor(service),
+        }))
+    if (serviceTotals.has(OTHER_BREAKDOWN_VALUE)) {
         series.push({
-            name: `Others (${otherServices.length} services)`,
-            color: 'muted',
-            values: othersValues,
+            key: OTHER_BREAKDOWN_VALUE,
+            label: OTHER_BREAKDOWN_LABEL,
+            color: OTHER_BREAKDOWN_COLOR,
+            data: valuesFor(OTHER_BREAKDOWN_VALUE),
         })
     }
     const bucketSeconds = timeOrder.length >= 2 ? dayjs(timeOrder[1]).diff(dayjs(timeOrder[0]), 'second') : 0
     const chartMax = Math.max(0, ...Array.from(bucketTotals.values()))
     return {
-        labels,
+        labels: timeOrder,
         series,
         total,
-        truncatedServiceCount,
         bucketSeconds,
         chartMax,
         bucketCount: timeOrder.length,

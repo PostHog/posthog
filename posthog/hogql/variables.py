@@ -1,3 +1,4 @@
+import re
 from difflib import get_close_matches
 from typing import TypeVar
 
@@ -8,8 +9,9 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.models.team.team import Team
+from posthog.utils import relative_date_parse
 
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 T = TypeVar("T", bound=ast.Expr)
 
@@ -48,7 +50,10 @@ class ReplaceVariables(CloningVisitor):
             if not matching_insight_variable:
                 raise QueryError(f"Variable {variable_code_name} does not exist")
 
+            variable_definition = matching_insight_variable[0]
             if matching_variable.isNull:
+                if variable_definition.type == InsightVariable.Type.LIST and variable_definition.is_multi:
+                    return ast.Array(exprs=[])
                 return ast.Constant(value=None)
 
             value = (
@@ -56,6 +61,22 @@ class ReplaceVariables(CloningVisitor):
                 if matching_variable.value is not None
                 else matching_insight_variable[0].default_value
             )
+
+            if variable_definition.type == InsightVariable.Type.LIST:
+                if variable_definition.is_multi:
+                    # Saved insights keep the scalar value from before a variable was
+                    # toggled to multi — wrap it so {variables.x} is always an array.
+                    items = value if isinstance(value, list) else ([] if value is None else [value])
+                    return ast.Array(exprs=[ast.Constant(value=item) for item in items])
+                if not variable_definition.is_multi and isinstance(value, list):
+                    value = value[0] if value else None
+
+            if (
+                variable_definition.type == InsightVariable.Type.DATE
+                and isinstance(value, str)
+                and is_relative_date_value(value)
+            ):
+                value = relative_date_parse(value, self.team.timezone_info)
 
             return ast.Constant(value=value)
 
@@ -73,3 +94,7 @@ class ReplaceVariables(CloningVisitor):
         if not available_variables:
             return []
         return get_close_matches(variable_code_name, available_variables, n=3, cutoff=0.6)
+
+
+def is_relative_date_value(value: str) -> bool:
+    return re.fullmatch(r"-?\d*[hdwmqysHDWMQY](?:Start|End)?", value) is not None

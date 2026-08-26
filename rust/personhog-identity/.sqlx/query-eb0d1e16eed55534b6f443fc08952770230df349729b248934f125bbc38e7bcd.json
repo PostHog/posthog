@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT op_id, op_type, team_id::bigint as \"team_id!\", step, attempt,\n                   request as \"request: Value\", outcome as \"outcome: Value\",\n                   created_at, completed_at,\n                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())\n                       as \"lease_live!\"\n            FROM lifecycle_op\n            WHERE op_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "op_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "op_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "step",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "attempt",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "request: Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "outcome: Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "lease_live!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "eb0d1e16eed55534b6f443fc08952770230df349729b248934f125bbc38e7bcd"
+}

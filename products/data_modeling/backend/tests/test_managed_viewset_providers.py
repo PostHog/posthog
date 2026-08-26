@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import IntegerDatabaseField
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import (
@@ -28,6 +29,7 @@ SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 NODE_MAT = "products.data_modeling.backend.logic.node_materialization"
+SYNC_SAVED_QUERY_TO_DAG = "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag"
 
 
 def _no_schedules():
@@ -80,6 +82,24 @@ class TestManagedViewSetProviders(BaseTest):
         # materialization, nor get a managed (revenue-analytics) DAG.
         mock_schedule.assert_not_called()
         self.assertFalse(DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).exists())
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    @patch(SYNC_SAVED_QUERY_TO_DAG)
+    @patch("posthog.hogql.database.database.Database.create_for", wraps=Database.create_for)
+    def test_sync_views_reuses_database_for_dag_dependencies(
+        self, mock_database_create, mock_sync_saved_query_to_dag, _mock_schedule
+    ):
+        views = [_fake_view(name=f"provided_view_{index}") for index in range(3)]
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: views)
+
+            viewset = self._viewset()
+            viewset.sync_views()
+
+        self.assertEqual(mock_database_create.call_count, 2)
+        self.assertEqual(mock_sync_saved_query_to_dag.call_count, len(views))
+        dag_databases = [call.kwargs["database"] for call in mock_sync_saved_query_to_dag.call_args_list]
+        self.assertTrue(all(database is dag_databases[0] for database in dag_databases))
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_sync_views_is_idempotent(self, _):

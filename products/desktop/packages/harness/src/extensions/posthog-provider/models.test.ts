@@ -7,18 +7,18 @@ import {
 } from "./models";
 
 describe("gatewayBaseUrlForApi", () => {
-  it("routes openai-responses through the gateway's /v1 surface", () => {
-    expect(gatewayBaseUrlForApi("openai-responses", "us")).toBe(
-      `${getLlmGatewayUrl("us")}/v1`,
-    );
-  });
+  it.each(["openai-responses", "openai-completions"])(
+    "routes %s through the gateway's /v1 surface",
+    (api) => {
+      expect(gatewayBaseUrlForApi(api, "us")).toBe(
+        `${getLlmGatewayUrl("us")}/v1`,
+      );
+    },
+  );
 
-  it("routes every other api through the gateway's product root", () => {
+  it("routes anthropic messages through the gateway's product root", () => {
     expect(gatewayBaseUrlForApi("anthropic-messages", "eu")).toBe(
       getLlmGatewayUrl("eu"),
-    );
-    expect(gatewayBaseUrlForApi("openai-completions", "dev")).toBe(
-      getLlmGatewayUrl("dev"),
     );
   });
 
@@ -29,6 +29,9 @@ describe("gatewayBaseUrlForApi", () => {
     expect(gatewayBaseUrlForApi("openai-responses", "us", "http://proxy")).toBe(
       "http://proxy/v1",
     );
+    expect(
+      gatewayBaseUrlForApi("openai-completions", "us", "http://proxy"),
+    ).toBe("http://proxy/v1");
     expect(
       gatewayBaseUrlForApi("openai-responses", "us", "http://proxy/v1"),
     ).toBe("http://proxy/v1");
@@ -209,7 +212,8 @@ describe("resolveModelConfigs", () => {
 
     const configs = await resolveModelConfigs("us");
 
-    expect(configs[0]?.api).toBe("anthropic-messages");
+    expect(configs[0]?.api).toBe("openai-completions");
+    expect(configs[0]?.baseUrl).toBe(`${getLlmGatewayUrl("us")}/v1`);
     expect(configs[0]?.maxTokens).toBe(32000);
   });
 

@@ -18,6 +18,9 @@ pub use completion::{
     ObservePolicyError,
 };
 pub use observe::{KafkaCommittedOffsets, KafkaTopicOffsets};
-pub use orchestrator::{PersonComponents, SeederOrchestrator, ORCHESTRATOR_LIVENESS_DEADLINE};
+pub use orchestrator::{
+    fail_exhausted_runs_of_kind, PersonComponents, SeederOrchestrator,
+    ORCHESTRATOR_LIVENESS_DEADLINE,
+};
 pub use settings::{OrchestratorSettings, PersonSettings};
 pub use watch::{MarkerWatchTask, PgMarkerFlush, WatchDirectives, MARKER_WATCH_LIVENESS_DEADLINE};

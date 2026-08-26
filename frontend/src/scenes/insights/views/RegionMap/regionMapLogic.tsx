@@ -21,6 +21,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../../../queries/schema/schema-general'
 import { keyForInsightLogicProps } from '../../sharedUtils'
 
 const getTrendResults = (insightData: Record<string, any> | null | undefined): TrendResult[] =>
@@ -37,6 +38,7 @@ export interface regionMapLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery

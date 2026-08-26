@@ -5,11 +5,16 @@ import {
     datasetItemsCreate,
     datasetItemsList,
     datasetItemsPartialUpdate,
+    datasetItemsRetrieve,
     datasetItemsRestore,
+    datasetItemsVersionsList,
     datasetsArchive,
     datasetsCreate,
+    datasetsExportsCreate,
+    datasetsExportsRetrieve,
     datasetsList,
     datasetsPartialUpdate,
+    datasetsRevisionsList,
     datasetsRestore,
     datasetsRetrieve,
 } from '../generated/api'
@@ -21,10 +26,15 @@ import type {
     DatasetItemRestoreApi,
     DatasetItemsPartialUpdateBody,
     DatasetItemsListParams,
+    DatasetItemsRetrieveParams,
+    DatasetItemsVersionsListParams,
     DatasetReadApi,
+    DatasetExportReadApi,
+    DatasetsRevisionsListParams,
     DatasetsListParams,
     PaginatedDatasetItemReadListApi,
     PaginatedDatasetReadListApi,
+    PaginatedDatasetRevisionReadListApi,
     PatchedDatasetUpdateApi,
 } from '../generated/api.schemas'
 
@@ -61,6 +71,19 @@ export const datasetsApi = {
         return datasetItemsList(getCurrentProjectId(), params)
     },
 
+    getItem(id: string, revision?: number): Promise<DatasetItemReadApi> {
+        const params: DatasetItemsRetrieveParams | undefined = revision === undefined ? undefined : { revision }
+        return datasetItemsRetrieve(getCurrentProjectId(), id, params)
+    },
+
+    listItemVersions(id: string, params?: DatasetItemsVersionsListParams): Promise<PaginatedDatasetItemReadListApi> {
+        return datasetItemsVersionsList(getCurrentProjectId(), id, params)
+    },
+
+    listRevisions(id: string, params?: DatasetsRevisionsListParams): Promise<PaginatedDatasetRevisionReadListApi> {
+        return datasetsRevisionsList(getCurrentProjectId(), id, params)
+    },
+
     createItem(data: DatasetItemCreateApi): Promise<DatasetItemReadApi> {
         return datasetItemsCreate(getCurrentProjectId(), data)
     },
@@ -75,5 +98,13 @@ export const datasetsApi = {
 
     restoreItem(id: string, data: DatasetItemRestoreApi): Promise<DatasetItemReadApi> {
         return datasetItemsRestore(getCurrentProjectId(), id, data)
+    },
+
+    exportDataset(id: string, revision?: number): Promise<DatasetExportReadApi> {
+        return datasetsExportsCreate(getCurrentProjectId(), id, revision === undefined ? {} : { revision })
+    },
+
+    getExport(id: string, exportId: number): Promise<DatasetExportReadApi> {
+        return datasetsExportsRetrieve(getCurrentProjectId(), id, String(exportId))
     },
 }

@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -16,19 +15,27 @@ from posthog.hogql.errors import (
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import ExposedCHQueryError
+from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex, Property, PropertyGroup
+from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.team.team import Team
 from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
 from products.cohorts.backend.models.cohort import Cohort
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class BlastRadiusResult:
     affected: int
     total: int
+
+
+# ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
+# 72 CANNOT_PARSE_NUMBER — e.g. a numeric operator (gt/lt) against a null or non-numeric filter
+# value casts 'None' to Float64 and fails deterministically. Both are classified USER_ERROR in
+# posthog/errors.py but not user_safe, so they wrap to InternalCHQueryError, not Exposed.
+_VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
 
 
 @contextmanager
@@ -38,10 +45,13 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
     # malformed regexes, values that don't cast to the property's type - fail deterministically
     # on every request, so they're the caller's input, not a server fault: surface them as a 400
     # carrying the layer's own message instead of an opaque 500. Only deliberately-exposed error
-    # types (plus ObjectDoesNotExist from cohort lookups) are converted across query build and
-    # execution; caller-shaped ValueError is converted separately in the parse phase
+    # types are converted across query build and execution - plus ObjectDoesNotExist from cohort
+    # lookups, PropertyValidationError from Property construction during query build (its message
+    # already names the offending property), and the ClickHouse cannot-parse-value codes above.
+    # Caller-shaped ValueError is converted separately in the parse phase
     # (replace_proxy_properties), so a bare ValueError from HogQL internals or team config
-    # during build/execution still surfaces as a server fault.
+    # during build/execution still surfaces as a server fault, as does any other
+    # InternalCHQueryError.
     try:
         yield
     except (
@@ -49,8 +59,17 @@ def unevaluable_filters_as_validation_errors() -> Iterator[None]:
         HogQLNotImplementedError,
         ExposedCHQueryError,
         ObjectDoesNotExist,
+        PropertyValidationError,
     ) as e:
         raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
+    except InternalCHQueryError as e:
+        if e.code not in _VALUE_PARSE_CH_ERROR_CODES:
+            raise
+        # Unlike ExposedCHQueryError, InternalCHQueryError's str() keeps the raw server message.
+        # Rewrap so ExposedCHQueryError.__str__ strips the DB::Exception framing and any stack
+        # trace tail before the message is echoed back to the caller.
+        sanitized = str(ExposedCHQueryError(e.message, code=e.code, code_name=e.code_name))
+        raise ValidationError({"filters": sanitized or "These filters cannot be evaluated."}) from e
 
 
 def _normalize_property_value(prop: Property) -> None:

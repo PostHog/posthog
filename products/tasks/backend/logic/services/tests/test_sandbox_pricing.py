@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -9,6 +9,7 @@ from products.tasks.backend.logic.services.sandbox_pricing import (
     ComputeRateCardConfigurationError,
     calculate_sandbox_compute_cost,
     validate_compute_rate_cards,
+    validate_reporting_window,
 )
 
 EFFECTIVE_AT = datetime(2026, 8, 1, tzinfo=UTC)
@@ -283,3 +284,21 @@ def test_usage_before_compute_billing_effective_date_is_not_priced():
 def test_invalid_missing_overlapping_or_ambiguous_rate_cards_fail_safely(cards, message):
     with pytest.raises(ComputeRateCardConfigurationError, match=message):
         validate_compute_rate_cards(cards)
+
+
+@pytest.mark.parametrize(
+    "start,end,message",
+    [
+        (datetime(2026, 1, 1), EFFECTIVE_AT, "timezone-aware"),
+        (EFFECTIVE_AT, datetime(2026, 1, 2), "timezone-aware"),
+        (EFFECTIVE_AT, EFFECTIVE_AT, "must follow"),
+        (EFFECTIVE_AT + timedelta(seconds=1), EFFECTIVE_AT, "must follow"),
+    ],
+)
+def test_invalid_reporting_windows_are_rejected(start, end, message):
+    with pytest.raises(ValueError, match=message):
+        validate_reporting_window(start, end)
+
+
+def test_reporting_window_accepts_different_aware_offsets():
+    validate_reporting_window(EFFECTIVE_AT, EFFECTIVE_AT.astimezone(timezone(timedelta(hours=1))) + timedelta(1))

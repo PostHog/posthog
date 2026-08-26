@@ -1,9 +1,7 @@
-use std::collections::HashSet;
 use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
-use sha2::{Digest, Sha256};
 use tracing::Level;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -86,79 +84,6 @@ impl std::str::FromStr for EnvelopeCompression {
     }
 }
 
-/// Routing mode for AI capture events between the primary cluster and a
-/// secondary (e.g. WarpStream) cluster. Only consulted in `CaptureMode::Ai`.
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
-pub enum AiSinkMode {
-    /// All AI events stay on the primary sink (current behavior).
-    #[default]
-    Primary,
-    /// Only tokens listed in `ai_secondary_allowlist_tokens` go to the
-    /// secondary sink; everything else stays on the primary.
-    SecondaryAllowlist,
-    /// Tokens whose deterministic hash bucket falls under the configured
-    /// percentage go to the secondary sink; everything else stays on the
-    /// primary.
-    SecondaryPercentage,
-    /// All AI events go to the secondary sink.
-    Secondary,
-}
-
-impl std::str::FromStr for AiSinkMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_ref() {
-            "primary" => Ok(AiSinkMode::Primary),
-            "secondary_allowlist" | "secondary-allowlist" => Ok(AiSinkMode::SecondaryAllowlist),
-            "secondary_percentage" | "secondary-percentage" => Ok(AiSinkMode::SecondaryPercentage),
-            "secondary" => Ok(AiSinkMode::Secondary),
-            _ => Err(format!("Unknown AiSinkMode: {s}")),
-        }
-    }
-}
-
-/// Resolved AI routing policy: the configured `AiSinkMode` with the token
-/// allowlist or percentage it needs attached to the variant that uses it.
-/// Built from the raw `ai_sink_mode` + companion config in `setup` and
-/// carried by `SplitKafkaSink`, so routing needs nothing but the event's token.
-#[derive(Debug, Clone)]
-pub enum AiRouting {
-    Primary,
-    SecondaryAllowlist(HashSet<String>),
-    SecondaryPercentage(u8),
-    Secondary,
-}
-
-impl AiRouting {
-    /// Whether an AI event for `token` should be routed to the secondary sink.
-    /// `Primary` never does; `Secondary` always does; `SecondaryAllowlist` routes
-    /// only allowlisted tokens; `SecondaryPercentage` routes tokens whose bucket
-    /// falls under the percentage.
-    pub fn routes_to_secondary(&self, token: &str) -> bool {
-        match self {
-            AiRouting::Primary => false,
-            AiRouting::Secondary => true,
-            AiRouting::SecondaryAllowlist(allowlist) => allowlist.contains(token),
-            AiRouting::SecondaryPercentage(percentage) => {
-                token_percentage_bucket(token) < *percentage
-            }
-        }
-    }
-}
-
-/// Deterministic 0-99 bucket for a project API token, used by
-/// `AiRouting::SecondaryPercentage`. Keying on the token (not the distinct id)
-/// keeps a whole team on one side of the split, and SHA-256 keeps the bucket
-/// stable across pods, restarts, and deploys — a process-seeded hash would
-/// reshuffle which teams sit under a given percentage. Raising the percentage
-/// only ever adds teams to the secondary; it never moves routed teams back.
-fn token_percentage_bucket(token: &str) -> u8 {
-    let digest = Sha256::digest(token.as_bytes());
-    let n = u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 digest is 32 bytes"));
-    (n % 100) as u8
-}
-
 #[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(default = "false")]
@@ -210,6 +135,70 @@ pub struct Config {
     /// Max local cache entries for the per-(token, distinct_id) limiter
     #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
+
+    /// Minimum effective event count before a key earns a Redis sync. Keys below
+    /// this cannot be limited whatever other nodes report, so syncing them costs
+    /// two Redis keys per tick for no enforcement value. With an unbounded key
+    /// space this is what keeps the pipeline sized to enforceable keys rather
+    /// than to total traffic. 0 syncs every key.
+    ///
+    /// The level is per-pod, so this must stay well under
+    /// `threshold / pod_count` or a key sitting at the threshold but spread
+    /// evenly across the fleet would never sync and could never be limited.
+    #[envconfig(default = "10")]
+    pub global_rate_limit_min_sync_floor: u64,
+
+    /// Max keys drained from the pending-sync set per tick. Excess stays queued,
+    /// so a backlog shows up as sync staleness rather than a tick that overruns
+    /// its interval.
+    #[envconfig(default = "20000")]
+    pub global_rate_limit_max_sync_keys_per_tick: usize,
+
+    /// Max Redis keys per individual command. Reads cost two keys per entity, so
+    /// an entity chunk is half this. Bounds how long any single command can take,
+    /// which is what the per-command timeouts below are budgeting for.
+    #[envconfig(default = "2000")]
+    pub global_rate_limit_max_keys_per_command: usize,
+
+    /// How many chunked commands may be in flight at once per Redis instance.
+    #[envconfig(default = "4")]
+    pub global_rate_limit_max_concurrent_commands: usize,
+
+    /// Max distinct (key, epoch) entries held in the deferred write batch per
+    /// limiter. Merges are always accepted; at the cap, updates for new keys
+    /// are dropped and counted (fail-open). Bounds limiter memory under
+    /// unique-key floods that outrun the per-tick write drain.
+    #[envconfig(default = "200000")]
+    pub global_rate_limit_max_write_batch_entries: usize,
+
+    /// Max keys held in the pending-sync set per limiter. At the cap, new sync
+    /// requests drop and re-queue on the key's next request (fail-open).
+    /// Bounds limiter memory alongside the write-batch cap.
+    #[envconfig(default = "200000")]
+    pub global_rate_limit_max_pending_sync_entries: usize,
+
+    /// How long a local cache entry survives regardless of access (seconds).
+    /// Bounds how stale a key's cached count can be before it is rebuilt.
+    #[envconfig(default = "600")]
+    pub global_rate_limit_local_cache_ttl_secs: u64,
+
+    /// Evict local cache entries not accessed within this window (seconds).
+    /// This is the main lever on cache cardinality: with a key space dominated
+    /// by one-shot identities, most entries are pure churn and hold a slot for
+    /// the full idle window. Must stay at or above the rate-limit window, or
+    /// entries expire inside the enforcement window and the limiter loses the
+    /// counts it is supposed to be accumulating -- values below the window are
+    /// clamped up, with a warning.
+    #[envconfig(default = "300")]
+    pub global_rate_limit_local_cache_idle_timeout_secs: u64,
+
+    /// Timeout for a single global rate limiter Redis read command (milliseconds).
+    #[envconfig(default = "250")]
+    pub global_rate_limit_read_timeout_ms: u64,
+
+    /// Timeout for a single global rate limiter Redis write command (milliseconds).
+    #[envconfig(default = "250")]
+    pub global_rate_limit_write_timeout_ms: u64,
 
     // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
     /// Per-token rate limit threshold per window interval
@@ -332,64 +321,49 @@ pub struct Config {
     #[envconfig(default = "26214400")] // 25MB in bytes
     pub ai_max_sum_of_parts_bytes: usize,
 
-    // AI endpoint S3 blob storage configuration
-    pub ai_s3_bucket: Option<String>,
-    #[envconfig(default = "llma/")]
-    pub ai_s3_prefix: String,
-    pub ai_s3_endpoint: Option<String>,
-    #[envconfig(default = "us-east-1")]
-    pub ai_s3_region: String,
-    pub ai_s3_access_key_id: Option<String>,
-    pub ai_s3_secret_access_key: Option<String>,
+    /// Largest single AI-lane event this deployment accepts. Measured on the
+    /// serialized event body, except on v1, which measures the properties blob
+    /// — see [`crate::v0_request::exceeds_max_ai_event_bytes`]. `0` disables
+    /// the ceiling.
+    ///
+    /// Set it below what the deployment's broker accepts, leaving room for the
+    /// `CapturedEvent` envelope and the JSON-escaping of `data`:
+    /// `KAFKA_PRODUCER_MESSAGE_MAX_BYTES` bounds the produced message, not the
+    /// event inside it. capture-analytics needs a smaller value than capture-ai
+    /// because its AI topic is on MSK.
+    ///
+    /// What an over-ceiling event gets back differs by path, because each one
+    /// keeps its own convention:
+    ///
+    /// * `/i/v0/ai/batch` and the diverted legacy path — 413, whole request
+    ///   refused, like every other oversize check there.
+    /// * `/i/v1/analytics/events` — the one event is dropped and reported as
+    ///   `ai_event_too_big` in the 200 body; the rest of the batch publishes.
+    /// * `/i/v0/ai` (multipart) — 413, the endpoint's pre-existing behavior.
+    /// * `/i/v0/ai/otel` — the span is shed and the export still succeeds. A
+    ///   collector retries a rejected export, so refusing would stall every
+    ///   span behind one that can never fit. That loss is invisible in the
+    ///   response, so it raises a `MessageSizeTooLarge` ingestion warning.
+    ///
+    /// The legacy, v1, and OTEL paths count the loss under `ai_event_too_big`,
+    /// on `capture_events_dropped_total` or `capture_v1_events_dropped`. The
+    /// legacy path charges the whole batch, because the refusal loses every
+    /// event in it, not just the offender. The multipart handler counts no
+    /// drop at all: like every other error it raises, the refusal shows up
+    /// only on `capture_error_by_stage_and_type`.
+    /// Keep this under the deployment's `KAFKA_PRODUCER_MESSAGE_MAX_BYTES`.
+    /// Above it the ceiling stops being a guard: capture reads the body, builds
+    /// the event, and the producer refuses it anyway. A deployment that has not
+    /// raised its producer cap wants a lower value than this default; the boot
+    /// warning says so when the two are out of order.
+    #[envconfig(default = "8388608")] // 8MiB
+    pub ai_max_event_bytes: u64,
 
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
     // exempted from the llm_events quota limiter. Unset disables verification
     // (all $ai_gateway* props are stripped as untrusted).
     pub ai_gateway_signing_secret: Option<String>,
-
-    // --- AI secondary sink (e.g. WarpStream cluster) routing ---
-    /// `primary` keeps all AI events on the primary sink; `secondary_allowlist`
-    /// sends only `ai_secondary_allowlist_tokens` to the secondary; `secondary`
-    /// sends every AI event to the secondary. `secondary_percentage` is not
-    /// supported here (it exists for `capture_analytics_ai_events_mode`).
-    /// Only consulted in `CaptureMode::Ai`.
-    #[envconfig(default = "primary")]
-    pub ai_sink_mode: AiSinkMode,
-
-    /// Comma-separated tokens routed to the secondary AI sink when
-    /// `ai_sink_mode = secondary_allowlist`.
-    pub ai_secondary_allowlist_tokens: Option<String>,
-
-    /// Secondary AI Kafka cluster connection. When `ai_sink_mode` is not
-    /// `primary`, `ai_secondary_kafka_hosts` and `ai_secondary_kafka_topic` are
-    /// required; the secondary producer inherits all other tuning from `kafka`.
-    pub ai_secondary_kafka_hosts: Option<String>,
-    pub ai_secondary_kafka_topic: Option<String>,
-    #[envconfig(default = "false")]
-    pub ai_secondary_kafka_tls: bool,
-    #[envconfig(default = "")]
-    pub ai_secondary_kafka_client_id: String,
-
-    // --- Dedicated $ai_* topic routing on analytics deployments ---
-    /// Routing mode for `$ai_*` events into the dedicated AI topic
-    /// (`kafka.capture_analytics_ai_events_topic`, i.e. `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`): `primary` (default)
-    /// diverts nothing, `secondary` diverts all `$ai_*` events,
-    /// `secondary_allowlist` diverts only tokens listed in
-    /// `capture_analytics_ai_events_allowlist_tokens`, and `secondary_percentage`
-    /// diverts the `capture_analytics_ai_events_percentage` share of teams (by
-    /// token hash). The topic is required whenever the mode is not `primary`.
-    #[envconfig(default = "primary")]
-    pub capture_analytics_ai_events_mode: AiSinkMode,
-
-    /// Comma-separated project API tokens whose `$ai_*` events are diverted to
-    /// `capture_analytics_ai_events_topic` when `capture_analytics_ai_events_mode` is `secondary_allowlist`.
-    pub capture_analytics_ai_events_allowlist_tokens: Option<String>,
-
-    /// Percent of teams (0-100, by deterministic token hash) whose `$ai_*`
-    /// events are diverted to `capture_analytics_ai_events_topic`. Required
-    /// when `capture_analytics_ai_events_mode` is `secondary_percentage`.
-    pub capture_analytics_ai_events_percentage: Option<u8>,
 
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
@@ -475,6 +449,31 @@ pub struct Config {
     pub capture_ingestion_warnings_kafka_hosts: String,
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_kafka_tls: bool,
+
+    /// Per-token byte/second budget for the AI lane. `0` disables the limiter.
+    ///
+    /// The budget is enforced fleet-wide by the global rate limiter, over the
+    /// shared `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` sliding window, so the
+    /// cap a token actually sees is this value times the window length. Within
+    /// a window the token may spend the whole budget at once.
+    #[envconfig(default = "0")]
+    pub ai_byte_limit_per_second: u64,
+
+    /// CSV list of `token=bytesPerSecond` pairs raising specific tokens' budgets.
+    /// Same unit as `ai_byte_limit_per_second`.
+    pub ai_byte_limit_overrides_csv: Option<String>,
+
+    /// When true, the AI byte limiter evaluates and reports but does not drop.
+    /// Separate from `global_rate_limit_dry_run` so this rollout and the
+    /// token+distinct_id limiter's can move independently.
+    #[envconfig(default = "false")]
+    pub ai_byte_limit_dry_run: bool,
+
+    /// Max local cache entries for the AI byte limiter. Keyed per token, so this
+    /// is bounded by the number of projects sending AI traffic — far smaller
+    /// than the per-(token, distinct_id) limiter's key space.
+    #[envconfig(default = "300000")]
+    pub ai_byte_limit_local_cache_max_entries: u64,
 }
 
 #[derive(Envconfig, Clone)]
@@ -494,6 +493,14 @@ pub struct KafkaConfig {
     /// Set to "lz4" to enable. Default "none" for safe rollout and rollback.
     #[envconfig(default = "none")]
     pub kafka_replay_envelope_compression: EnvelopeCompression,
+    /// Refuse to boot when a registered output resolves to an empty topic
+    /// name (see `OutputRegistry::check_complete`). Config-only — the broker
+    /// is never probed, so topic autocreation on first publish is unaffected.
+    /// Opt-in (default off) so deployments that deliberately blank a topic
+    /// they never produce to keep booting; arm it per deployment once its
+    /// topic wiring is known-complete.
+    #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
+    pub outputs_completeness_check_enabled: bool,
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
@@ -515,20 +522,20 @@ pub struct KafkaConfig {
     pub kafka_replay_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_dlq")]
     pub kafka_dlq_topic: String,
-    /// Dedicated Kafka topic for `$ai_*` events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
-    /// Unlike the `ai_secondary_*` family on `Config` (which picks a secondary
-    /// CLUSTER on `CaptureMode::Ai` deployments), this picks a TOPIC on the
-    /// same sink: per `Config::capture_analytics_ai_events_mode`, both the v0 pipeline
-    /// (via `DataType::AiEvents`) and the v1 pipeline (via
-    /// `Destination::AiEvents`) divert `$ai_*` events here instead of the
-    /// analytics main topic. Setup also injects it into every v1 sink config.
-    pub capture_analytics_ai_events_topic: Option<String>,
+    /// Dedicated Kafka topic for AI events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
+    /// Both the v0 pipeline (via `DataType::AiEvents`) and the v1 pipeline
+    /// (via `Destination::AiEvents`) divert AI events here instead of the
+    /// analytics main topic, on every deployment that accepts them — including
+    /// capture-ai, whose main topic used to double as the AI topic. Setup also
+    /// injects it into every v1 sink config.
+    #[envconfig(default = "events_plugin_ingestion_ai")]
+    pub capture_analytics_ai_events_topic: String,
     /// Optional overflow topic for the AI lane (env: `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`).
     /// Unset means AI events never overflow (the pre-overflow behavior). When
     /// set, the AI lane participates in the same overflow limiter and
     /// restriction-driven force_overflow as the analytics main lane, rerouting
-    /// here instead of the analytics overflow topic. Settable in advance of
-    /// the AI routing mode, so no startup validation ties it to the mode.
+    /// here instead of the analytics overflow topic. Refused at boot in import
+    /// mode because imports must never overflow.
     pub capture_analytics_ai_events_overflow_topic: Option<String>,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
@@ -604,7 +611,7 @@ pub struct KafkaConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AiRouting, AiSinkMode, CaptureMode, Config};
+    use super::{CaptureMode, Config};
     use std::collections::HashMap;
     use std::str::FromStr;
 
@@ -622,48 +629,14 @@ mod tests {
     fn capture_analytics_ai_events_topic_defaults() {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
-        assert_eq!(config.kafka.capture_analytics_ai_events_topic, None);
-        assert_eq!(config.capture_analytics_ai_events_mode, AiSinkMode::Primary);
-        assert_eq!(config.capture_analytics_ai_events_allowlist_tokens, None);
-        assert_eq!(config.capture_analytics_ai_events_percentage, None);
-    }
-
-    #[test]
-    fn capture_analytics_ai_events_percentage_parses() {
-        let mut env = required_config_env();
-        env.insert(
-            "CAPTURE_ANALYTICS_AI_EVENTS_MODE".into(),
-            "secondary_percentage".into(),
+        assert_eq!(
+            config.kafka.capture_analytics_ai_events_topic,
+            "events_plugin_ingestion_ai"
         );
-
-        // 150 parses here on purpose: the env layer only types the value, the
-        // 0-100 range check lives in setup so it can refuse to start.
-        for (raw, expected) in [("0", 0u8), ("25", 25), ("100", 100), ("150", 150)] {
-            env.insert("CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE".into(), raw.into());
-            let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-            assert_eq!(
-                config.capture_analytics_ai_events_mode,
-                AiSinkMode::SecondaryPercentage
-            );
-            assert_eq!(
-                config.capture_analytics_ai_events_percentage,
-                Some(expected),
-                "raw={raw}"
-            );
-        }
-    }
-
-    #[test]
-    fn capture_analytics_ai_events_percentage_rejects_malformed_values() {
-        // Locks the fail-fast contract: the field is a typed u8, so malformed
-        // env values abort startup. Loosening it (e.g. to a string parsed
-        // later) would let a broken rollout config through init silently.
-        for bad in ["", " 25 ", "abc", "-1", "25%", "12.5", "300"] {
-            let mut env = required_config_env();
-            env.insert("CAPTURE_ANALYTICS_AI_EVENTS_PERCENTAGE".into(), bad.into());
-            let result: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
-            assert!(result.is_err(), "expected init to fail for {bad:?}");
-        }
+        assert_eq!(
+            config.kafka.capture_analytics_ai_events_overflow_topic,
+            None
+        );
     }
 
     #[test]
@@ -673,29 +646,8 @@ mod tests {
             "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC".into(),
             "ai_events".into(),
         );
-        env.insert(
-            "CAPTURE_ANALYTICS_AI_EVENTS_MODE".into(),
-            "secondary_allowlist".into(),
-        );
-        env.insert(
-            "CAPTURE_ANALYTICS_AI_EVENTS_ALLOWLIST_TOKENS".into(),
-            "tok_a,tok_b".into(),
-        );
         let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-        assert_eq!(
-            config.kafka.capture_analytics_ai_events_topic.as_deref(),
-            Some("ai_events")
-        );
-        assert_eq!(
-            config.capture_analytics_ai_events_mode,
-            AiSinkMode::SecondaryAllowlist
-        );
-        assert_eq!(
-            config
-                .capture_analytics_ai_events_allowlist_tokens
-                .as_deref(),
-            Some("tok_a,tok_b")
-        );
+        assert_eq!(config.kafka.capture_analytics_ai_events_topic, "ai_events");
     }
 
     #[test]
@@ -744,107 +696,5 @@ mod tests {
                 "{mode:?} should not require historical_migration"
             );
         }
-    }
-
-    #[test]
-    fn ai_sink_mode_from_str() {
-        // Locks the AI_SINK_MODE env contract: accepted spellings (incl. the
-        // dash/underscore allowlist alias), case-insensitivity, and rejection
-        // of anything else.
-        let ok = [
-            ("primary", AiSinkMode::Primary),
-            ("PRIMARY", AiSinkMode::Primary),
-            ("secondary", AiSinkMode::Secondary),
-            (" Secondary ", AiSinkMode::Secondary),
-            ("secondary_allowlist", AiSinkMode::SecondaryAllowlist),
-            ("secondary-allowlist", AiSinkMode::SecondaryAllowlist),
-            ("Secondary_Allowlist", AiSinkMode::SecondaryAllowlist),
-            ("secondary_percentage", AiSinkMode::SecondaryPercentage),
-            ("secondary-percentage", AiSinkMode::SecondaryPercentage),
-            ("Secondary_Percentage", AiSinkMode::SecondaryPercentage),
-        ];
-        for (input, expected) in ok {
-            assert_eq!(
-                AiSinkMode::from_str(input).unwrap(),
-                expected,
-                "input={input}"
-            );
-        }
-
-        for bad in [
-            "",
-            "secondaryallowlist",
-            "secondarypercentage",
-            "percentage",
-            "warpstream",
-            "allowlist",
-        ] {
-            assert!(
-                AiSinkMode::from_str(bad).is_err(),
-                "expected err for {bad:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn ai_routing_routes_to_secondary() {
-        // Locks the routing decision: a flipped arm or the allowlist being
-        // consulted in the wrong variant would send AI traffic to the wrong
-        // cluster mid-cutover.
-        use std::collections::HashSet;
-        let allowlist: HashSet<String> = ["tok_a".to_string()].into_iter().collect();
-
-        // (routing, token, expected_secondary)
-        let cases = [
-            (AiRouting::Primary, "tok_a", false),
-            (AiRouting::Secondary, "tok_a", true),
-            (AiRouting::Secondary, "unlisted", true),
-            (
-                AiRouting::SecondaryAllowlist(allowlist.clone()),
-                "tok_a",
-                true,
-            ),
-            (AiRouting::SecondaryAllowlist(allowlist), "unlisted", false),
-            (
-                AiRouting::SecondaryAllowlist(HashSet::new()),
-                "tok_a",
-                false,
-            ),
-            (AiRouting::SecondaryPercentage(0), "tok_a", false),
-            (AiRouting::SecondaryPercentage(100), "tok_a", true),
-        ];
-        for (routing, token, expected) in cases {
-            assert_eq!(
-                routing.routes_to_secondary(token),
-                expected,
-                "routing={routing:?} token={token}"
-            );
-        }
-    }
-
-    #[test]
-    fn token_percentage_buckets_are_stable() {
-        // The bucket values are part of the rollout contract: a hash change
-        // reshuffles which teams sit under a given percentage mid-rollout,
-        // flipping already-migrated teams back and forth between destinations.
-        // These pin the exact SHA-256-derived buckets for fixed tokens.
-        let buckets = [("tok_a", 27), ("tok_b", 40), ("phc_other", 29)];
-        for (token, expected) in buckets {
-            assert_eq!(
-                super::token_percentage_bucket(token),
-                expected,
-                "token={token}"
-            );
-        }
-    }
-
-    #[test]
-    fn secondary_percentage_routes_exactly_at_bucket_boundary() {
-        // `bucket < percentage` makes the split monotonic: raising the
-        // percentage only ever adds teams to the secondary. A flipped
-        // comparison (or off-by-one) would silently invert who migrates first.
-        let bucket = super::token_percentage_bucket("tok_a");
-        assert!(!AiRouting::SecondaryPercentage(bucket).routes_to_secondary("tok_a"));
-        assert!(AiRouting::SecondaryPercentage(bucket + 1).routes_to_secondary("tok_a"));
     }
 }

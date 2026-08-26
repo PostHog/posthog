@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
-  "ignoreWorkspaces": ["apps/mobile", "apps/twig", "apps/web"],
+  "ignoreWorkspaces": ["apps/mobile", "apps/web"],
   "workspaces": {
     ".": {
       "entry": ["mprocs.yaml", "scripts/*.{mjs,js,ts}"]
@@ -28,11 +28,6 @@
         "node-addon-api",
         "@vitest/coverage-v8"
       ]
-    },
-    "apps/cli": {
-      "entry": ["src/cli.ts"],
-      "project": ["src/**/*.ts", "bin/**/*.ts"],
-      "includeEntryExports": true
     },
     "packages/agent": {
       "project": ["src/**/*.ts"],

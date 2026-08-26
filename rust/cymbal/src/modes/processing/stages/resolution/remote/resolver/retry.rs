@@ -23,6 +23,7 @@ use crate::metric_consts::{
     REMOTE_RESOLUTION_REROUTE_DEPTH,
 };
 use crate::types::Exception;
+use uuid::Uuid;
 
 use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveItemSession};
 
@@ -151,7 +152,10 @@ pub(super) async fn resolve_work_item(
         };
 
         match decision {
-            ItemDecision::Done(exception) => {
+            ItemDecision::Done {
+                exception,
+                release_id,
+            } => {
                 metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "ok").increment(1);
                 record_reroute_depth("ok", attempts_used);
                 return Ok(ResolvedRemoteItem {
@@ -159,6 +163,7 @@ pub(super) async fn resolve_work_item(
                     exception_slot: work_item.exception_slot,
                     target: work_item.target,
                     exception,
+                    release_id,
                 });
             }
             ItemDecision::Overloaded(message) => {
@@ -276,7 +281,10 @@ fn single_outcome(
 
 #[derive(Debug)]
 enum ItemDecision {
-    Done(Exception),
+    Done {
+        exception: Exception,
+        release_id: Option<Uuid>,
+    },
     Overloaded(String),
     Retry {
         message: String,
@@ -304,7 +312,16 @@ fn classify_outcome(
                         format!("invalid_done_payload: failed to parse resolved exception: {err}"),
                     )
                 })?;
-            Ok(ItemDecision::Done(exception))
+            // An unparseable release id is decoration we can drop, not a reason to fail an
+            // otherwise-resolved item. Empty means the server found no release, or predates
+            // the field.
+            let release_id = (!done.release_id.is_empty())
+                .then(|| Uuid::parse_str(&done.release_id).ok())
+                .flatten();
+            Ok(ItemDecision::Done {
+                exception,
+                release_id,
+            })
         }
         resolve_outcome::Result::Retry(retry) => {
             let retry_after = (retry.retry_after_ms > 0)
@@ -431,16 +448,49 @@ mod tests {
     #[test]
     fn classify_outcome_parses_done_exception() {
         let work_item = work_item(7);
-        let outcome = ResolveOutcome {
-            id: 7,
-            result: Some(resolve_outcome::Result::Done(Done {
-                resolved_exception_json: serde_json::to_vec(&exception("Resolved"))
-                    .expect("valid exception"),
-            })),
-        };
+        let outcome = done_outcome(&exception("Resolved"), String::new());
 
         let decision = classify_outcome(&work_item, outcome).expect("done outcome");
-        assert!(matches!(decision, ItemDecision::Done(exc) if exc.exception_type == "Resolved"));
+        assert!(matches!(
+            decision,
+            ItemDecision::Done { exception, release_id }
+                if exception.exception_type == "Resolved" && release_id.is_none()
+        ));
+    }
+
+    // An empty `release_id` is what a server with no release bound sends, and what one predating
+    // the field sends for everything; an unparseable one is decoration we drop rather than a
+    // reason to fail an item that resolved.
+    #[test]
+    fn classify_outcome_takes_the_release_id_and_tolerates_a_bad_one() {
+        let release_id = Uuid::now_v7();
+        let cases = [
+            (release_id.to_string(), Some(release_id)),
+            (String::new(), None),
+            ("not-a-uuid".to_string(), None),
+        ];
+
+        for (wire_value, expected) in cases {
+            let decision = classify_outcome(
+                &work_item(7),
+                done_outcome(&exception("Resolved"), wire_value.clone()),
+            )
+            .expect("done outcome");
+            let ItemDecision::Done { release_id, .. } = decision else {
+                panic!("expected done decision");
+            };
+            assert_eq!(release_id, expected, "release_id wire value {wire_value:?}");
+        }
+    }
+
+    fn done_outcome(exception: &Exception, release_id: String) -> ResolveOutcome {
+        ResolveOutcome {
+            id: 7,
+            result: Some(resolve_outcome::Result::Done(Done {
+                resolved_exception_json: serde_json::to_vec(exception).expect("valid exception"),
+                release_id,
+            })),
+        }
     }
 
     #[test]

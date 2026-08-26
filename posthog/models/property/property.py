@@ -157,6 +157,8 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     ],
 }
 
+# Mirrored in frontend/src/models/cohortsModel.ts (BEHAVIORAL_VALUE_ALIASES) so the cohort
+# editor renders an aliased criterion rather than flagging it as invalid. Add to both.
 # Behavioral `value`s that don't match BehavioralPropertyType's enum value but are
 # produced by cohort filter generators and are equivalent for validation purposes.
 # Keyed by the raw stored value string; resolves to the canonical type whose

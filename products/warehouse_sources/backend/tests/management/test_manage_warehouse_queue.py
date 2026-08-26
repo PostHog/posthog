@@ -24,23 +24,16 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import sync_lock
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
-    DUCKGRES_LEASE_TABLE,
-    DUCKGRES_STATUS_TABLE,
-)
-
-# The duckgres test module's DDL is a superset of the delta queue's (both status
-# and lease tables), which the --sink duckgres tests need.
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.test_jobs_db import (
-    _BATCH_DEFAULTS,
-    _ensure_tables,
-    _get_test_database_url,
-    _truncate_tables,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     LEASE_TABLE,
     STATUS_TABLE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
+    _BATCH_DEFAULTS,
+    _ensure_tables,
+    _get_test_database_url,
+    _truncate_tables,
 )
 
 pytestmark = [pytest.mark.django_db]
@@ -367,13 +360,6 @@ class TestTargetingValidation:
             pytest.param(
                 ["release-locks", "--team-id", "1", "--leases-only", "--redis-only"], id="release_both_only_flags"
             ),
-            pytest.param(
-                ["fail-run", "--sink", "duckgres", "--team-id", "1", "--cancel-workflow"],
-                id="cancel_workflow_duckgres",
-            ),
-            pytest.param(
-                ["release-locks", "--sink", "duckgres", "--team-id", "1", "--redis-only"], id="redis_only_duckgres"
-            ),
         ],
     )
     def test_invalid_targeting_raises(self, args, queue_conn, fake_redis):
@@ -534,8 +520,8 @@ class TestCheckMismatches:
         # repair-time re-check sees live work and leaves the job alone.
         real_collect = Command._collect_fail_targets
 
-        def collect_then_enqueue(self, conn, scope, *, queue, include_job_only):
-            targets = real_collect(self, conn, scope, queue=queue, include_job_only=include_job_only)
+        def collect_then_enqueue(self, conn, scope, *, queue):
+            targets = real_collect(self, conn, scope, queue=queue)
             _insert_batch(
                 queue_conn,
                 team_id=team.pk,
@@ -580,92 +566,3 @@ class TestCheckMismatches:
 
         assert stripe_run in out
         assert pg_run not in out
-
-    def test_duckgres_sink_is_rejected(self, queue_conn, fake_redis):
-        with pytest.raises(CommandError, match="delta sink"):
-            _call("check-mismatches", "--sink", "duckgres", "--team-id", "1")
-
-
-def _seed_duckgres_run(
-    conn: psycopg.Connection[Any],
-    *,
-    team,
-    schema: ExternalDataSchema,
-    job: ExternalDataJob,
-    run_uuid: str,
-) -> dict[str, str]:
-    """A run mid-way through the duckgres sink: one batch fully applied, one the
-    sink hasn't claimed, one retrying, and one whose delta load isn't done yet."""
-    common = {
-        "team_id": team.pk,
-        "schema_id": str(schema.id),
-        "source_id": str(schema.source_id),
-        "job_id": str(job.id),
-        "run_uuid": run_uuid,
-        "metadata": {"workflow_run_id": job.workflow_run_id},
-    }
-    applied = _insert_batch(conn, **common, batch_index=0)
-    _set_status(conn, applied, "succeeded")
-    _set_status(conn, applied, "succeeded", table=DUCKGRES_STATUS_TABLE)
-    unclaimed = _insert_batch(conn, **common, batch_index=1)
-    _set_status(conn, unclaimed, "succeeded")
-    retrying = _insert_batch(conn, **common, batch_index=2)
-    _set_status(conn, retrying, "succeeded")
-    _set_status(conn, retrying, "waiting_retry", table=DUCKGRES_STATUS_TABLE)
-    delta_pending = _insert_batch(conn, **common, batch_index=3)
-    _set_status(conn, delta_pending, "executing")
-    return {"applied": applied, "unclaimed": unclaimed, "retrying": retrying, "delta_pending": delta_pending}
-
-
-class TestDuckgresSink:
-    def test_fail_run_fails_pending_duckgres_batches_without_touching_delta_or_job(self, team, queue_conn, fake_redis):
-        _, schema, job = _create_pipeline(team)
-        run_uuid = str(uuid4())
-        _seed_duckgres_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
-
-        out = _call(
-            "fail-run",
-            "--sink",
-            "duckgres",
-            "--team-id",
-            str(team.pk),
-            "--schema-id",
-            str(schema.id),
-            "--live-run",
-            "--yes",
-        )
-
-        # only the duckgres-pending batches (unclaimed + retrying) get duckgres failed rows;
-        # the applied batch and the delta-still-executing batch stay untouched
-        assert _failed_status_counts_by_run(queue_conn, table=DUCKGRES_STATUS_TABLE) == {run_uuid: 2}
-        assert _failed_status_counts_by_run(queue_conn) == {}  # delta statuses untouched
-        job.refresh_from_db()
-        assert job.status == ExternalDataJob.Status.RUNNING  # the duckgres sink doesn't own the job
-        assert _lease_count(queue_conn, str(schema.id), table=DUCKGRES_LEASE_TABLE) == 0
-        assert _lease_count(queue_conn, str(schema.id)) == 1  # delta lease untouched
-        assert "marked 2 pending batch(es) failed" in out
-
-    def test_release_locks_releases_only_duckgres_leases(self, team, queue_conn, fake_redis):
-        _, schema, _ = _create_pipeline(team)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
-
-        _call("release-locks", "--sink", "duckgres", "--team-id", str(team.pk), "--live-run", "--yes")
-
-        assert _lease_count(queue_conn, str(schema.id), table=DUCKGRES_LEASE_TABLE) == 0
-        assert _lease_count(queue_conn, str(schema.id)) == 1
-
-    def test_status_reports_duckgres_sections(self, team, queue_conn, fake_redis):
-        _, schema, job = _create_pipeline(team)
-        run_uuid = str(uuid4())
-        batches = _seed_duckgres_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
-        _set_status(queue_conn, batches["retrying"], "executing", table=DUCKGRES_STATUS_TABLE)
-        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
-
-        out = _call("status", "--sink", "duckgres", "--team-id", str(team.pk), "--stale-grace-seconds", "0")
-
-        assert run_uuid in out
-        assert "unclaimed: 1" in out  # delta-succeeded batch the duckgres sink hasn't claimed
-        assert "Redis pipeline locks" not in out  # delta-only section

@@ -8,9 +8,12 @@ import { expectLogic } from 'kea-test-utils'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
@@ -345,5 +348,115 @@ describe('projectNoticeLogic', () => {
 
             logic.unmount()
         })
+    })
+
+    describe('billing alert CTA navigation', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('links single-product billing alerts to that product from the billing root', () => {
+            router.actions.push(urls.organizationBilling())
+            billingLogic.mount()
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            billingLogic.actions.setBillingAlert({
+                status: 'error',
+                title: 'Usage limit reached',
+                message: 'You have reached the usage limit for Product analytics.',
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+            })
+
+            expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+            expect(logic.values.projectNotice?.action).toEqual(
+                expect.objectContaining({
+                    to: urls.organizationBilling([ProductKey.PRODUCT_ANALYTICS]),
+                    children: 'Manage billing',
+                })
+            )
+
+            logic.unmount()
+            billingLogic.unmount()
+        })
+
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])('hides generic billing alert CTAs on the %s page with checkout query params', (_, billingPath) => {
+            router.actions.push(billingPath, { success: 'true' })
+            billingLogic.mount()
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            billingLogic.actions.setBillingAlert({
+                status: 'error',
+                title: 'Usage limit reached',
+                message: 'You have reached a usage limit.',
+            })
+
+            expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+            expect(logic.values.projectNotice?.action).toBeUndefined()
+
+            logic.unmount()
+            billingLogic.unmount()
+        })
+
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])('hides single-product billing alert CTAs when the current %s URL targets that product', (_, billingPath) => {
+            router.actions.push(billingPath, {
+                products: ProductKey.PRODUCT_ANALYTICS,
+                success: 'true',
+            })
+            billingLogic.mount()
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            billingLogic.actions.setBillingAlert({
+                status: 'error',
+                title: 'Usage limit reached',
+                message: 'You have reached the usage limit for Product analytics.',
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+            })
+
+            expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+            expect(logic.values.projectNotice?.action).toBeUndefined()
+
+            logic.unmount()
+            billingLogic.unmount()
+        })
+
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])(
+            'keeps single-product billing alert CTAs when the current %s URL does not target that product',
+            (_, billingPath) => {
+                router.actions.push(billingPath, { success: 'true' })
+                billingLogic.mount()
+                const logic = projectNoticeLogic()
+                logic.mount()
+
+                billingLogic.actions.setBillingAlert({
+                    status: 'error',
+                    title: 'Usage limit reached',
+                    message: 'You have reached the usage limit for Product analytics.',
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                })
+
+                expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+                expect(logic.values.projectNotice?.action).toEqual(
+                    expect.objectContaining({
+                        to: urls.organizationBilling([ProductKey.PRODUCT_ANALYTICS]),
+                        children: 'Manage billing',
+                    })
+                )
+
+                logic.unmount()
+                billingLogic.unmount()
+            }
+        )
     })
 })

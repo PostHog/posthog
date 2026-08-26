@@ -18,6 +18,32 @@ use crate::{
 use super::ProcessedExceptionPropertiesWire;
 
 pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
+// Exception types are attacker-controlled and occasionally enormous (e.g. crash reporters that
+// embed a base64-encoded minidump as the exception type). A real type is a short class name, so
+// bound it tightly: an unbounded type bloats $exception_list / $exception_types and every
+// downstream Kafka payload past message.max.bytes.
+pub const MAX_EXCEPTION_TYPE_LENGTH: usize = 255;
+// $issue_name / $issue_description are sender-controlled and flow untruncated into both the
+// ClickHouse properties and the error-tracking notification Kafka payload, so bound them the
+// same way the persisted issue is bounded.
+pub const MAX_ISSUE_NAME_LENGTH: usize = 255;
+pub const MAX_ISSUE_DESCRIPTION_LENGTH: usize = 255;
+
+/// Truncate `value` in place to at most `max_bytes` (including the ellipsis), on a UTF-8 char
+/// boundary, appending an ellipsis when anything was dropped.
+fn truncate_with_ellipsis(value: &mut String, max_bytes: usize) {
+    if value.len() <= max_bytes {
+        return;
+    }
+    // Reserve room for the ellipsis suffix so the result never exceeds max_bytes.
+    let ellipsis = &"..."[..max_bytes.min(3)];
+    let mut truncate_at = max_bytes - ellipsis.len();
+    while !value.is_char_boundary(truncate_at) {
+        truncate_at -= 1;
+    }
+    value.truncate(truncate_at);
+    value.push_str(ellipsis);
+}
 
 pub type PipelineItem<S> = Result<ExceptionEvent<S>, EventError>;
 
@@ -26,9 +52,12 @@ pub struct Parsed {
     pub(crate) client_fingerprint: Option<String>,
     pub(crate) legacy_order_exception_list: Option<ExceptionList>,
     pub(crate) legacy_order_resolved: Option<ExceptionList>,
-    /// The release resolved from the event's `$release_id` or mobile app metadata, if any. Set by
-    /// `EventReleaseResolver` and emitted as `$exception_release` at `into_resolved`.
+    /// The release the event resolves to, if any. Set by `EventReleaseResolver` and emitted as
+    /// `$exception_release` at `into_resolved`.
     pub(crate) event_release: Option<ReleaseRecord>,
+    /// Releases the resolution service bound to this event's symbol sets, as ids. Set when
+    /// resolution completes and used only as the fallback source for `event_release`.
+    pub(crate) symbol_set_release_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,8 +67,7 @@ pub struct ResolvedMetadata {
     pub messages: Vec<String>,
     pub functions: Vec<String>,
     pub handled: bool,
-    /// The single release the event resolves to, from its `$release_id` or mobile app metadata.
-    /// Emitted as `$exception_release`.
+    /// The single release the event resolves to. Emitted as `$exception_release`.
     pub release: Option<ReleaseInfo>,
 }
 
@@ -48,13 +76,15 @@ impl ResolvedMetadata {
         exception_list: &ExceptionList,
         event_release: Option<&ReleaseRecord>,
     ) -> Self {
+        let release = event_release.map(|release| release.to_info());
+
         Self {
             sources: exception_list.get_unique_sources(),
             types: exception_list.get_unique_types(),
             messages: exception_list.get_unique_messages(),
             functions: exception_list.get_unique_functions(),
             handled: exception_list.get_is_handled(),
-            release: event_release.map(ReleaseRecord::to_info),
+            release,
         }
     }
 }
@@ -191,6 +221,23 @@ impl<S> ExceptionEvent<S> {
         &self.props
     }
 
+    /// Fill a property the event did not send. Cymbal derives properties that SDKs also report,
+    /// and an SDK read them off the running app, so a value already on the event is the better one
+    /// and is left alone.
+    ///
+    /// A null counts as not sent, because SDKs do send one. The React Native SDK spreads its app
+    /// properties into every event whether or not the platform could supply them, so an Expo app
+    /// that cannot read its own version sends `"$app_version": null`.
+    pub(crate) fn set_property_if_absent(&mut self, key: &str, value: Value) {
+        if matches!(self.props.get(key), None | Some(Value::Null)) {
+            self.props.insert(key.to_string(), value);
+        }
+    }
+
+    pub(crate) fn exception_level(&self) -> Option<&str> {
+        self.props.get("$exception_level").and_then(Value::as_str)
+    }
+
     pub fn proposed_issue_name(&self) -> Option<&str> {
         self.proposed_issue_name.as_deref()
     }
@@ -215,6 +262,14 @@ impl ExceptionEvent<Parsed> {
 
     pub(crate) fn set_event_release(&mut self, release: Option<ReleaseRecord>) {
         self.state.event_release = release;
+    }
+
+    pub(crate) fn set_symbol_set_release_ids(&mut self, ids: Vec<Uuid>) {
+        self.state.symbol_set_release_ids = ids;
+    }
+
+    pub(crate) fn symbol_set_release_ids(&self) -> &[Uuid] {
+        &self.state.symbol_set_release_ids
     }
 
     pub(crate) fn into_resolved(self) -> ExceptionEvent<Resolved> {
@@ -271,6 +326,13 @@ impl ExceptionEvent<Resolved> {
 impl ExceptionEvent<Fingerprinted> {
     pub fn fingerprint(&self) -> &SelectedFingerprint {
         &self.state.fingerprint
+    }
+
+    pub(crate) fn exception_handled(&self) -> Option<bool> {
+        self.exception_list
+            .first()
+            .and_then(|exception| exception.mechanism.as_ref())
+            .and_then(|mechanism| mechanism.handled)
     }
 
     pub(crate) fn into_linked(self, issue: Issue) -> ExceptionEvent<Linked> {
@@ -536,18 +598,16 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
         }
 
         for exception in raw.exception_list.iter_mut() {
-            if exception.exception_message.len() > MAX_EXCEPTION_VALUE_LENGTH {
-                let truncate_at = exception
-                    .exception_message
-                    .char_indices()
-                    .take_while(|(index, _)| *index < MAX_EXCEPTION_VALUE_LENGTH)
-                    .last()
-                    .map(|(index, character)| index + character.len_utf8())
-                    .unwrap_or(0);
-                exception.exception_message.truncate(truncate_at);
-                exception.exception_message.push_str("...");
-            }
+            truncate_with_ellipsis(&mut exception.exception_message, MAX_EXCEPTION_VALUE_LENGTH);
+            truncate_with_ellipsis(&mut exception.exception_type, MAX_EXCEPTION_TYPE_LENGTH);
             exception.exception_id = Some(Uuid::now_v7().to_string());
+        }
+
+        if let Some(name) = raw.issue_name.as_mut() {
+            truncate_with_ellipsis(name, MAX_ISSUE_NAME_LENGTH);
+        }
+        if let Some(description) = raw.issue_description.as_mut() {
+            truncate_with_ellipsis(description, MAX_ISSUE_DESCRIPTION_LENGTH);
         }
 
         for key in [
@@ -583,6 +643,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
                 legacy_order_exception_list,
                 legacy_order_resolved: None,
                 event_release: None,
+                symbol_set_release_ids: Vec::new(),
             },
         })
     }
@@ -698,6 +759,7 @@ mod tests {
             id: Uuid::now_v7(),
             team_id: 42,
             status: crate::issue_resolution::IssueStatus::Active,
+            severity: None,
             name: None,
             description: None,
             created_at: chrono::Utc::now(),
@@ -717,29 +779,11 @@ mod tests {
             id: Uuid::now_v7(),
             team_id: 42,
             hash_id: hash_id.to_string(),
-            created_at: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+            created_at: chrono::Utc::now(),
             version: "1.2.3".to_string(),
             project: "my-app".to_string(),
             metadata: None,
         }
-    }
-
-    #[test]
-    fn event_release_populates_the_singular_release() {
-        // The event-level release (from `$release_id` or mobile app metadata) is the sole source of
-        // `$exception_release`; it does not depend on any frame carrying a release.
-        let metadata = ResolvedMetadata::from_exception_list(
-            &ExceptionList::default(),
-            Some(&release_record("hash-abc")),
-        );
-        assert!(metadata.release.is_some());
-    }
-
-    #[test]
-    fn missing_event_release_leaves_the_release_unset() {
-        // Without an event-level release there is nothing to emit; there is no per-frame fallback.
-        let metadata = ResolvedMetadata::from_exception_list(&ExceptionList::default(), None);
-        assert!(metadata.release.is_none());
     }
 
     #[test]
@@ -748,6 +792,7 @@ mod tests {
             id: Uuid::now_v7(),
             team_id: 42,
             status: crate::issue_resolution::IssueStatus::Active,
+            severity: None,
             name: None,
             description: None,
             created_at: chrono::Utc::now(),

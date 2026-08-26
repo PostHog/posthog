@@ -6,6 +6,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     AccountsQuery,
+    AccountsTableQuery,
     ActionsNode,
     ActorsQuery,
     AnyDataWarehouseNode,
@@ -51,6 +52,7 @@ import {
     NodeKind,
     NonIntegratedConversionsTableQuery,
     PathsQuery,
+    PathsV2Query,
     PersonsNode,
     ProductAnalyticsInsightQueryNode,
     QuerySchema,
@@ -355,6 +357,10 @@ export function isPathsQuery(node?: Record<string, any> | null): node is PathsQu
     return node?.kind === NodeKind.PathsQuery
 }
 
+export function isPathsV2Query(node?: Record<string, any> | null): node is PathsV2Query {
+    return node?.kind === NodeKind.PathsV2Query
+}
+
 export function isStickinessQuery(node?: Record<string, any> | null): node is StickinessQuery {
     return node?.kind === NodeKind.StickinessQuery
 }
@@ -429,6 +435,7 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isFunnelsQuery(node) ||
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
+        isPathsV2Query(node) ||
         isStickinessQuery(node) ||
         isLifecycleQuery(node) ||
         isWebStatsTableQuery(node) ||
@@ -495,6 +502,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ])
 
 type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
@@ -618,7 +626,7 @@ export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undef
 }
 
 export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupTypeIndex | null | undefined => {
-    if (!isStickinessQuery(query)) {
+    if (!isStickinessQuery(query) && 'aggregation_group_type_index' in query) {
         return query.aggregation_group_type_index as GroupTypeIndex | null | undefined
     }
     return undefined
@@ -769,6 +777,7 @@ export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, I
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
     [NodeKind.PathsQuery]: 'pathsFilter',
+    [NodeKind.PathsV2Query]: 'pathsV2Filter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
@@ -817,6 +826,13 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     }
     if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
+    }
+    return escapeRawPropertyAsHogQLIdentifier(identifier)
+}
+
+export function escapeRawPropertyAsHogQLIdentifier(identifier: string): string {
+    if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
+        return identifier
     }
     // Escape backslashes and control chars, then wrap; double an inner backtick (the parser rejects a backslash-escaped delimiter). The double-quote path needs no quote escaping since it is only taken when the identifier has no `"`.
     const escaped = Array.from(identifier, (c) => HOGQL_IDENTIFIER_ESCAPE_MAP[c] || c).join('')
@@ -1025,6 +1041,10 @@ export function isGroupsQuery(node?: Record<string, any> | null): node is Groups
 
 export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
     return node?.kind === NodeKind.AccountsQuery
+}
+
+export function isAccountsTableQuery(node?: Record<string, any> | null): node is AccountsTableQuery {
+    return node?.kind === NodeKind.AccountsTableQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])

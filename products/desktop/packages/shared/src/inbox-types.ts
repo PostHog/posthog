@@ -456,3 +456,30 @@ export function sourceNeedsFullRefresh(recordKind: SignalRecordKind): boolean {
 export const EXTERNAL_INBOX_SOURCE_BY_PRODUCT: Partial<
   Record<SourceProduct, ExternalInboxSource>
 > = Object.fromEntries(EXTERNAL_INBOX_SOURCES.map((s) => [s.product, s]));
+
+const WAREHOUSE_SOURCE_PRODUCTS = new Set<string>(
+  EXTERNAL_INBOX_SOURCES.map((source) => source.product),
+);
+
+/**
+ * Narrow a list of inbox source-filter options to what a project actually uses.
+ *
+ * The registry carries every warehouse-backed integration (~40) while a project
+ * runs a handful, so a warehouse source is kept only when it is switched on, plus
+ * anything currently selected so an active filter is never invisible. PostHog's
+ * own products stay listed unconditionally. Pass `undefined` when the enabled set
+ * is unknown (still loading, or the request failed) to hide nothing.
+ */
+export function filterInboxSourceOptions<T extends { value: SourceProduct }>(
+  options: readonly T[],
+  enabledSourceProducts: ReadonlySet<string> | undefined,
+  selected: readonly SourceProduct[],
+): T[] {
+  if (!enabledSourceProducts) return [...options];
+  return options.filter(
+    (option) =>
+      !WAREHOUSE_SOURCE_PRODUCTS.has(option.value) ||
+      enabledSourceProducts.has(option.value) ||
+      selected.includes(option.value),
+  );
+}

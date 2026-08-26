@@ -9,9 +9,16 @@ import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-th
 import {
   computeStickyAnchor,
   type FlatThreadRow,
+  FOLLOWING_END,
+  nextOlderHistoryLoadState,
+  nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
+  SCROLL_UP_KEYS,
   type StickyAnchorEntry,
   type StickyAnchorState,
+  sampleThreadScroll,
+  THREAD_AT_END_THRESHOLD,
+  type ThreadFollowState,
   type ThreadScrollResume,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
 import {
@@ -20,8 +27,10 @@ import {
 } from "@posthog/ui/features/sessions/constants";
 import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type WheelEvent as ReactWheelEvent,
   type RefObject,
   useCallback,
   useEffect,
@@ -35,11 +44,6 @@ import {
 // tuning these rows share (same item mix, same measure-then-settle churn).
 const ESTIMATED_ROW_SIZE = 80;
 const OVERSCAN = 12;
-/** Matches the Provider's `scrollEdgeThreshold` so "at bottom" agrees between engine and windowing. */
-const AT_BOTTOM_THRESHOLD = 100;
-// A real upward drift, not a 1-frame measure transient: the DOM bottom sits this far below the
-// viewport. Well above any single append's measure gap.
-const FAR_DRIFT_THRESHOLD = 400;
 /** Top of the virtual coordinate space — stands in for the non-virtualized content's `py-4`. */
 const PADDING_START = 16;
 /** Frames a programmatic scroll keeps re-issuing while rows around the target still measure. */
@@ -84,15 +88,15 @@ function useReservedFooterHeight(
 /**
  * Programmatic scrolls that survive measurement drift. Rows are estimated until they mount, so a
  * single `scrollToEnd`/`scrollToIndex` lands short; both helpers re-issue across frames until the
- * target offset stops moving. `isAtBottomRef` is the follow flag the rest of the body reads.
+ * target offset stops moving. `followRef` is the follow state the rest of the body reads.
  */
 function useSettleControls(
   virtualizer: ThreadVirtualizer,
   viewportRef: RefObject<HTMLDivElement | null>,
 ) {
-  // Starts true; the mount-position effect below flips it if the handoff state says the reader was
-  // parked above the fold.
-  const isAtBottomRef = useRef(true);
+  // Starts following; the mount-position effect below flips it if the handoff state says the reader
+  // was parked above the fold.
+  const followRef = useRef<ThreadFollowState>(FOLLOWING_END);
   const settleRafRef = useRef<number | null>(null);
 
   const cancelSettle = useCallback(() => {
@@ -104,12 +108,12 @@ function useSettleControls(
 
   const settleAtEnd = useCallback(() => {
     cancelSettle();
-    isAtBottomRef.current = true;
+    followRef.current = FOLLOWING_END;
     let attempts = 0;
     const step = () => {
       virtualizer.scrollToEnd();
       if (
-        virtualizer.isAtEnd(AT_BOTTOM_THRESHOLD) ||
+        virtualizer.isAtEnd(THREAD_AT_END_THRESHOLD) ||
         ++attempts > SETTLE_AT_END_ATTEMPTS
       ) {
         settleRafRef.current = null;
@@ -123,7 +127,9 @@ function useSettleControls(
   const settleToIndex = useCallback(
     (index: number) => {
       cancelSettle();
-      isAtBottomRef.current = false;
+      // A jump is the reader choosing a spot in the thread; streamed content must not pull them off
+      // it, even when the target happens to sit inside the at-end tolerance.
+      followRef.current = { following: false, leftEnd: true };
       virtualizer.scrollToIndex(index, { align: "start" });
       let attempts = 0;
       const step = () => {
@@ -149,9 +155,20 @@ function useSettleControls(
     [virtualizer, viewportRef, cancelSettle],
   );
 
+  /**
+   * An upward gesture: leave following until the reader scrolls back down into the end tolerance.
+   * Ignored when there is nothing above to reach — a stray wheel over a thread that fits the
+   * viewport would otherwise kill following with no scroll event left to undo it.
+   */
+  const leaveEnd = useCallback(() => {
+    if (followRef.current.leftEnd) return;
+    if ((viewportRef.current?.scrollTop ?? 0) <= 0) return;
+    followRef.current = { following: false, leftEnd: true };
+  }, [viewportRef]);
+
   useEffect(() => cancelSettle, [cancelSettle]);
 
-  return { isAtBottomRef, settleAtEnd, settleToIndex };
+  return { followRef, leaveEnd, settleAtEnd, settleToIndex };
 }
 
 /**
@@ -226,20 +243,20 @@ function useFollowBottom({
   virtualizer,
   totalSize,
   items,
-  isAtBottomRef,
+  followRef,
   settleAtEnd,
 }: {
   virtualizer: ThreadVirtualizer;
   totalSize: number;
   items: ConversationItem[];
-  isAtBottomRef: RefObject<boolean>;
+  followRef: RefObject<ThreadFollowState>;
   settleAtEnd: () => void;
 }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: totalSize is the trigger, not a body dependency
   useLayoutEffect(() => {
-    if (!isAtBottomRef.current) return;
+    if (!followRef.current.following) return;
     virtualizer.scrollToEnd();
-  }, [totalSize, virtualizer, isAtBottomRef]);
+  }, [totalSize, virtualizer, followRef]);
 
   const lastItem = items.at(-1);
   const userMessageCount = useMemo(
@@ -258,12 +275,12 @@ function useFollowBottom({
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden && isAtBottomRef.current) settleAtEnd();
+      if (!document.hidden && followRef.current.following) settleAtEnd();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [settleAtEnd, isAtBottomRef]);
+  }, [settleAtEnd, followRef]);
 }
 
 /**
@@ -285,6 +302,9 @@ export function VirtualThreadScrollBody({
   onUserInteract,
   renderNav,
   resumeRef,
+  olderHistoryCursor = 0,
+  isLoadingOlderHistory = false,
+  onLoadOlderHistory,
 }: {
   items: ConversationItem[];
   flatRows: FlatThreadRow[];
@@ -295,11 +315,19 @@ export function VirtualThreadScrollBody({
   onUserInteract?: () => void;
   /**
    * Navigation layer, rendered as a sibling of the scroller so it can be handed this body's jump
-   * implementation — the engine's `scrollToMessage` only reaches mounted rows.
+   * implementation, because the engine's `scrollToMessage` only reaches mounted rows. The jump
+   * reports whether the target resolved, so a caller can retry rather than fail silently.
    */
-  renderNav?: (jumpToMessage: (id: string) => void) => ReactNode;
+  renderNav?: (jumpToMessage: (id: string) => boolean) => ReactNode;
   /** Where the non-virtualized body left off, read once when this body takes over mid-session. */
   resumeRef: RefObject<ThreadScrollResume>;
+  /**
+   * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Doubles as the
+   * loader's progress signal, because it only moves when a page actually lands.
+   */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
@@ -316,13 +344,53 @@ export function VirtualThreadScrollBody({
     overscan: OVERSCAN,
     anchorTo: "end",
     followOnAppend: true,
-    scrollEndThreshold: AT_BOTTOM_THRESHOLD,
+    scrollEndThreshold: THREAD_AT_END_THRESHOLD,
     paddingStart: PADDING_START,
     paddingEnd: footerHeight,
     getItemKey: (index) => flatRows[index]?.key ?? index,
   });
 
-  const { isAtBottomRef, settleAtEnd, settleToIndex } = useSettleControls(
+  const loadOlderArmedRef = useRef(false);
+  const canLoadOlderRef = useRef(false);
+  const isLoadingOlderRef = useRef(isLoadingOlderHistory);
+  isLoadingOlderRef.current = isLoadingOlderHistory;
+  const onLoadOlderHistoryRef = useRef(onLoadOlderHistory);
+  useEffect(() => {
+    onLoadOlderHistoryRef.current = onLoadOlderHistory;
+  }, [onLoadOlderHistory]);
+
+  const maybeLoadOlderHistory = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const next = nextOlderHistoryLoadState(loadOlderArmedRef.current, {
+      canLoad: canLoadOlderRef.current,
+      isLoading: isLoadingOlderRef.current,
+      scrollTop: el.scrollTop,
+      maxScrollTop: el.scrollHeight - el.clientHeight,
+    });
+    loadOlderArmedRef.current = next.armed;
+    if (next.load) onLoadOlderHistoryRef.current?.();
+  }, []);
+
+  // Arming belongs to the scroll handler, so one gesture buys one page. This
+  // only covers what a gesture cannot reach: the first cursor the body sees, and
+  // a viewport parked with no scroll room, which emits no scroll events at all.
+  // Arming on every cursor move would instead chain page after page, because a
+  // page of collapsed tool rows lands the viewport back inside the threshold.
+  useEffect(() => {
+    const canLoad = olderHistoryCursor > 0 && onLoadOlderHistory != null;
+    const becameAvailable = canLoad && !canLoadOlderRef.current;
+    canLoadOlderRef.current = canLoad;
+    if (!canLoad) {
+      loadOlderArmedRef.current = false;
+      return;
+    }
+    if (becameAvailable) loadOlderArmedRef.current = true;
+    const id = window.setTimeout(maybeLoadOlderHistory, 250);
+    return () => window.clearTimeout(id);
+  }, [olderHistoryCursor, onLoadOlderHistory, maybeLoadOlderHistory]);
+
+  const { followRef, leaveEnd, settleAtEnd, settleToIndex } = useSettleControls(
     virtualizer,
     viewportRef,
   );
@@ -352,7 +420,9 @@ export function VirtualThreadScrollBody({
   const jumpToMessage = useCallback(
     (id: string) => {
       const index = rowIndexRef.current.get(id);
-      if (index != null) settleToIndex(index);
+      if (index == null) return false;
+      settleToIndex(index);
+      return true;
     },
     [settleToIndex],
   );
@@ -381,33 +451,20 @@ export function VirtualThreadScrollBody({
 
   const handleScroll = useCallback(() => {
     const el = viewportRef.current;
-    const scrollTop = el?.scrollTop ?? 0;
-    // Tolerate sub-pixel jitter; only a real upward move counts as leaving end.
-    const scrolledUp = scrollTop < lastScrollTopRef.current - 1;
-    lastScrollTopRef.current = scrollTop;
-
-    const atEnd = virtualizer.isAtEnd(AT_BOTTOM_THRESHOLD);
-    // Genuine far drift (not a 1-frame measure transient): the DOM bottom sits well below the
-    // viewport, so follow can't get silently stuck mid-thread.
-    const farFromEnd = el
-      ? el.scrollHeight - el.clientHeight - scrollTop > FAR_DRIFT_THRESHOLD
-      : false;
-    // Hysteresis: each append measures taller than the estimate, so for one frame isAtEnd reads
-    // false before followOnAppend/anchorTo re-pin. Re-arm at the end; only clear on a real upward
-    // scroll or a genuine drift.
-    if (atEnd) {
-      isAtBottomRef.current = true;
-    } else if (scrolledUp || farFromEnd) {
-      isAtBottomRef.current = false;
+    if (el) {
+      const sample = sampleThreadScroll(el, lastScrollTopRef.current);
+      lastScrollTopRef.current = el.scrollTop;
+      followRef.current = nextThreadFollowState(followRef.current, sample);
+      maybeLoadOlderHistory();
     }
     scheduleStickyRecompute();
-  }, [virtualizer, scheduleStickyRecompute, isAtBottomRef]);
+  }, [scheduleStickyRecompute, followRef, maybeLoadOlderHistory]);
 
   useFollowBottom({
     virtualizer,
     totalSize,
     items,
-    isAtBottomRef,
+    followRef,
     settleAtEnd,
   });
 
@@ -424,7 +481,25 @@ export function VirtualThreadScrollBody({
           onJump={jumpToMessage}
           anchorId={stickyState.anchorId}
         />
-        <ChatMessageScrollerViewport ref={viewportRef} onScroll={handleScroll}>
+        {isLoadingOlderHistory && (
+          <div className="-translate-x-1/2 pointer-events-none absolute top-2 left-1/2 z-10 rounded-full border border-(--gray-5) bg-(--gray-2) px-3 py-1 text-(--gray-11) text-xs">
+            Loading earlier messages…
+          </div>
+        )}
+        <ChatMessageScrollerViewport
+          ref={viewportRef}
+          onScroll={handleScroll}
+          // Reading upward is intent, not geometry: these catch a gesture too small to register as
+          // a direction change in the scroll handler, which would otherwise still measure "at the
+          // end" and let the next streamed chunk undo it.
+          onWheelCapture={(event: ReactWheelEvent) => {
+            if (event.deltaY < 0) leaveEnd();
+          }}
+          onTouchMoveCapture={leaveEnd}
+          onKeyDownCapture={(event: ReactKeyboardEvent) => {
+            if (SCROLL_UP_KEYS.has(event.key)) leaveEnd();
+          }}
+        >
           {/* `block` overrides the content's flex+gap layout — spacing moves into the rows
               (pb-4) and the virtual paddings, so translateY offsets are the whole layout. */}
           <ChatMessageScrollerContent

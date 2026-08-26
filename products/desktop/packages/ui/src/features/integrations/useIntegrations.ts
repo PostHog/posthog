@@ -8,12 +8,17 @@ import {
 import { REPOSITORIES_SERVICE } from "@posthog/core/integrations/identifiers";
 import {
   combineGithubRepositories,
-  combineRepositoryPicker,
   combineUserGithubRepositories,
+  computeNextRepositoryPickerOffsets,
+  computeRepositoryNextOffset,
+  flattenRepositoryPickerPages,
   getIntegrationIdForRepo,
   getRepoEntry,
   isEmptyRepositoryMap,
   isRepoInIntegration,
+  REPOSITORY_PICKER_PAGE_SIZE,
+  type RepositoryPickerOffsets,
+  type RepositoryPickerPage,
   resolveEffectiveUserRepositoryMap,
   resolveUserRepositoryCacheAction,
   type UserRepositoryIntegrationRef,
@@ -66,12 +71,24 @@ async function refetchRepositoryKeys(
   );
 }
 
-export function useIntegrations() {
+export interface IntegrationsQueryOptions {
+  /**
+   * Settings surfaces pass an interval so an uninstall on GitHub or Slack shows up while someone
+   * is looking at the page; every other caller keeps the default one-shot fetch.
+   */
+  refetchInterval?: number;
+}
+
+export function useIntegrations(options: IntegrationsQueryOptions = {}) {
   const setIntegrations = useIntegrationStore((state) => state.setIntegrations);
 
   const query = useAuthenticatedQuery(
     integrationKeys.list(),
     (client) => client.getIntegrations() as Promise<Integration[]>,
+    {
+      refetchInterval: options.refetchInterval ?? false,
+      refetchOnWindowFocus: true,
+    },
   );
 
   useEffect(() => {
@@ -98,13 +115,24 @@ function useAllGithubRepositories(githubIntegrations: Integration[]) {
       staleTime: 5 * 60 * 1000,
       meta: AUTH_SCOPED_QUERY_META,
     })),
-    combine: combineGithubRepositories,
+    combine: (results) =>
+      combineGithubRepositories(
+        results,
+        githubIntegrations.map((integration) => integration.id),
+      ),
   });
 }
 
-export function useUserGithubIntegrations() {
-  return useAuthenticatedQuery(userGithubIntegrationKeys.list(), (client) =>
-    client.getGithubUserIntegrations(),
+export function useUserGithubIntegrations(
+  options: IntegrationsQueryOptions = {},
+) {
+  return useAuthenticatedQuery(
+    userGithubIntegrationKeys.list(),
+    (client) => client.getGithubUserIntegrations(),
+    {
+      refetchInterval: options.refetchInterval ?? false,
+      refetchOnWindowFocus: true,
+    },
   );
 }
 
@@ -141,57 +169,90 @@ function useAllUserGithubRepositories(
   });
 }
 
-const REPOSITORIES_PAGE_SIZE = 50;
-
 export function useGithubRepositories(
   search?: string,
   enabled: boolean = true,
+  integrationId?: number | null,
 ) {
   const client = useOptionalAuthenticatedClient();
   const { githubIntegrations } = useIntegrationSelectors();
+  const matchingGithubIntegrations = useMemo(
+    () =>
+      integrationId == null
+        ? githubIntegrations
+        : githubIntegrations.filter(
+            (integration) => integration.id === integrationId,
+          ),
+    [githubIntegrations, integrationId],
+  );
   const deferredSearch = useDeferredValue(search?.trim() ?? "");
-  const [requestedLimit, setRequestedLimit] = useState(REPOSITORIES_PAGE_SIZE);
-  const queryEnabled = enabled && !!client && githubIntegrations.length > 0;
+  const integrationIds = matchingGithubIntegrations.map(
+    (integration) => integration.id,
+  );
+  const queryEnabled =
+    enabled && !!client && matchingGithubIntegrations.length > 0;
 
-  useEffect(() => {
-    setRequestedLimit(REPOSITORIES_PAGE_SIZE);
-  }, []);
-
-  const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
-    queries: githubIntegrations.map((integration) => ({
-      queryKey: integrationKeys.repositoryPicker(
-        integration.id,
-        deferredSearch,
-        requestedLimit,
+  const query = useAuthenticatedInfiniteQuery<
+    RepositoryPickerPage<number>,
+    RepositoryPickerOffsets
+  >(
+    integrationKeys.repositoryPickerPages(integrationIds, deferredSearch),
+    async (authenticatedClient, offsets) => ({
+      integrations: await Promise.all(
+        matchingGithubIntegrations
+          .filter(
+            (integration) => offsets[String(integration.id)] !== undefined,
+          )
+          .map(async (integration) => {
+            const offset = offsets[String(integration.id)] ?? 0;
+            const page = await authenticatedClient.getGithubRepositoriesPage(
+              integration.id,
+              offset,
+              REPOSITORY_PICKER_PAGE_SIZE,
+              deferredSearch,
+            );
+            return {
+              key: String(integration.id),
+              ref: integration.id,
+              ...page,
+              nextOffset: computeRepositoryNextOffset(offset, page),
+            };
+          }),
       ),
-      queryFn: async () => {
-        if (!client) throw new Error("Not authenticated");
-
-        const page = await client.getGithubRepositoriesPage(
-          integration.id,
-          0,
-          requestedLimit,
-          deferredSearch,
-        );
-
-        return { ref: integration.id, ...page };
-      },
+    }),
+    {
       enabled: queryEnabled,
+      initialPageParam: Object.fromEntries(
+        integrationIds.map((id) => [String(id), 0]),
+      ),
+      getNextPageParam: computeNextRepositoryPickerOffsets,
       staleTime: 5 * 60 * 1000,
-      placeholderData: (prev: unknown) => prev,
-      meta: AUTH_SCOPED_QUERY_META,
-    })),
-    combine: combineRepositoryPicker<number>,
-  });
+    },
+  );
+
+  const { repositoryMap, hasMore } = useMemo(
+    () => flattenRepositoryPickerPages(query.data?.pages),
+    [query.data?.pages],
+  );
 
   const loadMore = useCallback(() => {
-    setRequestedLimit((currentLimit) => currentLimit + REPOSITORIES_PAGE_SIZE);
-  }, []);
+    if (!query.hasNextPage || query.isFetching) return;
+    void query.fetchNextPage();
+  }, [query.fetchNextPage, query.hasNextPage, query.isFetching]);
+
+  const getIntegrationIdForRepository = useCallback(
+    (repoKey: string) => getIntegrationIdForRepo(repositoryMap, repoKey),
+    [repositoryMap],
+  );
 
   return {
     repositories: Object.keys(repositoryMap),
-    isPending: queryEnabled ? isPending : false,
-    isRefreshing: queryEnabled ? isRefreshing : false,
+    getIntegrationIdForRepo: getIntegrationIdForRepository,
+    isPending: queryEnabled ? query.isPending : false,
+    isFetchingMore: query.isFetchingNextPage,
+    isRefreshing: queryEnabled
+      ? query.isRefetching && !query.isFetchingNextPage
+      : false,
     hasMore,
     loadMore,
   };
@@ -204,53 +265,73 @@ export function useUserGithubRepositories(
   const client = useOptionalAuthenticatedClient();
   const { data: githubIntegrations = [] } = useUserGithubIntegrations();
   const deferredSearch = useDeferredValue(search?.trim() ?? "");
-  const [requestedLimit, setRequestedLimit] = useState(REPOSITORIES_PAGE_SIZE);
+  const installationIds = githubIntegrations.map(
+    (integration) => integration.installation_id,
+  );
   const queryEnabled = enabled && !!client && githubIntegrations.length > 0;
 
-  useEffect(() => {
-    setRequestedLimit(REPOSITORIES_PAGE_SIZE);
-  }, []);
-
-  const { repositoryMap, isPending, isRefreshing, hasMore } = useQueries({
-    queries: githubIntegrations.map((integration) => ({
-      queryKey: userGithubIntegrationKeys.repositoryPicker(
-        integration.installation_id,
-        deferredSearch,
-        requestedLimit,
+  const query = useAuthenticatedInfiniteQuery<
+    RepositoryPickerPage<UserRepositoryIntegrationRef>,
+    RepositoryPickerOffsets
+  >(
+    userGithubIntegrationKeys.repositoryPickerPages(
+      installationIds,
+      deferredSearch,
+    ),
+    async (authenticatedClient, offsets) => ({
+      integrations: await Promise.all(
+        githubIntegrations
+          .filter(
+            (integration) => offsets[integration.installation_id] !== undefined,
+          )
+          .map(async (integration) => {
+            const offset = offsets[integration.installation_id] ?? 0;
+            const page =
+              await authenticatedClient.getGithubUserRepositoriesPage(
+                integration.installation_id,
+                offset,
+                REPOSITORY_PICKER_PAGE_SIZE,
+                deferredSearch,
+              );
+            return {
+              key: integration.installation_id,
+              ref: {
+                userIntegrationId: integration.id,
+                installationId: integration.installation_id,
+              },
+              ...page,
+              nextOffset: computeRepositoryNextOffset(offset, page),
+            };
+          }),
       ),
-      queryFn: async () => {
-        if (!client) throw new Error("Not authenticated");
-
-        const page = await client.getGithubUserRepositoriesPage(
-          integration.installation_id,
-          0,
-          requestedLimit,
-          deferredSearch,
-        );
-
-        return {
-          ref: {
-            userIntegrationId: integration.id,
-            installationId: integration.installation_id,
-          },
-          ...page,
-        };
-      },
+    }),
+    {
       enabled: queryEnabled,
+      initialPageParam: Object.fromEntries(
+        installationIds.map((id) => [id, 0]),
+      ),
+      getNextPageParam: computeNextRepositoryPickerOffsets,
       staleTime: 5 * 60 * 1000,
-      meta: AUTH_SCOPED_QUERY_META,
-    })),
-    combine: combineRepositoryPicker<UserRepositoryIntegrationRef>,
-  });
+    },
+  );
+
+  const { repositoryMap, hasMore } = useMemo(
+    () => flattenRepositoryPickerPages(query.data?.pages),
+    [query.data?.pages],
+  );
 
   const loadMore = useCallback(() => {
-    setRequestedLimit((currentLimit) => currentLimit + REPOSITORIES_PAGE_SIZE);
-  }, []);
+    if (!query.hasNextPage || query.isFetching) return;
+    void query.fetchNextPage();
+  }, [query.fetchNextPage, query.hasNextPage, query.isFetching]);
 
   return {
     repositories: Object.keys(repositoryMap),
-    isPending: queryEnabled ? isPending : false,
-    isRefreshing: queryEnabled ? isRefreshing : false,
+    isPending: queryEnabled ? query.isPending : false,
+    isFetchingMore: query.isFetchingNextPage,
+    isRefreshing: queryEnabled
+      ? query.isRefetching && !query.isFetchingNextPage
+      : false,
     hasMore,
     loadMore,
   };
@@ -486,6 +567,7 @@ export function useUserRepositoryIntegration() {
     getInstallationIdForRepo,
     isRepoInIntegration: repoInIntegration,
     isLoadingRepos: liveLoading && !servingFromCache,
+    isLoadingIntegrations: integrationsPending,
     isRefreshingRepos: isRefreshingRepos || servingFromCache,
     refreshRepositories,
     hasGithubIntegration:
@@ -506,8 +588,11 @@ export function useRepositoryIntegration() {
     useIntegrationSelectors();
   const [isRefreshingRepos, setIsRefreshingRepos] = useState(false);
 
-  const { repositoryMap, isPending: reposPending } =
-    useAllGithubRepositories(githubIntegrations);
+  const {
+    repositoryMap,
+    isPending: reposPending,
+    failedIntegrationIds,
+  } = useAllGithubRepositories(githubIntegrations);
 
   const repositories = useMemo(
     () => Object.keys(repositoryMap),
@@ -551,5 +636,6 @@ export function useRepositoryIntegration() {
     isRefreshingRepos,
     refreshRepositories,
     hasGithubIntegration,
+    failedIntegrationIds,
   };
 }

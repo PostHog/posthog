@@ -39,8 +39,8 @@ from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.metrics import BATCH_EXPORT_ACTIVITY_TYPES, BATCH_EXPORT_WORKFLOW_TYPES
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,

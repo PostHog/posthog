@@ -3,6 +3,7 @@ import type { UsageOutput } from "../usage/schemas";
 import {
   codeOrgSpendLimitUsd,
   codeUsageMeter,
+  desktopUsageComponents,
   formatResetTime,
   formatUsageBreakdown,
   formatUsdAmount,
@@ -209,6 +210,57 @@ describe("formatUsageBreakdown", () => {
     expect(formatUsageBreakdown({ includedUsd: 20, spendLimitUsd: 50 })).toBe(
       "$20 included + $50 org spend limit",
     );
+  });
+});
+
+describe("desktopUsageComponents", () => {
+  it("converts credits and large resource quantities for display", () => {
+    const usage: UsageOutput = {
+      ...makeUsage(),
+      ai_credits: {
+        exhausted: false,
+        used_usd: 15,
+        limit_usd: 20,
+        breakdown: {
+          token_credits: 1_234,
+          compute_credits: 266,
+          cpu_millicore_seconds: 9_876_543_210,
+          memory_mib_seconds: 7_654_321_098,
+        },
+      },
+    };
+
+    expect(desktopUsageComponents(usage)).toEqual({
+      tokenUsd: 12.34,
+      computeUsd: 2.66,
+      cpuCoreSeconds: 9_876_543.21,
+      memoryGibSeconds: 7_474_922.947265625,
+    });
+  });
+
+  it("distinguishes an absent breakdown, missing values, and explicit zero", () => {
+    expect(desktopUsageComponents(makeUsage())).toBeNull();
+    expect(
+      desktopUsageComponents({
+        ...makeUsage(),
+        ai_credits: {
+          exhausted: false,
+          used_usd: 0,
+          limit_usd: 20,
+          breakdown: {
+            token_credits: 0,
+            compute_credits: null,
+            cpu_millicore_seconds: 0,
+            memory_mib_seconds: null,
+          },
+        },
+      }),
+    ).toEqual({
+      tokenUsd: 0,
+      computeUsd: null,
+      cpuCoreSeconds: 0,
+      memoryGibSeconds: null,
+    });
   });
 });
 

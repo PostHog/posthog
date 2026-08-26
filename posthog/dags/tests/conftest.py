@@ -4,6 +4,8 @@ from posthog.conftest import django_db_setup
 __all__ = ["django_db_setup"]
 
 from collections.abc import Iterator
+from datetime import datetime
+from uuid import UUID
 
 import pytest
 from posthog.test.base import reset_clickhouse_database
@@ -11,6 +13,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 
+from clickhouse_driver import Client
 from psycopg.types.json import Jsonb
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
@@ -23,6 +26,14 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _use_postgres_dagster_instance,
 )
 from posthog.persons_db import persons_db_connection
+
+
+def insert_flag_evaluations(rows: list[tuple[int, str, str | UUID, str | UUID, datetime]], client: Client) -> None:
+    """Insert rows of (team_id, distinct_id, person_id, uuid, timestamp) into flag_evaluations."""
+    client.execute(
+        "INSERT INTO writable_flag_evaluations (team_id, distinct_id, person_id, uuid, timestamp) VALUES",
+        rows,
+    )
 
 
 def refresh_person_from_persons_db(person) -> None:

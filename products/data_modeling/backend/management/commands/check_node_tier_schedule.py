@@ -93,7 +93,7 @@ class Command(BaseCommand):
                     dag_id=str(node.dag_id),
                     dag_name=dag.name,
                     live_tiers=live_by_dag.get(str(node.dag_id), []),
-                    expected_interval=expected,
+                    expected_tier=expected,
                     reconcile_blocked=blocked_by_dag.get(str(node.dag_id), False),
                     has_backing_table=node.saved_query is not None and node.saved_query.table_id is not None,
                 )

@@ -13,10 +13,14 @@ import { RestoreTickets } from '../../components/SidePanel/RestoreTickets'
 import { sidepanelTicketsLogic } from '../../components/SidePanel/sidepanelTicketsLogic'
 import { Ticket } from '../../components/SidePanel/Ticket'
 import { TicketsList } from '../../components/SidePanel/TicketsList'
+import { myTicketsSceneLogic } from './myTicketsSceneLogic'
 
+// myTicketsSceneLogic rather than sidepanelTicketsLogic directly: the tickets logic never unmounts
+// (the side panel tab icon keeps it alive), so only a scene-scoped logic gets a fresh mount, and
+// with it a ticket refetch, on each navigation here
 export const scene: SceneExport = {
     component: MyTicketsScene,
-    logic: sidepanelTicketsLogic,
+    logic: myTicketsSceneLogic,
 }
 
 // Sized against the viewport so the thread fills the page without the scene itself scrolling
@@ -24,14 +28,13 @@ const PANE_MIN_HEIGHT = 'min(400px, calc(100svh - 16rem))'
 const PANE_MAX_HEIGHT = 'calc(100svh - 16rem)'
 
 export function MyTicketsScene(): JSX.Element {
-    const { view, currentTicket, newTicketDraftRevision, isEnabled, isBillingResolved } =
-        useValues(sidepanelTicketsLogic)
+    const { view, currentTicket, newTicketDraftRevision, isBillingResolved } = useValues(sidepanelTicketsLogic)
     const { preflight } = useValues(preflightLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
     const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
 
-    if (!isEnabled || !isCloudOrDev) {
+    if (!isCloudOrDev) {
         return (
             <SceneContent>
                 <SceneTitleSection

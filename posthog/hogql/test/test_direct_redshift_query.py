@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.direct_sql.redshift_adapter import RedshiftAdapter, ensure_read_only_raw_redshift_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -169,9 +170,30 @@ class TestDirectRedshiftQuery(APIBaseTest):
                 "posthog.hogql.direct_sql.redshift_adapter.RedshiftAdapter.validate_source_config",
                 return_value=(implementation, MagicMock()),
             ):
-                with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                    with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
-                        executor.execute()
+                with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
+                    executor.execute()
+
+    def test_execute_raises_exposed_error_when_ssh_tunnel_fails(self):
+        source = self._create_source()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        implementation = MagicMock()
+        implementation.connect.side_effect = BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")
+
+        with patch(
+            "posthog.hogql.direct_sql.redshift_adapter.RedshiftAdapter.validate_source_config",
+            return_value=(implementation, MagicMock()),
+        ):
+            with self.assertRaises(ExposedHogQLError) as error:
+                executor.execute()
+
+        self.assertEqual(str(error.exception), "Could not establish session to SSH gateway")
 
     @parameterized.expand(
         [

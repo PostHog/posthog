@@ -18,6 +18,8 @@ import type {
     LogsAlertSimulateResponseApi,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
+    LogsAnomalyScanRequestApi,
+    LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
@@ -34,6 +36,8 @@ import type {
     LogsSamplingRuleSimulateResponseApi,
     LogsSamplingRulesListParams,
     LogsSamplingRulesReorderCreateParams,
+    LogsSeriesBandsRequestApi,
+    LogsSeriesBandsResponseApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -301,6 +305,48 @@ export const logsAlertsSimulateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertSimulateRequestApi),
+    })
+}
+
+export const getLogsAnomaliesScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/scan/`
+}
+
+/**
+ * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * @summary Scan a service's logs for volume anomalies
+ */
+export const logsAnomaliesScanCreate = async (
+    projectId: string,
+    logsAnomalyScanRequestApi: LogsAnomalyScanRequestApi,
+    options?: RequestInit
+): Promise<LogsAnomalyScanResponseApi> => {
+    return apiMutator<LogsAnomalyScanResponseApi>(getLogsAnomaliesScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAnomalyScanRequestApi),
+    })
+}
+
+export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/series_bands/`
+}
+
+/**
+ * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * @summary Per-series log volume with expected bands
+ */
+export const logsAnomaliesSeriesBandsCreate = async (
+    projectId: string,
+    logsSeriesBandsRequestApi: LogsSeriesBandsRequestApi,
+    options?: RequestInit
+): Promise<LogsSeriesBandsResponseApi> => {
+    return apiMutator<LogsSeriesBandsResponseApi>(getLogsAnomaliesSeriesBandsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSeriesBandsRequestApi),
     })
 }
 

@@ -19,7 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { getDelayDescription } from '../steps/stepDelayLogic'
+import { DEFAULT_DELAY_DURATION, getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
@@ -62,13 +62,26 @@ const PUSH_NOTIFICATION_ACTION_NODE: CreateActionType = {
     config: { template_id: 'template-native-push', inputs: {} },
 }
 
-const DEFAULT_DELAY = '10m'
+const AI_TASK_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Create AI task',
+    description: 'Start an AI agent task with instructions from this workflow.',
+    config: {
+        template_id: 'template-posthog-create-task',
+        // Pinned rather than relying on the template default: the engine only reads
+        // action.config.inputs at execution time, and this value is what turns a 409
+        // "task limit reached" reply into a graceful skip instead of a failed step.
+        inputs: { non_failure_status_codes: { value: [409] } },
+    },
+    output_variable: { key: 'task', result_path: null, label: 'Task' },
+}
+
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'delay',
         name: 'Delay',
-        description: getDelayDescription(DEFAULT_DELAY),
-        config: { delay_duration: DEFAULT_DELAY },
+        description: getDelayDescription({ delay_duration: DEFAULT_DELAY_DURATION }),
+        config: { delay_duration: DEFAULT_DELAY_DURATION },
     },
     {
         type: 'wait_until_time_window',
@@ -310,6 +323,14 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 <HogFlowEditorToolbarNode key="push-notifications" action={PUSH_NOTIFICATION_ACTION_NODE}>
                     <span className="inline-flex items-center gap-1.5">
                         {PUSH_NOTIFICATION_ACTION_NODE.name}
+                        <LemonTag type="completion">Beta</LemonTag>
+                    </span>
+                </HogFlowEditorToolbarNode>
+            )}
+            {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
+                <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE}>
+                    <span className="inline-flex items-center gap-1.5">
+                        {AI_TASK_ACTION_NODE.name}
                         <LemonTag type="completion">Beta</LemonTag>
                     </span>
                 </HogFlowEditorToolbarNode>

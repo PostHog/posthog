@@ -5,10 +5,12 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
+import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
@@ -26,7 +28,6 @@ import {
     createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createSkipCookielessRateLimitToOverflowStep,
-    createValidateAiEventTokensStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
@@ -40,13 +41,17 @@ import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-pr
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/event-processing/normalize-process-person-flag-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
-import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
+import {
+    createEventUsageBeforeBatchStep,
+    createFlushEventUsageStep,
+    createRecordEventUsageAfterIngestStep,
+    createRecordEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
+import { resolveAiUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
@@ -59,8 +64,10 @@ import {
     createUploadAiBlobStep,
     extractAiBlobsFanOut,
     mergeAiBlobPointersFanIn,
-} from './pipelines/steps/offload-ai-blobs-step'
-import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
+} from './steps/offload-ai-blobs-step'
+import { createProcessAiEventStep } from './steps/process-ai-event-step'
+import { createSplitAiEventsStep } from './steps/split-ai-events-step'
+import { createValidateAiEventTokensStep } from './steps/validate-ai-event-tokens'
 
 export interface AiIngestionPipelineConfig {
     outputs: IngestionOutputs<
@@ -80,12 +87,12 @@ export interface AiIngestionPipelineConfig {
     overflowRedirectService: OverflowRedirectService
     overflowLaneTTLRefreshService: OverflowRedirectService
     concurrentBatches: number
-    cdpHogWatcherSampleRate: number
     eventSchemaEnforcementEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
     aiBlobOffloadConfig: OffloadAiBlobsConfig
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 interface AiIngestionPipelineInput {
@@ -97,8 +104,7 @@ interface AiIngestionPipelineContext {
 }
 
 /**
- * Standalone AI ingestion pipeline. Mirrors the AI branch of the analytics
- * joined pipeline, but:
+ * Standalone AI ingestion pipeline. Compared to the analytics pipeline:
  *  - only AI events flow through (everything else is DLQ'd by the allow step),
  *  - person and group data are read-only (fetched, never written), like error
  *    tracking — so there are no person/group batch stores or per-distinct-id
@@ -106,9 +112,9 @@ interface AiIngestionPipelineContext {
  *  - overflow uses the dedicated `'ai'` keyspace (wired at service construction),
  *    so AI overflow can never affect analytics.
  *
- * AI events are still double-written to both the events output and the
- * ai_events output (via the split step), keeping it a drop-in for the analytics
- * AI branch once capture-side routing switches over.
+ * AI events are double-written to both the events output and the ai_events
+ * output (via the split step), so they appear on the shared events table as
+ * well as the dedicated ai_events table.
  */
 export function createAiIngestionPipeline<
     TInput extends AiIngestionPipelineInput,
@@ -129,12 +135,12 @@ export function createAiIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         concurrentBatches,
-        cdpHogWatcherSampleRate,
         eventSchemaEnforcementEnabled,
         eventSchemaEnforcementManager,
         topHog,
         aiBlobStore,
         aiBlobOffloadConfig,
+        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
     } = config
 
     return (
@@ -145,7 +151,11 @@ export function createAiIngestionPipeline<
             concurrentBatches,
             topHog,
         })
-            .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
+            .beforeBatch((b) =>
+                b
+                    .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                    .pipe(createEventUsageBeforeBatchStep(createEventUsageBatch))
+            )
             // Header-only steps: allow only AI events, apply token restrictions.
             .parseHeaders()
             .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
@@ -153,6 +163,8 @@ export function createAiIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    // createFetchPersonChunkStep below only reads persons.
+                    pipelineWritesPersons: false,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.
@@ -183,9 +195,6 @@ export function createAiIngestionPipeline<
             .pipeChunk(createFetchPersonChunkStep(personRepository), {
                 retry: { tries: 5, sleepMs: 100, name: 'fetch_person_chunk' },
             })
-            // Prefetch hog functions for the batch's teams so the transformer
-            // honors Hog watcher's disabled-function state (mirrors analytics).
-            .pipeChunk(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
             // Per-event chain. Retry is applied per step: only the steps
             // that do transient-failure-prone I/O (hog transform, group-type
             // fetch, emit) retry, matching the analytics per-distinct-id path.
@@ -249,6 +258,7 @@ export function createAiIngestionPipeline<
             .pipe(createReadOnlyProcessGroupsStep(groupTypeManager), {
                 retry: { tries: 5, sleepMs: 100, name: 'readonly_process_groups' },
             })
+            .pipe(createRecordEventUsageStep(resolveAiUsageKey))
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
             // Double-write to events + ai_events outputs.
             .pipe(createSplitAiEventsStep())
@@ -270,10 +280,12 @@ export function createAiIngestionPipeline<
                     ),
                 ],
             })
+            .pipe(createRecordEventUsageAfterIngestStep())
             .pipe(createRecordIngestionLagStep())
             .afterBatch((b) =>
                 b
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                    .pipe(createFlushEventUsageStep())
                     // Drain hog transformer invocation results once per batch.
                     .pipe(createFlushHogTransformerStep(hogTransformer))
             )

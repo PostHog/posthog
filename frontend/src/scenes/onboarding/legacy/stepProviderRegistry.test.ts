@@ -16,6 +16,7 @@ function context(primary: ProductKey): OnboardingFlowContext {
         subscribedDuringOnboarding: false,
         canInviteTeammates: true,
         featureFlags: {},
+        showAIReportsStep: false,
     }
 }
 

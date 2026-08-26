@@ -3,14 +3,8 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
-    RESPONSE_LIMIT_ERROR,
-    LangfuseResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source import LangfuseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLangfuseSource:
@@ -22,8 +16,17 @@ class TestLangfuseSource:
         self.config.public_key = "pk-lf-key"
         self.config.secret_key = "sk-lf-key"
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LANGFUSE
+    def test_v1_is_deprecated_advisory_and_default_is_v2(self):
+        # New sources start on v2; v1 stays supported so already-pinned rows keep resolving to the
+        # unchanged wire. Langfuse announced no sunset date, so the deprecation is advisory
+        # (sunset_at is None) — the generic in-product warning fires but no repin migration ships.
+        assert self.source.default_version == "v2"
+        assert set(self.source.supported_versions) == {"v1", "v2"}
+
+        deprecation = self.source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation("v2") is None
 
     def test_get_source_config(self):
         config = self.source.get_source_config
@@ -53,11 +56,18 @@ class TestLangfuseSource:
         assert secret_key_field.secret is True
         assert secret_key_field.required is True
 
-    @pytest.mark.parametrize(
-        "expected_key", ["401 Client Error", "403 Client Error", "404 Client Error", RESPONSE_LIMIT_ERROR]
-    )
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
+    def test_exhausted_connection_pool_error_is_classified_retryable(self):
+        # Matches the message urllib3 raises once `get_rows`'s tenacity retry (which covers read
+        # timeouts and connection failures, not just 429/422/5xx) exhausts its budget — keeps this
+        # transient, self-recovering failure out of error tracking instead of reaching
+        # `logger.aexception`.
+        observed_error = (
+            "HTTPSConnectionPool(host='us.cloud.langfuse.com', port=443): Max retries exceeded with "
+            "url: /api/public/traces?limit=50&orderBy=timestamp.asc&page=5339 (Caused by "
+            "ReadTimeoutError(\"HTTPSConnectionPool(host='us.cloud.langfuse.com', port=443): "
+            'Read timed out. (read timeout=60)"))'
+        )
+        assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -85,64 +95,3 @@ class TestLangfuseSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["traces"])
         assert len(schemas) == 1
         assert schemas[0].name == "traces"
-
-    @pytest.mark.parametrize(
-        "mock_return",
-        [
-            (True, None),
-            (False, "Invalid Langfuse API keys"),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source.validate_langfuse_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return):
-        mock_validate.return_value = mock_return
-
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="traces")
-
-        assert result == mock_return
-        mock_validate.assert_called_once_with(
-            self.config.host, self.config.public_key, self.config.secret_key, self.team_id
-        )
-
-    def test_get_resumable_source_manager(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is LangfuseResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source.langfuse_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_langfuse_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "traces"
-        inputs.team_id = 42
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = "timestamp"
-
-        manager = mock.MagicMock()
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_langfuse_source.call_args.kwargs
-        assert kwargs["host"] == "https://cloud.langfuse.com"
-        assert kwargs["public_key"] == "pk-lf-key"
-        assert kwargs["secret_key"] == "sk-lf-key"
-        assert kwargs["endpoint"] == "traces"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["team_id"] == 42
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert kwargs["incremental_field"] == "timestamp"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source.langfuse_source")
-    def test_source_for_pipeline_omits_last_value_when_not_incremental(self, mock_langfuse_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "datasets"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "ignored"
-        inputs.incremental_field = None
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_langfuse_source.call_args.kwargs["db_incremental_field_last_value"] is None

@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 // real browser — the "portability smoke test" the README describes.
 
 test.describe("web host happy path", () => {
-  test("boots to the onboarding welcome screen", async ({ page }) => {
+  test("boots to the onboarding sign-in card", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
 
@@ -24,30 +24,13 @@ test.describe("web host happy path", () => {
       .waitFor({ state: "hidden", timeout: 30_000 })
       .catch(() => {});
 
-    // A clean browser has no persisted onboarding state, so the first screen is
-    // the welcome step.
-    await expect(page.getByText("Welcome to")).toBeVisible({ timeout: 30_000 });
     await expect(
-      page.getByRole("button", { name: "Start shipping" }),
-    ).toBeVisible();
+      page.getByRole("button", { name: "Sign in with PostHog" }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
 
     // Nothing threw during boot (e.g. an unbound DI capability).
     expect(errors).toEqual([]);
-  });
-
-  test("advances from welcome to the PostHog sign-in card", async ({
-    page,
-  }) => {
-    await page.goto("/");
-    const startButton = page.getByRole("button", { name: "Start shipping" });
-    await startButton.waitFor({ state: "visible", timeout: 30_000 });
-    await startButton.click();
-
-    // The project-select step shows the sign-in card while anonymous — the end
-    // of the hermetic path (real OAuth needs a live IdP).
-    await expect(
-      page.getByText("Sign in / sign up with PostHog").first(),
-    ).toBeVisible({ timeout: 30_000 });
   });
 
   test("the OAuth /callback relay page renders without crashing", async ({

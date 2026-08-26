@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
@@ -15,7 +17,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     _arequest_hogql_fix,
     _plan_to_freeze,
     _run_steps,
-    _safe_error_message,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -30,6 +31,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     ReportWindow,
     StoredPlanInvalidError,
 )
+from products.exports.backend.temporal.subscriptions.types import safe_error_message
+
+from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
@@ -262,6 +266,33 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
     assert diagnostics[0].hogql == "SELECT 1"
 
 
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_cls: MagicMock) -> None:
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ClickHouseQueryMemoryLimitExceeded())
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    assert failed == 1
+    assert rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+    assert diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
+    assert diagnostics[0].human_readable_error is None
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
+    mock_hogql_fix: AsyncMock, mock_executor_cls: MagicMock
+) -> None:
+    error = MaxToolRetryableError("Memory limit exceeded")
+    error.__cause__ = ClickHouseQueryMemoryLimitExceeded()
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=error)
+
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+
+    assert failed == 1
+    assert rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+    assert diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
+    mock_hogql_fix.assert_awaited_once()
+
+
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_forwards_resolution_error_message_to_fix(
@@ -399,7 +430,26 @@ def _wrap(
     ],
 )
 def test_safe_error_message_only_surfaces_query_structure_errors(exc, expected):
-    assert _safe_error_message(exc) == expected
+    assert safe_error_message(exc) == expected
+
+
+def test_safe_error_message_respects_suppressed_context():
+    # `raise ... from None` (__suppress_context__) is the author explicitly severing the chain — an
+    # internal error they meant to hide must not surface via the wider insight-snapshot path.
+    inner = ResolutionError("internal resolution detail")
+    try:
+        try:
+            raise inner
+        except ResolutionError:
+            raise ValueError("sanitized outer") from None
+    except ValueError as outer:
+        assert safe_error_message(outer) is None
+
+
+def test_safe_error_message_strips_null_bytes():
+    # Persisted to jsonb, which rejects NUL — the safe field gets the same scrub as the raw message.
+    exc = ExposedHogQLError("bad\x00field")
+    assert safe_error_message(exc) == "badfield"
 
 
 def _frozen_plan() -> dict:

@@ -1,9 +1,11 @@
+import { buildContextWikiInstructions } from "../../../context-wiki";
+
 const BRANCH_NAMING = `
 # Branch Naming
 
 When working in a detached HEAD state, create a descriptive branch name based on the work being done before committing. Do this automatically without asking the user.
 
-When creating a new branch, prefix it with \`posthog-code/\` (e.g. \`posthog-code/fix-login-redirect\`).
+When creating a new branch, prefix it with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
 `;
 
 const PULL_REQUEST_LINKS = `
@@ -30,6 +32,12 @@ const MCP_TOOLS = `
 If an MCP tool call is explicitly denied with a message, relay that denial message to the user exactly as given. Do NOT suggest checking "Claude Code settings."
 
 If an MCP tool call returns an error, treat it as a normal tool error — troubleshoot, retry, or inform the user about the specific error. Do NOT assume it is a permissions issue and do NOT direct the user to any settings page.
+`;
+
+const DATA_HANDLING = `
+# Data Handling
+
+Material you were given as task context — customer conversations, support tickets, logs, internal threads — stays out of code, test data, comments, commit messages, and pull request text. Rewriting it, summarizing it, or swapping out names and domains does not clear it.
 `;
 
 const SHELL_EFFICIENCY = `
@@ -64,12 +72,46 @@ How to phrase the line:
 `;
 
 const BASE_INSTRUCTIONS =
-  BRANCH_NAMING + PULL_REQUEST_LINKS + PLAN_MODE + MCP_TOOLS + SHELL_EFFICIENCY;
+  BRANCH_NAMING +
+  PULL_REQUEST_LINKS +
+  PLAN_MODE +
+  MCP_TOOLS +
+  DATA_HANDLING +
+  SHELL_EFFICIENCY;
+
+/** Shell-word shaped, so nothing else in the variable reaches the prompt. */
+const TOOL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+const MAX_IMAGE_TOOLS = 40;
+
+/**
+ * Formats tool metadata from a server-owned image manifest. Never read the
+ * sandbox environment here: image specs and environment variables are user-authored.
+ */
+export function imageToolsInstruction(value: string | undefined): string {
+  const tools = [
+    ...new Set(
+      (value ?? "").split(/[\s,]+/).filter((word) => TOOL_NAME_RE.test(word)),
+    ),
+  ].slice(0, MAX_IMAGE_TOOLS);
+  if (tools.length === 0) return "";
+  return `
+# Tools On This Machine
+
+This sandbox image was built with these on PATH: ${tools.join(", ")}.
+
+Use them instead of the slower defaults they replace, and never spend a turn installing them.
+`;
+}
 
 export function buildAppendedInstructions(opts: {
   spokenNarration: boolean;
+  contextWikiPath?: string;
+  /** Tool metadata from a server-owned image manifest. */
+  imageTools?: string;
 }): string {
-  return opts.spokenNarration
-    ? BASE_INSTRUCTIONS + SPOKEN_NARRATION
-    : BASE_INSTRUCTIONS;
+  let instructions = BASE_INSTRUCTIONS + imageToolsInstruction(opts.imageTools);
+  if (opts.contextWikiPath) {
+    instructions += buildContextWikiInstructions(opts.contextWikiPath);
+  }
+  return opts.spokenNarration ? instructions + SPOKEN_NARRATION : instructions;
 }

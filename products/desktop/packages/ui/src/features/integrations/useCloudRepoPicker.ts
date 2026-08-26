@@ -17,6 +17,7 @@ export function useCloudRepoPicker() {
   const {
     repositories: visibleCloudRepositories,
     isPending: cloudRepositoriesLoading,
+    isFetchingMore: cloudRepositoriesFetchingMore,
     hasMore,
     loadMore,
   } = useUserGithubRepositories(searchQuery, isOpen);
@@ -40,6 +41,7 @@ export function useCloudRepoPicker() {
   return {
     repositories: isOpen ? visibleCloudRepositories : repositories,
     isLoading: isLoadingRepos || (isOpen && cloudRepositoriesLoading),
+    isLoadingMore: isOpen && cloudRepositoriesFetchingMore,
     isRefreshing: isRefreshingRepos,
     onRefresh: handleRefresh,
     open: isOpen,

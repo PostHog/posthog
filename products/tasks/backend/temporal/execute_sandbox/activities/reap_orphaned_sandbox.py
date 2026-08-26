@@ -22,8 +22,12 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.logic.services.sandbox import Sandbox
-from products.tasks.backend.logic.services.sandbox_usage import close_sandbox_session
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.sandbox_usage import (
+    close_sandbox_session,
+    measure_sandbox_billed_cpu_usage,
+    measure_sandbox_cpu_usage,
+)
 from products.tasks.backend.models import SandboxSession, TaskRun
 from products.tasks.backend.temporal.execute_sandbox.activities.sandbox_state import SANDBOX_ID_STATE_KEY
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -64,8 +68,14 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
             return ReapOrphanedSandboxResult(reaped_sandbox_id=None, destroy_succeeded=True)
 
         destroy_succeeded = True
+        cpu_usage_usec = None
+        billed_cpu_usage_usec = None
+        cpu_usage_measured_at = None
         try:
-            Sandbox.get_by_id(sandbox_id).destroy()
+            sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
+            cpu_usage_usec, cpu_usage_measured_at = measure_sandbox_cpu_usage(sandbox)
+            billed_cpu_usage_usec = measure_sandbox_billed_cpu_usage(sandbox)
+            sandbox.destroy()
         except Exception:
             # Modal TTL is the backstop; we still clear state below so the
             # next start doesn't re-reap a dead id forever.
@@ -74,7 +84,13 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
         # Best-effort usage-ledger end stamp (swallows its own failures), regardless of
         # destroy outcome — the TTL kills any undead sandbox anyway, and the ledger
         # prefers a slightly early end over an open-ended row.
-        close_sandbox_session(sandbox_id, reason=SandboxSession.EndedReason.REAPED)
+        close_sandbox_session(
+            sandbox_id,
+            reason=SandboxSession.EndedReason.REAPED,
+            cpu_usage_usec=cpu_usage_usec,
+            billed_cpu_usage_usec=billed_cpu_usage_usec,
+            cpu_usage_measured_at=cpu_usage_measured_at,
+        )
 
         TaskRun.update_state_atomic(input.run_id, remove_keys=[SANDBOX_ID_STATE_KEY])
         return ReapOrphanedSandboxResult(reaped_sandbox_id=sandbox_id, destroy_succeeded=destroy_succeeded)

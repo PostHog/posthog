@@ -2,8 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   buildSandboxDocument,
   decodeJsxUnicodeEscapes,
+  isInteractiveCanvasCommentTarget,
   resolveExternalAnchorUrl,
 } from "./sandboxRuntime";
+
+function clickTarget(html: string, selector: string): Element {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const element = container.querySelector(selector);
+  if (!element) throw new Error(`selector ${selector} not found`);
+  return element;
+}
 
 describe("decodeJsxUnicodeEscapes", () => {
   it.each([
@@ -50,7 +59,7 @@ describe("decodeJsxUnicodeEscapes", () => {
 
 describe("buildSandboxDocument", () => {
   it("inlines the unicode-escape decoder into the bootstrap", () => {
-    const html = buildSandboxDocument("edit");
+    const html = buildSandboxDocument();
     expect(html).toContain(
       "const decodeUnicodeEscapes = function decodeJsxUnicodeEscapes(",
     );
@@ -58,7 +67,7 @@ describe("buildSandboxDocument", () => {
   });
 
   it("inlines the external-anchor resolver into the bootstrap", () => {
-    const html = buildSandboxDocument("edit");
+    const html = buildSandboxDocument();
     expect(html).toContain(
       "const resolveExternalAnchorUrl = function resolveExternalAnchorUrl(",
     );
@@ -70,22 +79,34 @@ describe("buildSandboxDocument", () => {
   // theme message arrives. A light fallback there flashed white over a dark
   // app every time a canvas preview scrolled into view.
   it("paints nothing of its own before the host theme lands", () => {
-    const html = buildSandboxDocument("edit");
+    const html = buildSandboxDocument();
     expect(html).toContain("background: var(--background, transparent)");
     expect(html).not.toContain("var(--background, #fff)");
     expect(html).toContain("html.dark { color-scheme: dark; }");
   });
+
+  it("installs the persisted comment protocol", () => {
+    const html = buildSandboxDocument();
+    expect(html).toContain('d.type === "set-comment-highlights"');
+    expect(html).toContain('type: "comment-activate"');
+    expect(html).toContain('d.type === "clear-text-selection"');
+  });
+
+  it.each([
+    ["button labels", "<button><span>Export</span></button>", "span", true],
+    ["link labels", '<a href="/docs"><span>Docs</span></a>', "span", true],
+    ["plain text", "<p><span>Summary</span></p>", "span", false],
+  ])(
+    "identifies %s before activating a comment highlight",
+    (_name, html, selector, expected) => {
+      expect(
+        isInteractiveCanvasCommentTarget(clickTarget(html, selector)),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("resolveExternalAnchorUrl", () => {
-  const clickTarget = (html: string, selector: string): Element => {
-    const container = document.createElement("div");
-    container.innerHTML = html;
-    const el = container.querySelector(selector);
-    if (!el) throw new Error(`selector ${selector} not found`);
-    return el;
-  };
-
   it("resolves a click inside a target=_blank anchor to its absolute URL", () => {
     const target = clickTarget(
       '<a href="https://posthog.com/docs" target="_blank"><span>docs</span></a>',

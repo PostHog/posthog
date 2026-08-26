@@ -184,6 +184,22 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it('forwards the current task id to the PostHog API', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            taskId: '019fcdb5-2e5b-7ab1-bdab-b77fafd3c96f',
+        })
+
+        await client.request({ method: 'GET', path: '/api/projects/1/tasks/task-1/comments/' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers['X-PostHog-Task-Id']).toBe('019fcdb5-2e5b-7ab1-bdab-b77fafd3c96f')
+        vi.unstubAllGlobals()
+    })
+
     it.each([
         [
             'both ids set',
@@ -306,6 +322,73 @@ describe('ApiClient', () => {
             expect(url).not.toContain('filters_override')
 
             vi.unstubAllGlobals()
+        })
+    })
+
+    describe('actors query paging', () => {
+        const retentionDrilldown = {
+            kind: 'InsightActorsQuery',
+            interval: 0,
+            source: { kind: 'RetentionQuery', retentionFilter: { period: 'Day', totalIntervals: 3 } },
+        }
+
+        function runActors(
+            method: 'retentionActors' | 'lifecycleActors',
+            query: Record<string, unknown>
+        ): Promise<Record<string, any>> {
+            const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+            return client
+                .query({ projectId: '1' })
+                [method]({ query })
+                .then(() => {
+                    const [, options] = mockFetch.mock.calls[0]!
+                    vi.unstubAllGlobals()
+                    return JSON.parse(options.body).query
+                })
+        }
+
+        function runWithPage(page: Record<string, number>): Promise<Record<string, any>> {
+            return runActors('retentionActors', { ...retentionDrilldown, ...page })
+        }
+
+        it('pages on the outer ActorsQuery and keeps the drilldown source clean', async () => {
+            // The inner InsightActorsQuery rejects unknown keys, so leaking `limit`/`offset` into it
+            // turns every paged call into a 400.
+            const query = await runWithPage({ limit: 250, offset: 500 })
+
+            expect(query.kind).toBe('ActorsQuery')
+            expect(query.limit).toBe(250)
+            expect(query.offset).toBe(500)
+            expect(query.source).not.toHaveProperty('limit')
+            expect(query.source).not.toHaveProperty('offset')
+            expect(query.source.interval).toBe(0)
+        })
+
+        it.each([
+            ['defaults to the first page', {}, 100, 0],
+            ['clamps a limit above the maximum', { limit: 5000 }, 1000, 0],
+            ['raises a limit below one', { limit: 0 }, 1, 0],
+            ['floors a negative offset', { limit: 20, offset: -10 }, 20, 0],
+        ])('%s', async (_name, page, expectedLimit, expectedOffset) => {
+            const query = await runWithPage(page)
+
+            expect(query.limit).toBe(expectedLimit)
+            expect(query.offset).toBe(expectedOffset)
+        })
+
+        it('omits orderBy on unranked actor lists so pages stay disjoint', async () => {
+            // Lifecycle has nothing to rank by. Sending `orderBy: []` suppresses the runner's
+            // default ordering, and unordered rows make consecutive pages overlap.
+            const query = await runActors('lifecycleActors', {
+                kind: 'InsightActorsQuery',
+                day: '2024-01-15',
+                status: 'returning',
+                source: { kind: 'LifecycleQuery', series: [{ kind: 'EventsNode', event: '$pageview' }] },
+            })
+
+            expect(query).not.toHaveProperty('orderBy')
         })
     })
 })

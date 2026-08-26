@@ -6,6 +6,7 @@ import type { PrCommentThread } from "../code-review/prCommentAnnotations";
 
 interface UsePrDetailsOptions {
   includeComments?: boolean;
+  refetchInterval?: number | false;
 }
 
 function mapPrCommentThreads(
@@ -47,17 +48,36 @@ export function usePrDetailsMap(
   });
 }
 
+/** PR titles for a set of PRs, off the same cache `usePrDetailsMap` warms. */
+export function usePrTitles(prUrls: string[]): Record<string, string> {
+  const trpc = useHostTRPC();
+  return useQueries({
+    queries: prUrls.map((prUrl) => ({
+      ...trpc.git.getPrDetailsByUrl.queryOptions({ prUrl }),
+      staleTime: 60_000,
+      retry: 1,
+    })),
+    combine: (results) =>
+      Object.fromEntries(
+        results.flatMap((result, index) =>
+          result.data?.title ? [[prUrls[index], result.data.title]] : [],
+        ),
+      ),
+  });
+}
+
 export function usePrDetails(
   prUrl: string | null,
   options?: UsePrDetailsOptions,
 ) {
-  const { includeComments = false } = options ?? {};
+  const { includeComments = false, refetchInterval = false } = options ?? {};
   const trpc = useHostTRPC();
 
   const metaQuery = useQuery({
     ...trpc.git.getPrDetailsByUrl.queryOptions({ prUrl: prUrl as string }),
     enabled: !!prUrl,
     staleTime: 60_000,
+    refetchInterval,
     placeholderData: (prev) => prev,
     retry: 1,
   });
@@ -82,6 +102,8 @@ export function usePrDetails(
       merged: metaQuery.data?.merged ?? false,
       draft: metaQuery.data?.draft ?? false,
       headRefName: metaQuery.data?.headRefName ?? null,
+      title: metaQuery.data?.title ?? null,
+      author: metaQuery.data?.author ?? null,
       isLoading: metaQuery.isLoading,
     },
     commentThreads,

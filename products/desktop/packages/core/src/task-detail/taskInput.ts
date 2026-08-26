@@ -2,8 +2,8 @@ import { buildCloudTaskDescription } from "@posthog/core/editor/cloud-prompt";
 import type {
   Adapter,
   AgentRuntime,
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
+  McpServerConnection,
   TaskCreationInput,
   WorkspaceMode,
 } from "@posthog/shared";
@@ -12,6 +12,7 @@ import type { ExecutionMode } from "@posthog/shared/domain-types";
 export interface PrepareTaskInputOptions {
   selectedDirectory?: string;
   selectedRepository?: string | null;
+  repositories?: string[];
   githubIntegrationId?: number;
   githubUserIntegrationId?: string;
   workspaceMode: WorkspaceMode;
@@ -31,6 +32,7 @@ export interface PrepareTaskInputOptions {
   signalReportId?: string;
   additionalDirectories?: string[];
   channelContext?: string;
+  channelContextPath?: string;
   channelName?: string;
   channelId?: string;
   channelContextId?: string;
@@ -38,7 +40,7 @@ export interface PrepareTaskInputOptions {
   autoPublishCloudRuns?: boolean;
   rtkEnabledCloud?: boolean;
   allowNoRepo?: boolean;
-  importedMcpServers?: CloudMcpServerImport[];
+  importedMcpServers?: McpServerConnection[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
 }
 
@@ -56,6 +58,7 @@ export function prepareTaskInput(
     filePaths,
     repoPath: isCloud ? undefined : options.selectedDirectory,
     repository: isCloud ? options.selectedRepository : undefined,
+    repositories: isCloud ? options.repositories : undefined,
     githubIntegrationId: options.githubIntegrationId,
     githubUserIntegrationId: options.githubUserIntegrationId,
     workspaceMode: options.workspaceMode,
@@ -81,6 +84,7 @@ export function prepareTaskInput(
     signalReportId: options.signalReportId,
     additionalDirectories: isCloud ? undefined : options.additionalDirectories,
     channelContext: options.channelContext,
+    channelContextPath: options.channelContextPath,
     channelName: options.channelName,
     channelId: options.channelId,
     channelContextId: options.channelContextId,

@@ -1,9 +1,4 @@
 import {
-  ApprovalLinkEvent,
-  type ApprovalLinkPayload,
-  type ApprovalLinkService,
-} from "@posthog/core/links/approval-link";
-import {
   CanvasLinkEvent,
   type CanvasLinkPayload,
   type CanvasLinkService,
@@ -14,7 +9,6 @@ import {
   type ChannelLinkService,
 } from "@posthog/core/links/channel-link";
 import {
-  APPROVAL_LINK_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
   INBOX_LINK_SERVICE,
@@ -54,9 +48,38 @@ import {
   type TaskLinkService,
 } from "@posthog/core/links/task-link";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
+import {
+  DEEP_LINK_SERVICE,
+  type IDeepLinkRegistry,
+} from "@posthog/platform/deep-link";
 import type { NotificationTarget } from "@posthog/platform/notifications";
+import { buildActionUrl, openAgentActionInput } from "@posthog/shared";
+import { z } from "zod";
 
 export const deepLinkRouter = router({
+  // In-app surfaces (announcement CTAs) dispatch posthog-code:// urls through
+  // the same main-process handler OS-delivered links use — no OS round-trip,
+  // no browser bounce, and dev builds (posthog-code-dev scheme) stay in-app.
+  open: publicProcedure
+    .input(z.object({ url: z.string() }))
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDeepLinkRegistry>(DEEP_LINK_SERVICE)
+        .handleUrl(input.url),
+    ),
+
+  // A typed verb rather than a url, unlike `open` above: the agent names the
+  // action and the host builds the link, so nothing an agent writes decides
+  // where a click lands.
+  openAgentAction: publicProcedure
+    .input(openAgentActionInput)
+    .mutation(({ ctx, input }) => {
+      const deepLinks = ctx.container.get<IDeepLinkRegistry>(DEEP_LINK_SERVICE);
+      return deepLinks.handleUrl(
+        buildActionUrl(input.action, deepLinks.getProtocol()),
+      );
+    }),
+
   onOpenTask: publicProcedure.subscription(async function* (opts) {
     const service = opts.ctx.container.get<TaskLinkService>(TASK_LINK_SERVICE);
     const iterable = service.toIterable(TaskLinkEvent.OpenTask, {
@@ -130,26 +153,6 @@ export const deepLinkRouter = router({
       return ctx.container
         .get<NewTaskLinkService>(NEW_TASK_LINK_SERVICE)
         .consumePendingLink();
-    },
-  ),
-
-  onOpenApproval: publicProcedure.subscription(async function* (opts) {
-    const service = opts.ctx.container.get<ApprovalLinkService>(
-      APPROVAL_LINK_SERVICE,
-    );
-    const iterable = service.toIterable(ApprovalLinkEvent.OpenApproval, {
-      signal: opts.signal,
-    });
-    for await (const data of iterable) {
-      yield data;
-    }
-  }),
-
-  getPendingApprovalLink: publicProcedure.query(
-    ({ ctx }): ApprovalLinkPayload | null => {
-      return ctx.container
-        .get<ApprovalLinkService>(APPROVAL_LINK_SERVICE)
-        .consumePendingDeepLink();
     },
   ),
 

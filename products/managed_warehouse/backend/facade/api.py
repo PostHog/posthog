@@ -8,7 +8,6 @@ commands. Django models remain implementation details of the product.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -59,7 +58,6 @@ __all__ = [
     "reconcile_stored_bucket_config",
     "resolve_team_earliest_event_date",
     "setup_duckgres_session",
-    "sink_concurrency_by_trusted_organization_ids",
     "update_team_earliest_event_date",
     "validate_schema_name",
 ]
@@ -90,7 +88,6 @@ def _to_stored_server_config(server: DuckgresServer) -> DuckgresStoredServerConf
         ),
         catalog=catalog,
         bucket=bucket,
-        sink_max_concurrency=server.sink_max_concurrency,
     )
 
 
@@ -183,22 +180,6 @@ def reconcile_stored_bucket_config(organization_id: str | UUID, *, bucket: str, 
         .exclude(bucket=bucket, bucket_region=bucket_region)
         .update(bucket=bucket, bucket_region=bucket_region)
     )
-
-
-def sink_concurrency_by_trusted_organization_ids(
-    trusted_organization_ids: Iterable[str],
-) -> dict[str, int]:
-    from products.managed_warehouse.backend.models import DuckgresServer  # noqa: PLC0415
-
-    organization_ids = tuple(trusted_organization_ids)
-    if not organization_ids:
-        return {}
-    return {
-        str(organization_id): sink_max_concurrency
-        for organization_id, sink_max_concurrency in DuckgresServer.objects.filter(
-            organization_id__in=organization_ids
-        ).values_list("organization_id", "sink_max_concurrency")
-    }
 
 
 def get_control_plane_bucket(organization_id: str | UUID) -> str | None:
