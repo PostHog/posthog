@@ -1,5 +1,6 @@
+import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
-import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -185,6 +186,33 @@ describe('inboxSceneLogic routing', () => {
             expect(logic.values.activeTab).toBe(expectedTab)
         }
     )
+
+    // The triage card's "Full report" link opens the report by URL (with a triage `back`), not through
+    // `openCurrent`, so the open-method must be recovered from that `back` or triage opens split between
+    // the `triage` and `click` analytics values.
+    it.each<[string, boolean, string]>([
+        ['a triage back link records the triage open method', true, 'triage'],
+        ['a plain report deep-link is not attributed to triage', false, 'deeplink'],
+    ])('%s', async (_name, withTriageBack, expectedMethod) => {
+        mountWithRedesign(true)
+        const url = withTriageBack
+            ? combineUrl(urls.inboxReport('reports', 'r1'), {
+                  back: combineUrl(urls.inboxTriage(), { report: 'r1', at: 0 }).url,
+              }).url
+            : urls.inboxReport('reports', 'r1')
+
+        let openMethod: string | undefined
+        await expectLogic(logic, () => router.actions.push(url)).toDispatchActions([
+            (action: any) => {
+                if (action.type !== logic.actionTypes.setSelectedReportId) {
+                    return false
+                }
+                openMethod = action.payload.openMethod
+                return true
+            },
+        ])
+        expect(openMethod).toBe(expectedMethod)
+    })
 
     it('stops the runs poll when opening another surface closes the panel', () => {
         // Opening a report flips `isRunsOpen` false through a mutual-exclusion reducer, not
