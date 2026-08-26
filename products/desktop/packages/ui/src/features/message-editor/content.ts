@@ -8,6 +8,7 @@ export {
   contentToXml,
   deriveFileLabel,
   extractFilePaths,
+  extractFolderPaths,
   isContentEmpty,
   xmlToContent,
   xmlToPlainText,

@@ -325,3 +325,27 @@ export function extractFilePaths(content: EditorContent): string[] {
 
   return filePaths;
 }
+
+/**
+ * Directory paths the user referenced with folder chips. The agent cannot read
+ * a folder from its path alone, so these paths must be granted as accessible
+ * directories at task creation. A file chip carries its content; a folder chip
+ * only marks a directory to attach.
+ */
+export function extractFolderPaths(content: EditorContent): string[] {
+  const folderPaths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const seg of content.segments) {
+    if (
+      seg.type === "chip" &&
+      seg.chip.type === "folder" &&
+      !seen.has(seg.chip.id)
+    ) {
+      seen.add(seg.chip.id);
+      folderPaths.push(seg.chip.id);
+    }
+  }
+
+  return folderPaths;
+}
