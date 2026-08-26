@@ -442,9 +442,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => {
             const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
-            const searchParams = { ...router.values.searchParams, tab }
+            const searchParams: Record<string, any> = { ...router.values.searchParams, tab }
             if (values.currentTab === DashboardsTab.Yours) {
-                delete searchParams.created_by
+                delete searchParams['created_by']
             }
             if (objectsEqual(searchParams, router.values.searchParams)) {
                 return
@@ -527,13 +527,15 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 actions.setFilters({ createdBy: DEFAULT_FILTERS.createdBy })
             }
             if (!hasFilterParams) {
-                const filtersToRestore = { ...values.filters }
-                const defaultFilters = { ...DEFAULT_FILTERS }
-                delete filtersToRestore.search
-                delete defaultFilters.search
+                const { search: _search, ...filtersWithoutSearch } = values.filters
+                const { search: _defaultSearch, ...defaultsWithoutSearch } = DEFAULT_FILTERS
+                let filtersToRestore: Partial<DashboardsFilters> = filtersWithoutSearch
+                let defaultFilters: Partial<DashboardsFilters> = defaultsWithoutSearch
                 if (tab === DashboardsTab.Yours) {
-                    delete filtersToRestore.createdBy
-                    delete defaultFilters.createdBy
+                    const { createdBy: _createdBy, ...filtersWithoutCreatedBy } = filtersToRestore
+                    const { createdBy: _defaultCreatedBy, ...defaultsWithoutCreatedBy } = defaultFilters
+                    filtersToRestore = filtersWithoutCreatedBy
+                    defaultFilters = defaultsWithoutCreatedBy
                 }
                 if (!objectsEqual(filtersToRestore, defaultFilters)) {
                     actions.setFilters(filtersToRestore)
