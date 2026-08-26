@@ -62,7 +62,11 @@ describe("useUserSpendLimit", () => {
 
     await expect(
       result.current.mutateAsync({ limitUsd: 10, windowSeconds: 60 }),
-    ).rejects.toThrow("Spend limits are not available yet");
+    ).resolves.toEqual({
+      available: false,
+      limitUsd: null,
+      windowSeconds: null,
+    });
 
     expect(mocks.setUserSpendLimit).not.toHaveBeenCalled();
   });

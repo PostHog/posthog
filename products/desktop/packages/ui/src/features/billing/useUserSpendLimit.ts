@@ -47,7 +47,13 @@ export function useSetUserSpendLimit() {
       windowSeconds: number;
     }): Promise<UserSpendLimit> => {
       if (!client) throw new Error("Not authenticated");
-      if (!enabled) throw new Error("Spend limits are not available yet");
+      if (!enabled) {
+        return Promise.resolve({
+          available: false,
+          limitUsd: null,
+          windowSeconds: null,
+        });
+      }
       return input.limitUsd === null
         ? client.clearUserSpendLimit()
         : client.setUserSpendLimit(input.limitUsd, input.windowSeconds);
