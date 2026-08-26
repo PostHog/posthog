@@ -2590,6 +2590,7 @@ def update_task_run(
     )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
+        observe_prewarmed_unused_if_never_activated,
         observe_wizard_run_unbound,
     )
 
@@ -2714,6 +2715,12 @@ def update_task_run(
                 },
             )
         observe_wizard_run_unbound(run)
+        # This write terminalizes the Run on its own — the cancel fallback takes it when the workflow
+        # is already gone — so the warm miss is booked here rather than by the status activity, which
+        # sees the row already terminal and skips.
+        observe_prewarmed_unused_if_never_activated(
+            run, reason="released" if new_status == TaskRun.Status.CANCELLED else "other"
+        )
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
@@ -6177,7 +6184,11 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    activation_state_updates: dict[str, object] = {}
+    # Claims the Run as activated before the signal goes out. `await_user_message` can only be cleared
+    # after the signal — clearing it first would drop a Run out of the warm pool that a failed signal
+    # never activated, stranding its sandbox. That leaves a window where the Run is being activated but
+    # still looks idle, so this marker is what the unused-warm metric reads to tell the two apart.
+    activation_state_updates: dict[str, object] = {"warm_activated": True}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.

@@ -125,6 +125,10 @@ class TestUpdateTaskRunStatusActivity:
             # Activation clears `await_user_message`, so this warm was used. Counting it as a miss
             # would understate the warm hit rate the rollout decision reads.
             ({"prewarmed": True}, True, None),
+            # Mid-activation: the marker is set before the first message is signaled and
+            # `await_user_message` is cleared only after, so a run that terminalizes in between still
+            # carries both older markers while already counted as activated.
+            ({"prewarmed": True, "await_user_message": True, "warm_activated": True}, True, None),
             # Never warmed at all — a plain run terminalizing is not a warm miss.
             ({}, True, None),
         ],
@@ -135,9 +139,7 @@ class TestUpdateTaskRunStatusActivity:
         test_task_run.state = state
         test_task_run.save(update_fields=["state", "updated_at"])
 
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.update_task_run_status.observe_prewarmed_unused"
-        ) as m_observe:
+        with patch("products.tasks.backend.metrics.observe_prewarmed_unused") as m_observe:
             async_to_sync(_run_update_task_run_status)(
                 activity_environment,
                 UpdateTaskRunStatusInput(
