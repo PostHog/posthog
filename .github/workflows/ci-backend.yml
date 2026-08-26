@@ -1852,7 +1852,6 @@ jobs:
               with:
                   name: migrated-schema
                   path: schema.sql.gz
-                  compression-level: 0
                   # Consumers only ever take the newest artifact, so a longer window just
                   # adds pages to the artifacts listing that db:download-schema walks.
                   retention-days: 7

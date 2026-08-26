@@ -160,7 +160,6 @@ jobs:
                   # arch (glibc 2_28 vs musllinux_1_2); macOS rows leave it unset.
                   name: wheels-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux || 'native' }}
                   path: dist/*
-                  compression-level: 0
                   if-no-files-found: error
 
     publish:

@@ -140,7 +140,6 @@ jobs:
                   path: |
                       common/hogql_parser/dist/*.whl
                       common/hogql_parser/dist/*.tar.gz
-                  compression-level: 0
                   if-no-files-found: error
 
     publish:
