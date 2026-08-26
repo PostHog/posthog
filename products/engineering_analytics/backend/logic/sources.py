@@ -29,7 +29,6 @@ from django.db.models import QuerySet
 
 from posthog.models.team import Team
 
-from products.access_control.backend.facade.user_access_control import NO_ACCESS_LEVEL
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
