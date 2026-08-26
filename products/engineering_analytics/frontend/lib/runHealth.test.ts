@@ -152,7 +152,7 @@ describe('runHealth', () => {
         ['every settled workflow failing → failing', [fleetRow(true), fleetRow(true)], 'failing'],
         ['some failing, some green → degraded', [fleetRow(true), fleetRow(false)], 'degraded'],
         ['green but flaky (low success + a real failure) → degraded', [fleetRow(false, 0.7, at(9))], 'degraded'],
-        // A stale rate without an observed failure stays healthy instead of creating a false flaky verdict.
+        // A low rate with no decisive failure in the window stays healthy, never a false flaky verdict.
         ['green, low success, no failures → healthy', [fleetRow(false, 0.7, null)], 'healthy'],
         ['all green and healthy → healthy', [fleetRow(false, 0.99), fleetRow(false)], 'healthy'],
     ])('classifies fleet state: %s', (_name, rows, expected) => {

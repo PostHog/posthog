@@ -28,7 +28,8 @@ function formatRate(rate: number | null): string {
     return rate == null ? '—' : `${humanFriendlyNumber(rate * 100)}%`
 }
 
-/** Color only rates backed by a decisive failure so incomplete or stale rows stay neutral. */
+/** Color only rates backed by a decisive failure in the visible buckets; anything else is plain.
+ *  Red rare, amber occasional, so color means "needs attention", not "below a number". */
 function successRateClass(rate: number | null, hasFailures: boolean): string {
     if (rate == null) {
         return 'text-secondary'

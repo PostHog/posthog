@@ -35,9 +35,8 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
-    CONCLUSIVE_RUN_CONDITION,
-    SUCCESSFUL_RUN_CONDITION,
     run_started_floor_constant,
+    success_rate_expr,
     window_pair_predicates,
 )
 from products.engineering_analytics.backend.logic.queries.merge_queue_overview import (
@@ -53,20 +52,18 @@ from products.engineering_analytics.backend.logic.queries.workflow_health import
     query_time_to_green_window,
 )
 
-_RUNS_SELECT = """
+_RUNS_SELECT = f"""
     SELECT
         countIf(__CUR__) AS run_count,
         countIf(__PREV__) AS run_count_prev,
-        countIf(__SUCCESSFUL__ AND __CUR__)
-            / nullIf(countIf(__CONCLUSIVE__ AND __CUR__), 0) AS success_rate,
-        countIf(__SUCCESSFUL__ AND __PREV__)
-            / nullIf(countIf(__CONCLUSIVE__ AND __PREV__), 0) AS success_rate_prev,
+        {success_rate_expr("__CUR__")} AS success_rate,
+        {success_rate_expr("__PREV__")} AS success_rate_prev,
         countIf(run_attempt > 1 AND __CUR__) AS rerun_cycles,
         countIf(run_attempt > 1 AND __PREV__) AS rerun_cycles_prev,
         countIf(head_branch = 'master' AND __CUR__) AS master_runs,
         countIf(head_branch = 'main' AND __CUR__) AS main_runs
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {prev_from} __DATE_TO__
+    WHERE run_started_at >= {{prev_from}} __DATE_TO__
 """
 
 # The locked cycle-time recipe: a median over merges is a median over human, never-drafted PRs.
@@ -122,13 +119,12 @@ def query_default_branch(
 
 
 # Pass rate per bucket over conclusive runs on all branches, matching the headline population.
-# Division through nullIf yields NULL for a bucket with no conclusive run, which is a gap rather than 0%.
-_PASS_RATE_SERIES_SELECT = """
+_PASS_RATE_SERIES_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        countIf(__SUCCESSFUL__) / nullIf(countIf(__CONCLUSIVE__), 0) AS success_rate
+        {success_rate_expr()} AS success_rate
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {date_from} __DATE_TO__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__
     GROUP BY bucket_start
     LIMIT 40000
 """
@@ -206,8 +202,6 @@ def query_success_rate_series(
         _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity, "run_started_at"))
-        .replace("__SUCCESSFUL__", SUCCESSFUL_RUN_CONDITION)
-        .replace("__CONCLUSIVE__", CONCLUSIVE_RUN_CONDITION)
     )
     response = curated.run(sql, query_type="engineering_analytics.success_rate_series", placeholders=placeholders)
     rate_by_bucket = {
@@ -358,8 +352,6 @@ def query_repo_overview(
         .replace("__PREV__", run_windows.previous)
         .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
-        .replace("__SUCCESSFUL__", SUCCESSFUL_RUN_CONDITION)
-        .replace("__CONCLUSIVE__", CONCLUSIVE_RUN_CONDITION)
     )
     runs_response = curated.run(
         runs_sql, query_type="engineering_analytics.repo_overview_runs", placeholders=placeholders

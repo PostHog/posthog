@@ -33,6 +33,15 @@ CONCLUSIVE_RUN_CONDITION = f"status = 'completed' AND conclusion IN ('success', 
 # Jobs use this as-is because a seconds-long job can be a legitimate duration sample.
 DURATION_PERCENTILE_CONDITION = SUCCESSFUL_RUN_CONDITION
 
+
+def success_rate_expr(scope: str | None = None) -> str:
+    """Bare (unaliased) pass rate per aggregate group: successful runs over conclusive runs.
+    Division through nullIf yields NULL when no run reached a verdict, so consumers read a gap,
+    never a false 0%. ``scope`` ANDs an extra predicate into both counts (e.g. a window split)."""
+    guard = f" AND {scope}" if scope else ""
+    return f"countIf({SUCCESSFUL_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
+
+
 # A run that settled in under this many seconds with a benign conclusion did no real CI work — the
 # common shape is a gate job deciding the rest of the workflow should be skipped (path filters,
 # eligibility checks). The run-activity chart query sorts these AFTER real runs so its row cap fills

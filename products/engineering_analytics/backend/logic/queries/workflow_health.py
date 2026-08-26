@@ -50,6 +50,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_duration_percentile_expr,
     run_scope_filter_clause,
     run_started_floor_constant,
+    success_rate_expr,
     window_pair_predicates,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
@@ -67,7 +68,7 @@ _SELECT = f"""
         countIf({SUCCESSFUL_RUN_CONDITION}) AS successful_run_count,
         countIf({CONCLUSIVE_RUN_CONDITION}) AS conclusive_run_count,
         countIf({RUN_DURATION_PERCENTILE_CONDITION}) AS percentile_run_count,
-        countIf({SUCCESSFUL_RUN_CONDITION}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}), 0) AS success_rate,
+        {success_rate_expr()} AS success_rate,
         {run_duration_percentile_expr(0.5)} AS p50_seconds,
         {run_duration_percentile_expr(0.95)} AS p95_seconds,
         max(if(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), run_started_at, NULL)) AS last_failure_at,
@@ -92,7 +93,7 @@ _PREV_SELECT = f"""
         repo_owner,
         repo_name,
         workflow_name,
-        countIf({SUCCESSFUL_RUN_CONDITION}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}), 0) AS success_rate
+        {success_rate_expr()} AS success_rate
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{prev_from}} AND run_started_at < {{date_from}} __BRANCH__ __RUN_SCOPE__
     GROUP BY repo_owner, repo_name, workflow_name
