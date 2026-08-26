@@ -23,16 +23,19 @@ import { InboxActivityOverflowRow } from "@posthog/ui/features/canvas/components
 import { InboxActivityRow } from "@posthog/ui/features/canvas/components/InboxActivityRow";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
-import { useActivityFeed } from "@posthog/ui/features/canvas/hooks/useActivityFeed";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
+import { useInboxActivityPreview } from "@posthog/ui/features/canvas/hooks/useInboxActivityPreview";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
+import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { track } from "@posthog/ui/shell/analytics";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   activityFeedSourceDescription,
   activityReadPayload,
+  deriveActivityFeedContent,
   filterActivityFeedItems,
   groupActivityItemsByDay,
 } from "./activityFeed";
@@ -54,23 +57,46 @@ export function ActivityFeedList({
   selectedId,
   className,
 }: ActivityFeedListProps) {
+  const mentionsIncluded = useActivityFilterStore(
+    (state) => state.mentionsEnabled,
+  );
+  const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const client = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client });
+  const { data: currentUser } = useCurrentUser({
+    client,
+    enabled: mentionsIncluded,
+  });
+  const taskActivity = useTaskActivity({ enabled: mentionsIncluded });
+  const inboxActivity = useInboxActivityPreview();
   const {
-    items,
     unreadItems,
-    unreadCount,
     feedItems,
     lastShownReportId,
     remainingInboxReportCount,
-    mentionsIncluded,
     selfDrivingIncluded,
-    unreadsOnly,
-    isLoading,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-  } = useActivityFeed();
+  } = useMemo(
+    () =>
+      deriveActivityFeedContent({
+        taskItems: taskActivity.items,
+        reports: inboxActivity.reports,
+        totalReportCount: inboxActivity.totalCount,
+        mentionsIncluded,
+        reportsIncluded: inboxActivity.isIncluded,
+        unreadsOnly,
+      }),
+    [
+      taskActivity.items,
+      inboxActivity.reports,
+      inboxActivity.totalCount,
+      inboxActivity.isIncluded,
+      mentionsIncluded,
+      unreadsOnly,
+    ],
+  );
+  const unreadCount = mentionsIncluded ? taskActivity.unreadCount : 0;
+  const isLoading =
+    (mentionsIncluded && taskActivity.isLoading) ||
+    (!unreadsOnly && inboxActivity.isLoading);
   // Selected once for the feed, not once per row.
   const blockedTaskIds = useBlockedTaskIds();
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
@@ -107,12 +133,17 @@ export function ActivityFeedList({
     });
   }, []);
   useEffect(() => {
-    if (loadMoreInView && hasNextPage) {
-      void fetchNextPage();
+    if (mentionsIncluded && loadMoreInView && taskActivity.hasNextPage) {
+      void taskActivity.fetchNextPage();
     }
-  }, [fetchNextPage, hasNextPage, loadMoreInView]);
+  }, [
+    mentionsIncluded,
+    taskActivity.fetchNextPage,
+    taskActivity.hasNextPage,
+    loadMoreInView,
+  ]);
 
-  const markRead = (item: (typeof items)[number]) => {
+  const markRead = (item: (typeof taskActivity.items)[number]) => {
     markTasksRead(activityReadPayload([item]));
   };
 
@@ -239,7 +270,9 @@ export function ActivityFeedList({
             </div>
           )}
           <div ref={loadMoreRef} className="flex h-8 justify-center py-2">
-            {hasNextPage && isFetchingNextPage && <Spinner />}
+            {mentionsIncluded &&
+              taskActivity.hasNextPage &&
+              taskActivity.isFetchingNextPage && <Spinner />}
           </div>
         </AutocompleteList>
       </div>

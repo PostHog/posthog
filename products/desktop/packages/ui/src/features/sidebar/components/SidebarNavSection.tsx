@@ -4,6 +4,7 @@ import {
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
@@ -77,6 +78,9 @@ export function SidebarNavSection({
   // inbox disappears as a destination.
   const channelReportsEnabled = useChannelReportsEnabled();
   const reportsInboxEnabled = useReportsInboxEnabled();
+  const mentionsEnabled = useActivityFilterStore(
+    (state) => state.mentionsEnabled,
+  );
   const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
   const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
@@ -184,6 +188,7 @@ export function SidebarNavSection({
       <ActivityItem
         depth={depth}
         isActive={isActivityActive}
+        mentionsEnabled={mentionsEnabled}
         onClick={withNavTrack("activity", navigateToActivity, depth, {
           href: "/activity",
         })}

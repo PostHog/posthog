@@ -58,7 +58,10 @@ describe("ChannelHotkeys", () => {
       { id: "eng-id", name: "eng", path: "/eng" },
     ];
     useCurrentChannelStore.setState({ currentChannelId: null });
-    useSidebarSearchStore.setState({ focusRequest: 0 });
+    useSidebarSearchStore.setState({
+      focusRequest: 0,
+      nextFocusRequest: 0,
+    });
     useSidebarStore.setState({ open: false });
     showChannelPane();
   });

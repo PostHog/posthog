@@ -25,7 +25,7 @@ import {
 } from "@posthog/ui/features/inbox/filterOptions";
 import { useInboxSourceFilterOptions } from "@posthog/ui/features/inbox/hooks/useInboxSourceFilterOptions";
 import type { InboxPrFilter } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
-import type { ReactElement } from "react";
+import { type ReactElement, useMemo } from "react";
 
 const SCOPE_OPTIONS: readonly {
   value: ActivityInboxScope;
@@ -120,6 +120,10 @@ export function ActivityIncludeMenuSection(): ReactElement {
   const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter, {
     enabled: inboxAvailable && inboxEnabled,
   });
+  const selectedSources = useMemo(
+    () => new Set(sourceProductFilter),
+    [sourceProductFilter],
+  );
   const activeSort = INBOX_SORT_OPTIONS.find(
     (option) =>
       option.field === sortField && option.direction === sortDirection,
@@ -195,7 +199,7 @@ export function ActivityIncludeMenuSection(): ReactElement {
               {sourceOptions.map((option) => (
                 <DropdownMenuCheckboxItem
                   key={option.value}
-                  checked={sourceProductFilter.includes(option.value)}
+                  checked={selectedSources.has(option.value)}
                   closeOnClick={false}
                   onCheckedChange={() =>
                     toggleSourceProduct(option.value as SourceProduct)

@@ -210,7 +210,10 @@ describe("ChannelsList", () => {
       expandedSpaceIds: new Set(),
       highlightedValue: undefined,
     });
-    useSidebarSearchStore.setState({ focusRequest: 0 });
+    useSidebarSearchStore.setState({
+      focusRequest: 0,
+      nextFocusRequest: 0,
+    });
     mocks.totals = {};
     useCurrentChannelStore.setState({ currentChannelId: null });
     mocks.tasks = [
@@ -558,7 +561,7 @@ describe("ChannelsList", () => {
     // ⌘⇧S is bound in ChannelHotkeys, which can only ask; the list is what
     // actually takes the keyboard.
     it("takes the keyboard on a focus request", async () => {
-      renderList();
+      const firstRender = renderList();
 
       act(() => requestSidebarSearchFocus());
 
@@ -566,6 +569,13 @@ describe("ChannelsList", () => {
         expect(document.activeElement).toBe(
           screen.getByLabelText("Search spaces"),
         ),
+      );
+
+      firstRender.unmount();
+      renderList();
+
+      expect(document.activeElement).not.toBe(
+        screen.getByLabelText("Search spaces"),
       );
     });
 

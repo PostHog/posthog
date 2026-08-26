@@ -48,7 +48,7 @@ export function useInboxActivityPreview(): InboxActivityPreview {
   const isIncluded = reportsInboxEnabled && inboxEnabled;
   const needsReviewer = isIncluded && inboxScope === INBOX_SCOPE_FOR_YOU;
   const client = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({
+  const { data: currentUser, isLoading: isReviewerLoading } = useCurrentUser({
     client,
     enabled: needsReviewer,
   });
@@ -95,7 +95,10 @@ export function useInboxActivityPreview(): InboxActivityPreview {
   return {
     reports: query.data?.results ?? EMPTY_REPORTS,
     totalCount: query.data?.count ?? 0,
-    isLoading: query.isLoading,
+    isLoading:
+      query.isLoading ||
+      isReviewerLoading ||
+      (needsReviewer && reviewerUuid === undefined),
     isIncluded: true,
   };
 }

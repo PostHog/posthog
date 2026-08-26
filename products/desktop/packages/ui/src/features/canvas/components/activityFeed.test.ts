@@ -2,6 +2,7 @@ import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import type { SignalReport } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
+  deriveActivityFeedContent,
   filterActivityFeedItems,
   groupActivityItemsByDay,
   markLoadedReadLabel,
@@ -71,5 +72,26 @@ describe("activityFeed", () => {
       "report:report-1",
     ]);
     expect(filterActivityFeedItems(feed, "P1")).toEqual([]);
+  });
+
+  it("removes reports and their copy state from unread-only activity", () => {
+    const content = deriveActivityFeedContent({
+      taskItems: [],
+      reports: [
+        {
+          id: "report-1",
+          updated_at: "2026-08-25T11:00:00Z",
+        } as SignalReport,
+      ],
+      totalReportCount: 4,
+      mentionsIncluded: true,
+      reportsIncluded: true,
+      unreadsOnly: true,
+    });
+
+    expect(content.feedItems).toEqual([]);
+    expect(content.lastShownReportId).toBeNull();
+    expect(content.remainingInboxReportCount).toBe(0);
+    expect(content.selfDrivingIncluded).toBe(false);
   });
 });

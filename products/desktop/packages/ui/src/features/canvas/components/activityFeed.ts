@@ -22,6 +22,47 @@ export interface ActivityDayGroup<T> {
   items: T[];
 }
 
+export interface ActivityFeedContent {
+  unreadItems: TaskActivityItem[];
+  feedItems: ActivityFeedItem[];
+  lastShownReportId: string | null;
+  remainingInboxReportCount: number;
+  selfDrivingIncluded: boolean;
+}
+
+export function deriveActivityFeedContent({
+  taskItems,
+  reports,
+  totalReportCount,
+  mentionsIncluded,
+  reportsIncluded,
+  unreadsOnly,
+}: {
+  taskItems: TaskActivityItem[];
+  reports: SignalReport[];
+  totalReportCount: number;
+  mentionsIncluded: boolean;
+  reportsIncluded: boolean;
+  unreadsOnly: boolean;
+}): ActivityFeedContent {
+  const unreadItems = getUnreadActivityItems(taskItems);
+  const visibleReports = unreadsOnly ? [] : reports;
+
+  return {
+    unreadItems,
+    feedItems: mergeActivityFeedItems(
+      mentionsIncluded ? (unreadsOnly ? unreadItems : taskItems) : [],
+      visibleReports,
+    ),
+    lastShownReportId: visibleReports.at(-1)?.id ?? null,
+    remainingInboxReportCount: Math.max(
+      0,
+      (unreadsOnly ? 0 : totalReportCount) - visibleReports.length,
+    ),
+    selfDrivingIncluded: !unreadsOnly && reportsIncluded,
+  };
+}
+
 export function activityFeedSourceDescription(
   mentionsIncluded: boolean,
   selfDrivingIncluded: boolean,

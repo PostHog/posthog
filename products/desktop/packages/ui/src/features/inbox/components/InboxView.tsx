@@ -57,7 +57,7 @@ export function InboxView() {
     withReportsCount: true,
   });
 
-  useTrackInboxViewed({ enabled: listEnabled });
+  useTrackInboxViewed({ enabled: legacyListEnabled });
 
   if (reportsInboxEnabled && !isDetailView) {
     // The view owns its height so its page header stays pinned while the

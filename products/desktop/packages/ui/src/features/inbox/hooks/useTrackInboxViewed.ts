@@ -10,9 +10,9 @@ import { useEffect, useRef } from "react";
  * with the counts the user sees on load (tab badges, total, ready, and the
  * priority/actionability breakdown of the visible reports).
  *
- * Restores the event dropped when Inbox 2.0 deleted `InboxSignalsTab`. Mounted
- * from `InboxView`, so it fires once per visit and survives tab switches (the
- * shell stays mounted while the `<Outlet />` swaps tab bodies).
+ * Mounted from `InboxView` for the legacy tabbed inbox, so it fires once per
+ * visit and survives tab switches. The sectioned reports inbox tracks from its
+ * existing list and count data to avoid mounting these legacy queries.
  */
 export function useTrackInboxViewed(options?: { enabled?: boolean }): void {
   const enabled = options?.enabled ?? true;

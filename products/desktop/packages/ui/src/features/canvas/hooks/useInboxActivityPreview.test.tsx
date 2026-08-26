@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   reportsInboxEnabled: true,
+  currentUser: {
+    data: { uuid: "user-1" } as { uuid: string } | undefined,
+    isLoading: false,
+  },
   useInboxReports: vi.fn(() => ({
     data: { count: 1, results: [{ id: "report-1" }] },
     isLoading: false,
@@ -16,7 +20,7 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({}),
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({ data: { uuid: "user-1" } }),
+  useCurrentUser: () => mocks.currentUser,
 }));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
   useInboxReports: mocks.useInboxReports,
@@ -32,6 +36,10 @@ describe("useInboxActivityPreview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.reportsInboxEnabled = true;
+    mocks.currentUser = {
+      data: { uuid: "user-1" },
+      isLoading: false,
+    };
     useActivityFilterStore.setState({
       inboxEnabledByAuthIdentity: { "us:1": true },
       inboxScope: "for-you",
@@ -81,6 +89,18 @@ describe("useInboxActivityPreview", () => {
         suggested_reviewers: undefined,
       }),
       expect.objectContaining({ enabled: true }),
+    );
+  });
+
+  it("stays loading while the For you reviewer is unresolved", () => {
+    mocks.currentUser = { data: undefined, isLoading: true };
+
+    const { result } = renderHook(() => useInboxActivityPreview());
+
+    expect(result.current.isLoading).toBe(true);
+    expect(mocks.useInboxReports).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ enabled: false }),
     );
   });
 
