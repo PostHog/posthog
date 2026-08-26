@@ -3,6 +3,7 @@ import { PostHog } from 'posthog-node'
 import { Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
+import { Limiter } from './token-bucket'
 
 const fs = require('fs')
 
@@ -113,16 +114,68 @@ interface ExceptionHint {
     extra: Record<string, any>
 }
 
-export function captureException(exception: any, hint?: Partial<ExceptionHint>): void {
-    if (posthog) {
-        let additionalProperties = {}
-        if (hint) {
-            additionalProperties = {
-                ...(hint.tags || {}),
-                ...(hint.extra || {}),
-            }
-        }
+// A crash loop repeats one error signature once per Kafka message. Sample a burst,
+// then throttle to one report per minute, so a dependency outage reports a handful of
+// events plus a running suppressed count instead of hundreds of thousands of duplicates.
+const EXCEPTION_SAMPLE_BURST = 5
+const EXCEPTION_REPLENISH_PER_SECOND = 1 / 60
 
-        posthog.captureException(exception, undefined, additionalProperties)
+const exceptionSampleLimiter = new Limiter(EXCEPTION_SAMPLE_BURST, EXCEPTION_REPLENISH_PER_SECOND)
+const suppressedExceptionCounts = new Map<string, number>()
+
+// Collapse the variable parts of a message (addresses, ports, ids) so a crash loop
+// with a changing endpoint or offset still maps to one signature.
+function normalizeExceptionMessage(message: string): string {
+    return message
+        .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '<ip>')
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<uuid>')
+        .replace(/\d+/g, '<n>')
+        .slice(0, 200)
+}
+
+function exceptionSignature(exception: unknown): string {
+    if (exception instanceof Error) {
+        return `${exception.name}:${normalizeExceptionMessage(exception.message)}`
     }
+    return normalizeExceptionMessage(String(exception))
+}
+
+// Decide whether to report this exception. Exported for testing.
+export function sampleException(exception: unknown, now?: number): { capture: boolean; suppressed: number } {
+    const signature = exceptionSignature(exception)
+
+    if (!exceptionSampleLimiter.consume(signature, 1, now)) {
+        suppressedExceptionCounts.set(signature, (suppressedExceptionCounts.get(signature) ?? 0) + 1)
+        return { capture: false, suppressed: 0 }
+    }
+
+    const suppressed = suppressedExceptionCounts.get(signature) ?? 0
+    if (suppressed > 0) {
+        suppressedExceptionCounts.delete(signature)
+    }
+    return { capture: true, suppressed }
+}
+
+export function captureException(exception: any, hint?: Partial<ExceptionHint>): void {
+    if (!posthog) {
+        return
+    }
+
+    const { capture, suppressed } = sampleException(exception)
+    if (!capture) {
+        return
+    }
+
+    let additionalProperties: Record<string, any> = {}
+    if (hint) {
+        additionalProperties = {
+            ...(hint.tags || {}),
+            ...(hint.extra || {}),
+        }
+    }
+    if (suppressed > 0) {
+        additionalProperties.suppressed_since_previous_sample = suppressed
+    }
+
+    posthog.captureException(exception, undefined, additionalProperties)
 }
