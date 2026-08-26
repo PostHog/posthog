@@ -273,7 +273,11 @@ def _generate(
             config=config,
             posthog_distinct_id=distinct_id,
             posthog_trace_id=str(uuid.uuid4()),
-            posthog_properties={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt"},
+            posthog_properties={
+                "ai_product": "replay_vision",
+                "feature": "suggest_scanner_prompt",
+                "team_id": team_id,
+            },
             posthog_groups={"project": str(team_id)},
         )
     except Exception as e:
@@ -404,7 +408,11 @@ def _model_call(
         config=config,
         posthog_distinct_id=distinct_id,
         posthog_trace_id=str(uuid.uuid4()),
-        posthog_properties={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt_agentic"},
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "suggest_scanner_prompt_agentic",
+            "team_id": team_id,
+        },
         posthog_groups={"project": str(team_id)},
     )
 

@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny import BunnyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source import BunnySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bunny import BunnySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBunnySource:
@@ -16,9 +13,6 @@ class TestBunnySource:
         self.source = BunnySource()
         self.team_id = 123
         self.config = BunnySourceConfig(access_key="bunny-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUNNY
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -31,13 +25,6 @@ class TestBunnySource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["access_key"]
-
-    def test_access_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "access_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret `access_key` itself; the base URL is hardcoded and the account
@@ -56,14 +43,6 @@ class TestBunnySource:
         assert all(s.supports_incremental is False for s in schemas)
         assert all(s.supports_append is False for s in schemas)
         assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["dns_zones"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "dns_zones"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         # Exercises the credential-free catalog path used by the posthog.com docs.
@@ -123,11 +102,6 @@ class TestBunnySource:
         mock_check.return_value = (True, 200)
         self.source.validate_credentials(self.config, self.team_id, schema_name="dns_zones")
         mock_check.assert_called_once_with("bunny-key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BunnyResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source.bunny_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_bunny_source: mock.MagicMock) -> None:

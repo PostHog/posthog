@@ -51,6 +51,7 @@ export const AccountsEvents = {
     UsageSeriesToggled: 'customer analytics account usage series toggled',
     UsageSeriesBulkToggled: 'customer analytics account usage series bulk toggled',
     RelatedUserClicked: 'customer analytics account related user clicked',
+    RelatedUserAdminOpened: 'customer analytics account related user admin opened',
     OpportunityClicked: 'customer analytics account opportunity clicked',
     SummaryCadenceChanged: 'customer analytics account summary cadence changed',
     SummaryExpanded: 'customer analytics account summary expanded',

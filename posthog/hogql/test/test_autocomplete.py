@@ -15,13 +15,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import StringDatabaseField
+from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -223,7 +223,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select , (select id from persons) as blah from events"
         results = self._select(query=query, start=7, end=7)
 
-        keys = list(EventsTable().fields.keys())
+        keys = [key for key, field in EventsTable().fields.items() if not field.hidden]
 
         for index, key in enumerate(keys):
             assert results.suggestions[index].label == key
@@ -389,6 +389,66 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.label == "created_at"
         assert suggestion.insertText == "created_at"
 
+    def test_autocomplete_ranks_functions_by_comparison_fit(self):
+        # Without ranking the function list is alphabetical, so `xor` and `varSamp` sit alongside
+        # `now` when the user is completing the right side of a timestamp comparison.
+        query = "select * from events where timestamp > "
+        results = self._select(query=query, start=len(query), end=len(query))
+
+        sort_text = {
+            suggestion.label: suggestion.sortText
+            for suggestion in results.suggestions
+            if suggestion.kind == AutocompleteCompletionItemKind.FUNCTION
+        }
+
+        now_sort_text = sort_text["now"]
+        to_datetime_sort_text = sort_text["toDateTime"]
+        xor_sort_text = sort_text["xor"]
+        assert now_sort_text is not None
+        assert to_datetime_sort_text is not None
+        assert xor_sort_text is not None
+        assert now_sort_text < xor_sort_text
+        assert to_datetime_sort_text < xor_sort_text
+
+        # Ranking orders functions against each other, never against the table's own columns. The
+        # editor sorts variables under "1" and functions under "2", so a ranked function has to keep
+        # the function prefix or a well-fitting function jumps above every field.
+        field_sort_text = {
+            suggestion.label: suggestion.sortText
+            for suggestion in results.suggestions
+            if suggestion.kind == AutocompleteCompletionItemKind.VARIABLE
+        }
+        assert field_sort_text["event"] is None
+        assert now_sort_text.startswith("2-")
+
+    def test_autocomplete_leaves_functions_unranked_without_an_expected_type(self):
+        # No comparison means no expectation, so ranking stays off and the editor keeps its own
+        # ordering. Guards against emitting a confident order we cannot justify.
+        query = "select  from events"
+        results = self._select(query=query, start=7, end=7)
+
+        functions = [
+            suggestion
+            for suggestion in results.suggestions
+            if suggestion.kind == AutocompleteCompletionItemKind.FUNCTION
+        ]
+
+        assert len(functions) > 0
+        assert all(suggestion.sortText is None for suggestion in functions)
+
+    def test_autocomplete_details_carry_nullability(self):
+        # Completions read the structured runtime type, so a nullable column is visibly nullable in
+        # the editor. Reverting to a DatabaseField isinstance ladder flattens `Nullable(Boolean)` to
+        # `Boolean`, which is exactly the distinction that makes a NULL guard look redundant.
+        database = Database.create_for(team=self.team)
+        database.get_table("events").fields["nullable_score"] = FloatDatabaseField(name="nullable_score", nullable=True)
+
+        results = self._select(query="select  from events", start=7, end=7, database=database)
+        details = {suggestion.label: suggestion.detail for suggestion in results.suggestions}
+
+        assert details["nullable_score"] == "Nullable(Float64)"
+        assert details["event"] == "String"
+
     def test_autocomplete_resolve_expression_type(self):
         database = Database.create_for(team=self.team)
 
@@ -408,7 +468,9 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion is not None
         assert suggestion.label == "expr_field"
         assert suggestion.insertText == "expr_field"
-        assert suggestion.detail == "DateTime"
+        # `toDateTime` on a string prints to `parseDateTime64BestEffortOrNull`, so the result really
+        # can be NULL. The detail flattened that away until completions started reading runtime types.
+        assert suggestion.detail == "Nullable(DateTime)"
 
     def test_autocomplete_template_strings(self):
         database = Database.create_for(team=self.team)

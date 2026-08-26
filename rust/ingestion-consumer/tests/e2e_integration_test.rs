@@ -122,6 +122,10 @@ struct FakeWorker {
     pub url: String,
     /// (distinct_id, seq) pairs in arrival order.
     pub received: Arc<Mutex<Vec<(String, usize)>>>,
+    /// Message count of each accepted /ingest request, in arrival order. With a
+    /// single worker and partition a sub-batch is the whole Kafka batch, which
+    /// is what lets the batching-bound tests read batch sizes from here.
+    pub batch_sizes: Arc<Mutex<Vec<usize>>>,
     /// Gates /_ready (pool membership). When false the worker leaves the pool.
     pub healthy: Arc<AtomicBool>,
     /// Gates /ingest only. When false the worker stays ready (in the pool) but
@@ -167,6 +171,7 @@ impl FakeWorker {
 
     async fn start_inner(delivery_log: Option<DeliveryLog>) -> Self {
         let received: Arc<Mutex<Vec<(String, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+        let batch_sizes: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
         let healthy = Arc::new(AtomicBool::new(true));
         let ingest_ok = Arc::new(AtomicBool::new(true));
         let ack_lost_once = Arc::new(AtomicBool::new(false));
@@ -196,6 +201,7 @@ impl FakeWorker {
                 "/ingest",
                 post({
                     let recv = Arc::clone(&received);
+                    let sizes = Arc::clone(&batch_sizes);
                     let h = Arc::clone(&healthy);
                     let ingest_ok = Arc::clone(&ingest_ok);
                     let ack_lost_once = Arc::clone(&ack_lost_once);
@@ -206,6 +212,7 @@ impl FakeWorker {
                     let delivery_log = delivery_log.clone();
                     move |AxumJson(req): AxumJson<IngestBatchRequest>| {
                         let recv = recv.clone();
+                        let sizes = sizes.clone();
                         let h = h.clone();
                         let ingest_ok = ingest_ok.clone();
                         let ack_lost_once = ack_lost_once.clone();
@@ -266,6 +273,7 @@ impl FakeWorker {
                                 })
                                 .collect();
                             recv.lock().unwrap().extend(entries.iter().cloned());
+                            sizes.lock().unwrap().push(req.messages.len());
                             // Record the whole batch as one contiguous slot in the
                             // shared total order (it was accepted as a unit).
                             if let Some(log) = &delivery_log {
@@ -315,6 +323,7 @@ impl FakeWorker {
         Self {
             url,
             received,
+            batch_sizes,
             healthy,
             ingest_ok,
             ack_lost_once,
@@ -328,6 +337,11 @@ impl FakeWorker {
 
     fn count(&self) -> usize {
         self.received.lock().unwrap().len()
+    }
+
+    /// Message count of each accepted /ingest request, in arrival order.
+    fn batch_sizes(&self) -> Vec<usize> {
+        self.batch_sizes.lock().unwrap().clone()
     }
 
     /// /ingest requests that have reached this worker (including any held by the gate).
@@ -436,6 +450,69 @@ impl Harness {
         deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
     ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            deferred_flush_timeout,
+            registry_config,
+            0,
+            ComponentOptions::new(),
+        )
+        .await
+    }
+
+    async fn start_with_liveness(
+        topic: &str,
+        worker_count: usize,
+        deferred_flush_timeout: Duration,
+        liveness_deadline: Duration,
+        stall_threshold: u32,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            1,
+            worker_count,
+            1,
+            deferred_flush_timeout,
+            fast_registry_config(),
+            0,
+            ComponentOptions::new()
+                .with_liveness_deadline(liveness_deadline)
+                .with_stall_threshold(stall_threshold),
+        )
+        .await
+    }
+
+    /// Like `start`, but bounds batch collection by payload bytes as well as
+    /// count (`CONSUMER_BATCH_SIZE_KB`). Single worker and partition, so each
+    /// /ingest request is one whole Kafka batch.
+    async fn start_byte_capped(topic: &str, batch_size_bytes: usize) -> Self {
+        Self::start_inner(
+            topic,
+            1,
+            1,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            batch_size_bytes,
+            ComponentOptions::new(),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_inner(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        deferred_flush_timeout: Duration,
+        registry_config: WorkerRegistryConfig,
+        batch_size_bytes: usize,
+        component_options: ComponentOptions,
+    ) -> Self {
         create_topic(topic, partitions).await;
 
         let delivery_log: DeliveryLog = Arc::new(Mutex::new(Vec::new()));
@@ -469,9 +546,11 @@ impl Harness {
 
         let mut manager = Manager::builder("e2e-test")
             .with_trap_signals(false)
+            .with_health_poll_interval(Duration::from_millis(100))
             .build();
-        let handle = manager.register("consumer", ComponentOptions::new());
+        let handle = manager.register("consumer", component_options);
         let shutdown = handle.shutdown_token();
+        let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
         let kafka_consumer = make_kafka_consumer(topic, &group_id, None);
@@ -483,6 +562,7 @@ impl Harness {
             worker_urls,
             IngestionConsumerOptions {
                 batch_size: 50,
+                batch_size_bytes,
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
@@ -560,6 +640,7 @@ impl Harness {
             worker_urls,
             IngestionConsumerOptions {
                 batch_size: 50,
+                batch_size_bytes: 0,
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
@@ -704,6 +785,84 @@ async fn messages_per_distinct_id_arrive_in_order() {
             );
         }
     }
+
+    harness.stop().await;
+}
+
+/// The byte bound ends collection before the count bound when payloads are
+/// large, so batch memory tracks bytes rather than event count.
+///
+/// Twelve 2KiB messages sit far inside the 50-message count cap, so without the
+/// byte bound they batch together; the 4KiB cap admits at most two per batch
+/// (the second crosses it). The count cap alone cannot express that, which is
+/// the regression: a lane whose events are large gets the memory of a full
+/// count batch no matter how the count is tuned.
+#[tokio::test]
+async fn byte_bound_caps_batches_below_the_count_bound() {
+    let topic = format!("e2e-bytecap-{}", Uuid::new_v4());
+    let harness = Harness::start_byte_capped(&topic, 4096).await;
+
+    let producer = make_producer();
+    let payload = vec![b'x'; 2048];
+    for seq in 0..12usize {
+        produce_raw(
+            &producer,
+            &topic,
+            0,
+            &format!("tok:user-1:{seq}"),
+            &payload,
+            None,
+        )
+        .await;
+    }
+
+    harness.wait_for(12, Duration::from_secs(20)).await;
+
+    let sizes = harness.workers[0].batch_sizes();
+    assert_eq!(
+        sizes.iter().sum::<usize>(),
+        12,
+        "every message must still be delivered, got batches {sizes:?}"
+    );
+    // A collection timeout can only make a batch smaller, so this holds
+    // regardless of how production interleaves with the 100ms window.
+    assert!(
+        sizes.iter().all(|&n| n <= 2),
+        "no batch may exceed the byte bound by more than one message, got {sizes:?}"
+    );
+
+    harness.stop().await;
+}
+
+/// A single message larger than the whole byte bound still moves.
+///
+/// The bound is checked before appending, so the first message of a batch is
+/// always admitted. Checking after would let one oversized payload produce an
+/// empty batch and wedge its partition — the message can never be skipped, and
+/// no smaller batch can ever contain it.
+#[tokio::test]
+async fn message_larger_than_byte_bound_is_still_delivered() {
+    let topic = format!("e2e-bytecap-oversize-{}", Uuid::new_v4());
+    let harness = Harness::start_byte_capped(&topic, 4096).await;
+
+    let producer = make_producer();
+    produce_raw(
+        &producer,
+        &topic,
+        0,
+        "tok:user-1:0",
+        &vec![b'x'; 16384],
+        None,
+    )
+    .await;
+
+    harness.wait_for(1, Duration::from_secs(20)).await;
+
+    assert_eq!(
+        harness.workers[0].batch_sizes(),
+        vec![1],
+        "the oversized message must arrive as a batch of one"
+    );
 
     harness.stop().await;
 }
@@ -1018,19 +1177,16 @@ async fn partial_send_failure_replays_only_the_failed_subbatch() {
 
 /// When a send fails and there is no healthy worker to replay to, the deferred
 /// work is held (not lost, not dropped) and the flush loop retries until a
-/// worker returns, then drains in order.
+/// worker returns, then drains in order. Waiting for a worker, and waiting on
+/// a slow one once found, both outlast the liveness deadline here: neither is
+/// a stall, so the lifecycle monitor must not shut the consumer down.
 #[tokio::test]
 async fn deferred_flush_retries_until_a_worker_recovers() {
     let topic = format!("e2e-replay-wait-{}", Uuid::new_v4());
-    let harness = Harness::start(
-        &topic,
-        1,
-        2,
-        1,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+    let liveness_deadline = Duration::from_millis(1500);
+    let harness =
+        Harness::start_with_liveness(&topic, 2, Duration::from_secs(60), liveness_deadline, 2)
+            .await;
     let producer = make_producer();
 
     // Take worker 1 out of the pool so the batch routes to worker 0.
@@ -1076,16 +1232,34 @@ async fn deferred_flush_retries_until_a_worker_recovers() {
     // The deferred work is held steady — the flush loop is backing off, not
     // dropping anything — for as long as no worker is available.
     let held = harness.dispatcher.stashed_messages();
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    tokio::time::sleep(liveness_deadline * 4).await;
     assert_eq!(
         harness.dispatcher.stashed_messages(),
         held,
         "deferred work must be held steady while no worker is available"
     );
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "waiting for a worker must keep the liveness heartbeat going"
+    );
 
-    // Recover worker 1 → the flush loop drains the stash to it, then the consumer
-    // resumes and delivers the rest. All of user-1 lands on worker 1, in order.
+    // Recover worker 1 while it is blocked → the flush loop sends the stash to
+    // it and waits on the in-flight request past the liveness deadline.
+    let guard1 = harness.workers[1].block().await;
     harness.workers[1].healthy.store(true, Ordering::SeqCst);
+    wait_until(Duration::from_secs(10), "replay to reach worker 1", || {
+        harness.workers[1].arrived_count() > 0
+    })
+    .await;
+    tokio::time::sleep(liveness_deadline * 4).await;
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "waiting on a slow worker must keep the liveness heartbeat going"
+    );
+
+    // Release worker 1 → the stash drains, then the consumer resumes and
+    // delivers the rest. All of user-1 lands on worker 1, in order.
+    drop(guard1);
     harness.wait_for(4, Duration::from_secs(15)).await;
 
     assert_eq!(
@@ -1093,6 +1267,186 @@ async fn deferred_flush_retries_until_a_worker_recovers() {
         vec![0, 1, 2, 3],
         "deferred user-1 must flush to the recovered worker in order"
     );
+    assert_eq!(
+        harness.workers[0].count(),
+        0,
+        "failed worker recorded nothing"
+    );
+
+    harness.stop().await;
+}
+
+/// With no worker ever coming back, the batch must still fail: the flush
+/// loop's own `deferred_flush_timeout` ends it, not a liveness stall, so the
+/// exit lands at the flush timeout rather than at the (shorter) stall window.
+#[tokio::test]
+async fn no_worker_exit_comes_from_the_flush_timeout_not_a_liveness_stall() {
+    let topic = format!("e2e-flush-timeout-liveness-{}", Uuid::new_v4());
+    let flush_timeout = Duration::from_secs(4);
+    let liveness_deadline = Duration::from_millis(1500);
+    let mut harness =
+        Harness::start_with_liveness(&topic, 2, flush_timeout, liveness_deadline, 2).await;
+    let producer = make_producer();
+
+    harness.workers[1].healthy.store(false, Ordering::SeqCst);
+    wait_until(
+        Duration::from_secs(10),
+        "worker 1 to leave the pool",
+        || !in_pool(&harness, &harness.workers[1].url),
+    )
+    .await;
+
+    let guard0 = harness.workers[0].block().await;
+    for seq in 0..4usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "batch to reach worker 0", || {
+        harness.workers[0].arrived_count() > 0
+    })
+    .await;
+
+    harness.workers[0].healthy.store(false, Ordering::SeqCst);
+    drop(guard0);
+    wait_until(
+        Duration::from_secs(10),
+        "the failed send to be deferred",
+        || harness.dispatcher.stashed_messages() > 0,
+    )
+    .await;
+    let deferred_at = tokio::time::Instant::now();
+
+    assert!(
+        harness
+            .wait_for_consumer_exit(Duration::from_secs(20))
+            .await,
+        "consumer must fail the batch once nothing lands for a full flush timeout"
+    );
+    let waited = deferred_at.elapsed();
+    assert!(
+        waited >= flush_timeout * 3 / 4,
+        "consumer exited after {waited:?}: a liveness stall, not the {flush_timeout:?} flush timeout"
+    );
+    assert_eq!(
+        harness.workers.iter().map(|w| w.count()).sum::<usize>(),
+        0,
+        "nothing should be delivered"
+    );
+}
+
+/// A drain that is slow but moving must complete even when it outlasts both the
+/// liveness deadline and the flush timeout: every landing resets the flush
+/// deadline, and the wait in between keeps the heartbeat going. Two keys land
+/// in two flush rounds, the first only after the original deadline has passed.
+#[tokio::test]
+async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout() {
+    let topic = format!("e2e-slow-drain-{}", Uuid::new_v4());
+    let flush_timeout = Duration::from_secs(3);
+    let liveness_deadline = Duration::from_millis(1500);
+    let harness =
+        Harness::start_with_liveness(&topic, 3, flush_timeout, liveness_deadline, 2).await;
+    let producer = make_producer();
+
+    // Workers 1 and 2 out, so both keys route to worker 0 together.
+    for i in [1, 2] {
+        harness.workers[i].healthy.store(false, Ordering::SeqCst);
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "workers 1 and 2 to leave the pool",
+        || {
+            !in_pool(&harness, &harness.workers[1].url)
+                && !in_pool(&harness, &harness.workers[2].url)
+        },
+    )
+    .await;
+
+    let guard0 = harness.workers[0].block().await;
+    for seq in 0..4usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 0, "tok", "user-2", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "batch to reach worker 0", || {
+        harness.workers[0].arrived_count() > 0
+    })
+    .await;
+
+    // Workers 1 and 2 rejoin, blocked, before worker 0 fails, so the flush
+    // sees both and spreads the two keys over them, one request each.
+    let mut guard1 = Some(harness.workers[1].block().await);
+    let guard2 = harness.workers[2].block().await;
+    for i in [1, 2] {
+        harness.workers[i].healthy.store(true, Ordering::SeqCst);
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "workers 1 and 2 to rejoin the pool",
+        || in_pool(&harness, &harness.workers[1].url) && in_pool(&harness, &harness.workers[2].url),
+    )
+    .await;
+    harness.workers[0].healthy.store(false, Ordering::SeqCst);
+    drop(guard0);
+    wait_until(
+        Duration::from_secs(10),
+        "the flush to reach both workers",
+        || harness.workers[1].arrived_count() > 0 && harness.workers[2].arrived_count() > 0,
+    )
+    .await;
+    let flush_started = tokio::time::Instant::now();
+
+    // Worker 2 fails its key now, so that key re-defers into a later round.
+    harness.workers[2].ingest_ok.store(false, Ordering::SeqCst);
+    drop(guard2);
+    wait_until(Duration::from_secs(10), "worker 2 to answer", || {
+        harness.workers[2].arrived_count() == 1 && harness.dispatcher.stashed_messages() > 0
+    })
+    .await;
+    let guard2 = harness.workers[2].block().await;
+    harness.workers[2].ingest_ok.store(true, Ordering::SeqCst);
+
+    // Worker 1 lands its key only after the original flush deadline has passed.
+    tokio::time::sleep(flush_timeout + Duration::from_millis(200)).await;
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "a slow in-flight send must not trip the liveness stall"
+    );
+    guard1.take();
+    wait_until(
+        Duration::from_secs(10),
+        "the retried key to reach worker 2",
+        || harness.workers[2].arrived_count() == 2,
+    )
+    .await;
+
+    // The second round waits past the liveness deadline again before landing.
+    tokio::time::sleep(liveness_deadline * 3).await;
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "the second flush round must keep the heartbeat going"
+    );
+    drop(guard2);
+    harness.wait_for(8, Duration::from_secs(15)).await;
+
+    assert!(
+        flush_started.elapsed() > flush_timeout,
+        "the drain must have outlasted the flush timeout for this test to mean anything"
+    );
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "the consumer must still be running"
+    );
+    let log = harness.delivery_log.lock().unwrap().clone();
+    for user in ["user-1", "user-2"] {
+        let seqs: Vec<usize> = log
+            .iter()
+            .filter(|(did, _)| did == user)
+            .map(|(_, seq)| *seq)
+            .collect();
+        assert_eq!(
+            seqs,
+            vec![0, 1, 2, 3],
+            "{user} must land exactly once, in order; log: {log:?}"
+        );
+    }
     assert_eq!(
         harness.workers[0].count(),
         0,
@@ -2035,6 +2389,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
         worker_urls,
         IngestionConsumerOptions {
             batch_size: 50,
+            batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
@@ -2112,6 +2467,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
         urls,
         IngestionConsumerOptions {
             batch_size: 50,
+            batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),

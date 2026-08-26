@@ -71,9 +71,11 @@ def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> 
 
 
 @freeze_time(FROZEN_TIME)
-@patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", side_effect=_metrics_flag_only)
-@patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches")
+@patch(
+    "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", side_effect=_metrics_flag_only
+)
+@patch("posthog.tasks.alerts.utils.send_notifications_for_errors", return_value=[])
+@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
     def setUp(self) -> None:
         super().setUp()

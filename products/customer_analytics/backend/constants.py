@@ -8,11 +8,13 @@ SLACK_ARCHIVES_ORIGIN = "https://posthog.slack.com/archives"
 # Mirrors frontend `FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP`.
 CUSTOMER_ANALYTICS_CSP_FLAG = "customer-analytics-csp"
 CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG = "customer-analytics-feature-requests"
+CUSTOMER_ANALYTICS_TRACK_RULES_FLAG = "customer-analytics-track-rules"
 
 # Mirrors frontend `FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES`. Gates the whole warehouse -> person
 # properties feature: creating person-target custom property sources (API + UI), staging rows during
 # syncs, and the post-sync upsert workflow.
 WAREHOUSE_PERSON_PROPERTIES_FLAG = "warehouse-person-properties"
+WAREHOUSE_ACCOUNT_PROPERTIES_S3_SYNC_FLAG = "warehouse-account-properties-s3-sync"
 
 # Mirrors frontend `BILLING_INSIGHT_SHORT_IDS` in accountBillingLogic.ts. These saved insights read
 # warehouse-synced billing data to report an account's PostHog consumption (events ingested, rows

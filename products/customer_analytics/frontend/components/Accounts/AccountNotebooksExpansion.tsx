@@ -5,6 +5,7 @@ import {
     IconCloud,
     IconCopy,
     IconDatabase,
+    IconGlobe,
     IconGraph,
     IconPencil,
     IconPeople,
@@ -37,6 +38,10 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
+import { AccountConversationsExpansion } from './AccountConversationsExpansion'
+import { accountConversationsLogic } from './accountConversationsLogic'
+import { accountEmailThreadsLogic } from './accountEmailThreadsLogic'
+import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { accountLinksLogic } from './accountLinksLogic'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { accountMeetingsLogic } from './accountMeetingsLogic'
@@ -48,10 +53,7 @@ import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
-import { AccountSummariesExpansion } from './AccountSummariesExpansion'
 import { accountSummariesLogic } from './accountSummariesLogic'
-import { AccountSupportTicketsExpansion } from './AccountSupportTicketsExpansion'
-import { accountSupportTicketsLogic } from './accountSupportTicketsLogic'
 import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
 
@@ -67,6 +69,7 @@ function getPreview(notebook: AccountNotebookApi): string {
 }
 
 const LINK_ICONS: Record<string, JSX.Element> = {
+    website: <IconGlobe />,
     organization: <IconPeople />,
     revenue: <IconPiggyBank />,
     'usage-dashboard': <IconGraph />,
@@ -179,7 +182,8 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
     useMountedLogic(accountSummariesLogic({ accountId }))
-    useMountedLogic(accountSupportTicketsLogic({ accountId }))
+    useMountedLogic(accountConversationsLogic({ accountId }))
+    useMountedLogic(accountEmailThreadsLogic({ accountId }))
     useMountedLogic(accountMeetingsLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -320,6 +324,11 @@ export function AccountNotebooksExpansion({
                                 label: 'Relationships',
                                 content: <AccountRelationshipsExpansion accountId={accountId} />,
                             },
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS] && {
+                                key: 'feature_requests' as const,
+                                label: 'Feature requests',
+                                content: <AccountFeatureRequestsExpansion accountId={accountId} />,
+                            },
                             {
                                 key: 'usage',
                                 label: 'Usage',
@@ -348,14 +357,9 @@ export function AccountNotebooksExpansion({
                                 content: <AccountOpportunitiesExpansion accountId={accountId} />,
                             },
                             {
-                                key: 'summaries',
-                                label: 'Summaries',
-                                content: <AccountSummariesExpansion accountId={accountId} />,
-                            },
-                            {
-                                key: 'support_tickets',
-                                label: 'Support tickets',
-                                content: <AccountSupportTicketsExpansion accountId={accountId} />,
+                                key: 'conversations',
+                                label: 'Conversations',
+                                content: <AccountConversationsExpansion accountId={accountId} />,
                             },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {

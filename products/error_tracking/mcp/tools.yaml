@@ -146,11 +146,17 @@ tools:
     error-tracking-external-references-destroy:
         operation: error_tracking_external_references_destroy
         enabled: false
+    error-tracking-external-references-link-issue-create:
+        operation: error_tracking_external_references_link_issue_create
+        enabled: false
     error-tracking-external-references-list:
         operation: error_tracking_external_references_list
         enabled: false
     error-tracking-external-references-retrieve:
         operation: error_tracking_external_references_retrieve
+        enabled: false
+    error-tracking-external-references-search-issues-retrieve:
+        operation: error_tracking_external_references_search_issues_retrieve
         enabled: false
     error-tracking-fingerprints-destroy:
         operation: error_tracking_fingerprints_destroy
@@ -404,6 +410,27 @@ tools:
             `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped
             at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with
             the user before reducing it.
+    error-tracking-severity-rules-create:
+        operation: error_tracking_severity_rules_create
+        enabled: false
+    error-tracking-severity-rules-destroy:
+        operation: error_tracking_severity_rules_destroy
+        enabled: false
+    error-tracking-severity-rules-list:
+        operation: error_tracking_severity_rules_list
+        enabled: false
+    error-tracking-severity-rules-partial-update:
+        operation: error_tracking_severity_rules_partial_update
+        enabled: false
+    error-tracking-severity-rules-reorder-partial-update:
+        operation: error_tracking_severity_rules_reorder_partial_update
+        enabled: false
+    error-tracking-severity-rules-retrieve:
+        operation: error_tracking_severity_rules_retrieve
+        enabled: false
+    error-tracking-severity-rules-update:
+        operation: error_tracking_severity_rules_update
+        enabled: false
     error-tracking-spike-detection-config-list:
         operation: error_tracking_spike_detection_config_list
         enabled: false
@@ -609,6 +636,7 @@ tools:
                 - name
                 - description
                 - status
+                - severity
                 - first_seen
                 - last_seen
                 - library

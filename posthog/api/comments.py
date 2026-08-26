@@ -48,7 +48,7 @@ from posthog.tasks.email import send_discussions_mentioned
 from products.conversations.backend import reply_dedupe
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 

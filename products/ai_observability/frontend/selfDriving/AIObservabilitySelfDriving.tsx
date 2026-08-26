@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import type { ReactNode } from 'react'
 
-import { IconCalendar, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
+import { IconCalendar, IconPlus, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -28,9 +28,13 @@ import { urls } from 'scenes/urls'
 import type { InsightShortId } from '~/types'
 
 import type { AlertApi } from 'products/alerts/frontend/generated/api.schemas'
-import { ScoutCreateButton } from 'products/signals/frontend/inbox/components/config/scouts/ScoutCreateButton'
-import { ScoutRowCard } from 'products/signals/frontend/inbox/components/config/scouts/ScoutRowCard'
+import {
+    ScoutCreateModalHost,
+    useScoutCreateDisabledReason,
+} from 'products/signals/frontend/inbox/components/config/scouts/ScoutCreateModalHost'
+import { ScoutSummaryRow } from 'products/signals/frontend/inbox/components/config/scouts/ScoutSummaryRow'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSourcesLogic'
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import type { EvaluationConfig } from '../evaluations/types'
@@ -38,6 +42,7 @@ import type { EvaluationReportApi } from '../generated/api.schemas'
 import {
     AI_OBSERVABILITY_SCOUT_TEMPLATES,
     AIObservabilityScoutTemplate,
+    findAIObservabilityScoutTemplate,
     isAIObservabilityScout,
 } from './aiObservabilityScoutTemplates'
 import {
@@ -45,6 +50,7 @@ import {
     type AIObservabilitySelfDrivingSection,
     aiObservabilitySelfDrivingLogic,
 } from './aiObservabilitySelfDrivingLogic'
+import { SelfDrivingSignalSourceToggle } from './SelfDrivingSignalSourceToggle'
 
 const SCOUTS_DOCS_URL = 'https://posthog.com/docs/ai-observability/self-driving'
 const SELF_DRIVING_DOCS_URL = 'https://posthog.com/docs/self-driving'
@@ -156,8 +162,27 @@ const TEMPLATE_ICONS: Record<AIObservabilityScoutTemplate['key'], JSX.Element> =
     'error-patterns': <IconWarning />,
 }
 
-function ScoutTemplateCard({ template }: { template: AIObservabilityScoutTemplate }): JSX.Element {
+/**
+ * The one create modal for this tab, so a card click and a `#template=` link land in the same
+ * place. Hosted beside the cards rather than inside one, since the URL can open it for any of them.
+ */
+function ScoutTemplateModal(): JSX.Element | null {
+    const { openScoutTemplateKey } = useValues(aiObservabilitySelfDrivingLogic)
+    const { setOpenScoutTemplateKey } = useActions(aiObservabilitySelfDrivingLogic)
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
+
+    return (
+        <ScoutCreateModalHost
+            initialValues={findAIObservabilityScoutTemplate(openScoutTemplateKey)?.initialValues ?? null}
+            onClose={() => setOpenScoutTemplateKey(null)}
+            onCreated={() => loadScoutConfigs()}
+        />
+    )
+}
+
+function ScoutTemplateCard({ template }: { template: AIObservabilityScoutTemplate }): JSX.Element {
+    const { setOpenScoutTemplateKey } = useActions(aiObservabilitySelfDrivingLogic)
+    const creationDisabledReason = useScoutCreateDisabledReason()
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-3">
@@ -172,13 +197,16 @@ function ScoutTemplateCard({ template }: { template: AIObservabilityScoutTemplat
                 <LemonTag type="muted" size="small">
                     {template.schedule}
                 </LemonTag>
-                <ScoutCreateButton
-                    initialValues={template.initialValues}
-                    onCreated={() => loadScoutConfigs()}
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<IconPlus />}
+                    disabledReason={creationDisabledReason ?? undefined}
+                    onClick={() => setOpenScoutTemplateKey(template.key)}
                     data-attr={`create-${template.key}-scout`}
                 >
                     Use template
-                </ScoutCreateButton>
+                </LemonButton>
             </div>
         </LemonCard>
     )
@@ -186,8 +214,8 @@ function ScoutTemplateCard({ template }: { template: AIObservabilityScoutTemplat
 
 export function AIObservabilitySelfDriving(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { scoutConfigs, scoutConfigsLoading, deletingScoutIds, updatingScoutIds } = useValues(scoutFleetLogic)
-    const { deleteScout, loadScoutConfigs, updateScoutConfig } = useActions(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, updatingScoutIds } = useValues(scoutFleetLogic)
+    const { loadScoutConfigs, updateScoutConfig } = useActions(scoutFleetLogic)
     const { evaluations, evaluationsLoadFailed, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
     const {
@@ -200,6 +228,15 @@ export function AIObservabilitySelfDriving(): JSX.Element {
     const { loadAnomalyAlertInvestigations, loadSelfDrivingEvaluationReports, setExpandedSections } = useActions(
         aiObservabilitySelfDrivingLogic
     )
+    const {
+        anomalyInvestigationConfig,
+        evalReportsConfig,
+        isAnomalyInvestigationToggling,
+        isEvalReportsToggling,
+        sourceConfigs,
+        sourceConfigsLoadFailed,
+    } = useValues(signalSourcesLogic)
+    const { loadSourceConfigs, toggleAnomalyInvestigation, toggleEvalReports } = useActions(signalSourcesLogic)
 
     const aiObservabilityScouts = scoutConfigs?.filter(isAIObservabilityScout) ?? []
     const reportFor = (evaluation: EvaluationConfig): EvaluationReportApi | null =>
@@ -308,13 +345,10 @@ export function AIObservabilitySelfDriving(): JSX.Element {
         scoutsContent = (
             <div className="flex flex-col gap-2">
                 {aiObservabilityScouts.map((config) => (
-                    <ScoutRowCard
+                    <ScoutSummaryRow
                         key={config.id}
                         config={config}
-                        rollup={undefined}
                         onUpdate={updateScoutConfig}
-                        onDelete={deleteScout}
-                        deleting={deletingScoutIds.includes(config.id)}
                         updating={updatingScoutIds.includes(config.id)}
                     />
                 ))}
@@ -324,6 +358,8 @@ export function AIObservabilitySelfDriving(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {/* Outside the collapse: a `#template=` link has to work even with Scouts collapsed. */}
+            <ScoutTemplateModal />
             <LemonBanner type="info" className="text-sm">
                 <p className="m-0">
                     To power{' '}
@@ -411,6 +447,16 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                         Learn more
                                     </Link>
                                 </p>
+                                <SelfDrivingSignalSourceToggle
+                                    sourceName="AI observability"
+                                    signalNoun="evaluation report"
+                                    enabled={sourceConfigs === null ? null : !!evalReportsConfig?.enabled}
+                                    loadFailed={sourceConfigsLoadFailed}
+                                    toggling={isEvalReportsToggling}
+                                    onChange={toggleEvalReports}
+                                    onRetry={loadSourceConfigs}
+                                    data-attr="self-driving-eval-reports-signal-source"
+                                />
                                 {!evaluationsLoadFailed &&
                                 !evaluationsLoading &&
                                 evaluations.length > 0 &&
@@ -504,6 +550,16 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                         Learn more
                                     </Link>
                                 </p>
+                                <SelfDrivingSignalSourceToggle
+                                    sourceName="Product analytics"
+                                    signalNoun="anomaly investigation"
+                                    enabled={sourceConfigs === null ? null : !!anomalyInvestigationConfig?.enabled}
+                                    loadFailed={sourceConfigsLoadFailed}
+                                    toggling={isAnomalyInvestigationToggling}
+                                    onChange={toggleAnomalyInvestigation}
+                                    onRetry={loadSourceConfigs}
+                                    data-attr="self-driving-anomaly-investigation-signal-source"
+                                />
                                 {anomalyAlertInvestigationsLoading && anomalyAlertInvestigations === null ? (
                                     <div className="flex flex-col gap-2">
                                         <LemonSkeleton className="h-10 w-full rounded" />

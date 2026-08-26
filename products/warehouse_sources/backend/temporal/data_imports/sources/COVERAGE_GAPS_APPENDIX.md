@@ -485,10 +485,12 @@ Note: Diffed against the upstream swagger spec (82 paths). PostHog's deployment_
 
 ## Asana — gaps
 
-Today (8): `custom_fields`, `projects`, `sections`, `tags`, `tasks`, `teams`, `users`, `workspaces`
+Today (10): `ai_studio_runs`, `ai_studio_seats`, `custom_fields`, `projects`, `sections`, `tags`, `tasks`, `teams`, `users`, `workspaces`
 
 Diffed against: <https://raw.githubusercontent.com/Asana/openapi/master/defs/asana_oas.yaml>
 
+- [x] `workspaces/{workspace_gid}/ai_studio/runs` — one row per AI Studio run (rule execution) with the credits it consumed; from the AI Studio usage API (not in the OpenAPI spec above)
+- [x] `workspaces/{workspace_gid}/ai_studio/seats` — current snapshot of who holds an AI Studio seat, at what tier and state; from the AI Studio usage API (not in the OpenAPI spec above)
 - [ ] `tasks/{task_gid}/stories` — task activity + comment stream, the only source of state-transition history (assignee/section/due-date changes) (high)
 - [ ] `projects/{project_gid}/project_memberships` — who is on which project and in what role; joins users to projects we already sync (high)
 - [ ] `goals (+ goals/{gid}/parentGoals)` — Asana's headline OKR object with progress/status, entirely absent today (high)
@@ -506,10 +508,12 @@ Note: Diffed against Asana's official OpenAPI spec (3 MB, ~120 GET paths). Also 
 
 ## Ashby — gaps
 
-Today (16): `applications`, `archive_reasons`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_schedules`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `sources`, `users`
+Today (18): `applications`, `archive_reasons`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_schedules`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `sources`, `users`
 
 Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 
+- [x] `referral.list` — candidate referrals tying a referrer to an application/job, a sourcing-attribution table (medium)
+- [x] `sequence.list` — candidate enrollments in outreach sequences, with per-stage scheduling (medium)
 - [ ] `applicationFeedback.list` — interview scorecards and ratings, the core quality signal for hiring analytics (high)
 - [ ] `application.listHistory` — stage-transition history; without it you cannot compute time-in-stage or funnel conversion (high)
 - [ ] `interviewStage.list` — lookup resolving the currentInterviewStage ID carried on every synced application (high)
@@ -524,6 +528,8 @@ Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 - [ ] `sourceTrackingLink.list` — resolves attribution links behind the sources table already synced (low)
 
 Note: Ashby's readme.io OpenAPI JSON is not publicly downloadable (404), so the resource list was read from the full reference navigation on the introduction page, filtering on \*.list endpoints. Other list endpoints deliberately excluded as config: communicationTemplate, emailSender, sequenceTemplate, jobBoard, jobTemplate, brand, apiKey, webhook.
+
+Excluded as not table-shaped: `notetakerTranscript.info` is a single-object getter keyed by a `notetakerTranscriptId` (not enumerable, and it returns a transient pre-signed download URL); `candidate.getRecentEmailMessages` is a per-candidate fetch with no durable row id (`recordId` is documented as non-durable) and a silent 200-message snapshot cap, so it does not map to a stable, complete table.
 
 ## Asknicely — gaps
 
@@ -724,6 +730,14 @@ Diffed against: <https://getbeamer-api.pages.dev/>
 No material gaps found.
 
 Note: Every listable collection in the Beamer v0 API is already synced: posts, post comments, post reactions, feature requests, feature request comments, feature request votes, NPS responses and analytics users. The remaining operations are counts (count posts/comments/votes/reactions/NPS), the feed URL helper, unread-post lookups, NPS prompt eligibility and email-survey sends, and mutation-only team management (invite/remove/update role) - there is no GET for team members and no categories endpoint, so Category only exists as an inline field on Post. Caveat on the doc URL: the vendor's own page (getbeamer.com/help/beamer-api-documentation) now 404s and redirects into help.userflow.com after the Userflow merger; getbeamer-api.pages.dev is the working rendered Swagger reference for api.getbeamer.com/v0 and is what I diffed against.
+
+## Beehiiv — gaps
+
+Today (15): `Authors`, `Automations`, `ComplimentaryAccess`, `ConditionSets`, `CustomFields`, `NewsletterLists`, `Podcasts`, `Polls`, `PostTemplates`, `Posts`, `Publications`, `ReferralProgramMilestones`, `Segments`, `Subscriptions`, `Tiers`
+
+Diffed against: <https://developers.beehiiv.com/api-reference>
+
+- [x] `podcasts (GET /publications/{publication_id}/podcasts)` — podcasts belonging to the publication, added here
 
 ## Bettermode — **thin**
 

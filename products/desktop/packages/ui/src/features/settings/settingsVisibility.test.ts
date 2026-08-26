@@ -9,6 +9,7 @@ describe("getHiddenSettingsCategories", () => {
         billingEnabled: true,
         spendAnalysisEnabled: true,
         localWorkspaces: true,
+        quickAskAvailable: true,
       },
       expected: [],
     },
@@ -18,8 +19,21 @@ describe("getHiddenSettingsCategories", () => {
         billingEnabled: false,
         spendAnalysisEnabled: false,
         localWorkspaces: true,
+        quickAskAvailable: true,
       },
-      expected: ["plan-usage"],
+      expected: ["plan-usage", "cost-management"],
+    },
+    {
+      // Every limit and recommendation on the page is measured against
+      // personal spend, so without it the page has nothing to show.
+      name: "hides cost management without spend analysis",
+      input: {
+        billingEnabled: true,
+        spendAnalysisEnabled: false,
+        localWorkspaces: true,
+        quickAskAvailable: true,
+      },
+      expected: ["cost-management"],
     },
     {
       name: "hides host-specific categories without local workspaces",
@@ -27,20 +41,21 @@ describe("getHiddenSettingsCategories", () => {
         billingEnabled: true,
         spendAnalysisEnabled: true,
         localWorkspaces: false,
+        quickAskAvailable: true,
       },
       expected: ["workspaces", "worktrees", "terminal", "harness", "discord"],
     },
     {
-      // The channels layout uses a fixed nav, so the Sidebar page's
-      // reorder/hide controls would have nothing to act on.
-      name: "hides the sidebar page under the channels layout",
+      // The page's only content when the panel is unavailable is a dead-end
+      // "not available in this build" message, so hide it (web hosts and
+      // packaged desktop without the prototype gate).
+      name: "hides quick-ask when the panel is unavailable",
       input: {
         billingEnabled: true,
         spendAnalysisEnabled: true,
         localWorkspaces: true,
-        channelsLayout: true,
       },
-      expected: ["sidebar"],
+      expected: ["quick-ask"],
     },
   ])("$name", ({ input, expected }) => {
     expect([...getHiddenSettingsCategories(input)]).toEqual(expected);

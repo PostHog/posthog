@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -71,6 +72,9 @@ struct InFlightBatch {
 /// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
     pub batch_size: usize,
+    /// Payload-byte bound on a batch; `0` disables it (count-only collection).
+    /// See `Config::consumer_batch_size_kb`.
+    pub batch_size_bytes: usize,
     pub batch_timeout: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
@@ -95,6 +99,7 @@ pub struct IngestionConsumer {
     transport: Arc<HttpTransport>,
     worker_urls: Vec<String>,
     batch_size: usize,
+    batch_size_bytes: usize,
     batch_timeout: Duration,
     max_in_flight_batches: usize,
     deferred_flush_timeout: Duration,
@@ -131,6 +136,7 @@ impl IngestionConsumer {
             transport,
             worker_urls,
             batch_size: options.batch_size,
+            batch_size_bytes: options.batch_size_bytes,
             batch_timeout: options.batch_timeout,
             max_in_flight_batches: options.max_in_flight_batches.max(1),
             deferred_flush_timeout: options.deferred_flush_timeout,
@@ -159,6 +165,13 @@ impl IngestionConsumer {
         }
 
         let client_config = config.build_consumer_config();
+        // After the build, so the caps reported are the ones the client runs
+        // with rather than the settings that seeded them.
+        crate::kafka_stats::export_limits(
+            &client_config,
+            config.consumer_batch_size,
+            config.consumer_batch_size_kb,
+        );
         let commit_sentinel = Arc::new(CommitSentinel::new());
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = dispatcher.key_order_sentinel();
@@ -173,6 +186,7 @@ impl IngestionConsumer {
             group = %config.ingestion_consumer_group_id,
             workers = worker_urls.len(),
             batch_size = config.consumer_batch_size,
+            batch_size_kb = config.consumer_batch_size_kb,
             "Kafka consumer subscribed"
         );
 
@@ -184,6 +198,7 @@ impl IngestionConsumer {
             transport,
             worker_urls,
             batch_size: config.consumer_batch_size,
+            batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             max_in_flight_batches: config.consumer_max_background_tasks.max(1),
             deferred_flush_timeout: Duration::from_millis(
@@ -294,32 +309,49 @@ impl IngestionConsumer {
         info!("Consumer loop stopped");
     }
 
-    fn spawn_batch_processing(&self, collected: CollectedBatch) -> InFlightBatch {
+    fn spawn_batch_processing(&self, mut collected: CollectedBatch) -> InFlightBatch {
         let batch_size = collected.messages.len();
         let batch_id = make_batch_id();
-        // Register here, on the consumer loop, so the stash learns batch order
-        // before the spawned tasks race: assignment and failed-send deferrals
-        // can reach the stash out of batch order.
+        // Register AND assign here, on the consumer loop, so both happen in
+        // true batch order. Registration first, so the stash learns batch
+        // order before failed-send deferrals (which land in gather order) can
+        // reach it. Assignment too: on spawned tasks, batch N+1's assign could
+        // beat batch N's to the pin table and send a key's newer messages
+        // first — per-key send order must be fixed exactly once, in Kafka
+        // order, at assignment.
         self.dispatcher.register_batch(&batch_id);
         record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
             batch_id: batch_id.clone(),
             messages: batch_size,
             partitions: debug_partition_offsets(&collected.offsets, &collected.stats.max_lag_ms),
         });
+        let assign_start = Instant::now();
+        let messages = std::mem::take(&mut collected.messages);
+        let sub_batches = self.dispatcher.assign(&batch_id, messages);
+        // Assignment serializes on the consumer loop (it no longer overlaps
+        // batch collection) — watch this stays a small fraction of the batch
+        // collection interval.
+        histogram!("ingestion_consumer_assign_duration_seconds")
+            .record(assign_start.elapsed().as_secs_f64());
+
         let task_batch_id = batch_id.clone();
         let dispatcher = Arc::clone(&self.dispatcher);
         let transport = Arc::clone(&self.transport);
         let group_id = self.group_id.clone();
         let max_batch_size = self.batch_size;
+        let max_batch_bytes = self.batch_size_bytes;
 
         let handle = tokio::spawn(async move {
             Self::process_collected_batch(
                 collected,
+                sub_batches,
+                batch_size,
                 task_batch_id,
                 dispatcher,
                 transport,
                 group_id,
                 max_batch_size,
+                max_batch_bytes,
             )
             .await
         });
@@ -383,19 +415,19 @@ impl IngestionConsumer {
 
     async fn await_processed_batch(&self, batch: InFlightBatch) -> anyhow::Result<ProcessedBatch> {
         let batch_id = batch.batch_id;
-        let mut handle = batch.handle;
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+        let processed = self.heartbeat_while(batch.handle).await??;
+        info!(batch_id = %batch_id, "Kafka batch processing completed");
+        Ok(processed)
+    }
+
+    async fn heartbeat_while<F: Future>(&self, fut: F) -> F::Output {
+        tokio::pin!(fut);
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
 
         loop {
             tokio::select! {
-                result = &mut handle => {
-                    let processed = result??;
-                    info!(batch_id = %batch_id, "Kafka batch processing completed");
-                    return Ok(processed);
-                }
-                _ = heartbeat.tick() => {
-                    self.handle.report_healthy();
-                }
+                output = &mut fut => return output,
+                _ = heartbeat.tick() => self.handle.report_healthy(),
             }
         }
     }
@@ -440,17 +472,20 @@ impl IngestionConsumer {
                         _ = self.handle.shutdown_recv() => {
                             anyhow::bail!("shutdown while flushing deferred messages");
                         }
-                        _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+                        _ = tokio::time::sleep(Duration::from_millis(200)) => {
+                            self.handle.report_healthy();
+                        }
                     }
                 } else {
-                    accepted_this_round += Self::scatter(
-                        &self.dispatcher,
-                        &self.transport,
-                        batch_id,
-                        sub_batches,
-                        true,
-                    )
-                    .await?;
+                    accepted_this_round += self
+                        .heartbeat_while(Self::scatter(
+                            &self.dispatcher,
+                            &self.transport,
+                            batch_id,
+                            sub_batches,
+                            true,
+                        ))
+                        .await?;
                 }
                 // Eager-path acceptances count as progress too — a batch whose
                 // remaining groups are all draining through eager chains must
@@ -549,18 +584,22 @@ impl IngestionConsumer {
             .signal_failure(format!("Batch processing failed: {err:#}"));
     }
 
-    /// Assign a collected batch via the Dispatcher, scatter to workers, gather
-    /// results, and feed passive health signals. Offset commits happen later,
-    /// in Kafka batch order, in `complete_oldest_batch`.
+    /// Scatter a batch's pre-assigned sub-batches to workers, gather results,
+    /// and feed passive health signals. Assignment already happened on the
+    /// consumer loop (see `spawn_batch_processing`); offset commits happen
+    /// later, in Kafka batch order, in `complete_oldest_batch`.
+    #[allow(clippy::too_many_arguments)]
     async fn process_collected_batch(
         collected: CollectedBatch,
+        sub_batches: Vec<SubBatch>,
+        batch_size: usize,
         batch_id: String,
         dispatcher: Arc<Dispatcher>,
         transport: Arc<HttpTransport>,
         group_id: String,
         max_batch_size: usize,
+        max_batch_bytes: usize,
     ) -> anyhow::Result<ProcessedBatch> {
-        let batch_size = collected.messages.len();
         let start = Instant::now();
 
         counter!("ingestion_consumer_messages_received_total").increment(batch_size as u64);
@@ -572,6 +611,17 @@ impl IngestionConsumer {
         if max_batch_size > 0 {
             gauge!("consumer_batch_utilization", "groupId" => group_id.clone())
                 .set(batch_size as f64 / max_batch_size as f64);
+        }
+
+        // The same ratio against the byte bound. Reported separately because the
+        // two disagree on lanes whose events are large: a count utilization can
+        // sit far below 1.0 while batches are in fact full, simply because the
+        // byte bound (or the prefetch queue behind it) ends collection first.
+        // Reading only the count ratio there invites raising a cap that cannot
+        // be reached. Absent when the byte bound is disabled.
+        if max_batch_bytes > 0 {
+            gauge!("consumer_batch_utilization_bytes", "groupId" => group_id.clone())
+                .set(collected.stats.total_bytes as f64 / max_batch_bytes as f64);
         }
 
         // Batch size distribution — matches Node.js `consumer_batch_size` histogram.
@@ -598,11 +648,6 @@ impl IngestionConsumer {
             )
             .record(*lag_ms as f64);
         }
-
-        // Health-aware assignment: groups by routing key, honors stickiness,
-        // skips unhealthy/dead workers, and defers keys whose worker is
-        // draining/dead (held in the dispatcher's stash, flushed at completion).
-        let sub_batches = dispatcher.assign(&batch_id, collected.messages);
 
         // Nothing to send and no flush-path activity (deferred, in-flight
         // eager, or already eagerly accepted) → no usable workers.
@@ -697,7 +742,14 @@ impl IngestionConsumer {
         Ok(accepted)
     }
 
-    /// Collect messages from Kafka up to batch_size or batch_timeout.
+    /// Collect messages from Kafka until the first of `batch_size` messages,
+    /// `batch_size_bytes` of payload (when enabled), or `batch_timeout`.
+    ///
+    /// The byte bound is checked at the top of the loop, where accumulated
+    /// bytes are those of messages already appended: a batch therefore always
+    /// carries at least one message — a single payload larger than the whole
+    /// bound still moves rather than wedging the partition — and overshoot is
+    /// at most one message, itself bounded by `fetch.message.max.bytes`.
     async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
         let mut messages = Vec::with_capacity(self.batch_size);
         let mut offsets: HashMap<(String, i32), OffsetSpan> = HashMap::new();
@@ -709,6 +761,11 @@ impl IngestionConsumer {
 
         loop {
             if messages.len() >= self.batch_size {
+                break;
+            }
+
+            if self.batch_size_bytes > 0 && stats.total_bytes >= self.batch_size_bytes {
+                counter!("ingestion_consumer_batches_byte_capped_total").increment(1);
                 break;
             }
 

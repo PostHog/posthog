@@ -99,6 +99,11 @@ rules:
               - 'products/web_analytics/backend/api/__init__.py'
               - 'products/wizard/backend/logic/__init__.py'
               - 'products/workflows/backend/providers/__init__.py'
+              - 'tools/hogbox-preview/hogbox_preview/__init__.py'
+              - 'tools/hogli-commands/hogli_commands/devenv/__init__.py'
+              - 'tools/hogli-commands/hogli_commands/product/__init__.py'
+              - 'tools/hogli-commands/hogli_commands/workflow_lint/checks/__init__.py'
+              - 'tools/owners/posthog_owners/__init__.py'
       # Column-0 anchor: only flag eager, top-level re-exports. Indented ones (TYPE_CHECKING,
       # try/except ImportError, function-local) are already lazy and intentionally skipped.
       pattern-regex: '(?m)^from\s+\.'

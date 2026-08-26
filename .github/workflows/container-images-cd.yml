@@ -45,8 +45,9 @@ jobs:
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-24.04
-        # Covers the build plus the post-build image-boot verification before dispatch.
-        timeout-minutes: 40
+        # Covers two bounded build attempts plus the post-build image-boot verification before
+        # dispatch.
+        timeout-minutes: 60
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -116,6 +117,9 @@ jobs:
               id: build
               if: steps.preflight.outputs.digest == ''
               continue-on-error: true
+              # A hung build has to end as a step failure, not a job timeout: the retry ladder below
+              # is gated on `outcome == 'failure'`, and a cancelled job skips every step it guards.
+              timeout-minutes: 25
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
@@ -125,8 +129,16 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage creates. That stage builds in a container with no .git
+                  # directory, so the workflow has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
@@ -185,6 +197,7 @@ jobs:
               id: build_retry
               if: steps.build.outcome == 'failure' && steps.preflight_retry.outputs.digest == ''
               continue-on-error: true
+              timeout-minutes: 25
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
@@ -194,8 +207,16 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage creates. That stage builds in a container with no .git
+                  # directory, so the workflow has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
@@ -480,7 +501,7 @@ jobs:
             - name: Check for changes that affect billing temporal worker
               id: check_changes_billing_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^products/billing_alerts/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -489,7 +510,7 @@ jobs:
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/signals/skills/|^products/review_hog/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/signals/skills/|^products/review_hog/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -498,7 +519,7 @@ jobs:
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^ee/hogai/session_summaries|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/session_replay/|^posthog/temporal/common|^products/signals/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -507,7 +528,7 @@ jobs:
             - name: Check for changes that affect replay vision temporal worker
               id: check_changes_replay_vision_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/replay_vision/backend/temporal/|^products/replay_vision/backend/models/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/replay_vision/backend/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/|^.github/workflows/container-images-cd.yml$'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -1052,7 +1073,7 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^products/warehouse_sources/backend/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^products/customer_analytics/backend/|^products/warehouse_sources/backend/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

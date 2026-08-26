@@ -7,10 +7,12 @@ import {
   Cube,
   DiscordLogo,
   Folder,
+  Gauge,
   GearSix,
   GithubLogo,
   Keyboard,
   Lightbulb,
+  Lightning,
   MagnifyingGlass,
   Palette,
   Plugs,
@@ -23,15 +25,15 @@ import {
   TreeStructure,
   Wrench,
 } from "@phosphor-icons/react";
-import { Avatar, AvatarFallback, Input, MenuLabel } from "@posthog/quill";
+import { Input, MenuLabel } from "@posthog/quill";
 import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { getUserInitials } from "@posthog/ui/features/auth/userInitials";
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
@@ -73,11 +75,15 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: "personalization", icon: <Palette size={16} /> },
       { id: "sidebar", icon: <SidebarSimple size={16} /> },
       { id: "shortcuts", icon: <Keyboard size={16} /> },
+      { id: "quick-ask", icon: <Lightning size={16} /> },
     ],
   },
   {
     label: "Account",
-    items: [{ id: "plan-usage", icon: <CreditCard size={16} /> }],
+    items: [
+      { id: "plan-usage", icon: <CreditCard size={16} /> },
+      { id: "cost-management", icon: <Gauge size={16} /> },
+    ],
   },
   {
     label: "Code",
@@ -118,7 +124,7 @@ export interface SettingsPanelProps {
   /**
    * Override the active category. Defaults to the `$category` URL param
    * (which is what every in-app entry point uses). Provided for the
-   * pre-router `AiApprovalScreen` shell where RouterProvider isn't mounted.
+   * pre-router `ConsentScreen` shell where RouterProvider isn't mounted.
    */
   activeCategory?: SettingsCategory;
   /** Override the close handler. Defaults to router history back. */
@@ -145,17 +151,16 @@ export function SettingsPanel({
   const client = useOptionalAuthenticatedClient();
   const { data: user } = useCurrentUser({ client });
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
-  // The channels layout's nav is fixed, so the Sidebar page can't do anything.
-  const channelsLayout = useChannelsLayout();
   const { localWorkspaces } = useHostCapabilities();
   const logoutMutation = useLogoutMutation();
+  const quickAskAvailable = useQuickAskAvailable();
 
   const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const hiddenCategories = getHiddenSettingsCategories({
     billingEnabled,
     spendAnalysisEnabled,
     localWorkspaces,
-    channelsLayout,
+    quickAskAvailable,
   });
   const sidebarGroups = SIDEBAR_GROUPS.map((group) => ({
     ...group,
@@ -187,8 +192,6 @@ export function SettingsPanel({
     (item) => item.id === activeSidebarCategory,
   )?.icon;
 
-  const initials = getUserInitials(user);
-
   return (
     <div
       className="flex h-full w-full bg-(--color-background)"
@@ -199,9 +202,7 @@ export function SettingsPanel({
 
         {isAuthenticated && user && (
           <div className="flex items-center gap-3 border-b border-b-(--gray-5) px-3 py-3">
-            <Avatar size="default">
-              <AvatarFallback>{initials}</AvatarFallback>
-            </Avatar>
+            <UserAvatar user={user} />
             <div className="flex min-w-0 flex-col">
               <span className="truncate font-medium text-sm">{user.email}</span>
             </div>
@@ -229,7 +230,7 @@ export function SettingsPanel({
           }}
         />
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
           {searchQuery.trim() ? (
             <SettingsSearchResults
               results={searchResults}

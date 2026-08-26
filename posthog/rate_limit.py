@@ -536,6 +536,23 @@ class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """One bucket per credential (personal API key hash, else user) even on team-scoped views, for
+    endpoints where one user must not be able to drain the whole team's budget.
+
+    The parent's cache key idents a session-authenticated request on a team view by team id, which
+    would collapse every member of the team into one bucket.
+    """
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        if request.user.is_authenticated:
+            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
+            ident = hash_key_value(api_key[0]) if api_key is not None else request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
@@ -549,6 +566,22 @@ class HeatmapPreflightBurstRateThrottle(_TeamBucketRateThrottle):
 class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "heatmap_preflight_sustained"
     rate = "300/hour"
+
+
+# The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
+# worker for the whole transfer, so like the heatmap pre-flight its budget is about worker occupancy.
+# It is not covered by the project-global Burst/Sustained pair, which only ever throttles personal
+# API key traffic and lets the session-authenticated UI through untouched. A legitimate caller needs
+# one fetch per coverage analysis, so these rates clear a team's worth of concurrent viewers while
+# capping a scripted loop.
+class LlmsTxtFetchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "llms_txt_fetch_burst"
+    rate = "20/minute"
+
+
+class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "llms_txt_fetch_sustained"
+    rate = "200/hour"
 
 
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
@@ -569,6 +602,19 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
+# Query endpoint defaults only cover personal API keys, so use a team-wide bucket to include
+# session callers and prevent forced refreshes from consuming application workers without bound.
+class ErrorTrackingFingerprintProjectionBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_sustained"
+    rate = "100/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or
@@ -582,6 +628,19 @@ class LogsAnomalyScanBurstRateThrottle(_TeamBucketRateThrottle):
 class LogsAnomalyScanSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "logs_anomaly_scan_sustained"
     rate = "60/hour"
+
+
+# Series band charts read a 6-week window of the logs_volume_buckets rollup — a few orders of
+# magnitude cheaper than the anomaly scan above, but still a browse surface that fires on every
+# service pick, so a team bucket keeps a click-happy session from stacking ClickHouse reads.
+class LogsSeriesBandsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_series_bands_burst"
+    rate = "30/minute"
+
+
+class LogsSeriesBandsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_series_bands_sustained"
+    rate = "600/hour"
 
 
 # The experiment session-bucket endpoint scans every session in an experiment's recent run
@@ -623,6 +682,21 @@ class ReplayVisionEstimateBurstRateThrottle(_TeamBucketRateThrottle):
 class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "replay_vision_estimate_sustained"
     rate = "200/hour"
+
+
+# Each observation search makes a synchronous embedding request and a brute-force cosine scan over
+# the team's embedding rows, and its primary caller is the session-authenticated Search tab, which
+# the default Burst/Sustained throttles bypass. The burst bucket is per credential so one user
+# iterating on queries can't lock the Search tab for the rest of the team; the sustained bucket is
+# per team so the total spend stays capped regardless of how many users or keys share it.
+class ReplayVisionSearchBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_search_burst"
+    rate = "30/minute"
+
+
+class ReplayVisionSearchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_search_sustained"
+    rate = "300/hour"
 
 
 class _AIThrottleBase(UserRateThrottle):
@@ -1517,6 +1591,11 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
+    rate = "6/minute"
+
+
+class EmailForwardingChallengeThrottle(UserRateThrottle):
+    scope = "email_forwarding_challenge"
     rate = "6/minute"
 
 

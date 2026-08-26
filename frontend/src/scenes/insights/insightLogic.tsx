@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -122,6 +123,7 @@ export interface insightLogicValues {
     insightFeedback: 'disliked' | 'liked' | null
     insightId: number | null
     insightLoading: boolean
+    insightMissing: boolean
     insightName: string
     insightProps: InsightLogicProps
     insightSaving: boolean
@@ -430,6 +432,9 @@ export interface insightLogicActions {
             >
         }
     }
+    setInsightMissing: () => {
+        value: true
+    }
     setPreviousQuery: (previousQuery: Node | null) => {
         previousQuery: Node<Record<string, any>> | null
     }
@@ -598,6 +603,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         }),
         highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
+        setInsightMissing: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
         onReapplySuggestedInsight: true,
@@ -643,6 +649,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         )
 
                         if (!insight) {
+                            actions.setInsightMissing()
                             throw new Error(`Insight with shortId ${shortId} not found`)
                         }
 
@@ -835,6 +842,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         },
         accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
+        insightMissing: [false, { setInsightMissing: () => true, loadInsight: () => false }],
         /** The insight's state as it is in the database. */
         savedInsight: [
             () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
@@ -1067,6 +1075,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
+                if (isTransientServerError(e)) {
+                    // Gateway timeouts (e.g. an empty-bodied 503) carry no actionable detail and usually
+                    // succeed on retry. We've handled the failure, so stop here rather than rethrowing an
+                    // already-handled error into error tracking as an unhandled rejection.
+                    lemonToast.error('Saving your insight timed out. Try again in a moment.')
+                    return
+                }
                 if (e instanceof ApiError) {
                     lemonToast.error(e.detail ?? 'Could not save insight')
                 } else {

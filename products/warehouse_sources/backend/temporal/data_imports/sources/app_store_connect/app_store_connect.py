@@ -2,11 +2,12 @@ import io
 import re
 import csv
 import gzip
+import math
 import time
 import hashlib
 import tempfile
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import IO, Any, Optional
 from urllib.parse import urlsplit
@@ -14,6 +15,8 @@ from urllib.parse import urlsplit
 import jwt
 import requests
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
     ANALYTICS_GRANULARITY,
@@ -73,6 +76,75 @@ class AppStoreConnectAuthError(Exception):
 
 class AppStoreConnectUrlError(Exception):
     """A request or pagination URL points somewhere other than the App Store Connect API origin."""
+
+
+class AppStoreConnectPermissionError(Exception):
+    """A 403 from App Store Connect: the key's role can't perform this call. Non-retryable."""
+
+
+# 403 on a report or resource read. The key's role can't read this data, so the fix is a role
+# that can. `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
+APP_STORE_CONNECT_READ_FORBIDDEN_ERROR = (
+    "Your App Store Connect API key does not have permission to read this data. Give the key the "
+    "Admin, Finance, or Sales role that can read it, then reconnect."
+)
+
+# 403 on `POST /v1/analyticsReportRequests`. Apple lets only an Admin key create an analytics
+# report request, so a Finance or Sales key reads reports and still loses this create. Named
+# separately so the message points at Admin rather than the read roles the key already holds.
+APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR = (
+    "Your App Store Connect API key cannot start analytics reports. Apple lets only an Admin key "
+    "create an analytics report request. Give the key the Admin role, then reconnect."
+)
+
+# The app's ONGOING analytics report request stopped after a period of inactivity, and the key's
+# role can't create the replacement Apple now needs.
+APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR = (
+    "Your App Store Connect analytics report request stopped because of inactivity. Apple needs a "
+    "new request, which only an Admin key can create. Give the key the Admin role, then reconnect."
+)
+
+# A sales or subscription report sync started without a vendor number. `/v1/salesReports` can't be
+# read without one, so every retry fails identically until the user adds it in the source settings.
+# `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
+APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR = (
+    "Syncing App Store Connect sales reports needs your vendor number. "
+    "Add it in the source settings, then run the sync again."
+)
+
+
+@frozen
+class _AppleApiError:
+    code: str | None
+    title: str | None
+    detail: str | None
+
+
+def _parse_apple_error(response: requests.Response) -> _AppleApiError:
+    """Pull the first JSON:API error out of an App Store Connect 4xx body.
+
+    Apple returns ``{"errors": [{"code", "title", "detail", ...}]}``, but an edge or proxy can
+    return non-JSON, so parse defensively and leave fields ``None`` when the body has no usable error.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return _AppleApiError(code=None, title=None, detail=None)
+    errors = body.get("errors") if isinstance(body, dict) else None
+    first = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else {}
+    return _AppleApiError(
+        code=first.get("code") if isinstance(first.get("code"), str) else None,
+        title=first.get("title") if isinstance(first.get("title"), str) else None,
+        detail=first.get("detail") if isinstance(first.get("detail"), str) else None,
+    )
+
+
+def _apple_error_suffix(error: _AppleApiError, status_code: int) -> str:
+    """Apple's own words appended to a raised message so support sees what Apple actually said."""
+    parts = [part for part in (error.code, error.title, error.detail) if part]
+    if parts:
+        return f"Apple said: {'; '.join(parts)} (HTTP {status_code})"
+    return f"HTTP {status_code}"
 
 
 def _require_api_url(url: str) -> str:
@@ -217,6 +289,21 @@ def _get(
     if response.status_code in tolerate:
         return response
 
+    if response.status_code == 403:
+        # A read the key's role can't perform. Carry Apple's own error into the message and a
+        # structured log instead of asserting a role the key may already hold.
+        apple_error = _parse_apple_error(response)
+        logger.error(
+            "App Store Connect read forbidden",
+            url=url,
+            apple_code=apple_error.code,
+            apple_title=apple_error.title,
+            apple_detail=apple_error.detail,
+        )
+        raise AppStoreConnectPermissionError(
+            f"{APP_STORE_CONNECT_READ_FORBIDDEN_ERROR} ({_apple_error_suffix(apple_error, 403)})"
+        )
+
     if not response.ok:
         logger.error(
             f"App Store Connect API error: status={response.status_code}, body={response.text[:500]}, url={url}"
@@ -236,6 +323,196 @@ def _flatten_resource(resource: dict[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = dict(attributes) if isinstance(attributes, dict) else {}
     row["id"] = resource.get("id")
     row["type"] = resource.get("type")
+    return row
+
+
+class _ParseFailureCounter:
+    """Counts typed-column values that failed to parse and were stored as null.
+
+    Null-on-unparseable is the deliberate failure policy for typed ingest: a malformed cell must
+    never fail the whole sync, and keeping the raw string instead would flip the column's Arrow
+    type between batches, which degrades the whole column back to text. Failures are logged as one
+    warning per column on its first occurrence (with a truncated sample) plus one aggregate summary
+    per run, never one line per value, so a systematically wrong file stays visible without
+    flooding the logs. The typed columns hold only dates, counts, and prices, so a sample value
+    can't carry personal data.
+    """
+
+    def __init__(self, logger: FilteringBoundLogger, endpoint: str) -> None:
+        self._logger = logger
+        self._endpoint = endpoint
+        self.counts: dict[str, int] = {}
+
+    def record(self, column: str, value: Any) -> None:
+        self.counts[column] = self.counts.get(column, 0) + 1
+        if self.counts[column] == 1:
+            self._logger.warning(
+                f"App Store Connect: unparseable value stored as null. "
+                f"endpoint={self._endpoint}, column={column}, value={str(value)[:40]!r}. "
+                f"Further failures in this column are counted and summarized when the run ends."
+            )
+
+    def flush(self) -> None:
+        if not self.counts:
+            return
+        total = sum(self.counts.values())
+        self._logger.warning(
+            f"App Store Connect: {total} unparseable value(s) stored as null this run. "
+            f"endpoint={self._endpoint}, failures_by_column={self.counts}"
+        )
+
+
+# Name-driven typing for the delimited report families (sales/subscription reports and the
+# analytics report streams), whose files are text with no type information. Columns are typed by
+# NAME wherever they appear rather than per endpoint: Apple varies each report's column set by
+# report type and version, and publishes Standard/Detailed variants of the analytics reports, so a
+# name-driven mapping covers a column in every stream that carries it, including variants added
+# later. Names not listed stay text; identifier-like numeric columns (apple_identifier,
+# app_apple_id, subscription_apple_id, ...) deliberately stay text because they are join keys, not
+# quantities, as do the Detailed-only attribution columns (campaign, page_title, source_info).
+_REPORT_DATE_COLUMNS = frozenset(
+    {
+        # Sales and subscription-event reports carry month-first MM/DD/YYYY dates.
+        "begin_date",
+        "end_date",
+        "event_date",
+        "original_start_date",
+        # Analytics reports carry ISO YYYY-MM-DD dates.
+        "date",
+        "app_download_date",
+        "pre_order_start_date",
+        "pre_order_end_date",
+    }
+)
+_REPORT_INTEGER_COLUMNS = frozenset(
+    {
+        # Sales/subscription reports. Units can be negative: Apple books refunds as negative units.
+        "units",
+        "quantity",
+        "subscribers",
+        "consecutive_paid_periods",
+        "days_before_canceling",
+        "days_canceled",
+        # Analytics reports.
+        "sessions",
+        "unique_devices",
+        "counts",
+        "unique_counts",
+        "crashes",
+        "pre_orders_placed",
+        "pre_orders_canceled",
+    }
+)
+_REPORT_FLOAT_COLUMNS = frozenset(
+    {
+        # Monetary columns are amounts in the row's own currency column (customer_currency,
+        # currency_of_proceeds/proceeds_currency); the numeric type makes them filterable and
+        # summable WITHIN one currency, never across currencies.
+        "customer_price",
+        "developer_proceeds",
+        "total_session_duration",
+    }
+)
+
+_REPORT_DATE_FORMATS = ("%m/%d/%Y", "%Y-%m-%d")
+
+
+def _parse_report_date(text: str) -> date | None:
+    # Apple documents sales-report dates as month-first MM/DD/YYYY for every report type (layouts
+    # are fixed per report version, not localized per territory); analytics report files carry ISO
+    # YYYY-MM-DD. Both formats use strictly numeric strptime directives, which never consult the
+    # process locale, and a day-first reading is never attempted: a value like 13/01/2026 fails to
+    # parse rather than being silently guessed as January 13.
+    for fmt in _REPORT_DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_report_int(text: str) -> int | None:
+    # Commas only ever appear as US-style thousands separators in Apple's reports; the decimal
+    # separator is always a point.
+    digits = text.replace(",", "")
+    try:
+        return int(digits)
+    except ValueError:
+        pass
+    try:
+        number = float(digits)
+    except ValueError:
+        return None
+    # A count that arrives as a whole-valued float ("3.0") still lands as an integer. A fractional
+    # or non-finite value nulls rather than silently truncating, and 2**53 bounds the conversion to
+    # where float holds integers exactly.
+    return int(number) if math.isfinite(number) and number.is_integer() and abs(number) <= 2**53 else None
+
+
+def _parse_report_float(text: str) -> float | None:
+    try:
+        number = float(text.replace(",", ""))
+    except ValueError:
+        return None
+    # float() accepts "nan"/"inf", which no report legitimately contains.
+    return number if math.isfinite(number) else None
+
+
+def _parse_iso_datetime(text: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _typed_report_value(column: str, value: Any, failures: _ParseFailureCounter) -> Any:
+    """Parse one delimited-report cell into its typed value, or null when it can't be parsed."""
+    if not isinstance(value, str):
+        return value
+    if column in _REPORT_DATE_COLUMNS:
+        parse: Callable[[str], Any] = _parse_report_date
+    elif column in _REPORT_INTEGER_COLUMNS:
+        parse = _parse_report_int
+    elif column in _REPORT_FLOAT_COLUMNS:
+        parse = _parse_report_float
+    else:
+        return value
+
+    text = value.strip()
+    if not text:
+        # Blank cells are routine (an empty price on a free row, an unset offer duration); they
+        # are nulls, not parse failures.
+        return None
+    parsed = parse(text)
+    if parsed is None:
+        failures.record(column, value)
+    return parsed
+
+
+def _typed_json_api_row(row: dict[str, Any], failures: _ParseFailureCounter) -> dict[str, Any]:
+    """Convert a JSON:API row's ISO 8601 date-time attributes to UTC datetimes, in place.
+
+    Apple's JSON:API resources carry every timestamp in an attribute named `...Date` (createdDate,
+    uploadedDate, expirationDate, earliestReleaseDate, lastModifiedDate), so the rule is
+    suffix-driven rather than a per-endpoint column list and covers attributes added later. Values
+    normalize to UTC because Apple emits varying local offsets and one column must stay in one
+    zone. Only table rows come through here; the resources the sync reads internally
+    (analyticsReportInstances and friends) keep their raw strings.
+    """
+    for key, value in row.items():
+        if not key.endswith("Date") or not isinstance(value, str):
+            continue
+        text = value.strip()
+        if not text:
+            row[key] = None
+            continue
+        parsed = _parse_iso_datetime(text)
+        if parsed is None:
+            failures.record(key, value)
+        row[key] = parsed
     return row
 
 
@@ -291,12 +568,14 @@ def _iter_pages(
         page_params = None
 
 
-def _page_rows(config: AppStoreConnectEndpointConfig, page: _Page) -> list[dict[str, Any]]:
+def _page_rows(
+    config: AppStoreConnectEndpointConfig, page: _Page, failures: _ParseFailureCounter
+) -> list[dict[str, Any]]:
     """Rows for one page: the flattened ``data`` resources, or, for endpoints configured to read a
     related resource off another collection's pages, the flattened ``included`` resources of that type.
     """
     if config.rows_from_included_type is None:
-        return [_flatten_resource(resource) for resource in page.resources]
+        return [_typed_json_api_row(_flatten_resource(resource), failures) for resource in page.resources]
 
     # JSON:API full linkage guarantees every included resource is referenced from a primary
     # resource's relationship linkage; that linkage is where each row's parent id comes from.
@@ -320,7 +599,7 @@ def _page_rows(config: AppStoreConnectEndpointConfig, page: _Page) -> list[dict[
             continue
         row = _flatten_resource(resource)
         row[config.included_parent_column] = parent_ids.get(str(resource.get("id")))
-        rows.append(row)
+        rows.append(_typed_json_api_row(row, failures))
     return rows
 
 
@@ -347,6 +626,7 @@ def _get_collection(
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
+    failures: _ParseFailureCounter,
 ) -> Iterator[list[dict[str, Any]]]:
     resume = _load_resume(manager)
     resumed_url = resume.next_url if resume is not None else None
@@ -355,7 +635,7 @@ def _get_collection(
     params: dict[str, Any] | None = None if resumed_url else dict(config.params)
 
     for page in _iter_pages(session, token_provider, logger, url, params):
-        rows = _page_rows(config, page)
+        rows = _page_rows(config, page, failures)
         if rows:
             yield rows
         # Save AFTER yielding so a crash re-fetches the page we just emitted rather than skipping it;
@@ -370,6 +650,7 @@ def _get_app_fanout(
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
+    failures: _ParseFailureCounter,
 ) -> Iterator[list[dict[str, Any]]]:
     app_ids = _list_app_ids(session, token_provider, logger)
     resume = _load_resume(manager)
@@ -393,7 +674,7 @@ def _get_app_fanout(
             params = dict(config.params)
 
         for page in _iter_pages(session, token_provider, logger, url, params):
-            rows = _page_rows(config, page)
+            rows = _page_rows(config, page, failures)
             if rows:
                 for row in rows:
                     row["app_id"] = app_id
@@ -434,7 +715,7 @@ def _decompress_report(payload: bytes) -> str:
     return raw.decode("utf-8-sig", errors="replace")
 
 
-def _parse_report(payload: bytes, report_date: date) -> list[dict[str, Any]]:
+def _parse_report(payload: bytes, report_date: date, failures: _ParseFailureCounter) -> list[dict[str, Any]]:
     reader = csv.reader(io.StringIO(_decompress_report(payload)), delimiter="\t")
     try:
         header = next(reader)
@@ -442,16 +723,16 @@ def _parse_report(payload: bytes, report_date: date) -> list[dict[str, Any]]:
         return []
 
     columns = [_normalize_report_column(column) for column in header]
-    report_date_str = report_date.isoformat()
     rows: list[dict[str, Any]] = []
 
     for values in reader:
         if not any(value.strip() for value in values):
             continue
         row: dict[str, Any] = {
-            column: (values[index] if index < len(values) else None) for index, column in enumerate(columns)
+            column: _typed_report_value(column, values[index] if index < len(values) else None, failures)
+            for index, column in enumerate(columns)
         }
-        row["report_date"] = report_date_str
+        row["report_date"] = report_date
         # 1-based position in the file. A published day's report is immutable, so (report_date, _line)
         # is a stable unique key and re-reading a day merges instead of duplicating.
         row["_line"] = len(rows) + 1
@@ -467,6 +748,7 @@ def _fetch_report(
     logger: FilteringBoundLogger,
     vendor_number: str,
     report_date: date,
+    failures: _ParseFailureCounter,
 ) -> list[dict[str, Any]]:
     params: dict[str, str] = {
         "filter[frequency]": config.report_frequency,
@@ -494,7 +776,7 @@ def _fetch_report(
         # same condition instead (see `missing_report_status_codes`).
         return []
 
-    return _parse_report(response.content, report_date)
+    return _parse_report(response.content, report_date, failures)
 
 
 def _get_sales_report(
@@ -503,15 +785,13 @@ def _get_sales_report(
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
+    failures: _ParseFailureCounter,
     vendor_number: str | None,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     if not vendor_number:
-        raise ValueError(
-            "Syncing App Store Connect sales reports needs your vendor number. "
-            "Add it in the source settings, then run the sync again."
-        )
+        raise ValueError(APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR)
 
     today = datetime.now(UTC).date()
     end = today - timedelta(days=SALES_REPORT_END_OFFSET_DAYS)
@@ -533,7 +813,7 @@ def _get_sales_report(
     report_date = start
     days_fetched = 0
     while report_date <= end and days_fetched < SALES_REPORT_MAX_DAYS_PER_RUN:
-        rows = _fetch_report(session, config, token_provider, logger, vendor_number, report_date)
+        rows = _fetch_report(session, config, token_provider, logger, vendor_number, report_date, failures)
         if rows:
             yield rows
 
@@ -617,7 +897,9 @@ def _ensure_report_request(
     """
     list_url = f"{BASE_URL}/v1/apps/{app_id}/analyticsReportRequests"
 
-    def _active_request_id() -> str | None:
+    def _active_request_id() -> tuple[str | None, bool]:
+        """Returns ``(active_request_id, saw_stopped)`` — the active request to reuse, and whether an
+        ONGOING request stopped due to inactivity was skipped, so the create 403 can name that cause."""
         body = _get(
             session,
             list_url,
@@ -626,16 +908,18 @@ def _ensure_report_request(
             params={"filter[accessType]": "ONGOING", "limit": MAX_PAGE_SIZE},
         ).json()
         data = body.get("data") if isinstance(body, dict) else None
+        saw_stopped = False
         for resource in data or []:
             if not isinstance(resource, dict) or not resource.get("id"):
                 continue
             attributes = resource.get("attributes")
             if isinstance(attributes, dict) and attributes.get("stoppedDueToInactivity"):
+                saw_stopped = True
                 continue
-            return str(resource["id"])
-        return None
+            return str(resource["id"]), saw_stopped
+        return None, saw_stopped
 
-    existing = _active_request_id()
+    existing, saw_stopped = _active_request_id()
     if existing:
         return existing, False
 
@@ -652,11 +936,30 @@ def _ensure_report_request(
         token_provider=token_provider,
         logger=logger,
         payload=payload,
-        tolerate=(409,),
+        tolerate=(403, 409),
     )
+    if response.status_code == 403:
+        # Apple gates this create on Admin, but a Sales or Finance key reads reports fine, so a bare
+        # read-role message would name a role the key already holds. Tell the operator the create
+        # needs Admin, and say when the trigger was an inactivity-stopped request instead.
+        apple_error = _parse_apple_error(response)
+        logger.error(
+            "App Store Connect analytics report request create forbidden",
+            app_id=app_id,
+            stopped_due_to_inactivity=saw_stopped,
+            apple_code=apple_error.code,
+            apple_title=apple_error.title,
+            apple_detail=apple_error.detail,
+        )
+        message = (
+            APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR
+            if saw_stopped
+            else APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR
+        )
+        raise AppStoreConnectPermissionError(f"{message} ({_apple_error_suffix(apple_error, 403)})")
     if response.status_code == 409:
         # A concurrent sync (or a request the accessType filter hid) beat us to it.
-        return _active_request_id(), False
+        return _active_request_id()[0], False
 
     body = response.json()
     data = body.get("data") if isinstance(body, dict) else None
@@ -790,7 +1093,9 @@ def _open_segment_text(spool: IO[bytes]) -> IO[str]:
     return io.TextIOWrapper(spool, encoding="utf-8-sig", errors="replace")
 
 
-def _iter_segment_rows(text: IO[str], processing_date: date, line_start: int) -> Iterator[dict[str, Any]]:
+def _iter_segment_rows(
+    text: IO[str], processing_date: date, line_start: int, failures: _ParseFailureCounter
+) -> Iterator[dict[str, Any]]:
     header_line = text.readline()
     if not header_line.strip():
         return
@@ -799,16 +1104,16 @@ def _iter_segment_rows(text: IO[str], processing_date: date, line_start: int) ->
     # delimited text, so sniff the delimiter from the header instead of assuming one.
     delimiter = "\t" if "\t" in header_line else ","
     columns = [_normalize_report_column(column) for column in next(csv.reader([header_line], delimiter=delimiter))]
-    processing_date_str = processing_date.isoformat()
     line = line_start
 
     for values in csv.reader(text, delimiter=delimiter):
         if not any(value.strip() for value in values):
             continue
         row: dict[str, Any] = {
-            column: (values[index] if index < len(values) else None) for index, column in enumerate(columns)
+            column: _typed_report_value(column, values[index] if index < len(values) else None, failures)
+            for index, column in enumerate(columns)
         }
-        row["processing_date"] = processing_date_str
+        row["processing_date"] = processing_date
         # 1-based position within the instance, continuing across its segments. A published
         # instance is immutable, so (app_id, processing_date, _line) stays a stable unique key
         # and re-reading an instance merges instead of duplicating.
@@ -824,6 +1129,7 @@ def _get_analytics_report(
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
+    failures: _ParseFailureCounter,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -903,7 +1209,7 @@ def _get_analytics_report(
                 spool = _download_segment(logger, segment)
                 try:
                     with _open_segment_text(spool) as text:
-                        for row in _iter_segment_rows(text, processing_date, line):
+                        for row in _iter_segment_rows(text, processing_date, line, failures):
                             row["app_id"] = app_id
                             line = row["_line"]
                             batch.append(row)
@@ -963,36 +1269,44 @@ def get_rows(
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
     session = _make_session(private_key)
     token_provider = AppStoreConnectTokenProvider(issuer_id, key_id, private_key)
+    failures = _ParseFailureCounter(logger, endpoint)
 
-    if config.kind == "collection":
-        yield from _get_collection(session, config, token_provider, logger, resumable_source_manager)
-    elif config.kind == "app_fanout":
-        yield from _get_app_fanout(session, config, token_provider, logger, resumable_source_manager)
-    elif config.kind == "analytics_report":
-        yield from _get_analytics_report(
-            session,
-            # Segment listings ride a capture-disabled session: their bodies carry presigned
-            # URLs whose query strings are short-lived credentials the name-based scrubbers
-            # can't recognise.
-            _make_session(private_key, capture=False),
-            config,
-            token_provider,
-            logger,
-            resumable_source_manager,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
-    else:  # "sales_report"
-        yield from _get_sales_report(
-            session,
-            config,
-            token_provider,
-            logger,
-            resumable_source_manager,
-            vendor_number,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
+    try:
+        if config.kind == "collection":
+            yield from _get_collection(session, config, token_provider, logger, resumable_source_manager, failures)
+        elif config.kind == "app_fanout":
+            yield from _get_app_fanout(session, config, token_provider, logger, resumable_source_manager, failures)
+        elif config.kind == "analytics_report":
+            yield from _get_analytics_report(
+                session,
+                # Segment listings ride a capture-disabled session: their bodies carry presigned
+                # URLs whose query strings are short-lived credentials the name-based scrubbers
+                # can't recognise.
+                _make_session(private_key, capture=False),
+                config,
+                token_provider,
+                logger,
+                resumable_source_manager,
+                failures,
+                should_use_incremental_field,
+                db_incremental_field_last_value,
+            )
+        else:  # "sales_report"
+            yield from _get_sales_report(
+                session,
+                config,
+                token_provider,
+                logger,
+                resumable_source_manager,
+                failures,
+                vendor_number,
+                should_use_incremental_field,
+                db_incremental_field_last_value,
+            )
+    finally:
+        # The unparseable-value summary rides the generator's teardown so it also surfaces for a
+        # run that fails or is abandoned mid-walk.
+        failures.flush()
 
     # Walked to completion, so drop the checkpoint — leaving it would let a later attempt on this job
     # resume mid-stream instead of restarting cleanly.

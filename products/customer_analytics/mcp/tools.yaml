@@ -99,6 +99,21 @@ tools:
     account-relationship-definitions-update:
         operation: account_relationship_definitions_update
         enabled: false
+    account-track-rules-list:
+        operation: account_track_rules_list
+        enabled: false
+    account-track-rules-preview-create:
+        operation: account_track_rules_preview_create
+        enabled: false
+    account-track-rules-run-create:
+        operation: account_track_rules_run_create
+        enabled: false
+    account-track-rules-runs-list:
+        operation: account_track_rules_runs_list
+        enabled: false
+    account-track-rules-update:
+        operation: account_track_rules_update
+        enabled: false
     accounts-create:
         operation: accounts_create
         enabled: true
@@ -113,8 +128,9 @@ tools:
             Create a new Customer Analytics account. An account is a logical container for assigning ownership across
             the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional
             `properties` to set external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`,
-            `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account. To assign users (CSM, account
-            executive, ...), use `accounts-relationships-create` after creating the account.
+            `sfdc_id`, `zendesk_id`), optional `tags` to categorize the account, and optional `churned_at` as an
+            ISO-8601 timestamp (null means not churned). To assign users (CSM, account executive, ...), use
+            `accounts-relationships-create` after creating the account.
         param_overrides:
             properties:
                 description: >
@@ -177,6 +193,12 @@ tools:
         description: |
             Permanently delete a Customer Analytics account by id.
         feature_flag: customer-analytics-csp
+    accounts-email-thread-messages-list:
+        operation: accounts_email_thread_messages_list
+        enabled: false
+    accounts-email-threads-list:
+        operation: accounts_email_threads_list
+        enabled: false
     accounts-list:
         operation: accounts_list
         enabled: true
@@ -191,18 +213,23 @@ tools:
         description: >
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
             account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id,
-            hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. User assignments
-            (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags`
-            (JSON-encoded array, e.g. `["enterprise","priority"]`) to filter to accounts that have any of the listed
-            tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields
-            only; teams also define their own typed attributes as custom properties, which do not appear here. Call
-            `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than
-            assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific
-            account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>`
-            (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g.
-            `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the
-            tab.
+            hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), `ignored_at`
+            (null if tracked), and creation/update metadata. User assignments (CSM, account executive, ...) live on
+            account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g.
+            `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve`
+            for a single account by id. The `properties` above are the built-in fields only; teams also define their own
+            typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list`
+            first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole
+            schema or guessing at property names. To link a user to a specific account rather than the bare list,
+            deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is
+            optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the
+            list to that account, expands it, and opens the tab. Churned and ignored accounts are hidden by default. Set
+            `include_churned` or `include_ignored` to true to include them.
         param_overrides:
+            include_churned:
+                description: Include churned accounts. Churned accounts are hidden by default.
+            include_ignored:
+                description: Include ignored accounts. Ignored accounts are hidden by default.
             tags:
                 description: >
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
@@ -284,7 +311,8 @@ tools:
         title: Update account
         description: >
             Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are
-            left unchanged. Pass `tags` to replace the full set of tags on the account.
+            left unchanged. Pass `tags` to replace the full set of tags. Set `churned_at` to an ISO-8601 timestamp to
+            mark the account as churned, or null to mark it as active again.
         param_overrides:
             properties:
                 description: >
@@ -364,10 +392,11 @@ tools:
         title: Get account
         description: >
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties`
-            (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. User
-            assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`.
-            These are the built-in fields only; a team's own typed attributes are custom properties and are not returned
-            here. Call `custom-property-definitions-list` to see what the team tracks, then
+            (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers), `tags`,
+            `churned_at` (null if the account has not churned), and `ignored_at` (null if tracked). User assignments
+            (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are
+            the built-in fields only; a team's own typed attributes are custom properties and are not returned here.
+            Call `custom-property-definitions-list` to see what the team tracks, then
             `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than
             the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`;
             tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
@@ -392,6 +421,9 @@ tools:
             covered, even if the account is later rebound to another channel. Returns an empty list when the account has
             no bound channel, summaries are off (`slack_summary_cadence` is null), or nothing has been generated yet.
         feature_flag: customer-analytics-csp
+    accounts-support-ticket-messages-list:
+        operation: accounts_support_ticket_messages_list
+        enabled: false
     accounts-support-tickets-list:
         operation: accounts_support_tickets_list
         enabled: false
@@ -502,9 +534,9 @@ tools:
             currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large numeric values
             (e.g. 10,000 → 10K; only valid for numeric display types). `target_type` picks what the property attaches
             to: `account` (default; value set manually or from a materialized view), `person`, or `group` (person/group
-            properties are populated from a warehouse table via a custom property source and become usable like any
-            other person/group property in feature flags, cohorts, and insights). For `group` targets, also pass
-            `group_type_index` (0-4) selecting the group type. Person and group targets require the
+            properties are populated from a warehouse table or a materialized view via a custom property source and
+            become usable like any other person/group property in feature flags, cohorts, and insights). For `group`
+            targets, also pass `group_type_index` (0-4) selecting the group type. Person and group targets require the
             `warehouse-person-properties` feature; creating a `group` target additionally requires the `group:write`
             scope. Definitions are team-scoped; for account targets, set the value a specific account holds via the
             account custom property value tools.
@@ -603,11 +635,12 @@ tools:
             idempotent: false
         title: Backfill a warehouse person- or group-property source
         description: >
-            Person- and group-property sources only: start a backfill that reads the whole warehouse table and populates
-            person or group properties for its historical rows. Backfill is per table — one call refreshes every enabled
-            property mapped from that table — and it coalesces if one is already running for the table (the response's
-            `already_running` is then true). Returns 400 for a source that is not an enabled person- or group-property
-            source. Backfilling a group-target source additionally requires the `group:write` scope.
+            Person- and group-property sources only: start a backfill that reads the whole warehouse table or view and
+            populates person or group properties for its historical rows. Backfill is per table or view — one call
+            refreshes every enabled property mapped from it — and it coalesces if one is already running for that table
+            or view (the response's `already_running` is then true). Returns 400 for a source that is not an enabled
+            person- or group-property source. Backfilling a group-target source additionally requires the `group:write`
+            scope.
         feature_flag: warehouse-person-properties
     custom-property-sources-create:
         operation: custom_property_sources_create
@@ -621,9 +654,10 @@ tools:
         title: Create custom property source
         description: >
             Bind a custom property definition to a data source. Account sources read a materialized view (`saved_query`
-            + `source_column`); person and group sources read a synced warehouse table (`external_data_schema` +
-            `column_property_map` mapping warehouse columns to person/group properties, plus `key_column` = the
-            distinct_id column for person sources or the group-key column for group sources). One source per definition.
+            + `source_column`). Person and group sources read either a synced warehouse table (`external_data_schema`)
+            or a materialized view (`saved_query`) — pass exactly one — plus `column_property_map` mapping warehouse
+            columns to person/group properties and `key_column` = the distinct_id column for person sources or the
+            group-key column for group sources. A view binding must already be materialized. One source per definition.
             The target (account, person, or group) follows the bound definition's `target_type`; creating a source for a
             group-target definition additionally requires the `group:write` scope.
         feature_flag: customer-analytics-csp
@@ -718,10 +752,11 @@ tools:
             idempotent: false
         title: Sync a warehouse person- or group-property source now
         description: >
-            Person- and group-property sources only: trigger the underlying warehouse schema's sync now. This re-runs a
-            real (billable) warehouse sync, and the incremental person/group-property update rides off it. It does not
-            reset the schema's recurring sync schedule. Returns 400 for a source that is not an enabled person- or
-            group-property source. Syncing a group-target source additionally requires the `group:write` scope.
+            Person- and group-property sources only: run what the source reads now. A table binding re-runs a real
+            (billable) warehouse sync; a view binding materializes the view. The incremental person/group-property
+            update rides off that run. It does not reset the recurring schedule. Returns 400 for a source that is not an
+            enabled person- or group-property source, and for a view whose data-modeling DAG is not on the v2 schedule
+            (use backfill there instead). Syncing a group-target source additionally requires the `group:write` scope.
         feature_flag: warehouse-person-properties
     custom-property-sources-update:
         operation: custom_property_sources_update
@@ -877,25 +912,258 @@ tools:
         enabled: false
     feature-request-product-areas-create:
         operation: feature_request_product_areas_create
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create feature request product area
+        description: >
+            Create a product area for categorizing Customer analytics feature requests. Manager access to Customer
+            analytics is required. Provide a unique `name` and optional `display_order`. Lower display orders appear
+            first. New areas are active by default.
+        feature_flag: customer-analytics-feature-requests
     feature-request-product-areas-list:
         operation: feature_request_product_areas_list
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List feature request product areas
+        description: >
+            List active product areas used to categorize Customer analytics feature requests. Each area includes its
+            `id`, `name`, `display_order`, and active state. Set `include_inactive` to true when editing an existing
+            request or managing areas. The same data is queryable through `system.feature_request_product_areas`.
+        feature_flag: customer-analytics-feature-requests
     feature-request-product-areas-partial-update:
         operation: feature_request_product_areas_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update feature request product area
+        description: >
+            Update a feature request product area by id. Manager access to Customer analytics is required. Accepts any
+            subset of `name`, `display_order`, and `is_active`. Inactive areas remain on requests that already use them,
+            but editors cannot add them to new requests.
+        feature_flag: customer-analytics-feature-requests
     feature-request-product-areas-update:
         operation: feature_request_product_areas_update
         enabled: false
+    feature-requests-add-account-create:
+        operation: feature_requests_add_account_create
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: feature-requests/{id}
+        title: Link account to feature request
+        description: >
+            Link another accessible account to a Customer analytics feature request. Pass the request `id`, its current
+            `expected_version`, and the account id. You can also provide the account's first evidence item in the same
+            atomic change. Relinking an account restores its preserved evidence. The response contains the updated
+            request and its next version.
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-add-evidence-create:
+        operation: feature_requests_add_evidence_create
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: feature-requests/{id}
+        title: Add feature request evidence
+        description: >
+            Add evidence to an active account link on a Customer analytics feature request. Pass the request `id`, its
+            current `expected_version`, the `account_link_id`, a free-form `evidence_source`, and at least one of
+            `summary`, `customer_quote`, `source_url`, or `image_ids`. Image IDs must refer to uploaded images in the
+            current project. The response contains the updated request and its next version.
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-archive-create:
+        operation: feature_requests_archive_create
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: feature-requests/{id}
+        title: Archive feature request
+        description: >
+            Archive a Customer analytics feature request without deleting its account links, evidence, product areas, or
+            history. Pass the request `id` and its current `expected_version`. Archived requests cannot be edited until
+            restored.
+        feature_flag: customer-analytics-feature-requests
     feature-requests-create:
         operation: feature_requests_create
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: feature-requests/{id}
+        title: Create feature request
+        description: >
+            Create a Customer analytics feature request linked to one accessible account and one or more active product
+            areas. Provide a client-generated UUID as `idempotency_key`. Retrying with the same key returns the original
+            request. Use `accounts-list` and `feature-request-product-areas-list` to resolve the required IDs.
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-history-list:
+        operation: feature_requests_history_list
+        enabled: true
+        scopes:
+            - customer_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List feature request history
+        description: >
+            List the complete change history for a Customer analytics feature request, newest first. Entries group the
+            status, priority, account, evidence, and product area changes from one successful save. Account snapshots
+            the caller cannot access are removed or redacted. HogQL `system.feature_request_history` exposes entry
+            metadata and changed field names, but not before and after values.
+        feature_flag: customer-analytics-feature-requests
     feature-requests-list:
         operation: feature_requests_list
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: feature-requests/{id}
+        list: true
+        title: List feature requests
+        description: >
+            List Customer analytics feature requests linked to accounts the caller can access. Filter by search text,
+            lifecycle status, priority, product area, account, or archive state. Active requests are returned by
+            default. Each request includes its active visible account links, account-specific evidence, product areas,
+            and version. For bulk reads and aggregations, query `system.feature_requests` and its related system tables.
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-partial-update:
+        operation: feature_requests_partial_update
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: feature-requests/{id}
+        title: Update feature request
+        description: >
+            Update a Customer analytics feature request by id. Pass its current `expected_version` and any subset of
+            `title`, `description`, `account_ids`, `product_area_ids`, `request_status`, and `request_priority`. Pass
+            null as `request_priority` to remove the priority. Removing an account unlinks it but preserves its evidence
+            for a later relink. The response contains the next version.
+        param_overrides:
+            expected_version:
+                required: true
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-remove-evidence-create:
+        operation: feature_requests_remove_evidence_create
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: feature-requests/{id}
+        title: Delete feature request evidence
+        description: >
+            Permanently delete one evidence item from a Customer analytics feature request. Pass the request `id`, its
+            current `expected_version`, and the `evidence_id`. The request, account link, and other evidence remain. The
+            response contains the updated request and its next version.
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-restore-create:
+        operation: feature_requests_restore_create
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: feature-requests/{id}
+        title: Restore feature request
+        description: >
+            Restore an archived Customer analytics feature request so editors can change it again. Pass the request `id`
+            and its current `expected_version`. Account links, evidence, product areas, and history remain attached.
+        feature_flag: customer-analytics-feature-requests
     feature-requests-retrieve:
         operation: feature_requests_retrieve
+        enabled: true
+        scopes:
+            - customer_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: feature-requests/{id}
+        title: Get feature request
+        description: >
+            Fetch one Customer analytics feature request by id. The response includes its lifecycle status, priority,
+            archive state, version, active account links visible to the caller, account-specific evidence, and product
+            areas. Use the returned `version` as `expected_version` for the next mutation.
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-status-history-list:
+        operation: feature_requests_status_history_list
+        enabled: true
+        scopes:
+            - customer_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List feature request status history
+        description: >
+            List status changes for one Customer analytics feature request, newest first. Each entry includes the
+            previous status, resulting status, actor, source, and change time. HogQL `system.feature_request_history`
+            exposes when changes occurred and which fields changed, but not status values.
+        feature_flag: customer-analytics-feature-requests
+    feature-requests-update:
+        operation: feature_requests_update
         enabled: false
+    feature-requests-update-evidence-create:
+        operation: feature_requests_update_evidence_create
+        enabled: true
+        scopes:
+            - customer_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: feature-requests/{id}
+        title: Update feature request evidence
+        description: >
+            Replace the editable fields of one feature request evidence item. Pass the request `id`, its current
+            `expected_version`, the `evidence_id`, a free-form `evidence_source`, and the complete values for `summary`,
+            `customer_quote`, `source_url`, and `requested_on`. Pass `image_ids` to replace attached images, or omit it
+            to preserve them. Image IDs must refer to uploaded images in the current project. The response contains the
+            updated request and its next version.
+        feature_flag: customer-analytics-feature-requests
     usage-metrics-create:
         operation: groups_types_metrics_create
         enabled: true
