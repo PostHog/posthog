@@ -428,6 +428,7 @@ When multiple Redis instances are configured, work is partitioned by consistent 
 | `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`) |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier promotion/demotion events |
 | `global_rate_limiter_cache_size` | Gauge | Live local cache entry count vs cap |
+| `global_rate_limiter_window_seconds` | Gauge | Configured `window_interval` per scope. Deployments that share a Redis key prefix must report the same value, or their epoch keys diverge and the shared counter splits |
 | `global_rate_limiter_eviction_total` | Counter | Cache evictions by cause (size/expired/explicit) |
 | `global_rate_limiter_estimate_drift` | Histogram | Local vs Redis accuracy |
 | `global_rate_limiter_sync_staleness_ms` | Histogram | Real staleness at access time |
