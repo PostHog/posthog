@@ -13,9 +13,6 @@ from posthog.cdp.validation import compile_hog
 
 from products.cdp.backend.prompts import (
     DESTINATION_LIMITATIONS_MESSAGE,
-    EVENT_PROPERTY_TAXONOMY_MESSAGE,
-    EVENT_TAXONOMY_MESSAGE,
-    FILTER_TAXONOMY_MESSAGE,
     HOG_EXAMPLE_MESSAGE,
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
@@ -25,9 +22,12 @@ from products.cdp.backend.prompts import (
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
     IDENTITY_MESSAGE_HOG,
     INPUT_SCHEMA_TYPES_MESSAGE,
-    PERSON_TAXONOMY_MESSAGE,
     TRANSFORMATION_LIMITATIONS_MESSAGE,
     TRANSFORMATION_STRUCTURE_MESSAGE,
+    render_event_property_taxonomy,
+    render_event_taxonomy,
+    render_filter_operator_taxonomy,
+    render_person_property_taxonomy,
 )
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
@@ -165,22 +165,17 @@ class CreateHogFunctionFiltersTool(MaxTool):
         current_filters = self.context.get("current_filters", "{}")
         function_type = self.context.get("function_type", "destination")
 
-        system_content = (
-            HOG_FUNCTION_FILTERS_SYSTEM_PROMPT
-            + f"\n\nCurrent filters: {current_filters}"
-            + f"\nFunction type: {function_type}"
-            + "\n\n<event_taxonomy>\n"
-            + EVENT_TAXONOMY_MESSAGE
-            + "\n</event_taxonomy>\n\n"
-            + "\n\n<event_property_taxonomy>\n"
-            + EVENT_PROPERTY_TAXONOMY_MESSAGE
-            + "\n</event_property_taxonomy>\n\n"
-            + "\n\n<person_property_taxonomy>\n"
-            + PERSON_TAXONOMY_MESSAGE
-            + "\n</person_property_taxonomy>\n\n"
-            + "\n\n<filter_taxonomy>\n"
-            + FILTER_TAXONOMY_MESSAGE
-            + "\n</filter_taxonomy>"
+        system_content = "\n\n".join(
+            [
+                HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
+                render_event_taxonomy(),
+                render_event_property_taxonomy(),
+                render_person_property_taxonomy(),
+                render_filter_operator_taxonomy(),
+                # Last, so the taxonomy above stays an identical prefix across teams and requests
+                # and the provider's prompt cache can hit it.
+                f"Current filters: {current_filters}\nFunction type: {function_type}",
+            ]
         )
 
         user_content = f"Create filters for this hog function: {instructions}"

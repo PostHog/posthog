@@ -1,0 +1,93 @@
+import defusedxml.ElementTree as ET
+from parameterized import parameterized
+
+from posthog.schema import PropertyOperator
+
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, visible_definitions
+
+from products.cdp.backend.prompts import (
+    UNSUPPORTED_FILTER_OPERATORS,
+    render_event_property_taxonomy,
+    render_event_taxonomy,
+    render_filter_operator_taxonomy,
+    render_person_property_taxonomy,
+)
+
+from ee.hogai.summarizers.property_filters import PROPERTY_FILTER_VERBOSE_NAME
+
+
+def _texts(xml: str, tag: str) -> set[str]:
+    return {element.text or "" for element in ET.fromstring(xml).iter(tag)}
+
+
+class TestTaxonomyPrompts:
+    @parameterized.expand(
+        [
+            ("events", render_event_taxonomy),
+            ("event_properties", render_event_property_taxonomy),
+        ]
+    )
+    def test_render_covers_every_visible_taxonomy_entry(self, group, render):
+        assert _texts(render(), "name") == {name for name, _ in visible_definitions(group)}
+
+    def test_render_person_properties_covers_every_visible_non_virtual_entry(self):
+        # Virtual properties are excluded because a filter on one never matches at CDP runtime.
+        assert _texts(render_person_property_taxonomy(), "name") == {
+            name for name, definition in visible_definitions("person_properties") if not definition.get("virtual")
+        }
+
+    @parameterized.expand(
+        [
+            ("events", render_event_taxonomy, "$autocapture"),
+            ("event_properties", render_event_property_taxonomy, "$exception_steps"),
+            ("person_properties", render_person_property_taxonomy, "$initial_person_info"),
+        ]
+    )
+    def test_render_omits_hidden_taxonomy_entries(self, group, render, hidden_name):
+        # Asserted against literal names rather than `visible_definitions`, which the renderers
+        # also call: if that filter stopped excluding hidden entries, both sides would move
+        # together and the completeness test above would still pass.
+        assert hidden_name in CORE_FILTER_DEFINITIONS_BY_GROUP[group]
+        assert hidden_name not in _texts(render(), "name")
+
+    def test_render_event_taxonomy_carries_descriptions_and_examples(self):
+        events = {event.findtext("name"): event for event in ET.fromstring(render_event_taxonomy()).iter("event")}
+
+        identify = CORE_FILTER_DEFINITIONS_BY_GROUP["events"]["$identify"]
+        # `$identify` has both, so this also pins the `description_llm` precedence.
+        assert events["$identify"].findtext("description") == identify["description_llm"]
+        assert (
+            events["$pageview"].findtext("description")
+            == CORE_FILTER_DEFINITIONS_BY_GROUP["events"]["$pageview"]["description"]
+        )
+        assert events["$csp_violation"].findtext("examples")
+
+    def test_render_person_properties_describes_only_names_the_event_section_lacks(self):
+        # `email` has no counterpart in <event_property_taxonomy>, so this block is the only place
+        # the model can read its meaning. `$browser` is a copy, and the usage note sends the model
+        # next door for it.
+        properties = {
+            prop.findtext("name"): prop for prop in ET.fromstring(render_person_property_taxonomy()).iter("property")
+        }
+
+        assert properties["email"].findtext("description")
+        assert properties["$browser"].findtext("description") is None
+        assert properties["$initial_browser"].findtext("description") is None
+
+    def test_render_operators_uses_wire_values(self):
+        values = _texts(render_filter_operator_taxonomy(), "value")
+
+        assert values == {
+            operator.value for operator in PROPERTY_FILTER_VERBOSE_NAME if operator not in UNSUPPORTED_FILTER_OPERATORS
+        }
+        # These three have to stay reachable: they are the operators the model cannot express by
+        # any other means, so losing them from the prompt silently narrows what it can filter on.
+        assert {
+            PropertyOperator.STARTS_WITH.value,
+            PropertyOperator.ENDS_WITH.value,
+            PropertyOperator.SEMVER_GTE.value,
+        } <= values
+
+    def test_render_operators_omits_operators_hog_functions_cannot_compile(self):
+        assert PropertyOperator.FLAG_EVALUATES_TO in UNSUPPORTED_FILTER_OPERATORS
+        assert PropertyOperator.FLAG_EVALUATES_TO.value not in _texts(render_filter_operator_taxonomy(), "value")
