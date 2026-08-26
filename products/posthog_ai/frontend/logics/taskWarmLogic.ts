@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { tasksRunsCommandCreate, tasksWarmCreate } from 'products/tasks/frontend/generated/api'
+import { tasksRunsCancelCreate, tasksWarmCreate } from 'products/tasks/frontend/generated/api'
 import type { WarmTaskRequestApi } from 'products/tasks/frontend/generated/api.schemas'
 
 /** Debounce before warming, measured from the keystroke that first made the draft non-empty. */
@@ -47,13 +47,15 @@ export function warmLeaseKey(request: WarmTaskRequestApi): string {
  * Cancel a warm Run, which drives it terminal so it drops out of the warm-pool count immediately
  * instead of waiting out the server's idle timeout. Best-effort: a failed cancel just leaves the Run
  * for the server-side reaper.
+ *
+ * The run-level `cancel` endpoint, NOT the `cancel` relay command the streaming surfaces use: that one
+ * is proxied to the agent server to abort the turn in flight, and a warm Run has no turn. It answers
+ * `{cancelled: true}` and leaves the Run idling until the inactivity timer reclaims it, so the pool
+ * slot stays held and the miss is booked as `idle_timeout` rather than `released`.
  */
 async function cancelWarmRun(projectId: string, lease: WarmLease): Promise<void> {
     try {
-        await tasksRunsCommandCreate(projectId, lease.taskId, lease.runId, {
-            jsonrpc: '2.0',
-            method: 'cancel',
-        })
+        await tasksRunsCancelCreate(projectId, lease.taskId, lease.runId)
     } catch (error) {
         posthog.captureException(error)
     }
