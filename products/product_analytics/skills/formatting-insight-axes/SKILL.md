@@ -1,20 +1,29 @@
 ---
 name: formatting-insight-axes
 description: >
-  Pick the right y-axis unit when creating or updating a TrendsQuery insight
-  via `posthog:insight-create` or `posthog:insight-update`. Use when the agent
-  is about to add a `formula` purely to convert units (e.g. dividing seconds
-  by 60 to display minutes), when a `math_property` is a duration, currency,
-  ratio, or large count, or whenever the user mentions "format the y-axis",
-  "duration", "seconds", "minutes", "hours", "milliseconds", "ms",
-  "percentage", "currency", "decimals", "axis label", or "axis unit" in the
-  context of a graph insight.
+  Pick the right y-axis unit when creating or updating an insight via
+  `posthog:insight-create` or `posthog:insight-update` — both TrendsQuery
+  (`trendsFilter.aggregationAxisFormat`) and SQL insights
+  (`DataVisualizationNode`, `chartSettings.yAxis[].settings.formatting`).
+  Use when the agent is about to add a `formula` purely to convert units
+  (e.g. dividing seconds by 60 to display minutes), when a `math_property`
+  or SQL column is a duration, currency, ratio, or large count, when a SQL
+  query returns a percentage or rate column, or whenever the user mentions
+  "format the y-axis", "duration", "seconds", "minutes", "hours",
+  "milliseconds", "ms", "percentage", "%%", "double percent", "currency",
+  "decimals", "axis label", or "axis unit" in the context of a graph insight.
 ---
 
 # Formatting insight axes
 
-PostHog renders TrendsQuery insights with a built-in axis formatter. Use it
-instead of contorting `formula` or `aggregationAxisPostfix` to fake units.
+PostHog renders insights with a built-in axis formatter. Use it instead of
+contorting the query or a literal prefix/postfix to fake units.
+
+The two insight kinds configure it in different places:
+
+- **TrendsQuery** — `trendsFilter.aggregationAxisFormat` (this page, below)
+- **SQL insights** (`DataVisualizationNode`) — per-column
+  `settings.formatting` (see [SQL insights](#sql-insights-datavisualizationnode))
 
 ## The anti-pattern
 
@@ -172,11 +181,61 @@ and move on.
 }
 ```
 
+## SQL insights (DataVisualizationNode)
+
+SQL insights have no `trendsFilter`.
+Formatting is per column, on `chartSettings.yAxis[].settings.formatting` for a chart and `chartSettings.tableSettings.columns[].settings.formatting` for a table.
+
+```json
+{
+  "kind": "DataVisualizationNode",
+  "source": { "kind": "HogQLQuery", "query": "SELECT week, conversion_rate FROM ..." },
+  "display": "ActionsLineGraph",
+  "chartSettings": {
+    "xAxis": { "column": "week" },
+    "yAxis": [
+      {
+        "column": "conversion_rate",
+        "settings": { "formatting": { "style": "percent", "decimalPlaces": 1 } }
+      }
+    ]
+  }
+}
+```
+
+`style` is one of `none`, `number`, `short`, `percent` — there is no `duration` or `currency` here.
+Express those with `prefix` / `suffix`, or format them in the SQL itself.
+
+### `percent` owns both the sign and the scale
+
+Two rules, and mixing either one with hand-rolled formatting is the most common way a SQL insight ships broken:
+
+1. **It appends the `%` itself.**
+   Adding `suffix: "%"` on top renders `47.3%%`.
+   Leave `suffix` off entirely when `style` is `percent`.
+2. **It multiplies the value by 100.**
+   `percent` is the SQL equivalent of the trends `percentage_scaled` format, and there is no unscaled variant.
+   Feed it a 0-1 ratio.
+   If the SQL already returns 0-100, the chart reads `4730%`.
+
+So pick one of the two consistent shapes, never a mix of both:
+
+| SQL returns                       | `formatting`                                             | Renders |
+| --------------------------------- | -------------------------------------------------------- | ------- |
+| a 0-1 ratio (`a / b`)             | `{"style": "percent", "decimalPlaces": 1}`               | `47.3%` |
+| 0-100 (`round(100.0 * a / b, 1)`) | `{"style": "number", "suffix": "%", "decimalPlaces": 1}` | `47.3%` |
+
+Prefer the first: keep the `100.0 *` out of the query and let the formatter own the unit, the same way `aggregationAxisFormat` does for trends.
+The stored column then stays a plain ratio for anything else that reads it.
+
+An axis or series label may of course still say "%" — `leftYAxisSettings.label`, `xAxisLabel`, and `settings.display.label` are free text and are not part of the value formatting.
+
 ## Updating an existing insight
 
-If you are updating an insight and notice it already uses the
-`formula`/`postfix` anti-pattern, fix it in the same `posthog:insight-update`
-call — drop the divide-by-N, drop the `aggregationAxisPostfix`, and set the
-matching `aggregationAxisFormat`. The series values stay the same, only the
-labels change. Do not go scanning unrelated insights for this pattern —
-fix only the ones you are already touching.
+If you are updating an insight and notice it already uses one of these
+anti-patterns — a trends `formula`/`postfix` pair, or a SQL column with both
+`style: "percent"` and a `"%"` suffix — fix it in the same
+`posthog:insight-update` call: drop the divide-by-N or the `100.0 *`, drop the
+literal `%`, and let the format own the unit. The underlying values stay the
+same, only the labels change. Do not go scanning unrelated insights for this
+pattern — fix only the ones you are already touching.
