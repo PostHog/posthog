@@ -3662,6 +3662,48 @@
             "readOnlyHint": false
         }
     },
+    "error-tracking-severity-rules-create": {
+        "description": "Create an error tracking severity rule for the current project. Provide `filters` and the `severity` to assign when a newly created issue first matches this rule. Supported severities are `low`, `medium`, `high`, and `critical`. Use `order_key` to set the evaluation priority. Lower values run first, and only the first matching rule applies. Rules do not change existing issues.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking severity rule",
+        "title": "Create error tracking severity rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-severity-rules-list": {
+        "description": "List error tracking severity rules for the current project. Returns rules in evaluation order with their filters, assigned severity, order key, and disabled state. Read the existing rules before creating or updating one because only the first matching rule applies.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking severity rules",
+        "title": "List error tracking severity rules",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-severity-rules-update": {
+        "description": "Update an error tracking severity rule by ID. Include `filters`, `severity`, or both. Omitted fields keep their existing values. Supported severities are `low`, `medium`, `high`, and `critical`. Updating filters recompiles the rule and clears any auto-disable state. Changes apply only to issues created after the update.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking severity rule",
+        "title": "Update error tracking severity rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-suppression-rules-create": {
         "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. If unsure, set `sampling_rate` below `1.0` so only a fraction of matches are dropped (e.g. `0.5` drops half) rather than all of them. Confirm with the user before creating any rule that could match more than one distinct error.",
         "category": "Error tracking",
