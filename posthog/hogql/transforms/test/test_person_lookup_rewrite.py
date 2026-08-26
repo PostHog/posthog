@@ -175,6 +175,27 @@ class TestPersonLookupRewrite(BaseTest):
         call.filter_expr = ast.Constant(value=True)
         self._assert_untouched_events_source(node)
 
+    @parameterized.expand(
+        [
+            ("direct_connection_skips", "0198aabb-0000-0000-0000-000000000000", "events"),
+            ("native_schema_rewrites", None, "persons"),
+        ]
+    )
+    def test_optimizer_gate_respects_direct_connections(self, _name, connection_id, expected_table):
+        from posthog.hogql.query import HogQLQueryExecutor
+
+        executor = HogQLQueryExecutor(
+            query="select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
+            team=self.team,
+            connection_id=connection_id,
+        )
+        executor._parse_query()
+        executor._apply_optimizers()
+        assert isinstance(executor.select_query, ast.SelectQuery)
+        assert executor.select_query.select_from is not None
+        assert isinstance(executor.select_query.select_from.table, ast.Field)
+        assert executor.select_query.select_from.table.chain == [expected_table]
+
 
 class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
     def _lookup(self, person_uuid, rewrite: bool):
@@ -186,16 +207,18 @@ class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
             modifiers=HogQLQueryModifiers(rewritePersonEventLookups=rewrite),
         ).results
 
-    def test_lookup_parity_when_person_has_events(self):
+    @parameterized.expand([("one_event", 1), ("multiple_events", 3)])
+    def test_lookup_parity_when_person_has_events(self, _name, event_count):
         from posthog.test.base import _create_event, flush_persons_and_events
 
         person = create_person(team=self.team, distinct_ids=["parity-user"], properties={"email": "a@example.com"})
-        _create_event(
-            event="$pageview",
-            distinct_id="parity-user",
-            team=self.team,
-            person_properties={"email": "a@example.com"},
-        )
+        for _ in range(event_count):
+            _create_event(
+                event="$pageview",
+                distinct_id="parity-user",
+                team=self.team,
+                person_properties={"email": "a@example.com"},
+            )
         flush_persons_and_events()
         assert self._lookup(person.uuid, rewrite=True) == self._lookup(person.uuid, rewrite=False)
 
