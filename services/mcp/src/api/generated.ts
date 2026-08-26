@@ -41896,6 +41896,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
+      /** Name of the goal the columns counted, absent when they counted any pageview. The table reads it to say what a cell means, since a goal makes period 0 a measurement rather than always 100%. */
+      returnGoalName?: string | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
@@ -41935,6 +41937,8 @@ export namespace Schemas {
       response?: MarketingAnalyticsRetentionQueryResponse | null;
       /** Period for both the cohort rows and the return columns. Defaults to week. */
       retentionInterval?: MarketingAnalyticsRetentionInterval | null;
+      /** conversion_goal_id of the event that counts as coming back. Defaults to any pageview, which makes period 0 always 100%. Under a goal it counts converters, so period 0 is a real measurement. */
+      returnGoalId?: string | null;
       tags?: QueryLogTags | null;
       /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
       totalIntervals?: number | null;
@@ -69247,6 +69251,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
+      /** Name of the goal the columns counted, absent when they counted any pageview. The table reads it to say what a cell means, since a goal makes period 0 a measurement rather than always 100%. */
+      returnGoalName?: string | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
