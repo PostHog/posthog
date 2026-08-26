@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconExternal, IconGear } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -7,10 +8,14 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTag,
+    Link,
     Spinner,
 } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { urls } from 'scenes/urls'
+
+import { InsightShortId } from '~/types'
 
 import { describeResolutionChange, humanLevel } from './describeResolutionChange'
 import { ResolutionChange, resolutionPreviewLogic } from './resolutionPreviewLogic'
@@ -45,17 +50,31 @@ function WhyExplainer(): JSX.Element {
     )
 }
 
+function urlForChangeObject(change: ResolutionChange): string | null {
+    if (change.object_id === null) {
+        return null
+    }
+    switch (change.resource) {
+        case 'dashboard':
+            return urls.dashboard(change.object_id)
+        case 'insight':
+            return change.object_short_id ? urls.insightView(change.object_short_id as InsightShortId) : null
+        case 'notebook':
+            return change.object_short_id ? urls.notebook(change.object_short_id) : null
+        default:
+            return null
+    }
+}
+
 function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {
     return (
         <div className="flex items-center gap-2 whitespace-nowrap">
             <span className="font-semibold max-w-60 truncate" title={change.subject.name}>
                 {change.subject.name}
             </span>
-            {change.subject.type === 'role' ? (
-                <LemonTag size="small">role</LemonTag>
-            ) : change.subject.type === 'everyone' ? (
-                <LemonTag size="small">default</LemonTag>
-            ) : null}
+            <LemonTag size="small">
+                {change.subject.type === 'role' ? 'role' : change.subject.type === 'everyone' ? 'default' : 'member'}
+            </LemonTag>
         </div>
     )
 }
@@ -140,6 +159,19 @@ export function AccessResolutionPreview(): JSX.Element {
             ),
         },
         ...sharedColumns,
+        {
+            key: 'actions',
+            width: 0,
+            render: () => (
+                <LemonButton
+                    size="small"
+                    icon={<IconGear />}
+                    to={urls.settings('environment-access-control')}
+                    tooltip="Edit resource access settings"
+                    data-attr="access-resolution-edit-resource"
+                />
+            ),
+        },
     ]
     const objectColumns: LemonTableColumns<ResolutionChange> = [
         {
@@ -154,16 +186,33 @@ export function AccessResolutionPreview(): JSX.Element {
             title: 'Name',
             key: 'object',
             width: 0,
-            render: (_, change) => (
-                <div
-                    className="font-semibold truncate whitespace-nowrap max-w-80"
-                    title={change.object_name ?? change.object_id ?? undefined}
-                >
-                    {change.object_name ?? change.object_id}
-                </div>
-            ),
+            render: (_, change) => {
+                const label = change.object_name ?? change.object_id
+                const url = urlForChangeObject(change)
+                return (
+                    <div className="font-semibold truncate whitespace-nowrap max-w-80" title={label ?? undefined}>
+                        {url ? <Link to={url}>{label}</Link> : label}
+                    </div>
+                )
+            },
         },
         ...sharedColumns,
+        {
+            key: 'actions',
+            width: 0,
+            render: (_, change) => {
+                const url = urlForChangeObject(change)
+                return url ? (
+                    <LemonButton
+                        size="small"
+                        icon={<IconExternal />}
+                        to={url}
+                        tooltip="Open"
+                        data-attr="access-resolution-open-object"
+                    />
+                ) : null
+            },
+        },
     ]
 
     return (

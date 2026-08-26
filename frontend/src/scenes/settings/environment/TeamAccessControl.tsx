@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -24,8 +24,8 @@ export function TeamAccessControl(): JSX.Element {
                         'data-attr': 'access-resolution-banner-review',
                     }}
                 >
-                    Starting October 1, access control will always use the most specific rule. Review the changes before
-                    they take effect.
+                    {getFeatureFlagPayload(FEATURE_FLAGS.ACCESS_CONTROL_RESOLUTION_PREVIEW)?.message ??
+                        'Access control will start using the most specific rule. Review the changes before they take effect.'}
                 </LemonBanner>
             )}
             {currentTeam?.id ? <ResourcesAccessControlsV2 projectId={`${currentTeam.id}`} /> : null}

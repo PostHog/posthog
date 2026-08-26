@@ -23,6 +23,7 @@ export interface ResolutionChange {
     resource: string
     object_id: string | null
     object_name: string | null
+    object_short_id: string | null
     current: ResolutionChangeLevel
     proposed: ResolutionChangeLevel
     direction: 'gains' | 'loses'

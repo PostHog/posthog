@@ -65,6 +65,9 @@ class ResolutionChange:
     resource: str
     object_id: Optional[str]
     object_name: Optional[str]
+    # The object's URL key (e.g. an insight's or notebook's short id) when the model has one,
+    # so the page can link to the object
+    object_short_id: Optional[str]
     current: ResolvedLevel
     proposed: ResolvedLevel
     direction: Literal["gains", "loses"]
@@ -216,12 +219,14 @@ def _build_subjects(
     return subjects, role_names, member_names
 
 
-def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str, tuple[Model, Optional[str]]]:
-    """Map {object_id -> (instance, display name)} for one resource. Empty when the resource has
-    no display model, which also means resolution has no model class to work with."""
+def _load_objects(
+    team: Team, resource: str, object_ids: list[str]
+) -> dict[str, tuple[Model, Optional[str], Optional[str]]]:
+    """Map {object_id -> (instance, display name, short id)} for one resource. Empty when the
+    resource has no display model, which also means resolution has no model class to work with."""
     if resource == "project":
         # Project rules point at the team itself
-        return {str(team.pk): (team, team.name)} if str(team.pk) in object_ids else {}
+        return {str(team.pk): (team, team.name, None)} if str(team.pk) in object_ids else {}
 
     # Deferred to break the import cycle: the settings presentation module imports this module
     # for its endpoint.
@@ -239,11 +244,12 @@ def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str,
     except Exception as e:
         capture_exception(e, {"resource": resource})
         return {}
-    result: dict[str, tuple[Model, Optional[str]]] = {}
+    result: dict[str, tuple[Model, Optional[str], Optional[str]]] = {}
     for obj in instances:
         object_id = str(obj.pk)
         name = names.get(object_id)
-        result[object_id] = (obj, name.name if name else None)
+        short_id = getattr(obj, "short_id", None)
+        result[object_id] = (obj, name.name if name else None, str(short_id) if short_id else None)
     return result
 
 
@@ -271,6 +277,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
         proposed: Optional[ResolvedAccess],
         object_id: Optional[str] = None,
         object_name: Optional[str] = None,
+        object_short_id: Optional[str] = None,
     ) -> None:
         if current is None or proposed is None or current.access_level == proposed.access_level:
             return
@@ -285,6 +292,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 resource=resource,
                 object_id=object_id,
                 object_name=object_name,
+                object_short_id=object_short_id,
                 current=_resolved_level(
                     current, _deciding_subject_name(subject.access, current, role_names, member_names)
                 ),
@@ -340,7 +348,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 loaded = objects.get(object_id)
                 if loaded is None:
                     continue
-                obj, object_name = loaded
+                obj, object_name, object_short_id = loaded
                 if subject.member_user_id is not None and getattr(obj, "created_by_id", None) == subject.member_user_id:
                     # Creators keep the highest level under both ladders
                     continue
@@ -352,6 +360,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                     subject.access.resolve_most_specific_object_access(obj),
                     object_id=object_id,
                     object_name=object_name,
+                    object_short_id=object_short_id,
                 )
 
     return changes
