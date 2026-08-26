@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core.management.base import OutputWrapper
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -35,6 +35,8 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+    KAFKA_ROUTING_FLAG,
+    SHADOW_COMPARE_FLAG,
     _blank_inactive_filters,
     _compare_flag_fields,
     _compute_flag_dependencies,
@@ -52,6 +54,7 @@ from products.feature_flags.backend.flags_cache import (
     get_team_ids_with_recently_updated_flags,
     get_team_primary_flags_writer,
     get_teams_with_flags_queryset,
+    publish_shadow_invalidation,
     update_flags_cache,
     verify_team_flags,
 )
@@ -914,6 +917,163 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         mock_produce.assert_not_called()
 
 
+class TestShadowInvalidationPublishing(SimpleTestCase):
+    """Shadow parity publishing. It runs at the tail of the Celery build rather
+    than at invalidation time, so the Rust builder diffs against a cache entry
+    Python has already written."""
+
+    TEAM_ID = 7
+
+    @parameterized.expand([("gate_off", False), ("gate_on", True)])
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    def test_publishes_only_when_the_shadow_gate_is_open(
+        self, name, shadow_gate_open, mock_gate, mock_shadow_gate, mock_produce
+    ):
+        mock_shadow_gate.return_value = shadow_gate_open
+
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_shadow_gate.assert_called_once_with(self.TEAM_ID)
+        if shadow_gate_open:
+            mock_produce.assert_called_once_with(self.TEAM_ID, shadow=True)
+        else:
+            mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=True)
+    def test_kafka_owned_team_never_shadow_publishes(self, mock_gate, mock_shadow_gate, mock_produce):
+        # Cohort invalidation dispatches this build task for every team, so a team
+        # Rust already serves reaches here and would diff Rust output against itself.
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_shadow_gate.assert_not_called()
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    def test_shadow_message_carries_the_shadow_flag_on_the_wire(self, mock_gate, mock_shadow_gate, mock_producer_scope):
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        # The consumer reads this field to decide whether to write the cache, so a
+        # dropped `shadow` would make the Rust builder overwrite an entry Celery owns.
+        envelope = FlagsCacheInvalidation.model_validate(mock_producer.produce.call_args.kwargs["data"])
+        assert envelope.shadow is True
+
+    @patch(
+        "products.feature_flags.backend.flags_cache.producer_scope",
+        side_effect=RuntimeError("kafka cluster unreachable"),
+    )
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    @patch("products.feature_flags.backend.flags_cache.logger")
+    def test_produce_failure_does_not_raise_into_the_build(
+        self, mock_logger, mock_gate, mock_shadow_gate, mock_producer_scope
+    ):
+        # Parity evidence is telemetry, so an unhealthy Kafka must not raise back
+        # into the task that just wrote the cache.
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_producer_scope.assert_called_once()
+        # Real and shadow invalidations share a topic and a log event, so this field
+        # is the only thing telling on-call the lost message was telemetry.
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_invalidation_produce_failed"
+        assert mock_logger.warning.call_args.kwargs["shadow"] is True
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled")
+    def test_inert_while_the_shadow_flag_does_not_exist(self, mock_feature_enabled, mock_produce):
+        # The state this ships in. The routing flag resolves, because it is live for
+        # the canary projects. SHADOW_COMPARE_FLAG does not exist yet, so local
+        # evaluation cannot resolve it and returns None.
+        mock_feature_enabled.side_effect = lambda key, *a, **kw: False if key == KAFKA_ROUTING_FLAG else None
+
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=None)
+    def test_unresolved_ownership_skips_without_ticking_the_routing_tombstone(
+        self, mock_gate, mock_shadow_gate, mock_produce, mock_tombstone
+    ):
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        # Cohort invalidation and the backfill finalizer dispatch this build task
+        # without reading the routing gate, so ticking its cold-cache counter here
+        # would spike a panel that means the flag polling thread is wedged.
+        mock_tombstone.labels.assert_not_called()
+        # Ownership is unknown, and shadow-building a team Rust owns would diff the
+        # Rust output against itself.
+        mock_shadow_gate.assert_not_called()
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.logger")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
+    @patch(
+        "products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag",
+        side_effect=RuntimeError("flag client down"),
+    )
+    def test_routing_evaluation_failure_publishes_nothing(self, mock_gate, mock_shadow_gate, mock_produce, mock_logger):
+        # Not raising is the assertion. The task sets no autoretry_for, so an escape
+        # does not re-run the build. It marks the task FAILURE and posts a Sentry
+        # error per rebuild, fleet-wide, for a telemetry failure.
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_shadow_gate.assert_not_called()
+        mock_produce.assert_not_called()
+        # The shadow gate never runs, so its own warning cannot fire. This is the
+        # only record that the worker stopped publishing.
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_routing_evaluation_failed"
+
+    @patch("products.feature_flags.backend.flags_cache.logger")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag client down"),
+    )
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    def test_shadow_gate_failure_publishes_nothing_and_warns(
+        self, mock_gate, mock_feature_enabled, mock_produce, mock_logger
+    ):
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_produce.assert_not_called()
+        # The warning is the only signal for a fleet-wide silent disable, because
+        # the gate reports its own failure as "shadow off".
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_compare_flag_evaluation_failed"
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    # `_shadow_compare_enabled` reaches the SDK through ph_client rather than this
+    # module's import. Patching here still covers it, because both names resolve to
+    # the same posthoganalytics module object.
+    @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled", return_value=False)
+    def test_both_gates_evaluate_locally_and_capture_nothing(self, mock_feature_enabled, mock_produce):
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        # A remote evaluation would put a blocking flags-API call inside every cache
+        # build, and an event capture would bill each rebuild as product usage.
+        assert {call.args[0] for call in mock_feature_enabled.call_args_list} == {
+            KAFKA_ROUTING_FLAG,
+            SHADOW_COMPARE_FLAG,
+        }
+        for call in mock_feature_enabled.call_args_list:
+            assert call.kwargs["only_evaluate_locally"] is True
+            assert call.kwargs["send_feature_flag_events"] is False
+        # Inert at 0%. This is the only test that runs the real gate, so nothing
+        # else catches it publishing while SHADOW_COMPARE_FLAG is off.
+        mock_produce.assert_not_called()
+
+
 class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
     @parameterized.expand(
         [
@@ -986,6 +1146,24 @@ class TestServiceFlagsCeleryTasks(BaseTest):
         assert flags is not None
         assert len(flags) == 1
         assert flags[0]["key"] == "test-flag"
+
+    @parameterized.expand([("build_succeeded", True), ("build_failed", False)])
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    @patch("products.feature_flags.backend.tasks.update_flags_cache")
+    def test_task_publishes_shadow_invalidation_only_after_a_successful_build(
+        self, name, build_succeeded, mock_update, mock_gate, mock_shadow_gate, mock_producer_scope
+    ):
+        from products.feature_flags.backend.tasks import update_team_service_flags_cache
+
+        mock_update.return_value = build_succeeded
+
+        update_team_service_flags_cache(self.team.id)
+
+        # A failed build leaves the stale entry live, so a shadow diff against it
+        # would report Python's failure as Rust drift.
+        assert mock_producer_scope.called is build_succeeded
 
     def test_update_team_service_flags_cache_task_team_not_found(self):
         """Test the Celery task handles missing team gracefully."""

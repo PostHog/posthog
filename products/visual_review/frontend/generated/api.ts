@@ -18,6 +18,7 @@ import type {
     CreateRunResultApi,
     FinalizeResultApi,
     FinalizeRunRequestInputApi,
+    FlakinessOverviewApi,
     MarkToleratedInputApi,
     PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
@@ -37,6 +38,7 @@ import type {
     VisualReviewReposQuarantineListParams,
     VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
+    VisualReviewReposThumbnailsRetrieveParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
@@ -150,6 +152,24 @@ export const visualReviewReposBaselinesRetrieve = async (
     })
 }
 
+export const getVisualReviewReposFlakinessRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/flakiness/`
+}
+
+/**
+ * Snapshots in a repo whose rendering cannot be trusted: those carrying at least one live tolerated variant against their current baseline, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Variant counts are scoped to the current baseline hash, because a toleration recorded against an earlier baseline can never match again. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ */
+export const visualReviewReposFlakinessRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FlakinessOverviewApi> => {
+    return apiMutator<FlakinessOverviewApi>(getVisualReviewReposFlakinessRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisualReviewReposQuarantineListUrl = (
     projectId: string,
     id: string,
@@ -232,8 +252,25 @@ export const visualReviewReposQuarantineExpireCreate = async (
     })
 }
 
-export const getVisualReviewReposThumbnailsRetrieveUrl = (projectId: string, id: string, identifier: string) => {
-    return `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
+export const getVisualReviewReposThumbnailsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    identifier: string,
+    params?: VisualReviewReposThumbnailsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
 }
 
 /**
@@ -243,9 +280,10 @@ export const visualReviewReposThumbnailsRetrieve = async (
     projectId: string,
     id: string,
     identifier: string,
+    params?: VisualReviewReposThumbnailsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier), {
+    return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier, params), {
         ...options,
         method: 'GET',
     })

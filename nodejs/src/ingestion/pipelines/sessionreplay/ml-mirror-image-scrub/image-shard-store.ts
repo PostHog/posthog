@@ -17,6 +17,8 @@ export interface ScrubbedUrlImage {
     sourceOffset: number
 }
 
+export type UrlImageWriteOutcome = 'created' | 'already_exists'
+
 interface IndexRow {
     pseudoTeam: string
     hash: string
@@ -120,7 +122,7 @@ export class ImageShardStore {
         return { shard: shardKey, bytes: offset }
     }
 
-    public async writeUrlImage(image: ScrubbedUrlImage): Promise<void> {
+    public async writeUrlImage(image: ScrubbedUrlImage): Promise<UrlImageWriteOutcome> {
         if (
             !Number.isSafeInteger(image.sourcePartition) ||
             image.sourcePartition < 0 ||
@@ -145,10 +147,10 @@ export class ImageShardStore {
                         IfNoneMatch: '*',
                     })
                 )
-                return
+                return 'created'
             } catch (error) {
                 if (isPreconditionFailed(error)) {
-                    return
+                    return 'already_exists'
                 }
                 if (isConditionalRequestConflict(error)) {
                     continue
