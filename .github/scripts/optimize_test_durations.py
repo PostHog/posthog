@@ -943,6 +943,13 @@ def main():
         ratios = shard_map_clock_ratios(durations, junit_shards)
         for name, ratio in sorted(ratios.items()):
             logger.info("  map/clock %s: %.2f", name, ratio)
+        # A shard with no ratio shares no keys with the map, or only zero times.
+        # Neither is a pass: it means the clock and the map do not describe the
+        # same tests, which is exactly what strict mode is there to catch.
+        unrated = [shard.name for shard in junit_shards if shard.name not in ratios]
+        if unrated and args.fail_on_drift:
+            logger.error("Map/clock ratio missing for %d shards (no overlapping tests): %s", len(unrated), unrated)
+            sys.exit(1)
         drift = drifting_shards(ratios)
         if drift:
             level = logger.error if args.fail_on_drift else logger.warning

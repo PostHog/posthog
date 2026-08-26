@@ -491,11 +491,13 @@ def test_main_writes_sub_ten_millisecond_durations_as_recorded(tmp_path: Path, m
     assert json.loads(out.read_text())["posthog/test_foo.py::TestThing::test_two"] == 0.001
 
 
-@pytest.mark.parametrize("junit_shards_present", [(), ("1",)])
+@pytest.mark.parametrize("junit_shards_present", [(), ("1",), ("1", "2")])
 def test_fail_on_drift_refuses_an_incomplete_junit_set(tmp_path: Path, monkeypatch, junit_shards_present) -> None:
-    # No JUnit, or JUnit for only one of two shards, would let the drift check
-    # pass on nothing; a strict run must refuse so the workflow keeps the
-    # previous slice instead of caching an unchecked one.
+    # No JUnit, JUnit for only one of two shards, or JUnit that shares no test
+    # with the timing data (the XML here names test_foo, the timings test_1 and
+    # test_2) would let the drift check pass on nothing; a strict run must
+    # refuse so the workflow keeps the previous slice instead of caching an
+    # unchecked one.
     artifacts = tmp_path / "timing_artifacts"
     for shard in ("1", "2"):
         shard_dir = artifacts / f"timing_data-Core-{shard}"
