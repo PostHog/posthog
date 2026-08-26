@@ -75,7 +75,16 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         is_wrapped_response=True,
         gated_feature="Restrictions (the allow-list and block-list)",
     ),
-    "domains": ClerkEndpointConfig(name="domains", path="/domains", partition_key=None, is_wrapped_response=True),
+    "domains": ClerkEndpointConfig(
+        name="domains",
+        path="/domains",
+        partition_key=None,
+        is_wrapped_response=True,
+        # Clerk answers 404 resource_not_found for the domains list on instances that don't have the
+        # feature switched on — the same feature-off signal the OAuth applications and Restrictions
+        # endpoints give. Skip zero rows instead of failing the schema every run.
+        gated_feature="Satellite domains",
+    ),
     "saml_connections": ClerkEndpointConfig(
         name="saml_connections", path="/saml_connections", is_wrapped_response=True
     ),
