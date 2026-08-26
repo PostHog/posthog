@@ -257,7 +257,9 @@ export function CustomBotDefinitions(): JSX.Element {
                             ))}
                         </span>
                     ) : hasTestInput ? (
-                        <span className="text-muted">No match. This would count as regular traffic.</span>
+                        <span className="text-muted">
+                            No custom rule matched. PostHog's built-in list still applies.
+                        </span>
                     ) : null}
                 </div>
             ) : null}
