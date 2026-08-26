@@ -2,8 +2,8 @@
 
 import html as html_mod
 import json
-from datetime import datetime, timedelta
-from email.utils import formataddr
+from datetime import UTC, datetime, timedelta
+from email.utils import formataddr, parsedate_to_datetime
 from typing import Any, cast, get_args
 from urllib.parse import quote, urlparse
 from uuid import UUID
@@ -44,9 +44,13 @@ from products.conversations.backend.mailgun import (
     MailgunNotConfigured,
     MailgunPermanentError,
     MailgunTransientError,
+    delete_domain,
+    get_domain,
     send_mime,
 )
 from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
     EmailMessageMapping,
     EmailOutboxMessage,
     GithubCommentMapping,
@@ -903,6 +907,80 @@ def flush_pending_email_replies() -> None:
         _process_outbox_row(outbox)
 
     logger.info("flush_pending_email_replies_completed", count=len(batch))
+
+
+def _mailgun_domain_is_newer_than(domain: str, deleted_at: str | None) -> bool:
+    """Whether Mailgun's registration for `domain` postdates `deleted_at`.
+
+    True means a connect has re-registered the domain since the channel we were asked to
+    clean up died, so the registration belongs to that connect and must survive.
+
+    Every uncertain answer is False, which lets the caller delete: leaving a domain
+    stranded is the bug this whole path exists to prevent, and a stranded domain blocks
+    the customer everywhere, while `delete_stale_mailgun_domain` can recover the rarer
+    wrong call.
+    """
+    if not deleted_at:
+        return False
+
+    mg_domain = get_domain(domain)
+    if mg_domain is None:
+        return False
+
+    created_at = mg_domain.get("created_at")
+    if not created_at:
+        logger.warning("release_mailgun_domain_no_created_at", domain=domain)
+        return False
+
+    try:
+        # Mailgun answers RFC 2822 ("Wed, 10 Jul 2019 15:10:34 GMT"); the receiver sends ISO.
+        registered = parsedate_to_datetime(created_at)
+        deleted = datetime.fromisoformat(deleted_at)
+    except (TypeError, ValueError):
+        logger.warning("release_mailgun_domain_unparseable_dates", domain=domain, created_at=created_at)
+        return False
+
+    if registered.tzinfo is None:
+        registered = registered.replace(tzinfo=UTC)
+    if deleted.tzinfo is None:
+        deleted = deleted.replace(tzinfo=UTC)
+
+    return registered > deleted
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@skip_team_scope_audit
+def release_mailgun_domain_if_unused(domain: str, deleted_at: str | None = None) -> None:
+    """Drop a Mailgun sending-domain registration once no support channel uses it.
+
+    Mailgun refuses to register a domain another account already holds, so a
+    registration left behind by a deleted project blocks that domain from ever
+    being connected again — including on another region.
+
+    The re-check runs here rather than at enqueue time because the domain may have
+    been reconnected since: a disconnect immediately followed by a reconnect must
+    leave the new registration alone. It also re-runs on every retry.
+
+    `deleted_at` is when the channel this task was enqueued for died. The row check
+    alone can't see a reconnect that has registered with Mailgun but not yet committed
+    its row, so a registration created after that moment is treated as the reconnect's
+    and left alone. Optional so tasks enqueued by an older deploy still run.
+    """
+    if not domain:
+        return
+
+    if EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT).exists():
+        return
+
+    try:
+        if _mailgun_domain_is_newer_than(domain, deleted_at):
+            logger.info("release_mailgun_domain_reregistered_since_delete", domain=domain, deleted_at=deleted_at)
+            return
+        delete_domain(domain)
+    except MailgunNotConfigured:
+        # Not an error worth retrying: an instance with no Mailgun key never registered
+        # the domain in the first place.
+        logger.info("release_mailgun_domain_no_api_key", domain=domain)
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=2, default_retry_delay=5)

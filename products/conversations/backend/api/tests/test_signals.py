@@ -8,9 +8,12 @@ from django.db import transaction
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
+from posthog.models.team import Team
 
-from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
+from products.conversations.backend.mailgun import MailgunNotConfigured
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.tasks import release_mailgun_domain_if_unused
 
 
 # Patch on_commit to execute immediately in tests
@@ -512,3 +515,121 @@ class TestIsOutboundReply:
         from products.conversations.backend.signals import _is_outbound_reply
 
         assert _is_outbound_reply(item_context, created_by_id) is expected
+
+
+class TestReleaseMailgunDomainOnChannelDelete(BaseTest):
+    def _create_channel(self, kind: str, domain: str = "acme.example.com") -> tuple:
+        team = Team.objects.create(organization=self.organization, name="Migrating team")
+        channel = EmailChannel.objects.create(
+            team=team,
+            kind=kind,
+            owner=self.user if kind == EmailChannelKind.CUSTOMER_COMMUNICATION else None,
+            inbound_token=uuid.uuid4().hex,
+            from_email=f"support@{domain}",
+            from_name="Acme Support",
+            domain=domain,
+            is_default=kind == EmailChannelKind.SUPPORT,
+        )
+        return team, channel
+
+    @parameterized.expand(
+        [
+            (EmailChannelKind.SUPPORT, True),
+            (EmailChannelKind.CUSTOMER_COMMUNICATION, False),
+        ]
+    )
+    def test_deleting_the_team_releases_only_support_domains(self, kind, expect_release):
+        team, _channel = self._create_channel(kind)
+
+        with (
+            patch("products.conversations.backend.signals.release_mailgun_domain_if_unused") as mock_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            team.delete()
+
+        if expect_release:
+            mock_task.delay.assert_called_once()
+            assert mock_task.delay.call_args.kwargs["domain"] == "acme.example.com"
+            # The task compares this against Mailgun's registration date, so it has to
+            # be the moment of deletion, not whenever a retry happens to run.
+            assert mock_task.delay.call_args.kwargs["deleted_at"]
+        else:
+            mock_task.delay.assert_not_called()
+
+    def test_broker_failure_does_not_escape_the_deleting_transaction(self):
+        team, _channel = self._create_channel(EmailChannelKind.SUPPORT)
+
+        with patch("products.conversations.backend.signals.release_mailgun_domain_if_unused") as mock_task:
+            mock_task.delay.side_effect = RuntimeError("broker down")
+            with self.captureOnCommitCallbacks(execute=True):
+                team.delete()
+
+        # The delete completing is the assertion; this proves the failure was actually
+        # injected, so the test can't pass by the receiver never firing at all.
+        mock_task.delay.assert_called_once()
+
+
+class TestReleaseMailgunDomainTask(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_channel_left", False, True),
+            ("support_channel_reconnected", True, False),
+        ]
+    )
+    def test_release_respects_current_channel_state(self, _name, recreate_channel, expect_delete):
+        if recreate_channel:
+            EmailChannel.objects.create(
+                team=self.team,
+                kind=EmailChannelKind.SUPPORT,
+                inbound_token=uuid.uuid4().hex,
+                from_email="support@acme.example.com",
+                from_name="Acme Support",
+                domain="acme.example.com",
+            )
+
+        with patch("products.conversations.backend.tasks.delete_domain") as mock_delete:
+            release_mailgun_domain_if_unused("acme.example.com")
+
+        assert mock_delete.called is expect_delete
+
+    def test_missing_api_key_does_not_raise_into_celery_retries(self):
+        with patch(
+            "products.conversations.backend.tasks.delete_domain",
+            side_effect=MailgunNotConfigured("no key"),
+        ) as mock_delete:
+            release_mailgun_domain_if_unused("acme.example.com")
+
+        mock_delete.assert_called_once_with("acme.example.com")
+
+    @parameterized.expand(
+        [
+            # A reconnect registers after the channel died, and commits its row later still.
+            # Only the registration date can tell the task the domain is now spoken for.
+            ("registered_after_the_delete", "Sat, 21 Aug 2027 12:00:00 GMT", False),
+            ("registered_before_the_delete", "Wed, 10 Jul 2019 15:10:34 GMT", True),
+        ]
+    )
+    def test_a_reconnects_registration_survives_a_late_running_task(self, _name, created_at, expect_delete):
+        with (
+            patch("products.conversations.backend.tasks.get_domain", return_value={"created_at": created_at}),
+            patch("products.conversations.backend.tasks.delete_domain") as mock_delete,
+        ):
+            release_mailgun_domain_if_unused("acme.example.com", deleted_at="2026-08-21T00:00:00+00:00")
+
+        assert mock_delete.called is expect_delete
+
+    @parameterized.expand(
+        [
+            ("no_created_at", {}),
+            ("unparseable_created_at", {"created_at": "whenever"}),
+            ("domain_absent_from_mailgun", None),
+        ]
+    )
+    def test_an_unreadable_registration_date_still_releases_the_domain(self, _name, mg_domain):
+        with (
+            patch("products.conversations.backend.tasks.get_domain", return_value=mg_domain),
+            patch("products.conversations.backend.tasks.delete_domain") as mock_delete,
+        ):
+            release_mailgun_domain_if_unused("acme.example.com", deleted_at="2026-08-21T00:00:00+00:00")
+
+        mock_delete.assert_called_once_with("acme.example.com")

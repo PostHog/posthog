@@ -4,8 +4,9 @@ from typing import Any, cast
 from django.db import transaction
 from django.db.models import F, Q
 from django.db.models.functions import Greatest
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
@@ -18,13 +19,14 @@ from posthog.models.signals import secret_api_token_rotated
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
-from .models import EmailOutboxMessage, SigningSecret, Ticket
+from .models import EmailChannel, EmailChannelKind, EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
 from .tasks import (
     post_reply_to_github,
     post_reply_to_slack,
     post_reply_to_teams,
     post_reply_to_teams_via_graph,
+    release_mailgun_domain_if_unused,
     send_email_reply,
 )
 from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
@@ -611,3 +613,35 @@ def sync_signing_secret_on_rotation(sender, team, **kwargs):
     except Exception as e:
         logger.exception("conversations_signing_secret_sync_failed", team_id=team.id)
         capture_exception(e)
+
+
+@receiver(post_delete, sender=EmailChannel)
+def release_mailgun_domain_on_channel_delete(sender, instance, **kwargs):
+    """Hand a support channel's Mailgun sending domain back when the channel goes away.
+
+    A post_delete receiver rather than the disconnect endpoint so cascades are covered
+    too, which is where the domain used to be stranded: deleting a project drops the
+    channel row but left the Mailgun registration claiming the domain forever, blocking
+    the customer from reconnecting it anywhere.
+
+    Customer communication channels only receive captured mail, so they never own a
+    sending-domain registration.
+    """
+    if instance.kind != EmailChannelKind.SUPPORT or not instance.domain:
+        return
+
+    # Capture values for closure (avoid referencing instance in deferred callback)
+    domain = instance.domain
+    # Stamped here, not in the task: a retry runs minutes later, and the task needs the
+    # moment the channel died to tell this registration from one a reconnect has since made.
+    deleted_at = timezone.now().isoformat()
+
+    def enqueue_release():
+        try:
+            cast(Any, release_mailgun_domain_if_unused).delay(domain=domain, deleted_at=deleted_at)
+        except Exception:
+            # A broker failure here would otherwise escape the caller's atomic block and
+            # fail team deletion, which has already committed by this point.
+            logger.exception("email_channel_release_domain_enqueue_failed", domain=domain)
+
+    transaction.on_commit(enqueue_release)

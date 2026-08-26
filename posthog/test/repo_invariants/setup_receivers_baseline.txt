@@ -85,6 +85,7 @@ post_delete:products.cdp.backend.models.plugin.plugin_reload_needed
 post_delete:products.cohorts.backend.models.cohort.cohort_people_changed
 post_delete:products.cohorts.backend.models.dependencies.clear_team_cohort_dependency_cache
 post_delete:products.cohorts.backend.models.dependencies.cohort_deleted
+post_delete:products.conversations.backend.signals.release_mailgun_domain_on_channel_delete
 post_delete:products.event_definitions.backend.models.event_definition._invalidate_default_event_info_on_delete
 post_delete:products.feature_flags.backend.flags_cache.cohort_changed_flags_cache
 post_delete:products.feature_flags.backend.flags_cache.evaluation_context_changed_flags_cache

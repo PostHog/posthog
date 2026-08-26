@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -9,6 +10,10 @@ import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: { success: jest.fn(), error: jest.fn(), warning: jest.fn() },
+}))
 
 describe('supportSettingsLogic', () => {
     let logic: ReturnType<typeof supportSettingsLogic.build>
@@ -336,6 +341,33 @@ describe('supportSettingsLogic', () => {
             } as unknown as TeamType)
 
             expect(logic.values.teamsChannelPairs).toEqual(updatedChannels)
+        })
+    })
+
+    describe('connectEmail failures', () => {
+        const stranded =
+            'This domain cannot be registered for sending. It may still be registered from a previous PostHog project. Contact support to release it.'
+
+        it.each([
+            ['surfaces the reason the backend gave', { error: stranded }, stranded],
+            [
+                'falls back to written copy when the body carries no reason',
+                {},
+                'Could not connect this email. Check the address and try again.',
+            ],
+        ])('%s', async (_label, body, expected) => {
+            useMocks({ post: { '/api/conversations/v1/email/connect': () => [400, body] } })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setNewEmailFromEmail('support@acme.example.com')
+            logic.actions.setNewEmailFromName('Acme Support')
+            await expectLogic(logic, () => {
+                logic.actions.connectEmail()
+            }).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(expected)
         })
     })
 })
