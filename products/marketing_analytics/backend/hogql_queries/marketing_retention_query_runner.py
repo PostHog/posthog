@@ -378,8 +378,8 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _build_cohort_sizes_select(self) -> ast.SelectQuery:
         """(E) How many people each channel brought in, per acquisition period.
 
-        Also the period-0 cell of every row, because the cohort is exactly the people who arrived, so its
-        own size is what that column counts.
+        The denominator for every cell in the row. The cells themselves all come from `matrix`, period 0
+        included.
         """
         return ast.SelectQuery(
             select=[
