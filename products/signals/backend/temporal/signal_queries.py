@@ -611,7 +611,8 @@ def collapse_duplicate_signals(signals: list[dict]) -> list[dict]:
             collapsed[key] = {**signal, "duplicate_count": 1, "collapsed_signal_ids": [signal["signal_id"]]}
         else:
             count = existing["duplicate_count"] + 1
-            ids = [*existing["collapsed_signal_ids"], signal["signal_id"]]
+            ids = existing["collapsed_signal_ids"]
+            ids.append(signal["signal_id"])
             existing.update(signal)
             existing["duplicate_count"] = count
             existing["collapsed_signal_ids"] = ids
