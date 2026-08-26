@@ -98,3 +98,55 @@ class PipelineWrite:
     success_auc: float | None = None
     plateau_iterations: int = 10
     output_person_property: str = ""
+
+
+# ── Validation and template contracts ──────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ValidationWarning:
+    code: str
+    message: str
+    severity: str
+
+
+@dataclass(frozen=True)
+class PipelineValidation:
+    """Volume, base rate, and warnings for a proposed pipeline definition."""
+
+    can_proceed: bool
+    requires_acknowledgement: bool
+    estimated_training_rows: int | None
+    positive_count: int | None
+    negative_count: int | None
+    base_rate: float | None
+    inference_population_size: int | None
+    warnings: list[ValidationWarning]
+    error: str | None
+
+
+@dataclass(frozen=True)
+class TemplateInfo:
+    key: str
+    display_name: str
+    description: str
+    default_horizon_days: int
+    requires_user_event: bool
+    requires_activity_resolution: bool
+    notes: str
+
+
+@dataclass(frozen=True)
+class ResolvedTemplate:
+    template_key: str
+    display_name: str
+    description: str
+    suggested_name: str
+    target_event: str
+    resolved_activity_event: str | None
+    activity_event_alternatives: list[str]
+    horizon_days: int
+    training_population: dict[str, Any]
+    inference_population: dict[str, Any]
+    output_person_property: str
+    notes: str

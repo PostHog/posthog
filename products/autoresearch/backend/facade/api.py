@@ -12,11 +12,24 @@ filters on it. Business rules live in the modules behind this facade, not in the
 from typing import Any
 from uuid import UUID
 
+from posthog.models.team import Team
+
 from products.actions.backend.models.action import Action
 
+from ..dataset import templates as templates_module
 from ..dataset.labeling import POPULATION_KINDS as _POPULATION_KINDS
+from ..dataset.validation import validate_pipeline_definition as _validate_pipeline_definition
 from ..models import AutoresearchModel, AutoresearchPipeline
-from .contracts import Pipeline, PipelineNotFound, PipelineWrite
+from .contracts import (
+    AutoresearchConflict,
+    Pipeline,
+    PipelineNotFound,
+    PipelineValidation,
+    PipelineWrite,
+    ResolvedTemplate,
+    TemplateInfo,
+    ValidationWarning,
+)
 
 AUTORESEARCH_FLAG = "autoresearch"
 
@@ -185,6 +198,90 @@ def resolve_action_target(team_id: int, action_id: Any) -> tuple[str, int]:
     except (Action.DoesNotExist, ValueError, TypeError):
         raise PipelineNotFound(f"Action {action_id} was not found in this project.")
     return action.name or "", int(action_id)
+
+
+# ── Validation and templates ───────────────────────────────────────────────
+
+
+def list_templates() -> list[TemplateInfo]:
+    return [
+        TemplateInfo(
+            key=t.key,
+            display_name=t.display_name,
+            description=t.description,
+            default_horizon_days=t.default_horizon_days,
+            requires_user_event=t.requires_user_event,
+            requires_activity_resolution=t.requires_activity_resolution,
+            notes=t.notes,
+        )
+        for t in templates_module.TEMPLATES.values()
+    ]
+
+
+def resolve_template(
+    team_id: int,
+    *,
+    template_key: str,
+    target_event_override: str | None = None,
+    horizon_days_override: int | None = None,
+) -> ResolvedTemplate:
+    team = Team.objects.get(pk=team_id)
+    try:
+        resolved = templates_module.resolve_template(
+            team=team,
+            template_key=template_key,
+            target_event_override=target_event_override,
+            horizon_days_override=horizon_days_override,
+        )
+    except ValueError as exc:
+        raise AutoresearchConflict(str(exc)) from exc
+    return ResolvedTemplate(
+        template_key=resolved.template_key,
+        display_name=resolved.display_name,
+        description=resolved.description,
+        suggested_name=resolved.suggested_name,
+        target_event=resolved.target_event,
+        resolved_activity_event=resolved.resolved_activity_event,
+        activity_event_alternatives=list(resolved.activity_event_alternatives),
+        horizon_days=resolved.horizon_days,
+        training_population=resolved.training_population,
+        inference_population=resolved.inference_population,
+        output_person_property=resolved.output_person_property,
+        notes=resolved.notes,
+    )
+
+
+def validate_definition(
+    team_id: int,
+    *,
+    target_event: str,
+    target_definition: dict[str, Any],
+    horizon_days: int,
+    training_lookback_days: int,
+    training_population: dict[str, Any],
+    inference_population: dict[str, Any],
+) -> PipelineValidation:
+    team = Team.objects.get(pk=team_id)
+    result = _validate_pipeline_definition(
+        team=team,
+        target_event=target_event,
+        target_definition=target_definition,
+        horizon_days=horizon_days,
+        training_lookback_days=training_lookback_days,
+        training_population=training_population,
+        inference_population=inference_population,
+    )
+    return PipelineValidation(
+        can_proceed=result.can_proceed,
+        requires_acknowledgement=result.requires_acknowledgement,
+        estimated_training_rows=result.estimated_training_rows,
+        positive_count=result.positive_count,
+        negative_count=result.negative_count,
+        base_rate=result.base_rate,
+        inference_population_size=result.inference_population_size,
+        warnings=[ValidationWarning(code=w.code, message=w.message, severity=w.severity) for w in result.warnings],
+        error=result.error,
+    )
 
 
 # ── Recipe validation surface for the presentation layer ───────────────────

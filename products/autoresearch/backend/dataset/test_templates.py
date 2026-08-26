@@ -1,3 +1,4 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -11,6 +12,7 @@ from products.autoresearch.backend.dataset.templates import (
     resolve_activity_event,
     resolve_template,
 )
+from products.autoresearch.backend.testing import TeamScopedTestMixin
 
 
 class TestTemplateDefinitions(TestCase):
@@ -164,3 +166,87 @@ class TestResolveTemplate(TestCase):
         result = resolve_template(self._make_team(), "return_after_first_use")
         self.assertEqual(result.training_population["kind"], "person_first_seen_within_days")
         self.assertEqual(result.training_population["days"], 14)
+
+
+class TestTemplateAPIEndpoints(TeamScopedTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self._flag_patcher = patch(
+            "products.autoresearch.backend.access.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self._flag_patcher.start()
+        self.addCleanup(self._flag_patcher.stop)
+
+    def test_list_templates_returns_five(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/autoresearch/templates/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 5)
+
+    def test_list_templates_has_required_keys(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/autoresearch/templates/")
+        first = response.json()[0]
+        for field in (
+            "key",
+            "display_name",
+            "description",
+            "default_horizon_days",
+            "requires_user_event",
+            "requires_activity_resolution",
+        ):
+            self.assertIn(field, first)
+
+    @patch(
+        "products.autoresearch.backend.dataset.templates.resolve_activity_event",
+        return_value=("$pageview", ["$screen"]),
+    )
+    def test_resolve_template_likely_active_soon(self, _: MagicMock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/autoresearch/resolve-template/",
+            {"template_key": "likely_active_soon"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["target_event"], "$pageview")
+        self.assertEqual(data["horizon_days"], 7)
+        self.assertIn("training_population", data)
+        self.assertIn("inference_population", data)
+        self.assertIn("output_person_property", data)
+        self.assertIn("suggested_name", data)
+
+    def test_resolve_template_feature_adoption_requires_target_event(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/autoresearch/resolve-template/",
+            {"template_key": "feature_adoption"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_resolve_template_feature_adoption_with_event(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/autoresearch/resolve-template/",
+            {"template_key": "feature_adoption", "target_event": "feature_clicked"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["target_event"], "feature_clicked")
+
+    def test_resolve_template_unknown_key_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/autoresearch/resolve-template/",
+            {"template_key": "not_a_real_template"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("products.autoresearch.backend.dataset.templates.resolve_activity_event", return_value=("$pageview", []))
+    def test_resolve_template_horizon_override(self, _: MagicMock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/autoresearch/resolve-template/",
+            {"template_key": "likely_active_soon", "horizon_days": 30},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["horizon_days"], 30)
