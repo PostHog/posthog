@@ -75,9 +75,14 @@ def _coerce_value(value: str | float | bool, column_type: str) -> str | float | 
         if isinstance(value, bool):
             raise CheckConfigError(f"{value!r} is not a number, but the column is {column_type}.")
         try:
-            return float(value)
+            number = float(value)
         except (TypeError, ValueError):
             raise CheckConfigError(f"{value!r} is not a number, but the column is {column_type}.")
+        # An integer column cannot hold a fraction, so reject one at authoring time rather than store
+        # a value no row can ever match. A whole number written as 2.0 still passes.
+        if column_type.startswith(("Int", "UInt")) and not number.is_integer():
+            raise CheckConfigError(f"{value!r} is not a whole number, but the column is {column_type}.")
+        return number
     # A text column can hold any scalar as a string, so read it as one rather than leaving a number
     # or boolean to fingerprint apart from the editor's string and compile to a mixed-type NOT IN.
     if column_type.startswith(("String", "FixedString")):

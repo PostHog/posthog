@@ -271,6 +271,7 @@ class TestCheckSerialization:
     @parameterized.expand(
         [
             ("int_column", "Int64", ["1", "2"], [1.0, 2.0]),
+            ("int_column_accepts_a_whole_float", "Int64", [2.0], [2.0]),
             ("nullable_int_column", "Nullable(Int64)", ["1"], [1.0]),
             ("low_cardinality_int_column", "LowCardinality(Int64)", ["1"], [1.0]),
             ("low_cardinality_nullable_int_column", "LowCardinality(Nullable(Int64))", ["1"], [1.0]),
@@ -300,6 +301,7 @@ class TestCheckSerialization:
             ("a word on a numeric column", "Int64", ["paid"]),
             ("a word on a boolean column", "Bool", ["paid"]),
             ("a boolean on a numeric column", "Int64", [True]),
+            ("a fraction on an integer column", "Int64", [1.5]),
         ]
     )
     def test_an_accepted_value_the_column_cannot_hold_is_rejected(self, _name, column_type, given) -> None:
