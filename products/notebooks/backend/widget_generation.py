@@ -6,6 +6,7 @@ from time import monotonic
 from openai import OpenAI, OpenAIError, Stream
 from openai.types.chat import ChatCompletionChunk
 
+from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client
 
 from products.canvas.backend import notebook_integration as canvas_facade
@@ -40,6 +41,13 @@ WIDGET_MODEL_TEMPERATURE: dict[str, float] = {
 }
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+MAX_WIDGET_TITLE_LENGTH = 80
+
+
+@frozen
+class GeneratedWidgetSource:
+    title: str
+    source: str
 
 
 class WidgetSourceGenerationError(Exception):
@@ -77,7 +85,9 @@ def _generation_prompt(
 <notebook_context>{notebook_context}</notebook_context>
 <available_frames>{json.dumps(schemas, separators=(",", ":"))}</available_frames>
 
-Return exactly one JSON object with a single string field named `source`. Do not use markdown fences or commentary.
+Return exactly one JSON object with string fields named `title` and `source`. Do not use markdown fences or commentary.
+
+The title must be 2-7 words and at most {MAX_WIDGET_TITLE_LENGTH} characters. Name the kind and subject of the finished widget, such as "Interactive event explorer", "Interactive solar system", or "Revenue cohort chart". Describe the widget itself, not the latest requested change. Do not end it with punctuation.
 
 Before producing the source, privately plan the visual composition, implementation, and interaction model. Prefer a focused implementation with enough detail for a polished result, without unnecessary repetition. Keep the complete source under 350 lines.
 
@@ -157,7 +167,7 @@ def _repair_prompt(
     )
 
 
-def _parse_source(content: str) -> str:
+def _parse_generation(content: str) -> GeneratedWidgetSource:
     text = content.strip()
     candidates = [text]
     if fence := _JSON_FENCE_RE.search(text):
@@ -172,7 +182,11 @@ def _parse_source(content: str) -> str:
         except json.JSONDecodeError:
             continue
         if isinstance(payload, dict) and isinstance(source := payload.get("source"), str) and source.strip():
-            return source.strip()
+            raw_title = payload.get("title")
+            title = re.sub(r"\s+", " ", raw_title).strip() if isinstance(raw_title, str) else ""
+            if len(title) > MAX_WIDGET_TITLE_LENGTH:
+                title = f"{title[: MAX_WIDGET_TITLE_LENGTH - 3].rstrip()}..."
+            return GeneratedWidgetSource(title=title, source=source.strip())
     raise WidgetSourceGenerationError("The model did not return widget source code.")
 
 
@@ -219,7 +233,7 @@ def generate_widget_source(
     base_source: str | None = None,
     change_prompt: str | None = None,
     notebook_context: str = "",
-) -> str:
+) -> GeneratedWidgetSource:
     if model not in WIDGET_MODEL_CHOICES:
         raise WidgetSourceGenerationError("The selected widget model is not supported.")
 
@@ -230,6 +244,7 @@ def generate_widget_source(
         properties={"team_id": str(team_id), "source_product": "notebook_widget"},
     )
     source: str | None = None
+    title = ""
     diagnostics: list[dict[str, object]] = []
     compact_retry = False
     deadline = monotonic() + WIDGET_MODEL_TOTAL_BUDGET_SECONDS[model]
@@ -305,14 +320,16 @@ def generate_widget_source(
         except OpenAIError as error:
             raise WidgetSourceGenerationError("The model request failed.") from error
         try:
-            source = _parse_source(content)
+            generated = _parse_generation(content)
+            source = generated.source
+            title = generated.title or title
         except WidgetSourceGenerationError:
             source = content
             diagnostics = [
                 {
                     "severity": "error",
                     "code": "invalid_generation_response",
-                    "message": "Return one JSON object whose source field contains the complete component.",
+                    "message": "Return one JSON object whose title and source fields describe the complete component.",
                 }
             ]
             if attempt + 1 < MAX_GENERATION_ATTEMPTS:
@@ -321,6 +338,6 @@ def generate_widget_source(
 
         diagnostics = _validation_errors(source, input_names)
         if not diagnostics:
-            return source
+            return GeneratedWidgetSource(title=title, source=source)
 
     raise WidgetSourceGenerationError("The generated widget did not pass source validation.")

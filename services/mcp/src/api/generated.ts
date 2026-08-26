@@ -57858,8 +57858,22 @@ export namespace Schemas {
     export interface WidgetCatalog {
       readonly id: string;
       readonly name: string;
+      /** Concise generated title for the current widget version. */
+      readonly title: string;
+      /** Truncated prompt shown when a generated title is unavailable. */
+      readonly prompt_preview: string;
       readonly description: string;
       readonly visibility: WidgetCatalogVisibilityEnum;
+      /**
+         * Most recently updated notebook containing this widget.
+         * @nullable
+         */
+      readonly notebook_short_id: string | null;
+      /**
+         * Widget node in the most recently updated notebook placement.
+         * @nullable
+         */
+      readonly notebook_node_id: string | null;
       /** @nullable */
       readonly current_version_id: string | null;
       /** Immutable versions retained for this widget. */

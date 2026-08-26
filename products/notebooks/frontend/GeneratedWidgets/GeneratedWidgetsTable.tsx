@@ -4,7 +4,10 @@ import { IconSearch } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { urls } from 'scenes/urls'
 
 import type { WidgetCatalogApi } from 'products/notebooks/frontend/generated/api.schemas'
 
@@ -22,38 +25,54 @@ const columns: LemonTableColumns<WidgetCatalogApi> = [
     {
         title: 'Widget',
         key: 'name',
-        render: (_, widget) => (
-            <div className="min-w-0">
-                <div className="truncate font-semibold">{widget.name || 'Untitled widget'}</div>
-                {widget.description ? <div className="truncate text-xs text-muted">{widget.description}</div> : null}
-            </div>
-        ),
+        width: '40%',
+        render: (_, widget) => {
+            const label = widget.title || widget.prompt_preview || 'Untitled widget'
+            return (
+                <div className="min-w-0">
+                    <LemonTableLink
+                        to={widget.notebook_short_id ? urls.notebook(widget.notebook_short_id) : undefined}
+                        truncateTitle
+                        title={
+                            <Tooltip title={label}>
+                                <span className="min-w-0 truncate">{label}</span>
+                            </Tooltip>
+                        }
+                    />
+                </div>
+            )
+        },
     },
     {
         title: 'Visibility',
         key: 'visibility',
+        width: 96,
         render: (_, widget) => <LemonTag type="muted">{widget.visibility === 'team' ? 'Team' : 'Private'}</LemonTag>,
     },
     {
         title: 'Owner',
         key: 'owner',
+        width: 160,
         render: (_, widget) => ownerName(widget),
     },
     {
         title: 'Versions',
         key: 'version_count',
+        width: 80,
         align: 'right',
         render: (_, widget) => widget.version_count,
     },
     {
         title: 'Used in',
         key: 'usage_count',
+        width: 112,
         align: 'right',
         render: (_, widget) => `${widget.usage_count} notebook${widget.usage_count === 1 ? '' : 's'}`,
     },
     {
         title: 'Updated',
         key: 'updated_at',
+        width: 160,
         render: (_, widget) => humanFriendlyDetailedTime(widget.updated_at),
     },
 ]
@@ -86,6 +105,8 @@ export function GeneratedWidgetsTable(): JSX.Element {
             <LemonTable
                 columns={columns}
                 dataSource={widgets}
+                rowKey="id"
+                tableLayout="fixed"
                 loading={loading && widgets.length === 0}
                 emptyState={
                     search

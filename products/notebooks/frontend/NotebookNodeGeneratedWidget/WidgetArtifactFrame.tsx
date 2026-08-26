@@ -119,8 +119,16 @@ export function WidgetArtifactFrame({
                 if (hasLoadedRef.current) {
                     clearConnection()
                     latest.current.onArtifactUnavailable?.()
+                    return
                 }
                 hasLoadedRef.current = true
+                if (!artifactPortRef.current && iframeRef.current?.contentWindow) {
+                    const legacyChannel = new MessageChannel()
+                    connect(legacyChannel.port1)
+                    iframeRef.current.contentWindow.postMessage({ channel: 'posthog-canvas', type: 'connect' }, '*', [
+                        legacyChannel.port2,
+                    ])
+                }
             }}
             onError={() => onArtifactUnavailable?.()}
         />

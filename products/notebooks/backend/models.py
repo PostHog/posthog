@@ -301,6 +301,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     reverted_from_version = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+    title = models.CharField(max_length=80, blank=True, default="")
     operation = models.CharField(choices=Operation, max_length=16)
     prompt_delta = models.TextField()
     model = models.CharField(max_length=64, blank=True, default="")

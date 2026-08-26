@@ -3,9 +3,9 @@
 Notebooks can generate interactive widgets from instructions and the notebook's SQL and Python dataframe context.
 
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors.
-- Successful source, prompts, models, and dataframe contracts are stored as immutable versions.
+- Successful source, concise generated titles, prompts, models, and dataframe contracts are stored as immutable versions.
 - People can inspect history, restore an earlier state as a new version, improve the current widget, regenerate it, or save a manual source edit.
-- The Notebooks **Widgets** tab lists reusable widget resources, version counts, and usage separately from their notebook placements.
+- The Notebooks **Widgets** tab lists reusable widget resources, version counts, and usage separately from their notebook placements. Titles and prompt fallbacks are searchable, and each widget links to its most recently updated notebook placement.
 - Notebook-managed Canvas artifacts use a restricted source policy and cannot be edited through the ordinary Canvas API.
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.

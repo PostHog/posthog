@@ -193,4 +193,34 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
     it('formats elapsed generation time', () => {
         expect(formatWidgetElapsed(65)).toBe('01:05')
     })
+
+    it('keeps the elapsed clock running when generation hands off to publishing', async () => {
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date('2026-08-26T12:00:05Z'))
+
+        logic.actions.statusReceived(
+            status({
+                lifecycle_status: 'generating',
+                active_job: {
+                    id: '00000000-0000-0000-0000-000000000001',
+                    status: 'generating',
+                    phase: 'generating_source',
+                    model: 'claude-sonnet-4-6',
+                    created_at: '2026-08-26T12:00:00Z',
+                    started_at: '2026-08-26T12:00:00Z',
+                },
+            })
+        )
+        expect(logic.values.elapsedSeconds).toBe(5)
+
+        logic.actions.statusReceived(status({ lifecycle_status: 'building', has_versions: true }))
+        jest.advanceTimersByTime(1_000)
+
+        expect(logic.values.elapsedSeconds).toBe(6)
+        expect(logic.values.workingStatus?.label).toBe('Publishing widget…')
+    })
 })

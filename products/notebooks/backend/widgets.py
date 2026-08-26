@@ -10,7 +10,7 @@ from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from celery import current_app
@@ -183,7 +183,7 @@ def assert_widget_node_exists(notebook: Notebook, node_id: str) -> None:
     if markdown is not None:
         occurrences: dict[str, int] = {}
         for tag_name, raw, _next_line_index in _iter_markdown_component_blocks(markdown):
-            if tag_name != "GeneratedWidget":
+            if tag_name not in {"GeneratedWidget", "GenUI"}:
                 continue
             props = _parse_markdown_component_props(raw)
             fingerprint = _get_markdown_component_fingerprint(tag_name, props)
@@ -704,7 +704,7 @@ def run_widget_generation_job(job_id: UUID) -> None:
         frames = job.context_manifest.get("frames") if isinstance(job.context_manifest, dict) else []
         frame_names = job.context_manifest.get("frameNames") if isinstance(job.context_manifest, dict) else []
         notebook_context = job.context_manifest.get("notebookContext") if isinstance(job.context_manifest, dict) else ""
-        source = generate_widget_source(
+        generated = generate_widget_source(
             team_id=job.team_id,
             trace_id=f"notebook-widget-{job.id}",
             prompt=effective_prompt,
@@ -716,6 +716,8 @@ def run_widget_generation_job(job_id: UUID) -> None:
             change_prompt=change_prompt,
             notebook_context=str(notebook_context),
         )
+        source = generated.source
+        title = generated.title or _display_name(effective_prompt)
         if is_cancelled():
             raise WidgetError("Widget generation was canceled.", "generation_canceled")
         GeneratedWidgetGenerationJob.objects.for_team(job.team_id).filter(id=job.id).update(
@@ -746,7 +748,7 @@ def run_widget_generation_job(job_id: UUID) -> None:
                 source=source,
                 input_names=[str(item.get("slot")) for item in job.input_contract if isinstance(item, dict)],
                 prompt=job.prompt,
-                name=_display_name(effective_prompt),
+                name=title,
                 expected_current_version_id=(
                     job.base_version.canvas_source_version_id if job.base_version is not None else None
                 ),
@@ -756,6 +758,7 @@ def run_widget_generation_job(job_id: UUID) -> None:
                 widget=widget,
                 canvas_source_version_id=source_version_id,
                 parent_version=job.base_version,
+                title=title,
                 operation=job.operation,
                 prompt_delta=job.prompt,
                 model=job.model,
@@ -765,7 +768,7 @@ def run_widget_generation_job(job_id: UUID) -> None:
                 created_by=job.requested_by,
             )
             widget.current_version = version
-            widget.name = _display_name(effective_prompt)
+            widget.name = title
             widget.save(update_fields=["current_version", "name", "updated_at"])
             instance.pinned_version = version
             instance.save(update_fields=["pinned_version", "updated_at"])
@@ -879,6 +882,14 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
             active_job=active_job,
         )
     state = canvas_facade.get_canvas_generation_state(team_id=notebook.team_id, canvas_id=instance.widget.canvas_id)
+    selected_canvas_version = None
+    if state is not None and state.current_source_version_id != current_version.canvas_source_version_id:
+        selected_canvas_versions = canvas_facade.list_notebook_canvas_versions(
+            team_id=notebook.team_id,
+            canvas_id=instance.widget.canvas_id,
+            version_ids=[current_version.canvas_source_version_id],
+        )
+        selected_canvas_version = selected_canvas_versions[0] if selected_canvas_versions else None
     frame_names = [
         str(item.get("slot")) for item in current_version.input_contract if isinstance(item, dict) and item.get("slot")
     ]
@@ -888,14 +899,30 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
     if state is None:
         lifecycle = "failed"
         error_detail = "The widget artifact is unavailable. Generate a new version."
-    elif (
-        state.published_source_version_id == current_version.canvas_source_version_id and state.build_status == "ready"
-    ):
-        lifecycle = "generating" if active_job is not None else "ready"
-        artifact_url = state.artifact_url
-    elif state.build_status == "failed":
+    elif state.current_source_version_id == current_version.canvas_source_version_id:
+        if state.build_status == "ready" and state.artifact_url:
+            lifecycle = "generating" if active_job is not None else "ready"
+            artifact_url = state.artifact_url
+        elif state.build_status == "ready":
+            lifecycle = "failed"
+            error_detail = "The widget preview URL is unavailable. Check Canvas artifact delivery settings."
+        elif state.build_status == "failed":
+            lifecycle = "failed"
+            error_detail = state.build_error or "The widget preview could not be built."
+        elif active_job is not None:
+            lifecycle = "generating"
+    elif selected_canvas_version is None:
         lifecycle = "failed"
-        error_detail = state.build_error or "The widget preview could not be built."
+        error_detail = "The widget artifact is unavailable. Generate a new version."
+    elif selected_canvas_version.build_status == "ready" and selected_canvas_version.artifact_url:
+        lifecycle = "generating" if active_job is not None else "ready"
+        artifact_url = selected_canvas_version.artifact_url
+    elif selected_canvas_version.build_status == "ready":
+        lifecycle = "failed"
+        error_detail = "The widget preview URL is unavailable. Check Canvas artifact delivery settings."
+    elif selected_canvas_version.build_status == "failed":
+        lifecycle = "failed"
+        error_detail = "The widget preview could not be built."
     elif active_job is not None:
         lifecycle = "generating"
     return WidgetStatus(
@@ -1061,6 +1088,7 @@ def save_widget_source(
             widget=widget,
             canvas_source_version_id=source_version_id,
             parent_version=current_version,
+            title=current_version.title or widget.name,
             operation=GeneratedWidgetVersion.Operation.SOURCE_EDIT,
             prompt_delta=note,
             generator_version=GENERATOR_VERSION,
@@ -1103,6 +1131,7 @@ def revert_widget_version(
         )
         if widget.current_version_id != current.id:
             raise WidgetConflictError("This widget changed before the version could be restored.", "revert_conflict")
+        title = target.title or widget.name
         source_version_id, _build_id = canvas_facade.publish_notebook_canvas_source(
             team_id=notebook.team_id,
             canvas_id=widget.canvas_id,
@@ -1110,7 +1139,7 @@ def revert_widget_version(
             source=target_source,
             input_names=[str(item.get("slot")) for item in target.input_contract if isinstance(item, dict)],
             prompt=f"Restore version {target.id}",
-            name=widget.name,
+            name=title,
             expected_current_version_id=current.canvas_source_version_id,
         )
         version = GeneratedWidgetVersion.objects.for_team(notebook.team_id).create(
@@ -1119,6 +1148,7 @@ def revert_widget_version(
             canvas_source_version_id=source_version_id,
             parent_version=current,
             reverted_from_version=target,
+            title=title,
             operation=GeneratedWidgetVersion.Operation.REVERT,
             prompt_delta="Restored an earlier version.",
             generator_version=GENERATOR_VERSION,
@@ -1127,7 +1157,8 @@ def revert_widget_version(
             created_by_id=user_id,
         )
         widget.current_version = version
-        widget.save(update_fields=["current_version", "updated_at"])
+        widget.name = title
+        widget.save(update_fields=["current_version", "name", "updated_at"])
         locked_instance.pinned_version = version
         locked_instance.save(update_fields=["pinned_version", "updated_at"])
     return get_widget_status(notebook=notebook, node_id=node_id)
@@ -1246,6 +1277,9 @@ def read_widget_frame(
 
 
 def list_widgets(*, team_id: int, user_id: int, search: str = "") -> QuerySet[GeneratedWidget]:
+    recent_placement = (
+        NotebookWidgetInstance.objects.for_team(team_id).filter(widget_id=OuterRef("pk")).order_by("-updated_at")
+    )
     queryset = (
         GeneratedWidget.objects.for_team(team_id)
         .filter(Q(visibility=GeneratedWidget.Visibility.TEAM) | Q(created_by_id=user_id))
@@ -1253,9 +1287,16 @@ def list_widgets(*, team_id: int, user_id: int, search: str = "") -> QuerySet[Ge
         .annotate(
             usage_count=Count("notebook_instances", distinct=True),
             version_count=Count("versions", distinct=True),
+            notebook_short_id=Subquery(recent_placement.values("notebook__short_id")[:1]),
+            notebook_node_id=Subquery(recent_placement.values("node_id")[:1]),
         )
         .order_by("-updated_at")
     )
     if search:
-        queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+        queryset = queryset.filter(
+            Q(name__icontains=search)
+            | Q(description__icontains=search)
+            | Q(current_version__title__icontains=search)
+            | Q(current_version__prompt_delta__icontains=search)
+        )
     return queryset

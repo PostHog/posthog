@@ -133,9 +133,11 @@ class TestWidgetGeneration(SimpleTestCase):
         client = MagicMock()
         client.with_options.return_value = client
         invalid_stream = completion_stream(
-            '{"source":"import chart from \\"unsupported-chart\\"; export default function Canvas() { return <div /> }"}'
+            '{"title":"Interactive globe","source":"import chart from \\"unsupported-chart\\"; export default function Canvas() { return <div /> }"}'
         )
-        valid_stream = completion_stream('{"source":"export default function Canvas() { return <div>Ready</div> }"}')
+        valid_stream = completion_stream(
+            '{"title":"Interactive globe","source":"export default function Canvas() { return <div>Ready</div> }"}'
+        )
         client.chat.completions.create.side_effect = [
             invalid_stream,
             valid_stream,
@@ -150,7 +152,8 @@ class TestWidgetGeneration(SimpleTestCase):
             client=client,
         )
 
-        assert source == "export default function Canvas() { return <div>Ready</div> }"
+        assert source.title == "Interactive globe"
+        assert source.source == "export default function Canvas() { return <div>Ready</div> }"
         timeout_options = client.with_options.call_args.kwargs
         self.assertAlmostEqual(timeout_options["timeout"], WIDGET_MODEL_TIMEOUT_SECONDS[DEFAULT_WIDGET_MODEL], places=1)
         assert timeout_options["max_retries"] == 0
@@ -203,7 +206,7 @@ class TestWidgetGeneration(SimpleTestCase):
             change_prompt="Make it lighter",
         )
 
-        assert source == "export default function Canvas() { return <main>Light</main> }"
+        assert source.source == "export default function Canvas() { return <main>Light</main> }"
         request = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
         assert "<existing_source>" in request
         assert "<requested_change>Make it lighter</requested_change>" in request
@@ -250,7 +253,7 @@ class TestWidgetGeneration(SimpleTestCase):
             client=client,
         )
 
-        assert source == "export default function Canvas() { return <div>Ready</div> }"
+        assert source.source == "export default function Canvas() { return <div>Ready</div> }"
         retry_prompt = client.chat.completions.create.call_args_list[1].kwargs["messages"][1]["content"]
         assert "previous response reached the output limit" in retry_prompt
         assert "partial-source-marker" not in retry_prompt
@@ -545,6 +548,24 @@ class TestWidgetData(APIBaseTest):
         assert response.json()["lifecycle_status"] == "awaiting_generation"
         generate.assert_not_called()
 
+    def test_widget_catalog_uses_the_generated_title_and_links_to_a_notebook(self) -> None:
+        instance = self._mapping()
+        current_version = self._pinned_version(instance)
+        current_version.title = "Interactive location globe"
+        current_version.save(update_fields=["title"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebook_widgets/")
+
+        assert response.status_code == 200
+        widget = response.json()["results"][0]
+        assert widget["title"] == "Interactive location globe"
+        assert widget["notebook_short_id"] == self.notebook.short_id
+        assert widget["notebook_node_id"] == self.NODE_ID
+
+        search_response = self.client.get(f"/api/projects/{self.team.id}/notebook_widgets/", {"search": "location"})
+        assert search_response.status_code == 200
+        assert [result["id"] for result in search_response.json()["results"]] == [widget["id"]]
+
     def test_status_is_compact_and_history_is_paginated_separately(self) -> None:
         source_version_id = uuid4()
         instance = self._mapping()
@@ -566,10 +587,11 @@ class TestWidgetData(APIBaseTest):
         instance.widget.save(update_fields=["current_version"])
         instance.pinned_version = version
         instance.save(update_fields=["pinned_version"])
+        different_canvas_head = uuid4()
         state = CanvasGenerationState(
-            current_source_version_id=source_version_id,
-            published_source_version_id=source_version_id,
-            artifact_url=None,
+            current_source_version_id=different_canvas_head,
+            published_source_version_id=different_canvas_head,
+            artifact_url="https://example.com/newer-widget.html",
             build_status="ready",
             build_error=None,
         )

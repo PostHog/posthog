@@ -5,7 +5,7 @@ A generated widget is an interactive app embedded in a notebook. A visualization
 ## Resource model
 
 - `GeneratedWidget` owns reusable identity, visibility, provenance, and the current immutable version.
-- `GeneratedWidgetVersion` owns source-version identity, prompt delta, model, parent, and the dataframe contract used to generate and run that version.
+- `GeneratedWidgetVersion` owns source-version identity, a concise generated title, prompt delta, model, parent, and the dataframe contract used to generate and run that version.
 - `NotebookWidgetInstance` places a widget at a notebook node and records whether it is pinned or follows the widget's latest version.
 - `GeneratedWidgetGenerationJob` is the durable, idempotent generation lifecycle.
 - A Canvas with `source_policy=notebook_widget` stores, validates, builds, and serves source. The ordinary Canvas API cannot edit or publish it.
@@ -51,6 +51,6 @@ Notebook-managed canvases cannot be retrieved or republished through ordinary Ca
 
 ## Reuse
 
-The Notebooks scene lists generated widgets, their owner, visibility, version count, usage count, and update time.
+The Notebooks scene lists generated widgets by their current generated title, with a truncated prompt as the fallback. The list supports title and prompt search and links each widget to its most recently updated notebook placement.
 
 The future insertion picker should default to **copy**, creating a new widget identity with `forked_from_version_id` provenance. **Link** should remain explicit, default to a pinned version, and ask whether an improvement updates the shared resource or forks it. A linked instance must bind logical inputs to frames in its destination notebook and always resolve data with the current viewer's permissions.

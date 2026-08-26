@@ -13,6 +13,8 @@ class TestMessagePort {
     start = jest.fn()
 }
 
+const nativeMessageChannel = globalThis.MessageChannel
+
 function sendNotebookPort(iframe: HTMLIFrameElement, port: TestMessagePort): void {
     window.dispatchEvent(
         new MessageEvent('message', {
@@ -35,6 +37,11 @@ describe('WidgetArtifactFrame', () => {
         jest.runOnlyPendingTimers()
         jest.useRealTimers()
         jest.restoreAllMocks()
+        Object.defineProperty(globalThis, 'MessageChannel', {
+            configurable: true,
+            value: nativeMessageChannel,
+            writable: true,
+        })
     })
 
     it('accepts the trusted bootstrap port once and closes it on unmount', () => {
@@ -77,6 +84,30 @@ describe('WidgetArtifactFrame', () => {
         expect(initialPort.close).toHaveBeenCalledTimes(1)
         expect(navigatedPort.start).not.toHaveBeenCalled()
         expect(onArtifactUnavailable).toHaveBeenCalledTimes(1)
+    })
+
+    it('connects cached artifacts that predate the notebook bootstrap port', () => {
+        const hostPort = new TestMessagePort()
+        const artifactPort = new TestMessagePort()
+        const messageChannel = jest.fn(() => ({ port1: hostPort, port2: artifactPort }))
+        Object.defineProperty(globalThis, 'MessageChannel', {
+            configurable: true,
+            value: messageChannel,
+            writable: true,
+        })
+        const postMessage = jest.spyOn(window, 'postMessage').mockImplementation()
+        render(
+            <WidgetArtifactFrame
+                artifactUrl="https://example.com/globe.html"
+                allowedFrames={[]}
+                onReadFrame={jest.fn()}
+            />
+        )
+
+        fireEvent.load(screen.getByTitle('Generated widget'))
+
+        expect(hostPort.start).toHaveBeenCalledTimes(1)
+        expect(postMessage).toHaveBeenCalledWith({ channel: 'posthog-canvas', type: 'connect' }, '*', [artifactPort])
     })
 
     it('reports an unavailable artifact when the trusted runtime does not render in time', () => {

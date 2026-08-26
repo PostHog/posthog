@@ -208,7 +208,7 @@ export function getWidgetWorkingStatus({
             timing: 'Generation time starts after the worker picks up the job.',
         }
     }
-    if (phase === 'publishing') {
+    if (phase.startsWith('publishing')) {
         return {
             detail: 'The source is ready. Building and publishing the interactive preview.',
             isOverEstimate: false,
@@ -744,7 +744,9 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     if (shouldPoll(status)) {
                         scheduleStatusPoll()
                         const startedAtRaw = status.active_job?.started_at ?? status.active_job?.created_at
-                        const startedAt = startedAtRaw ? new Date(startedAtRaw).getTime() : Date.now()
+                        const startedAt = startedAtRaw
+                            ? new Date(startedAtRaw).getTime()
+                            : (cache.generationStartedAt ?? Date.now())
                         if (startedAt !== cache.generationStartedAt) {
                             startElapsedClock(startedAt)
                         }
