@@ -665,7 +665,6 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert check.check_type == CheckType.NOT_NULL
 
     def _suite_with_two_runs(self, allowed: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
-        """A suite on the allowed subject holding one ordinary run and one that reads denied "orders"."""
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
         )
