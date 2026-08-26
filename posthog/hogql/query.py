@@ -60,6 +60,7 @@ from posthog.hogql.printer.access_control import build_access_control_warning
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.person_lookup_rewrite import rewrite_person_lookups
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
@@ -213,6 +214,12 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
+        if self.query_modifiers.rewritePersonEventLookups:
+            with self.timings.measure("person_lookup_rewrite"):
+                transformed_node = rewrite_person_lookups(self.select_query)
+                if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
+                    self.select_query = transformed_node
+
         if self.query_modifiers.usePreaggregatedTableTransforms:
             with self.timings.measure("preaggregated_table_transforms"):
                 assert self.hogql_context is not None

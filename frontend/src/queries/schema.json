@@ -28884,6 +28884,10 @@
                 "pushDownPredicates": {
                     "type": "boolean"
                 },
+                "rewritePersonEventLookups": {
+                    "description": "Rewrite single-person lookups on events (person-only select, person.id/distinct_id equality filters, no time bound) to read the persons table instead of scanning event history",
+                    "type": "boolean"
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },

@@ -5426,6 +5426,14 @@ class HogQLQueryModifiers(BaseModel):
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
     pushDownPredicates: bool | None = None
+    rewritePersonEventLookups: bool | None = Field(
+        default=None,
+        description=(
+            "Rewrite single-person lookups on events (person-only select,"
+            " person.id/distinct_id equality filters, no time bound) to read the"
+            " persons table instead of scanning event history"
+        ),
+    )
     s3TableUseInvalidColumns: bool | None = None
     sessionIdPushdown: bool | None = Field(
         default=None,
