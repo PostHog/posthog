@@ -635,10 +635,14 @@ def validate_bigquery_credentials(
 
     try:
         with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
-            bq.list_tables(
+            tables = bq.list_tables(
                 bq.dataset(dataset_id, project=dataset_project_id or project_id),
                 retry=bigquery.DEFAULT_RETRY.with_timeout(5),
             )
+            # `list_tables` returns a lazy iterator; the REST request runs only when a page is
+            # consumed. Pull the first page inside the client context so identifier, dataset,
+            # permission, and auth errors surface here instead of validating an unmade request.
+            next(tables.pages, None)
         return True, None
     except Exception as e:
         # Mirror the stable substrings the sync-path classifier keys off, so the wizard names the

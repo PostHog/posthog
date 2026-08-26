@@ -1157,8 +1157,14 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
 def test_bigquery_validate_credentials_maps_failures_to_actionable_messages(
     exception, expected_message, should_capture
 ):
+    # Validation consumes the first page of `list_tables`, and that page fetch is where the request
+    # actually runs, so surface each failure from page consumption — the real request site. This
+    # also guards the regression: an inert validation that never consumes a page would return
+    # `(True, None)` and fail these assertions.
+    bq = mock.MagicMock()
+    bq.list_tables.return_value.pages.__next__.side_effect = exception
     client_cm = mock.MagicMock()
-    client_cm.__enter__.side_effect = exception
+    client_cm.__enter__.return_value = bq
 
     with (
         mock.patch.object(bq_module, "bigquery_client", return_value=client_cm),
