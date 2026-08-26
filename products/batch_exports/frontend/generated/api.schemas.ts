@@ -1938,14 +1938,62 @@ export type BatchExportsBackfillsListParams = {
 
 export type BatchExportsRunsListParams = {
     /**
+     * Only return runs created at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Ignored when ordering by `data_interval_start`.
+     */
+    after?: string
+    /**
+     * Only return runs created at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Ignored when ordering by `data_interval_start`.
+     */
+    before?: string
+    /**
      * The pagination cursor value.
      */
     cursor?: string
     /**
+     * Only return runs whose data interval ends at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Only applies when ordering by `data_interval_start`.
+     */
+    end?: string
+    /**
      * Which field to use when ordering the results.
      */
     ordering?: string
+    /**
+     * Only return runs whose data interval starts at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Only applies when ordering by `data_interval_start`.
+     */
+    start?: string
+    /**
+     * Only return runs in these statuses. Repeat the parameter to pass more than one status.
+     */
+    status?: BatchExportsRunsListStatusItem[]
 }
+
+/**
+ * * `Cancelled` - Cancelled
+ * * `Completed` - Completed
+ * * `ContinuedAsNew` - Continued As New
+ * * `Failed` - Failed
+ * * `FailedRetryable` - Failed Retryable
+ * * `FailedBilling` - Failed Billing
+ * * `Terminated` - Terminated
+ * * `TimedOut` - Timedout
+ * * `Running` - Running
+ * * `Starting` - Starting
+ */
+export type BatchExportsRunsListStatusItem =
+    (typeof BatchExportsRunsListStatusItem)[keyof typeof BatchExportsRunsListStatusItem]
+
+export const BatchExportsRunsListStatusItem = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
 
 export type BatchExportsRunsLogsRetrieveParams = {
     /**

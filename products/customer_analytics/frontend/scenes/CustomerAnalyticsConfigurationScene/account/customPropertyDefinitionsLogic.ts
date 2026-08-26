@@ -256,7 +256,11 @@ export interface customPropertyDefinitionsLogicValues {
     personPropertyDefinitionsLoading: boolean
     profileSourceBinding: ProfileSourceBinding | null
     runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
+    runsCountBySourceId: Record<string, number>
+    runsLoadFailedBySourceId: Record<string, boolean>
     runsLoadingBySourceId: Record<string, boolean>
+    runsOffsetBySourceId: Record<string, number>
+    runsSearchBySourceId: Record<string, string>
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
     searchTerm: string
@@ -348,7 +352,8 @@ export interface customPropertyDefinitionsLogicActions {
         personPropertyDefinitions: PropertyDefinition[]
         payload?: any
     }
-    loadRuns: ({ sourceId }: { sourceId: string }) => {
+    loadRuns: ({ sourceId, offset }: { offset?: number; sourceId: string }) => {
+        offset: number
         sourceId: string
     }
     loadSavedQueries: () => any
@@ -433,7 +438,19 @@ export interface customPropertyDefinitionsLogicActions {
     runsLoadFailed: ({ sourceId }: { sourceId: string }) => {
         sourceId: string
     }
-    runsLoaded: ({ sourceId, runs }: { runs: CustomPropertySyncRunApi[]; sourceId: string }) => {
+    runsLoaded: ({
+        sourceId,
+        runs,
+        count,
+        offset,
+    }: {
+        count: number
+        offset: number
+        runs: CustomPropertySyncRunApi[]
+        sourceId: string
+    }) => {
+        count: number
+        offset: number
         runs: CustomPropertySyncRunApi[]
         sourceId: string
     }
@@ -452,6 +469,10 @@ export interface customPropertyDefinitionsLogicActions {
     }
     setEditingDefinition: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
+    }
+    setRunsSearch: ({ sourceId, searchTerm }: { searchTerm: string; sourceId: string }) => {
+        searchTerm: string
+        sourceId: string
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
@@ -577,10 +598,24 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         removeTriggeringSource: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
         // Run history per source (lazy on row-expand), driven by explicit actions so loading state is
         // tracked per source rather than one shared loader boolean.
-        loadRuns: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
-        runsLoaded: ({ sourceId, runs }: { sourceId: string; runs: CustomPropertySyncRunApi[] }) => ({
+        loadRuns: ({ sourceId, offset }: { sourceId: string; offset?: number }) => ({
+            sourceId,
+            offset: offset ?? 0,
+        }),
+        runsLoaded: ({
             sourceId,
             runs,
+            count,
+            offset,
+        }: {
+            sourceId: string
+            runs: CustomPropertySyncRunApi[]
+            count: number
+            offset: number
+        }) => ({ sourceId, runs, count, offset }),
+        setRunsSearch: ({ sourceId, searchTerm }: { sourceId: string; searchTerm: string }) => ({
+            sourceId,
+            searchTerm,
         }),
         runsLoadFailed: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
         // Poll definitions/runs after a trigger until the source's run settles, so the buttons and
@@ -647,11 +682,37 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 removeTriggeringSource: (state, { sourceId }) => state.filter((id) => id !== sourceId),
             },
         ],
-        // Sync/backfill run history per person source, loaded lazily when a row is expanded.
+        // Sync run history per source, loaded lazily when a row is expanded.
         runsBySourceId: [
             {} as Record<string, CustomPropertySyncRunApi[]>,
             {
                 runsLoaded: (state, { sourceId, runs }) => ({ ...state, [sourceId]: runs }),
+            },
+        ],
+        runsCountBySourceId: [
+            {} as Record<string, number>,
+            {
+                runsLoaded: (state, { sourceId, count }) => ({ ...state, [sourceId]: count }),
+            },
+        ],
+        runsOffsetBySourceId: [
+            {} as Record<string, number>,
+            {
+                runsLoaded: (state, { sourceId, offset }) => ({ ...state, [sourceId]: offset }),
+            },
+        ],
+        runsSearchBySourceId: [
+            {} as Record<string, string>,
+            {
+                setRunsSearch: (state, { sourceId, searchTerm }) => ({ ...state, [sourceId]: searchTerm }),
+            },
+        ],
+        runsLoadFailedBySourceId: [
+            {} as Record<string, boolean>,
+            {
+                loadRuns: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
+                runsLoaded: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
+                runsLoadFailed: (state, { sourceId }) => ({ ...state, [sourceId]: true }),
             },
         ],
         // Per-source loading flag so expanding one row's history doesn't spin every expanded row.
@@ -1132,6 +1193,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        setRunsSearch: async ({ sourceId }, breakpoint) => {
+            await breakpoint(300)
+            actions.loadRuns({ sourceId, offset: 0 })
+        },
         mapAllColumns: () => {
             if (!values.mappableColumns.length) {
                 return
@@ -1324,14 +1389,18 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 actions.removeTriggeringSource({ sourceId })
             }
         },
-        loadRuns: async ({ sourceId }) => {
+        loadRuns: async ({ sourceId, offset }) => {
             try {
-                const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId)
-                actions.runsLoaded({ sourceId, runs: response.results })
+                const search = values.runsSearchBySourceId[sourceId]?.trim()
+                const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId, {
+                    limit: 20,
+                    offset,
+                    ...(search ? { search } : {}),
+                })
+                actions.runsLoaded({ sourceId, runs: response.results, count: response.count, offset })
             } catch (error) {
                 posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadRuns' })
                 actions.runsLoadFailed({ sourceId })
-                lemonToast.error('Failed to load run history')
             }
         },
         pollRunsStatus: ({ sourceId }) => {

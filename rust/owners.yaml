@@ -7,6 +7,8 @@ rules:
       owners: team-web-analytics
     - match: ['/common/symbol_data/', '/cymbal-proto/', '/cymbal/']
       owners: team-error-tracking
+    - match: '/embedding-worker/'
+      owners: '@oliverb123'
     - match: ['/feature-flags/', '/flags-consumer/', '/flags_read_store_migrations/']
       owners: team-feature-flags
     - match: '/hogql/'
