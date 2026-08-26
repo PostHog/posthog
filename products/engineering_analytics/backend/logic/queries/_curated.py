@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_trunk_merge_queue_table,
 )
 from products.engineering_analytics.backend.logic.views import (
+    deployments,
     issue_events,
     job_costs,
     pull_requests,
@@ -197,6 +198,18 @@ class CuratedGitHubSource:
         if not self._tables.team_members:
             return None
         return f"({team_members.build_query(self._tables.team_members)})"
+
+    def deployments_source(self) -> str | None:
+        """Curated deployments ``SELECT`` subquery, or None when the optional deployments and
+        deployment-statuses pair isn't synced. Either half missing degrades the same way: without
+        statuses a deployment never says whether it shipped."""
+        if not (self._tables.deployments and self._tables.deployment_statuses):
+            return None
+        query = deployments.build_query(
+            deployments_table=self._tables.deployments,
+            statuses_table=self._tables.deployment_statuses,
+        )
+        return f"({query})"
 
     def issue_events_source(self) -> str | None:
         """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional

@@ -122,3 +122,25 @@ TRUNK_MERGE_QUEUE_COLUMNS: dict[str, dict[str, str]] = {
     "skip_the_line": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField"},
     "state_changed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
+
+# Deploy requests (``github_deployments``): one row per request to deploy a ref to an environment.
+# ``production_environment`` is optional in the GitHub API and many repos never set it, so the
+# curated view falls back to the environment's name. Same Nullable discipline as above.
+DEPLOYMENTS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "sha": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "ref": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "environment": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "production_environment": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField"},
+    "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Deploy status transitions (``github_deployment_statuses``): a deployment's state timeline, keyed
+# to its parent by ``deployment_id``. The first ``success`` row is when the change went live.
+DEPLOYMENT_STATUSES_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "deployment_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "environment": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}

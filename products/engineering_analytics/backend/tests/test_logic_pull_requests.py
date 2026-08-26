@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
+from products.engineering_analytics.backend.logic.sources import ISSUE_EVENTS_SCHEMA
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
@@ -118,7 +119,7 @@ class TestPRLifecycleTransitionsMapping(BaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        connect_github_source_without_data(self.team, include_issue_events=True)
+        connect_github_source_without_data(self.team, optional_endpoints=[ISSUE_EVENTS_SCHEMA])
 
     def test_interleaves_transitions_with_actor_detail(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))

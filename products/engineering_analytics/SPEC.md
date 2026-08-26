@@ -44,7 +44,7 @@ graph TB
     end
 
     subgraph Storage
-        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members<br/>issue_events")]
+        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members<br/>issue_events / deployments")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
         TRACES[("Traces: per-test CI spans<br/>from Backend and Frontend CI")]
     end
@@ -155,6 +155,10 @@ Warehouse tables (GitHub source):
 - `github_workflow_runs`: CI runs. Webhook-only (the webhook is the source of truth; history is a deliberate one-off backfill). A settled run never changes, so durations and trends are precise; until settled, `status` / `conclusion` mutate (see the freshness caveat).
 - `github_workflow_jobs`: per-job attempts (runner labels, queue and duration timestamps), the cost substrate. Webhook stream plus a window-limited backfill poll; per-run polling is infeasible at this volume.
 - `github_team_members`: org team membership, the author→team key. Optional at the source; every read that touches it must degrade gracefully when unsynced.
+- `github_deployments` + `github_deployment_statuses`: deploy requests and their state timelines, the substrate for merge-to-production timing.
+  A deployment row records only the request; the first `success` status on it is when the change went live, so the pair is read together and either half missing means no deploy data.
+  `production_environment` is optional in the GitHub API and many repos never set it, so the curated view falls back to the environment's name.
+  Optional, and reads must degrade gracefully when unsynced.
 - `github_issue_events`: immutable issue/PR state transitions, landed raw with every event type kept (a source-side filter would pin the desc-walk watermark). The draft/ready transitions in them back `ready_to_merge_seconds` and the lifecycle timeline. GitHub caps the endpoint's history walk, so rows cover a bounded recent window growing forward from the first sync; optional, and reads must degrade gracefully when unsynced.
 
 Other products read as sources:

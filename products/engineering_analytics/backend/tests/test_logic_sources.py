@@ -9,6 +9,8 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.sources import (
+    DEPLOYMENT_STATUSES_SCHEMA,
+    DEPLOYMENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -69,6 +71,22 @@ class TestResolveGitHubTables(BaseTest):
         assert tables == GitHubTables(
             pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
         )
+
+    def test_resolves_synced_optional_endpoints(self) -> None:
+        # The optional endpoints reach the resolved tables only if they are listed as curated
+        # endpoints; drop one and every read over it silently degrades to "not synced" instead
+        # of failing loudly.
+        self._connect(
+            prefix="myprefix",
+            schemas=[
+                *self._BOTH_SYNCED,
+                (DEPLOYMENTS_SCHEMA, True, True),
+                (DEPLOYMENT_STATUSES_SCHEMA, True, True),
+            ],
+        )
+        tables = resolve_github_tables(team=self.team)
+        assert tables.deployments == "myprefixgithub_deployments"
+        assert tables.deployment_statuses == "myprefixgithub_deployment_statuses"
 
     def test_repo_scoped_resolution_survives_non_dict_job_inputs(self) -> None:
         # job_inputs is an EncryptedJSONField that can hold any JSON value; the repo-first ordering

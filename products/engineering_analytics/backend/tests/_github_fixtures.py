@@ -4,7 +4,7 @@ import os
 import json
 import zlib
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,8 @@ import pandas as pd
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import (
+    DEPLOYMENT_STATUSES_SCHEMA,
+    DEPLOYMENTS_SCHEMA,
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -118,28 +120,35 @@ def create_warehouse_table_row(
 
 
 def connect_github_source_without_data(
-    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = "", include_issue_events: bool = False
+    team: Team,
+    *,
+    prefix: str = GITHUB_SOURCE_PREFIX,
+    repository: str = "",
+    optional_endpoints: Iterable[str] = (),
 ) -> GitHubTables:
     """A GitHub source with pull_requests/workflow_runs schemas over empty ORM tables.
 
     The resolver finds these without touching object storage; pair with a mocked query
-    when only resolution (not real warehouse data) matters. ``include_issue_events``
-    links the optional issue-events schema too, activating the transition reads.
+    when only resolution (not real warehouse data) matters. ``optional_endpoints`` names
+    the extra schemas to link (``ISSUE_EVENTS_SCHEMA``, ``DEPLOYMENTS_SCHEMA``, ...),
+    activating the reads that degrade without them.
     """
     source = create_github_source(team, prefix=prefix, repository=repository)
     pr_table = create_warehouse_table_row(team, name=f"{prefix}github_pull_requests", source=source)
     run_table = create_warehouse_table_row(team, name=f"{prefix}github_workflow_runs", source=source)
     link_schema(team, source, name=PULL_REQUESTS_SCHEMA, table=pr_table)
     link_schema(team, source, name=WORKFLOW_RUNS_SCHEMA, table=run_table)
-    issue_events_table = None
-    if include_issue_events:
-        events_table = create_warehouse_table_row(team, name=f"{prefix}github_issue_events", source=source)
-        link_schema(team, source, name=ISSUE_EVENTS_SCHEMA, table=events_table)
-        issue_events_table = events_table.name
+    optional_tables: dict[str, str] = {}
+    for endpoint in optional_endpoints:
+        table = create_warehouse_table_row(team, name=f"{prefix}github_{endpoint}", source=source)
+        link_schema(team, source, name=endpoint, table=table)
+        optional_tables[endpoint] = table.name
     return GitHubTables(
         pull_requests=pr_table.name,
         workflow_runs=run_table.name,
-        issue_events=issue_events_table,
+        issue_events=optional_tables.get(ISSUE_EVENTS_SCHEMA),
+        deployments=optional_tables.get(DEPLOYMENTS_SCHEMA),
+        deployment_statuses=optional_tables.get(DEPLOYMENT_STATUSES_SCHEMA),
         repository=repository,
     )
 
@@ -225,6 +234,41 @@ def _issue_event_row(
         "event": event,
         "actor": _user(login),
         "issue": f'{{"number": {pr_number}}}',
+        "created_at": created_at,
+    }
+
+
+def _deployment_row(
+    deployment_id: int,
+    environment: str,
+    created_at: str,
+    *,
+    sha: str = "",
+    production_environment: bool = False,
+) -> dict[str, Any]:
+    return {
+        "id": deployment_id,
+        "sha": sha,
+        "ref": sha,
+        "environment": environment,
+        "production_environment": production_environment,
+        "created_at": created_at,
+    }
+
+
+def _deployment_status_row(
+    status_id: int,
+    deployment_id: int,
+    state: str,
+    created_at: str,
+    *,
+    environment: str = "",
+) -> dict[str, Any]:
+    return {
+        "id": status_id,
+        "deployment_id": deployment_id,
+        "state": state,
+        "environment": environment,
         "created_at": created_at,
     }
 

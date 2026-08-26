@@ -64,7 +64,7 @@ Return shapes are typed contracts whose caveats ride in honest field names (`ope
 ```mermaid
 graph LR
     subgraph "Data in"
-        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members<br/>issue_events")]
+        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members<br/>issue_events / deployments")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
         TRACES[("Traces: per-test CI spans<br/>emitted by Backend and Frontend CI")]
     end
