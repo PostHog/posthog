@@ -1,3 +1,6 @@
+import re
+from typing import Any, Optional
+
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -16,9 +19,53 @@ from products.web_analytics.backend.hogql_queries.web_bots import WebBotsTableQu
 GOOGLEBOT_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 HUMAN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
+_STRING = r"'(?:[^']|'')*'"
+_BOT_LITERAL_ARRAY = re.compile(rf"\[{_STRING}(?:, {_STRING}){{19,}}\]")
+_IP_GROUP_MATCH = re.compile(r"\bin\(tupleElement\(IPv6CIDRToRange\(")
+_ADJACENT_IP_GROUPS = re.compile(r"/\* bot ip range \*/(?:, /\* bot ip range \*/)+")
+
+
+def _end_of_call(query: str, call_start: int) -> int:
+    """Index just past the closing paren of the call that starts at `call_start`."""
+    depth = 0
+    for index in range(query.index("(", call_start), len(query)):
+        if query[index] == "(":
+            depth += 1
+        elif query[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    raise ValueError("unbalanced parentheses in captured query")
+
+
+def _collapse_bot_tables(query: str) -> str:
+    """Replace the inlined bot definition tables with markers.
+
+    The bot gate expands into every query: the user agent patterns and labels from
+    BOT_DEFINITIONS, plus one IPv6 range check per prefix group in BOT_IP_DEFINITIONS,
+    repeated for each column that classifies traffic. Left verbatim they bury the query
+    shape this snapshot exists to protect, and any change to the tables rewrites the
+    snapshot. The tables themselves are covered by test_bot_definitions.py, and the
+    expression built from them by test_traffic_type_snapshot.ambr.
+    """
+    parts: list[str] = []
+    position = 0
+    while (match := _IP_GROUP_MATCH.search(query, position)) is not None:
+        parts.append(query[position : match.start()])
+        parts.append("/* bot ip range */")
+        position = _end_of_call(query, match.start())
+    parts.append(query[position:])
+    collapsed = _ADJACENT_IP_GROUPS.sub("/* bot ip ranges */", "".join(parts))
+    return _BOT_LITERAL_ARRAY.sub(lambda array: f"[/* {array.group(0).count(', ') + 1} bot literals */]", collapsed)
+
 
 @snapshot_clickhouse_queries
 class TestWebBotsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    def assertQueryMatchesSnapshot(
+        self, query: str, params: Optional[dict[str, Any]] = None, replace_all_numbers: bool = False
+    ) -> None:
+        super().assertQueryMatchesSnapshot(_collapse_bot_tables(query), params, replace_all_numbers)
+
     def _create_pageview(self, distinct_id: str, user_agent: str, pathname: str) -> None:
         _create_event(
             team=self.team,
