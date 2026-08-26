@@ -530,12 +530,10 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   // Serializes store mutations so a write-back cannot interleave with a sign-out.
   private subscriptionStoreQueue: Promise<unknown> = Promise.resolve();
 
-  private enqueueSubscriptionStoreOp(
-    op: () => Promise<unknown>,
-  ): Promise<void> {
-    const run = this.subscriptionStoreQueue.then(op, op);
+  private enqueueSubscriptionStoreOp<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.subscriptionStoreQueue.then(op, op) as Promise<T>;
     this.subscriptionStoreQueue = run.catch(() => {});
-    return run.then(() => undefined);
+    return run;
   }
 
   getCodexSubscriptionStatus(): CodexSubscriptionStatus {
@@ -1885,8 +1883,9 @@ For git operations while detached:
         this.log.debug("Agent cleanup failed", { taskRunId });
       }
 
+      let discardHome = true;
       if (session.config.codexModelAccess === "own-subscription") {
-        await this.enqueueSubscriptionStoreOp(() =>
+        discardHome = await this.enqueueSubscriptionStoreOp(() =>
           writeBackSubscriptionLogin({
             appDataPath: this.storagePaths.appDataPath,
             taskRunId,
@@ -1895,9 +1894,16 @@ For git operations while detached:
         );
       }
 
-      await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(
-        () => this.log.debug("Codex home cleanup failed", { taskRunId }),
-      );
+      if (discardHome) {
+        await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(
+          () => this.log.debug("Codex home cleanup failed", { taskRunId }),
+        );
+      } else {
+        // A failed write-back keeps the home: it holds the newest login.
+        this.log.warn("Kept codex home after a failed login write-back", {
+          taskRunId,
+        });
+      }
 
       this.sessions.delete(taskRunId);
       this.lastNoListenerWarnAt.delete(taskRunId);

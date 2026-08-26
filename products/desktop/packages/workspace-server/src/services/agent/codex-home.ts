@@ -152,12 +152,14 @@ function sha256(contents: Buffer): string {
  *
  * Skip the write when the stored login is gone (sign-out) or when it changed
  * since seeding (a new sign-in or another run's refresh).
+ *
+ * Returns false when the write failed, so the caller keeps the run's home.
  */
 export async function writeBackSubscriptionLogin(options: {
   appDataPath: string;
   taskRunId: string;
   log: AgentScopedLogger;
-}): Promise<void> {
+}): Promise<boolean> {
   const runHome = getCodexHomeDir(options.appDataPath, options.taskRunId);
   const runLogin = path.join(runHome, "auth.json");
   const seedHashFile = path.join(runHome, SEED_HASH_FILE);
@@ -167,13 +169,13 @@ export async function writeBackSubscriptionLogin(options: {
   );
   try {
     if (!fs.existsSync(runLogin) || !fs.existsSync(storedLogin)) {
-      return;
+      return true;
     }
     const seedHash = await fs.promises
       .readFile(seedHashFile, "utf-8")
       .catch(() => undefined);
     if (seedHash === undefined) {
-      return;
+      return true;
     }
     const stored = await fs.promises.readFile(storedLogin);
     if (sha256(stored) !== seedHash) {
@@ -181,11 +183,11 @@ export async function writeBackSubscriptionLogin(options: {
         "Skipping subscription login write-back: the stored login changed since this run started",
         { taskRunId: options.taskRunId },
       );
-      return;
+      return true;
     }
     const refreshed = await fs.promises.readFile(runLogin);
     if (refreshed.equals(stored)) {
-      return;
+      return true;
     }
     // A temp file and rename protect readers from a half-written login.
     const tempLogin = path.join(
@@ -204,14 +206,16 @@ export async function writeBackSubscriptionLogin(options: {
         "Skipping subscription login write-back: the stored login changed during the write",
         { taskRunId: options.taskRunId },
       );
-      return;
+      return true;
     }
     await fs.promises.rename(tempLogin, storedLogin);
+    return true;
   } catch (err) {
     options.log.warn("Failed to write back refreshed subscription login", {
       taskRunId: options.taskRunId,
       error: err instanceof Error ? err.message : String(err),
     });
+    return false;
   }
 }
 

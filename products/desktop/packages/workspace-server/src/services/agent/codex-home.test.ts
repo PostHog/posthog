@@ -560,12 +560,35 @@ describe("prepareCodexHome", () => {
 
     await expect(
       writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(true);
     expect(
       existsSync(
         path.join(getCodexSubscriptionHomeDir(appDataPath), "auth.json"),
       ),
     ).toBe(false);
+  });
+
+  it("writeBackSubscriptionLogin returns false when the store cannot be written", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    const storedLogin = path.join(subscriptionHome, "auth.json");
+    await writeFile(storedLogin, '{"token":1}');
+
+    const codexHome = await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+    // A directory where the run's login file should be makes every read throw.
+    await rm(path.join(codexHome, "auth.json"));
+    await mkdir(path.join(codexHome, "auth.json"));
+
+    await expect(
+      writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog }),
+    ).resolves.toBe(false);
+    expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":1}');
   });
 
   it("rejects an unsafe taskRunId instead of escaping the codex-home dir", async () => {
