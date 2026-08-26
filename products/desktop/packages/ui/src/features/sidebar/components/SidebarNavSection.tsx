@@ -4,6 +4,7 @@ import {
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
@@ -77,7 +78,15 @@ export function SidebarNavSection({
   // inbox disappears as a destination.
   const channelReportsEnabled = useChannelReportsEnabled();
   const reportsInboxEnabled = useReportsInboxEnabled();
-  const inboxDecisionCount = useInboxDecisionCount();
+  const mentionsEnabled = useActivityFilterStore(
+    (state) => state.mentionsEnabled,
+  );
+  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
+  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
+  const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
+  const inboxVisible =
+    inboxAvailable && isNavItemVisible(navItemOverrides, "inbox");
+  const inboxDecisionCount = useInboxDecisionCount({ enabled: inboxVisible });
   const contextEnabled = useContextLayerFlag();
   const inSpaces = useRouterState({
     select: (state) => state.location.pathname.startsWith("/spaces"),
@@ -129,8 +138,6 @@ export function SidebarNavSection({
       action();
     };
 
-  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
-  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const orderedItems = orderedNavItems(navItemOrder);
   const hidden = new Set<CustomizableNavItemId>(
     CUSTOMIZABLE_NAV_ITEM_IDS.filter(
@@ -140,7 +147,7 @@ export function SidebarNavSection({
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
     // The global reports inbox reclaims the slot from the channel-reports
     // takeover; without it, spaces own reports and the entry goes away.
-    inbox: !channelReportsEnabled || reportsInboxEnabled,
+    inbox: inboxAvailable,
     "command-center": true,
     contexts: contextEnabled,
     activity: bluebirdEnabled,
@@ -181,6 +188,7 @@ export function SidebarNavSection({
       <ActivityItem
         depth={depth}
         isActive={isActivityActive}
+        mentionsEnabled={mentionsEnabled}
         onClick={withNavTrack("activity", navigateToActivity, depth, {
           href: "/activity",
         })}
