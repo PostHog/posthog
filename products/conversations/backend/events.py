@@ -26,11 +26,10 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
+from products.access_control.backend.models.role import Role
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, OrganizationIdSource
-
-from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 

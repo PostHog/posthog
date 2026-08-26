@@ -130,6 +130,32 @@ describe("buildActionUrl", () => {
     });
   });
 
+  describe("open_inbox", () => {
+    it("builds the bare inbox link when no report is named", () => {
+      expect(buildActionUrl({ kind: "open_inbox" }, PROD)).toBe(
+        "posthog-code://inbox",
+      );
+    });
+
+    it("builds the report link when one is named", () => {
+      expect(
+        buildActionUrl({ kind: "open_inbox", report_id: "rep_abc123" }, PROD),
+      ).toBe("posthog-code://inbox/rep_abc123");
+    });
+
+    it("percent-encodes the report id so it cannot add path segments", () => {
+      const url = buildActionUrl(
+        { kind: "open_inbox", report_id: "a/../b?c#d" },
+        PROD,
+      );
+
+      expect(url).toBe("posthog-code://inbox/a%2F..%2Fb%3Fc%23d");
+      expect(decodeURIComponent(parse(url).pathname.slice(1))).toBe(
+        "a/../b?c#d",
+      );
+    });
+  });
+
   describe("dev scheme", () => {
     it.each<[string, AgentAction, string]>([
       [
@@ -146,6 +172,12 @@ describe("buildActionUrl", () => {
         "open_canvas",
         { kind: "open_canvas", channel_id: "chan", canvas_id: "dash" },
         "posthog-code-dev://canvas/chan/dash",
+      ],
+      ["open_inbox", { kind: "open_inbox" }, "posthog-code-dev://inbox"],
+      [
+        "open_inbox with a report",
+        { kind: "open_inbox", report_id: "rep" },
+        "posthog-code-dev://inbox/rep",
       ],
     ])("uses the scheme it is given for %s", (_label, action, expected) => {
       expect(buildActionUrl(action, DEV)).toBe(expected);

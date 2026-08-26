@@ -4969,6 +4969,10 @@ export class SessionService {
       });
 
       if (!result.success) {
+        if (result.status === 409 && !options?.steer) {
+          this.d.store.clearTailOptimisticItems(session.taskRunId);
+          return this.resumeCloudRun(session, normalizedPrompt);
+        }
         throw new Error(result.error ?? "Failed to send cloud command");
       }
 
