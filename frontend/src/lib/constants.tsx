@@ -446,7 +446,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-self-driving
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
-    PRODUCT_DATA_CATALOG: 'product-data-catalog', // owner: #team-data-modeling, gates the semantic layer (governed-metrics catalog and its agent prompt steering)
     PRODUCT_SUPPORT_AI_NOTES: 'product-support-ai-notes', // owner: @veryayskiy #team-conversations, shows AI private notes in the ticket thread
     PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_CREATE_TICKET: 'product-support-create-ticket', // owner: @veryayskiy #team-conversations
@@ -528,6 +527,7 @@ export const FEATURE_FLAGS = {
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_ENTRYPOINT_EXPERIMENTS: 'vision-entrypoint-experiments', // owner: #team-replay, cross-sell entry points from experiments
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
+    WAREHOUSE_ACCOUNT_PROPERTIES_S3_SYNC: 'warehouse-account-properties-s3-sync', // owner: @arthurdedeus #team-customer-analytics, gates staged account-property sync and its run history
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_BACK_NAVIGATION_RESET: 'web-analytics-back-navigation-reset', // owner: @jordanm-posthog #team-web-analytics
