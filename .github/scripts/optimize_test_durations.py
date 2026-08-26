@@ -949,10 +949,19 @@ def main():
         # truncated JUnit set would pass vacuously and let an unchecked slice
         # through, so a strict run needs one readable JUnit per timing shard.
         unreadable = [shard.name for shard in junit_shards or [] if shard.unreadable or not shard.call_times]
-        if not junit_shards or unreadable or not shard_sets_match(shards, junit_shards):
+        if not junit_shards:
+            logger.error("--fail-on-drift needs JUnit artifacts and none loaded")
+            sys.exit(1)
+        if unreadable:
             logger.error(
-                "--fail-on-drift needs a readable JUnit artifact for every timing shard; missing or unreadable: %s",
-                unreadable or "all",
+                "--fail-on-drift needs a readable JUnit artifact for every timing shard; unreadable: %s", unreadable
+            )
+            sys.exit(1)
+        if not shard_sets_match(shards, junit_shards):
+            logger.error(
+                "--fail-on-drift needs the same shard set on both sides: %d timing shards, %d JUnit shards",
+                len(shards),
+                len(junit_shards),
             )
             sys.exit(1)
 
