@@ -353,7 +353,8 @@ fn rewrite_value(
         }
         if function_at(bytes, position, b"url") {
             let Some((end, source)) = parse_url_function(value, position) else {
-                break;
+                position += 1;
+                continue;
             };
             let original = &value[position..end];
             if let Some(replacement) =
@@ -662,6 +663,18 @@ mod tests {
         let rewritten = rewrite(&ctx, &css, CssContext::DeclarationList).expect("image changes");
         assert!(!rewritten.css.contains(&original));
         assert!(rewritten.css.contains("data:image/"));
+    }
+
+    #[test]
+    fn escaped_url_does_not_stop_later_inline_image_scrubbing() {
+        let allow = AllowLists::default();
+        let ctx = Ctx::new(&allow);
+        let original = png_data_uri(8, 8, [10, 20, 30, 255]);
+        let escaped_url = r#"url("https://example.com/a\2e png")"#;
+        let css = format!("background-image:{escaped_url},url('{original}')");
+        let rewritten = rewrite(&ctx, &css, CssContext::DeclarationList).expect("image changes");
+        assert!(rewritten.css.contains(escaped_url));
+        assert!(!rewritten.css.contains(&original));
     }
 
     #[test]
