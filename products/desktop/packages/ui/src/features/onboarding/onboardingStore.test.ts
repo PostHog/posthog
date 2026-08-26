@@ -2,14 +2,31 @@ import { describe, expect, it } from "vitest";
 import { migrateOnboardingState } from "./onboardingStore";
 
 describe("migrateOnboardingState", () => {
-  it("moves a persisted invite-code step forward", () => {
-    const migrated = migrateOnboardingState({
-      currentStep: "invite-code",
-      hasCompletedOnboarding: false,
-      hasShippedFirstPr: false,
-      selectedProjectId: 1,
-    });
+  const persisted = (currentStep: string) => ({
+    currentStep,
+    hasCompletedOnboarding: false,
+    hasShippedFirstPr: false,
+    selectedProjectId: 1,
+  });
 
-    expect(migrated.currentStep).toBe("consent");
+  it("moves a persisted invite-code step forward", () => {
+    expect(migrateOnboardingState(persisted("invite-code")).currentStep).toBe(
+      "consent",
+    );
+  });
+
+  it.each(["welcome", "import-config"])(
+    "resets the retired %s step to the start of the flow",
+    (step) => {
+      expect(migrateOnboardingState(persisted(step)).currentStep).toBe(
+        "project-select",
+      );
+    },
+  );
+
+  it("leaves a step of the current flow alone", () => {
+    expect(migrateOnboardingState(persisted("select-repo")).currentStep).toBe(
+      "select-repo",
+    );
   });
 });

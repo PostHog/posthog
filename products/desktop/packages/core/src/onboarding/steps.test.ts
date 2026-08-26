@@ -9,6 +9,7 @@ import {
   type OnboardingStep,
   previousStep,
   stepDirection,
+  stepGatePending,
 } from "./steps";
 
 type StepGates = Parameters<typeof computeActiveSteps>[0];
@@ -74,6 +75,34 @@ describe("computeActiveSteps", () => {
       computeActiveSteps({ ...allSteps, consentRequired: false }),
     ).not.toContain("consent");
   });
+});
+
+describe("stepGatePending", () => {
+  it.each<{ step: OnboardingStep; gate: keyof StepGates }>([
+    { step: "project-select", gate: "projectCount" },
+    { step: "consent", gate: "consentRequired" },
+    { step: "install-cli", gate: "hasGithubIntegration" },
+    { step: "install-cli", gate: "cliReady" },
+  ])("holds $step while $gate has not answered", ({ step, gate }) => {
+    const answered: StepGates = {
+      hasGithubIntegration: false,
+      cliReady: false,
+      projectCount: 2,
+      consentRequired: true,
+    };
+
+    expect(stepGatePending(step, answered)).toBe(false);
+    expect(stepGatePending(step, { ...answered, [gate]: undefined })).toBe(
+      true,
+    );
+  });
+
+  it.each<OnboardingStep>(["connect-github", "select-repo"])(
+    "never holds %s, which no gate can drop",
+    (step) => {
+      expect(stepGatePending(step, allSteps)).toBe(false);
+    },
+  );
 });
 
 describe("nearestActiveStep", () => {

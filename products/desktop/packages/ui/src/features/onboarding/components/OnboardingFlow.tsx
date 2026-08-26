@@ -28,6 +28,7 @@ import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/Co
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import type { OnboardingStep } from "@posthog/ui/features/onboarding/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
@@ -77,6 +78,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     hasGithubIntegration,
     consentSatisfied,
     consentRequirement,
+    currentStepPending,
   } = useOnboardingFlow();
   const completeOnboarding = useOnboardingStore(
     (state) => state.completeOnboarding,
@@ -156,15 +158,25 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   const flowStartedAtRef = useRef(Date.now());
   const stepEnteredAtRef = useRef(Date.now());
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once on mount; subsequent step views fire from handleNext/handleBack
   useEffect(() => {
     track(ANALYTICS_EVENTS.ONBOARDING_STARTED);
+  }, []);
+
+  const viewedStepRef = useRef<OnboardingStep | null>(null);
+  // Recorded once the step can no longer be taken away, which covers the two
+  // paths that had no correct one: a step shown before its gate answers, and a
+  // step entered by the self-heal in useOnboardingFlow.
+  useEffect(() => {
+    if (currentIndex < 0 || currentStepPending) return;
+    if (viewedStepRef.current === currentStep) return;
+    viewedStepRef.current = currentStep;
     track(ANALYTICS_EVENTS.ONBOARDING_STEP_VIEWED, {
       step_id: currentStep,
       step_index: currentIndex,
       total_steps: activeSteps.length,
     });
-  }, []);
+    stepEnteredAtRef.current = Date.now();
+  }, [currentStep, currentIndex, currentStepPending, activeSteps.length]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -195,17 +207,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     );
   };
 
-  const trackStepViewed = (stepIndex: number) => {
-    const stepId = activeSteps[stepIndex];
-    if (!stepId) return;
-    track(ANALYTICS_EVENTS.ONBOARDING_STEP_VIEWED, {
-      step_id: stepId,
-      step_index: stepIndex,
-      total_steps: activeSteps.length,
-    });
-    stepEnteredAtRef.current = Date.now();
-  };
-
   const handleNext = (context?: StepCompletedContext) => {
     if (
       currentStep === "consent" &&
@@ -218,13 +219,11 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     const safeContext =
       context && "nativeEvent" in context ? undefined : context;
     trackStepCompleted(safeContext);
-    trackStepViewed(currentIndex + 1);
     next();
   };
 
   const handleBack = () => {
     if (currentStep === "consent" && consentSubmitting) return;
-    trackStepViewed(currentIndex - 1);
     back();
   };
 
