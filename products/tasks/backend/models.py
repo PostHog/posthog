@@ -42,10 +42,11 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
+from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
 
@@ -508,6 +509,8 @@ class Task(DeletedMetaFields, models.Model):
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
+            if self.origin_key:
+                all_properties["origin_key"] = self.origin_key
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
@@ -2709,6 +2712,20 @@ class TaskRun(models.Model):
         event = self.build_progress_event(step, status, label, group, detail)
         self.append_log([event])
         self.publish_stream_event(event)
+
+    def ci_progress_step_announced(self) -> bool:
+        """Whether this run has a "Keeping CI green" step waiting to be closed."""
+        state = self.state if isinstance(self.state, dict) else {}
+        return bool(state.get(PR_LOOP_ENABLED_STATE_KEY)) and bool(read_pr_urls(self.output))
+
+    def close_ci_progress_step(self) -> None:
+        """Complete the "Keeping CI green" step so a finished run shows no spinning CI row."""
+        if not self.ci_progress_step_announced():
+            return
+        try:
+            self.emit_progress_event("ci", "completed", "Keeping CI green", "setup")
+        except Exception:
+            logger.warning("task_run.ci_progress_close_failed", run_id=str(self.id), exc_info=True)
 
     def build_progress_event(
         self,
