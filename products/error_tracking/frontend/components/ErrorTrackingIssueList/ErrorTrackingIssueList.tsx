@@ -17,7 +17,7 @@ import { useSparklineData } from '../../hooks/use-sparkline-data'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION, sourceDisplay } from '../../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
-import { AssigneeSelect } from '../Assignee/AssigneeSelect'
+import { QuillAssigneeSelect } from '../Assignee/QuillAssigneeSelect'
 import { StatusIndicator } from '../Indicators'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
 import { IssueSeveritySelect } from '../IssueSeveritySelect'
@@ -131,14 +131,14 @@ export function ErrorTrackingIssueListRow({
                         </>
                     ) : null}
                     {canMutateIssues ? (
-                        <AssigneeSelect
+                        <QuillAssigneeSelect
                             assignee={issue.assignee}
                             onChange={(assignee) => updateIssueAssignee(issue.id, assignee)}
                         >
                             {(anyAssignee) => (
-                                <div
+                                <button
+                                    type="button"
                                     className="ml-1 flex cursor-pointer items-center rounded p-[0.1rem] text-xs text-secondary hover:bg-fill-button-tertiary-hover"
-                                    role="button"
                                 >
                                     <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
                                     <AssigneeLabelDisplay
@@ -148,9 +148,9 @@ export function ErrorTrackingIssueListRow({
                                         placeholder="Unassigned"
                                     />
                                     <IconChevronDown />
-                                </div>
+                                </button>
                             )}
-                        </AssigneeSelect>
+                        </QuillAssigneeSelect>
                     ) : (
                         <AssigneeResolver assignee={issue.assignee}>
                             {({ assignee: resolvedAssignee }) => (
