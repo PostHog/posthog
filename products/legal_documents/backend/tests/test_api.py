@@ -20,6 +20,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.legal_documents.backend.facade import api as legal_api
+from products.legal_documents.backend.logic.pandadoc import PandaDocError
 from products.legal_documents.backend.models import LegalDocument
 
 BAA_PAYLOAD = {
@@ -946,8 +947,6 @@ class TestLegalDocumentReconciliation(APIBaseTest):
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document")
     def test_reconcile_counts_error_when_draft_resend_fails_and_continues(self, send_mock, status_mock) -> None:
-        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
-
         later_org = Organization.objects.create(name="Later Co")
         later = LegalDocument.objects.create(
             organization=later_org,
@@ -966,7 +965,7 @@ class TestLegalDocumentReconciliation(APIBaseTest):
             return "document.draft" if document_id == "doc_123" else "document.completed"
 
         status_mock.side_effect = status_side_effect
-        send_mock.side_effect = pandadoc_module.PandaDocError("boom")
+        send_mock.side_effect = PandaDocError("boom")
 
         with self._fake_pdf_pipeline(), self.captureOnCommitCallbacks(execute=True):
             result = legal_api.reconcile_pending_signatures()
