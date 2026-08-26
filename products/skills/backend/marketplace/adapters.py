@@ -61,8 +61,8 @@ _MAX_CACHEABLE_PACKFILE_BYTES = 16_000_000
 
 # A sandbox bundle is fetched once per run and unpacked into the harness's skill directories, so it
 # is bounded by what a coding agent can usefully load, not by what the team owns.
-MAX_SANDBOX_BUNDLE_SKILLS = 20
-MAX_SANDBOX_BUNDLE_BYTES = 5_000_000
+MAX_BUNDLE_SKILLS = 20
+MAX_BUNDLE_BYTES = 5_000_000
 
 
 def skill_to_export(skill: LLMSkill, files: list[LLMSkillFile]) -> SkillExport:
@@ -207,14 +207,14 @@ def _team_plugin_version(team: Team) -> str:
 
 
 @frozen
-class SandboxSkillBundle:
+class SkillBundle:
     zip_bytes: bytes
     included: list[str]
     dropped: list[str]
     skipped: list[str]
 
 
-SandboxBundleContent = Literal["stub", "full"]
+BundleContent = Literal["stub", "full"]
 
 
 class _OctetLength(Func):
@@ -222,7 +222,7 @@ class _OctetLength(Func):
     output_field = IntegerField()
 
 
-def _sandbox_bundle_candidates(team: Team, user: User, readable_skills: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
+def _bundle_candidates(team: Team, user: User, readable_skills: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
     # Creation seeds an owner row, but skills that predate owners only carry ``created_by``. The
     # version 1 row keeps the original creator; later versions are stamped with whoever edited them.
     created_names = LLMSkill.objects.filter(team=team, deleted=False, version=1, created_by=user).values("name")
@@ -234,10 +234,10 @@ def _sandbox_bundle_candidates(team: Team, user: User, readable_skills: QuerySet
     )
 
 
-def build_sandbox_skill_bundle(
-    team: Team, user: User, readable_skills: QuerySet[LLMSkill], content: SandboxBundleContent = "stub"
-) -> SandboxSkillBundle:
-    """One zip of the skills a user created or owns, for unpacking into a sandbox's skill dirs.
+def build_skill_bundle(
+    team: Team, user: User, readable_skills: QuerySet[LLMSkill], content: BundleContent = "stub"
+) -> SkillBundle:
+    """One zip of the skills a user created or owns, for unpacking into a skills directory.
 
     ``content="stub"`` writes one ``SKILL.md`` per skill with only its name and description and a
     body that tells the agent to fetch the real skill over MCP when it is invoked. That keeps the
@@ -253,15 +253,15 @@ def build_sandbox_skill_bundle(
     carry a name or path the harness could not unpack safely are ``skipped`` and do not count.
     Scouts are excluded because the scout harness loads its own skill.
     """
-    candidates = _sandbox_bundle_candidates(team, user, readable_skills)
+    candidates = _bundle_candidates(team, user, readable_skills)
     trees, dropped, skipped = _walk_stubs(candidates) if content == "stub" else _walk_full(candidates)
 
     if skipped:
-        logger.warning("skills_sandbox_bundle_skipped", team_id=team.id, user_id=user.id, skills=skipped)
+        logger.warning("skills_bundle_skipped", team_id=team.id, user_id=user.id, skills=skipped)
     if dropped:
-        logger.warning("skills_sandbox_bundle_dropped_over_cap", team_id=team.id, user_id=user.id, skills=dropped)
+        logger.warning("skills_bundle_dropped_over_cap", team_id=team.id, user_id=user.id, skills=dropped)
 
-    return SandboxSkillBundle(
+    return SkillBundle(
         zip_bytes=build_skills_bundle_zip(trees),
         included=list(trees),
         dropped=dropped,
@@ -275,7 +275,7 @@ def _walk_stubs(candidates: QuerySet[LLMSkill]) -> tuple[dict[str, FileTree], li
     skipped: list[str] = []
     for row in candidates.values("name", "description", "version"):
         name = row["name"]
-        if len(trees) >= MAX_SANDBOX_BUNDLE_SKILLS:
+        if len(trees) >= MAX_BUNDLE_SKILLS:
             dropped.append(name)
             continue
         stub = SkillStub(name=name, description=row["description"], version=row["version"])
@@ -308,18 +308,18 @@ def _walk_full(candidates: QuerySet[LLMSkill]) -> tuple[dict[str, FileTree], lis
     capped = False
     for index, candidate in enumerate(sized):
         name = candidate["name"]
-        if capped or len(trees) >= MAX_SANDBOX_BUNDLE_SKILLS:
+        if capped or len(trees) >= MAX_BUNDLE_SKILLS:
             capped = True
             dropped.append(name)
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail
         # the exact check below too. Checking first keeps its content out of memory entirely.
-        if total_bytes + candidate["body_bytes"] + candidate["file_bytes"] > MAX_SANDBOX_BUNDLE_BYTES:
+        if total_bytes + candidate["body_bytes"] + candidate["file_bytes"] > MAX_BUNDLE_BYTES:
             capped = True
             dropped.append(name)
             continue
         if candidate["id"] not in rows:
-            rows = LLMSkill.objects.in_bulk([c["id"] for c in sized[index : index + MAX_SANDBOX_BUNDLE_SKILLS]])
+            rows = LLMSkill.objects.in_bulk([c["id"] for c in sized[index : index + MAX_BUNDLE_SKILLS]])
         skill = rows[candidate["id"]]
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
         # The zip is unpacked into a home directory by a client that trusts it, so the archive
@@ -333,7 +333,7 @@ def _walk_full(candidates: QuerySet[LLMSkill]) -> tuple[dict[str, FileTree], lis
             continue
         tree = build_skill_tree(export)
         tree_bytes = file_tree_bytes(tree)
-        if total_bytes + tree_bytes > MAX_SANDBOX_BUNDLE_BYTES:
+        if total_bytes + tree_bytes > MAX_BUNDLE_BYTES:
             capped = True
             dropped.append(name)
             continue

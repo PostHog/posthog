@@ -24,7 +24,7 @@ unit-testable against the real `git` binary without booting the app
 
 - **Zip export** — `GET /api/projects/:team/llm_skills/name/:name/export` → `application/zip`,
   one spec-compliant skill directory nested under `:name/` (web-authenticated, `llm_skill:read`).
-- **Sandbox bundle** — `GET /api/projects/:team/llm_skills/sandbox_bundle?content=stub|full` →
+- **Skill bundle** — `GET /api/projects/:team/llm_skills/bundle?content=stub|full` →
   `application/zip`, every skill the requesting user created or owns (latest, not archived, not
   `scout`, and readable under the same object-level access filter as the list endpoint), each nested
   under `<name>/` so the zip unpacks straight into `~/.claude/skills` / `~/.agents/skills`.

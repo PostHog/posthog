@@ -123,7 +123,7 @@ class LLMSkillFetchQuerySerializer(serializers.Serializer):
     )
 
 
-class LLMSkillSandboxBundleQuerySerializer(serializers.Serializer):
+class LLMSkillBundleQuerySerializer(serializers.Serializer):
     content = serializers.ChoiceField(
         choices=["stub", "full"],
         default="stub",

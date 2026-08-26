@@ -161,13 +161,13 @@ class TestSkillZipExport(APIBaseTest):
 SANDBOX_FLAG = "posthog.permissions.posthoganalytics.feature_enabled"
 
 
-class TestSkillSandboxBundle(APIBaseTest):
+class TestSkillBundle(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
 
     def _url(self) -> str:
-        return f"/api/projects/{self.team.id}/llm_skills/sandbox_bundle"
+        return f"/api/projects/{self.team.id}/llm_skills/bundle"
 
     def _create_skill(self, name: str, *, created_by: User | None = None, **overrides: Any) -> LLMSkill:
         fields = {
@@ -249,7 +249,7 @@ class TestSkillSandboxBundle(APIBaseTest):
             skill = self._create_skill(name)
             LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
 
-        with patch.object(adapters, "MAX_SANDBOX_BUNDLE_SKILLS", 2):
+        with patch.object(adapters, "MAX_BUNDLE_SKILLS", 2):
             response = self._fetch(content=content)
 
         assert response.status_code == status.HTTP_200_OK
@@ -262,7 +262,7 @@ class TestSkillSandboxBundle(APIBaseTest):
             skill = self._create_skill(name, body=body)
             LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
 
-        with patch.object(adapters, "MAX_SANDBOX_BUNDLE_BYTES", 5_000):
+        with patch.object(adapters, "MAX_BUNDLE_BYTES", 5_000):
             response = self._fetch(content="full")
 
         assert self._skill_dirs(response) == {"newest-small"}
@@ -357,7 +357,7 @@ class TestSkillSandboxBundle(APIBaseTest):
         assert self._skill_dirs(response) == set()
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.skills.backend.api.skills.SandboxBundleBurstThrottle.rate", new="1/minute")
+    @patch("products.skills.backend.api.skills.SkillBundleBurstThrottle.rate", new="1/minute")
     def test_oauth_and_session_callers_are_throttled(self, *_args):
         # The general Burst/Sustained throttles only count personal-API-key traffic, so an OAuth
         # (or session) caller would otherwise hit this expensive zip endpoint unthrottled. The

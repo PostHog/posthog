@@ -93520,6 +93520,25 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type LlmSkillsBundleRetrieveParams = {
+    /**
+     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
+     *
+     * * `stub` - stub
+     * * `full` - full
+     * @minLength 1
+     */
+    content?: LlmSkillsBundleRetrieveContent;
+    };
+
+    export type LlmSkillsBundleRetrieveContent = typeof LlmSkillsBundleRetrieveContent[keyof typeof LlmSkillsBundleRetrieveContent];
+
+
+    export const LlmSkillsBundleRetrieveContent = {
+      Stub: 'stub',
+      Full: 'full',
+    } as const;
+
     export type LlmSkillsNameRetrieveParams = {
     /**
      * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
@@ -93589,25 +93608,6 @@ export namespace Schemas {
      */
     version_id?: string;
     };
-
-    export type LlmSkillsSandboxBundleRetrieveParams = {
-    /**
-     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
-     *
-     * * `stub` - stub
-     * * `full` - full
-     * @minLength 1
-     */
-    content?: LlmSkillsSandboxBundleRetrieveContent;
-    };
-
-    export type LlmSkillsSandboxBundleRetrieveContent = typeof LlmSkillsSandboxBundleRetrieveContent[keyof typeof LlmSkillsSandboxBundleRetrieveContent];
-
-
-    export const LlmSkillsSandboxBundleRetrieveContent = {
-      Stub: 'stub',
-      Full: 'full',
-    } as const;
 
     export type LogsAlertsListParams = {
     /**

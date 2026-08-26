@@ -35,7 +35,7 @@ from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrott
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_sandbox_skill_bundle, load_skill_export
+from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_skill_bundle, load_skill_export
 from ..marketplace.credentials import (
     build_codex_install_command,
     build_install_command,
@@ -60,6 +60,7 @@ from .skill_serializers import (
     PUBLISH_CONTENT_FIELDS,
     CommunitySkillPublishResultSerializer,
     LLMSkillBodyFetchQuerySerializer,
+    LLMSkillBundleQuerySerializer,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
@@ -76,7 +77,6 @@ from .skill_serializers import (
     LLMSkillPublishToCommunitySerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
-    LLMSkillSandboxBundleQuerySerializer,
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
     validate_allowed_tool,
@@ -264,12 +264,12 @@ class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
     rate = "20/day"
 
 
-class _SandboxBundleThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Throttle for the sandbox bundle, which a sandbox fetches over OAuth.
+class _SkillBundleThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Throttle for the skill bundle, which a sandbox fetches over OAuth.
 
     The general BurstRateThrottle/SustainedRateThrottle only count personal-API-key traffic, so an
     OAuth or session caller would reach the zip build (candidate queries, a file query per skill,
-    DEFLATE of up to MAX_SANDBOX_BUNDLE_BYTES) unthrottled. PersonalApiKeyOrUserRateThrottle counts
+    DEFLATE of up to MAX_BUNDLE_BYTES) unthrottled. PersonalApiKeyOrUserRateThrottle counts
     every auth method, but its inherited key idents session and OAuth callers by project, so one
     user's burst would 429 every other sandbox in the project. Those callers get a per-user bucket
     instead; a personal API key keeps its own.
@@ -283,17 +283,17 @@ class _SandboxBundleThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": f"user:{request.user.pk}"}
 
 
-class SandboxBundleBurstThrottle(_SandboxBundleThrottle):
+class SkillBundleBurstThrottle(_SkillBundleThrottle):
     # A sandbox fetches the bundle once at session start, so 30/minute clears a burst of concurrent
     # starts for one user while still catching a scripted loop hammering the zip build.
-    scope = "skills_sandbox_bundle_burst"
+    scope = "skills_bundle_burst"
     rate = "30/minute"
 
 
-class SandboxBundleSustainedThrottle(_SandboxBundleThrottle):
+class SkillBundleSustainedThrottle(_SkillBundleThrottle):
     # A few hundred session starts an hour per user is well beyond normal use and short of what
     # sustained abuse of the 5 MB zip build could cost unthrottled.
-    scope = "skills_sandbox_bundle_sustained"
+    scope = "skills_bundle_sustained"
     rate = "300/hour"
 
 
@@ -319,8 +319,8 @@ class LLMSkillViewSet(
     def get_throttles(self):
         if self.action == "publish_to_community":
             return [CommunityPublishBurstThrottle(), CommunityPublishSustainedThrottle()]
-        if self.action == "sandbox_bundle":
-            return [SandboxBundleBurstThrottle(), SandboxBundleSustainedThrottle()]
+        if self.action == "bundle":
+            return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -765,15 +765,15 @@ class LLMSkillViewSet(
         return response
 
     @extend_schema(
-        parameters=[LLMSkillSandboxBundleQuerySerializer],
+        parameters=[LLMSkillBundleQuerySerializer],
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
-    @action(methods=["GET"], detail=False, url_path="sandbox_bundle", required_scopes=["llm_skill:read"])
-    @llma_track_latency("llma_skills_sandbox_bundle")
-    @monitor(feature=None, endpoint="llma_skills_sandbox_bundle", method="GET")
-    def sandbox_bundle(self, request: Request, **kwargs) -> Response | HttpResponse:
-        """One zip of the requesting user's store skills, for a sandbox to unpack into its skill dirs."""
-        query = LLMSkillSandboxBundleQuerySerializer(data=request.query_params)
+    @action(methods=["GET"], detail=False, url_path="bundle", required_scopes=["llm_skill:read"])
+    @llma_track_latency("llma_skills_bundle")
+    @monitor(feature=None, endpoint="llma_skills_bundle", method="GET")
+    def bundle(self, request: Request, **kwargs) -> Response | HttpResponse:
+        """One zip of the requesting user's store skills, for unpacking into a skills directory."""
+        query = LLMSkillBundleQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
@@ -798,9 +798,9 @@ class LLMSkillViewSet(
         readable_skills = self.user_access_control.filter_queryset_by_access_level(
             LLMSkill.objects.filter(team=self.team), resource="llm_skill"
         )
-        bundle = build_sandbox_skill_bundle(self.team, user, readable_skills, content=query.validated_data["content"])
+        bundle = build_skill_bundle(self.team, user, readable_skills, content=query.validated_data["content"])
         response = HttpResponse(bundle.zip_bytes, content_type="application/zip")
-        response["Content-Disposition"] = 'attachment; filename="skills-sandbox-bundle.zip"'
+        response["Content-Disposition"] = 'attachment; filename="skills-bundle.zip"'
         # Counts only: names are unbounded and would blow past proxy header limits for heavy users.
         response["X-Skills-Included"] = str(len(bundle.included))
         response["X-Skills-Dropped"] = str(len(bundle.dropped))
