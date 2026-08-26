@@ -226,9 +226,14 @@ def archive_entry_bytes(path: str, content_bytes: int) -> int:
     return content_bytes + 2 * len(path.encode("utf-8")) + _ZIP_ENTRY_OVERHEAD_BYTES
 
 
-def file_tree_bytes(tree: FileTree) -> int:
-    """Uncompressed bytes the tree costs in a zip: content plus per-entry framing."""
-    return sum(archive_entry_bytes(path, len(content.encode("utf-8"))) for path, content in tree.items())
+def file_tree_bytes(tree: FileTree, prefix: str = "") -> int:
+    """Uncompressed bytes the tree costs in a zip: content plus per-entry framing.
+
+    ``prefix`` is prepended to each entry name to mirror how the tree is archived —
+    ``build_skills_bundle_zip`` nests every entry under ``<name>/`` — so the cap counts the real
+    archive-member name, not just the tree-relative path.
+    """
+    return sum(archive_entry_bytes(prefix + path, len(content.encode("utf-8"))) for path, content in tree.items())
 
 
 def parse_skill_md(content: str) -> dict:

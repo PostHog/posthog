@@ -413,7 +413,9 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail
         # the exact check below too. Checking first keeps its content out of memory entirely.
-        file_bytes = sum(archive_entry_bytes(path, content_bytes) for path, content_bytes in sized_files)
+        # Charge the archived member name (build_skills_bundle_zip nests every entry under
+        # <name>/), not just the relative path, so long names count against the cap.
+        file_bytes = sum(archive_entry_bytes(f"{name}/{path}", content_bytes) for path, content_bytes in sized_files)
         if total_bytes + candidate["body_bytes"] + candidate["meta_bytes"] + file_bytes > MAX_BUNDLE_BYTES:
             capped = True
             break
@@ -428,7 +430,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             skipped.append(name)
             continue
         tree = build_skill_tree(export)
-        tree_bytes = file_tree_bytes(tree)
+        tree_bytes = file_tree_bytes(tree, prefix=f"{name}/")
         if total_bytes + tree_bytes > MAX_BUNDLE_BYTES:
             capped = True
             break
