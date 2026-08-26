@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { KeyboardEvent, MutableRefObject, useCallback, useEffect, useRef, useState } from 'react'
 
-import { BaseIcon, IconSend, IconTrash } from '@posthog/icons'
+import { IconBookmark, IconBookmarkSolid, IconSend, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { getNotebookStringProp, isPromptComponentNode } from './documentModel'
@@ -224,29 +224,10 @@ export function EditablePromptComponent({
                         />
                         <LemonButton
                             size="xsmall"
-                            icon={
-                                <BaseIcon>
-                                    <path
-                                        d="M4.75 3.25h10.69l4.31 4.31v11.69a1.5 1.5 0 0 1-1.5 1.5H4.75a1.5 1.5 0 0 1-1.5-1.5V4.75a1.5 1.5 0 0 1 1.5-1.5Z"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth="1.5"
-                                    />
-                                    <path
-                                        d="M7 3.25v6h9v-5M7.5 20.75v-7h9v7"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth="1.5"
-                                    />
-                                </BaseIcon>
-                            }
+                            icon={keepQuestion ? <IconBookmarkSolid /> : <IconBookmark />}
                             active={keepQuestion}
-                            tooltip="Keep question when answering"
-                            aria-label="Keep question when answering"
+                            tooltip="Keep question with answer"
+                            aria-label="Keep question with answer"
                             aria-pressed={keepQuestion}
                             onClick={toggleKeepQuestion}
                             disabled={mode !== 'edit'}
