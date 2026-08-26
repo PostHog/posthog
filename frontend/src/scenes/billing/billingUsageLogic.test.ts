@@ -157,6 +157,8 @@ describe('billingUsageLogic loader', () => {
         })
         expect(logic.values.billingUsageResponse?.team_id_options).toEqual([987654])
         expect(logic.values.teamOptions).toContainEqual({ key: '987654', label: 'ID: 987654 (deleted)' })
+        expect(logic.values.showSeries).toBe(false)
+        expect(logic.values.showEmptyState).toBe(false)
         expect(toastErrorSpy).not.toHaveBeenCalled()
     })
 })
