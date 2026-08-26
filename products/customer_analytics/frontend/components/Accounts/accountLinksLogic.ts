@@ -26,6 +26,7 @@ export interface AccountLinksLogicProps {
 }
 
 export type AccountLinkFieldKey =
+    | 'website_domain'
     | 'external_id'
     | 'billing_id'
     | 'slack_channel_id'
@@ -42,6 +43,7 @@ export interface AccountLinkFieldDef {
 export type AccountLinkFieldValues = Record<AccountLinkFieldKey, string>
 
 export const ACCOUNT_LINK_FIELDS: AccountLinkFieldDef[] = [
+    { key: 'website_domain', label: 'Website domain', placeholder: 'example.com' },
     { key: 'external_id', label: 'External ID', placeholder: 'e.g. cust_acme_001' },
     { key: 'billing_id', label: 'Billing ID', placeholder: 'e.g. cus_acme_123' },
     { key: 'slack_channel_id', label: 'Slack channel ID', placeholder: 'e.g. C0123456789' },
@@ -51,6 +53,7 @@ export const ACCOUNT_LINK_FIELDS: AccountLinkFieldDef[] = [
 ]
 
 const EMPTY_FIELDS: AccountLinkFieldValues = {
+    website_domain: '',
     external_id: '',
     billing_id: '',
     slack_channel_id: '',
@@ -212,6 +215,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
         currentFieldValues: [
             (s) => [s.account],
             (account: AccountApi | null): AccountLinkFieldValues => ({
+                website_domain: account?.properties?.website_domain ?? '',
                 external_id: account?.external_id ?? '',
                 billing_id: account?.properties?.billing_id ?? '',
                 slack_channel_id: account?.properties?.slack_channel_id ?? '',
@@ -233,6 +237,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                     searchParams: Record<string, any>
                 }
             ): AccountLink[] => {
+                const websiteDomain = account?.properties?.website_domain ?? null
                 const externalId = account?.external_id ?? null
                 const billingId = account?.properties?.billing_id ?? null
                 const slackChannelId = account?.properties?.slack_channel_id ?? null
@@ -242,6 +247,13 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                 const backUrl =
                     removeProjectIdIfPresent(currentLocation.pathname) + currentLocation.search + currentLocation.hash
                 return [
+                    {
+                        key: 'website',
+                        label: 'Website',
+                        to: websiteDomain ? `https://${websiteDomain}` : null,
+                        targetBlank: true,
+                        disabledReason: websiteDomain ? null : 'No website domain set',
+                    },
                     {
                         key: 'organization',
                         label: 'Organization',
@@ -318,6 +330,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                     external_id: orNull(form.external_id),
                     properties: {
                         ...current.properties,
+                        website_domain: orNull(form.website_domain),
                         billing_id: orNull(form.billing_id),
                         slack_channel_id: orNull(form.slack_channel_id),
                         usage_dashboard_link: orNull(form.usage_dashboard_link),

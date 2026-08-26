@@ -38,11 +38,14 @@ import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersG
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
-import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import {
+    logsViewerFiltersLogic,
+    unsetColumnQueryFields,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import type { ProductIntentProperties } from '../../../../../../frontend/src/lib/utils/product-intents'
-import type { DateRange, LogSeverityLevel } from '../../../../../../frontend/src/queries/schema/schema-general'
+import type { DateRange } from '../../../../../../frontend/src/queries/schema/schema-general'
 // TODO: Move to ./types.ts
 import { ParsedLogMessage } from '../../../types'
 import type { LogsOrderBy } from '../../../types'
@@ -229,12 +232,6 @@ export interface logsViewerDataLogicActions {
     } // logsViewerFiltersLogic
     setSearchTerm: (searchTerm: string | undefined) => {
         searchTerm: string | undefined
-    } // logsViewerFiltersLogic
-    setServiceNames: (serviceNames: string[]) => {
-        serviceNames: string[]
-    } // logsViewerFiltersLogic
-    setSeverityLevels: (severityLevels: LogSeverityLevel[]) => {
-        severityLevels: LogSeverityLevel[]
     } // logsViewerFiltersLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     addLogsToSparkline: (logs: LogMessage[]) => LogMessage[]
@@ -492,7 +489,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             teamLogic,
             ['addProductIntent'],
             logsViewerFiltersLogic({ id }),
-            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'setSeverityLevels', 'setServiceNames'],
+            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm'],
             logsViewerConfigLogic({ id }),
             ['setSparklineBreakdownBy', 'setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
@@ -688,8 +685,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
+                            ...unsetColumnQueryFields(),
                             personId: values.personId,
                             customColumns: sentCustomColumns,
                         },
@@ -740,8 +736,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
+                            ...unsetColumnQueryFields(),
                             personId: values.personId,
                             customColumns: values.customColumns,
                             after: values.nextCursor,
@@ -774,8 +769,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
+                            ...unsetColumnQueryFields(),
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
                             personId: values.personId,
                         },
@@ -1021,12 +1015,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setDateRange: () => {
             actions.handleQueryChange('date_range')
         },
-        setSeverityLevels: ({ severityLevels }) => {
-            actions.handleQueryChange('severity', { severity_levels: severityLevels ?? [] })
-        },
-        setServiceNames: ({ serviceNames }) => {
-            actions.handleQueryChange('service', { service_count: serviceNames?.length ?? 0 })
-        },
         setFilters: ({ pushToHistory }) => {
             if (pushToHistory) {
                 actions.handleQueryChange('bulk')
@@ -1170,8 +1158,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         dateRange: values.utcDateRange,
                         searchTerm: values.filters.searchTerm,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                        severityLevels: values.filters.severityLevels,
-                        serviceNames: values.filters.serviceNames,
+                        ...unsetColumnQueryFields(),
                         personId: values.personId,
                         customColumns: values.customColumns,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,
