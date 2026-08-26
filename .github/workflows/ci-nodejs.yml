@@ -770,6 +770,10 @@ jobs:
             - name: Build Node.js workspace dependencies
               run: bin/turbo --filter=@posthog/nodejs prepare
 
+            # ingestion-consumer depends on ingestion-worker-proto, whose build script runs protoc.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
             - name: Pre-build Rust ingestion consumer
               working-directory: rust
               run: cargo build -p ingestion-consumer
