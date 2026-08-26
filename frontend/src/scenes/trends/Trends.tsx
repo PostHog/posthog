@@ -22,10 +22,8 @@ import { TrendsLineChart } from 'products/product_analytics/frontend/insights/tr
 import { TrendsPieChart } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart'
 
 import { trendsDataLogic } from './trendsDataLogic'
-// Lazy-loaded viz types that are rarely used and carry their own heavy payloads (d3-geo + topojson
-// map data, calendar/box-plot code). Keeping these lazy avoids the on-demand chunk fetch for the
-// common charts, which share the already-eager @posthog/quill-charts bundle (via Sparkline etc.),
-// so splitting them bought little while adding a failure surface on every chart view.
+// Rarely-used viz types with their own heavy payloads (map data, d3); kept lazy. The common
+// charts are imported eagerly above — their quill-charts dependency already ships eagerly.
 const WorldMap = lazyWithRetry(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
 const RegionMap = lazyWithRetry(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))
 const TrendsCalendarHeatMap = lazyWithRetry(() =>
