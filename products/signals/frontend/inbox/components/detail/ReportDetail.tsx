@@ -2,7 +2,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
-import { IconArrowLeft, IconEllipsis, IconExternal, IconSearch } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconEllipsis,
+    IconExternal,
+    IconSearch,
+    IconSidebarClose,
+    IconSidebarOpen,
+} from '@posthog/icons'
 import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -12,6 +19,7 @@ import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
+import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
@@ -101,6 +109,10 @@ const DETAIL_CONTAINER_CLASS =
 const DETAIL_ASIDE_CLASS =
     'order-2 flex w-full min-w-0 flex-col gap-5 border-t border-primary p-5 @5xl:order-none @5xl:w-[26rem] @5xl:shrink-0 @5xl:self-stretch @5xl:border-t-0 @5xl:border-r'
 const DETAIL_MAIN_CLASS = 'order-1 flex min-w-0 flex-1 flex-col px-6 py-5 @5xl:order-none @5xl:px-8'
+// The rail folded away: a strip holding only the control that brings it back, in the same place the
+// hide control sat, so the toggle never jumps across the page.
+const DETAIL_ASIDE_COLLAPSED_CLASS =
+    'order-2 flex w-full items-start border-t border-primary px-5 py-2 @5xl:order-none @5xl:w-auto @5xl:self-stretch @5xl:border-t-0 @5xl:border-r @5xl:px-2 @5xl:py-5'
 
 /**
  * Layout-faithful placeholder shown while a report's base record loads on a cold open (deep link
@@ -174,9 +186,11 @@ interface InboxDetailFrameProps {
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
  * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
  * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header. The title stands alone: the priority and the size of the change sit at the
- * foot of the report beside the rating, and the status and actionability chips stay off the page
- * because the inbox section the report came from already says what they said.
+ * "Report summary" header. The summary's title stands alone; the priority, the size of the change, and
+ * the created/updated times head the "Files changed" tab, where a reviewer weighs the change. The
+ * status and actionability chips stay off the page because the inbox section the report came from
+ * already says what they said. The rail can be hidden (a persisted preference) so the report column,
+ * and above all the diff, takes the full width.
  * AgentRunDetail keeps its own layout.
  */
 export function InboxDetailFrame({
@@ -200,6 +214,8 @@ export function InboxDetailFrame({
     const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
         useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab } = useActions(inboxReportDetailLogic(logicProps))
+    const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
+    const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
@@ -241,16 +257,49 @@ export function InboxDetailFrame({
         </span>
     )
 
-    // The report body: title, summary, charts, then priority and change size beside the rating. On a
-    // PR-bearing report it is the "Summary" tab; otherwise it sits under the "Report summary" header.
+    // Hiding the rail gives the report column the full width, which is what reading a diff needs. The
+    // Both controls live on the rail: hide in the Evidence header, show in the strip the rail folds to.
+    const onToggleRail = (): void => {
+        toggleEvidenceRail()
+        captureSectionToggle('evidence_rail')(!evidenceRailCollapsed)
+    }
+    const hideRailButton = (
+        <LemonButton
+            size="xsmall"
+            type="tertiary"
+            icon={<IconSidebarClose />}
+            tooltip="Hide evidence to widen the report"
+            aria-label="Hide evidence"
+            onClick={onToggleRail}
+            data-attr="inbox-report-hide-evidence-rail"
+        />
+    )
+    const showRailButton = (
+        <LemonButton
+            size="xsmall"
+            type="tertiary"
+            icon={<IconSidebarOpen />}
+            tooltip="Show evidence"
+            aria-label="Show evidence"
+            onClick={onToggleRail}
+            data-attr="inbox-report-show-evidence-rail"
+        />
+    )
+
+    const titleHeading = (
+        <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
+            {conventionalTitle && (
+                <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
+            )}
+            {displayTitle}
+        </h1>
+    )
+
+    // The report body: title, summary, charts, and the rating. On a PR-bearing report it is the
+    // "Summary" tab; otherwise it sits under the "Report summary" header.
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
-            <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
-                {conventionalTitle && (
-                    <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-                )}
-                {displayTitle}
-            </h1>
+            {titleHeading}
 
             <div>
                 {report.summary ? (
@@ -273,32 +322,44 @@ export function InboxDetailFrame({
                     </div>
                 )}
             </div>
-            {/* Priority and the size of the change close out the report beside the rating, pinned to the
-                bottom of the column. The stat opens the diff, so the number is a way in, not just a label. */}
-            <div className="mt-auto flex flex-wrap items-start justify-between gap-4">
-                <div className="flex items-center gap-2 pt-1">
-                    {report.priority && (
-                        <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
-                    )}
-                    {showFilesTab && diffStat && (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={() => setDetailTab('files')}
-                            data-attr="inbox-report-footer-files-changed"
-                        >
-                            <span className="flex items-center gap-1.5 text-tertiary">
-                                <span>Files changed</span>
-                                {diffStat}
-                            </span>
-                        </LemonButton>
-                    )}
-                </div>
-                <div className="min-w-0 flex-1">
-                    <ReportFeedbackFooter report={report} align="end" />
-                </div>
+            {/* The rating closes out the report body, pinned to the bottom of the column. */}
+            <div className="mt-auto">
+                <ReportFeedbackFooter report={report} align="end" />
             </div>
         </div>
+    )
+
+    // Above the diff: what is being reviewed and how big it is. The priority sits here rather than on
+    // the summary because the diff is where a reviewer weighs the change against its urgency.
+    const filesHeader = (
+        <header className="flex flex-col gap-2">
+            <div className="flex items-start gap-3 min-w-0">
+                {report.priority && (
+                    <div className="shrink-0 mt-1">
+                        <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
+                    </div>
+                )}
+                {titleHeading}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-tertiary">
+                {diffStat && (
+                    <>
+                        <span className="flex items-center gap-1.5">
+                            <span>Files changed</span>
+                            {diffStat}
+                        </span>
+                        <span aria-hidden>·</span>
+                    </>
+                )}
+                <span className="flex items-center gap-1">
+                    Created <TZLabel time={report.created_at} />
+                </span>
+                <span aria-hidden>·</span>
+                <span className="flex items-center gap-1">
+                    Last updated <TZLabel time={report.updated_at ?? report.created_at} />
+                </span>
+            </div>
+        </header>
     )
 
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
@@ -307,40 +368,47 @@ export function InboxDetailFrame({
     const overviewBody = (
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
             <div className={DETAIL_CONTAINER_CLASS}>
-                <aside className={DETAIL_ASIDE_CLASS}>
-                    {/* Evidence leads: it is what the summary's claims rest on. */}
-                    {hasEvidence && (
-                        <DetailSection
-                            icon={<IconSearch />}
-                            title="Evidence"
-                            collapsible
-                            onToggleCollapsed={captureSectionToggle('evidence')}
-                            rightSlot={
-                                <Tooltip title={SIGNALS_TOOLTIP}>
-                                    <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                        {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
+                {evidenceRailCollapsed ? (
+                    <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
+                ) : (
+                    <aside className={DETAIL_ASIDE_CLASS}>
+                        {/* Evidence leads: it is what the summary's claims rest on. */}
+                        {hasEvidence && (
+                            <DetailSection
+                                icon={<IconSearch />}
+                                title="Evidence"
+                                collapsible
+                                onToggleCollapsed={captureSectionToggle('evidence')}
+                                rightSlot={
+                                    <span className="flex items-center gap-1">
+                                        <Tooltip title={SIGNALS_TOOLTIP}>
+                                            <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
+                                                {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
+                                            </span>
+                                        </Tooltip>
+                                        {hideRailButton}
                                     </span>
-                                </Tooltip>
-                            }
-                        >
-                            {reportSignalsLoading && reportSignals === null ? (
-                                <EvidenceSkeleton count={evidenceCount} />
-                            ) : (
-                                <div className="flex flex-col gap-3">
-                                    {signals.map((signal: SignalNode) => (
-                                        <SignalCard key={signal.signal_id} signal={signal} />
-                                    ))}
-                                </div>
-                            )}
-                        </DetailSection>
-                    )}
-                    {/* Pull request checks (when present), then reviewers, runs, and activity. */}
-                    {children}
-                    <SuggestedReviewersSection report={report} />
-                    <ReportTasksSection report={report} />
-                    <ReportActivitySection report={report} />
-                    {asideFooter}
-                </aside>
+                                }
+                            >
+                                {reportSignalsLoading && reportSignals === null ? (
+                                    <EvidenceSkeleton count={evidenceCount} />
+                                ) : (
+                                    <div className="flex flex-col gap-3">
+                                        {signals.map((signal: SignalNode) => (
+                                            <SignalCard key={signal.signal_id} signal={signal} />
+                                        ))}
+                                    </div>
+                                )}
+                            </DetailSection>
+                        )}
+                        {/* Pull request checks (when present), then reviewers, runs, and activity. */}
+                        {children}
+                        <SuggestedReviewersSection report={report} />
+                        <ReportTasksSection report={report} />
+                        <ReportActivitySection report={report} />
+                        {asideFooter}
+                    </aside>
+                )}
 
                 <main className={DETAIL_MAIN_CLASS}>
                     {showFilesTab ? (
@@ -373,6 +441,7 @@ export function InboxDetailFrame({
                                     // to rate the report. Both rows read the same report-keyed logic.
                                     content: (
                                         <div className="flex flex-col gap-5">
+                                            {filesHeader}
                                             {diffSection}
                                             <ReportFeedbackFooter report={report} align="end" />
                                         </div>

@@ -83,11 +83,11 @@ export function PullRequestFilesChanged({
     }
 
     return (
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-6">
             {/* One file needs no tree. The tree also drops below @3xl, where the diff needs the full width. */}
             {files && files.length > 1 && (
                 <div
-                    className="hidden @3xl:block w-56 shrink-0 sticky top-0 max-h-screen overflow-y-auto"
+                    className="hidden @3xl:block w-72 shrink-0 sticky top-0 max-h-screen overflow-y-auto py-1 pr-2"
                     data-attr="inbox-pr-file-tree"
                 >
                     <PullRequestFileTree files={files} activePath={activePath} onSelectFile={selectFile} />
