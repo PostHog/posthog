@@ -83,7 +83,3 @@ export const Loading: Story = {
     args: { runs: [], loading: true },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
-
-export const LoadFailed: Story = {
-    args: { runs: [], loadFailed: true },
-}
