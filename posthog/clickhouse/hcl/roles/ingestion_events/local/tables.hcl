@@ -250,9 +250,8 @@ SQL
     }
   }
 
-  # Logs Kafka ingest lives on the ingestion-events nodes (moved off the logs role).
-  # `writable_logs34` is the Distributed write path to the logs cluster; the MV targets it
-  # because `logs34` itself is not local here.
+  # The logs Kafka ingest for the local stacks. `writable_logs34` is the Distributed write
+  # path into the logs cluster; the MV targets it because `logs34` is not local on this node.
   table "kafka_logs_avro" {
     column "uuid" {
       type = "String"

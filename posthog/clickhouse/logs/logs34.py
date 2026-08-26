@@ -107,7 +107,9 @@ def WRITABLE_LOGS34_TABLE_SQL():
     # The write path for the Kafka MV, hosted on the ingestion-events nodes: a Distributed table over
     # the logs cluster's `logs34`. The columns are spelled out (rather than `AS logs34`) because
     # `logs34` is not local on the events nodes — only this Distributed front is. Keep the column list
-    # in sync with `LOGS34_TABLE_SQL` (indexes/projection are storage-only and omitted here).
+    # in sync with `LOGS34_TABLE_SQL` (indexes/projection are storage-only and omitted here), down to
+    # the bare braces in the `mat_body_ipv4_matches` ALIAS: they are f-string expressions that render
+    # `(0, 1)`, which is what `logs34` carries. Escaping them emits a different ALIAS than `logs34`.
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
 CREATE TABLE IF NOT EXISTS {db}.writable_logs34
@@ -132,7 +134,7 @@ CREATE TABLE IF NOT EXISTS {db}.writable_logs34
     `event_name` String,
     `attributes_map_str` Map(LowCardinality(String), String),
     `level` String ALIAS severity_text,
-    `mat_body_ipv4_matches` Array(String) ALIAS extractAll(body, '(\\d\\.((25[0-5]|(2[0-4]|1{{0, 1}}[0-9]){{0, 1}}[0-9])\\.){{2, 2}}([0-9]))'),
+    `mat_body_ipv4_matches` Array(String) ALIAS extractAll(body, '(\\d\\.((25[0-5]|(2[0-4]|1{0, 1}[0-9]){0, 1}[0-9])\\.){2, 2}([0-9]))'),
     `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
     `attributes` Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
     `attributes_map_float` Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),

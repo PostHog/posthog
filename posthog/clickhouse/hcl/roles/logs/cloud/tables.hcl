@@ -81,8 +81,8 @@ database "posthog" {
     }
   }
 
-  # Moved off the logs role: the Kafka ingest + MV live on the ingestion-events nodes now;
-  # dev/prod compose this cloud layer so they keep them until posthog-cloud-infra relocates them.
+  # Only the cloud envs carry the logs Kafka ingest on the logs role: their events nodes are
+  # authored in posthog-cloud-infra. The local envs carry it on the ingestion_events role.
   table "kafka_logs_avro" {
     column "uuid" {
       type = "String"
