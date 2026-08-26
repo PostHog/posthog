@@ -212,7 +212,6 @@ describe("ChannelsList", () => {
     });
     useSidebarSearchStore.setState({
       focusRequest: 0,
-      nextFocusRequest: 0,
     });
     mocks.totals = {};
     useCurrentChannelStore.setState({ currentChannelId: null });

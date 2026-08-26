@@ -60,7 +60,6 @@ describe("ChannelHotkeys", () => {
     useCurrentChannelStore.setState({ currentChannelId: null });
     useSidebarSearchStore.setState({
       focusRequest: 0,
-      nextFocusRequest: 0,
     });
     useSidebarStore.setState({ open: false });
     showChannelPane();
