@@ -130,8 +130,10 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
         <SignalCardShell
             signal={signal}
             label={extra.segment_title}
+            // Under the redesign the evidence card header carries only the segment title, to match
+            // the chip-free report header above it.
             rightSlot={
-                problemTag ? (
+                !redesign && problemTag ? (
                     <LemonTag type={problemTag.type} size="small" className="shrink-0">
                         {problemTag.label}
                     </LemonTag>

@@ -79,27 +79,6 @@ export function ReportDetailBadges({
 const SIGNALS_TOOLTIP =
     'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
 
-/** Status / actionability / billing chips, on the "Report summary" row above the title. */
-function ReportDetailChips({
-    report,
-    actionabilityExplanation,
-}: {
-    report: SignalReport
-    actionabilityExplanation?: string | null
-}): JSX.Element {
-    const showStatus = !isStatusRedundantWithActionability(report.status, report.actionability)
-    return (
-        <>
-            {showStatus && <SignalReportStatusBadge status={report.status} />}
-            <SignalReportActionabilityBadge
-                actionability={report.actionability}
-                explanation={actionabilityExplanation}
-            />
-            <SignalReportBillingBadge report={report} />
-        </>
-    )
-}
-
 /**
  * Dot-separated stats under the title (signal count · first seen · last updated · source stack).
  * `evidenceCount` switches to the live signal count once findings load, so the row reads the same
@@ -283,7 +262,9 @@ interface InboxDetailFrameProps {
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
  * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
  * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header with the title, chips, and stats. AgentRunDetail keeps its own layout.
+ * "Report summary" header with the title, billing chip, and stats. The status and actionability chips
+ * stay off this header: the inbox section the report came from already says what they said.
+ * AgentRunDetail keeps its own layout.
  */
 export function InboxDetailFrame({ report, asideFooter, primaryAction, children }: InboxDetailFrameProps): JSX.Element {
     const { searchParams } = useValues(router)
@@ -294,14 +275,9 @@ export function InboxDetailFrame({ report, asideFooter, primaryAction, children 
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
     const backLabel = backOverride ? (backOverride.startsWith(urls.inboxTriage()) ? 'Triage' : 'Back') : 'Inbox'
     const logicProps = { reportId: report.id, report }
-    const {
-        reportSignals,
-        reportSignalsLoading,
-        priorityExplanation,
-        actionabilityExplanation,
-        chartPlacements,
-        trailingCharts,
-    } = useValues(inboxReportDetailLogic(logicProps))
+    const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts } = useValues(
+        inboxReportDetailLogic(logicProps)
+    )
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
@@ -381,7 +357,7 @@ export function InboxDetailFrame({ report, asideFooter, primaryAction, children 
                 <main className={DETAIL_MAIN_CLASS}>
                     <div className="mb-4 flex flex-wrap items-center gap-2.5 border-b border-primary pb-3">
                         <span className="text-sm font-semibold">Report summary</span>
-                        <ReportDetailChips report={report} actionabilityExplanation={actionabilityExplanation} />
+                        <SignalReportBillingBadge report={report} />
                         <span className="flex-1" />
                         <span className="flex items-center gap-1 text-xs text-tertiary">
                             Generated <TZLabel time={report.created_at} />
