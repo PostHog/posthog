@@ -156,6 +156,11 @@
     (literal (string-append (param "HOME") "/.gitconfig"))        ; core.hooksPath / credential.helper = !cmd
     (literal (string-append (param "HOME") "/.gitconfig.local"))  ; included by ~/.gitconfig — same escape if writable
     (subpath (string-append (param "HOME") "/.config/git"))       ; XDG git config — same hooksPath/helper escape
+    ;; npm user config. Its registry, proxy, and cafile keys redirect where an
+    ;; unsandboxed npm (such as the activation's tool-store install above)
+    ;; downloads code from, which is the ~/.gitconfig escape with npm as the
+    ;; trusted tool. Reads were already denied with the rest of $HOME.
+    (literal (string-append (param "HOME") "/.npmrc"))
     ;; Homebrew's system-scope gitconfig, read by a brew-installed git on every
     ;; invocation and owned by the developer's account — unlike the Xcode CLT one,
     ;; which is root-owned and so already out of reach. Same hooksPath/fsmonitor
@@ -184,11 +189,10 @@
     (subpath "/usr/local/Cellar")
     (subpath "/usr/local/lib")
     (subpath (string-append (param "HOME") "/.cargo/bin"))        ; binaries on PATH
-    ;; The machine-shared tool store. on-activate publishes the greptile CLI here
-    ;; (npm installs into a sandbox-writable staging dir; the unsandboxed activation
-    ;; shell moves the result in), links it into the venv bin, and `hogli review`
-    ;; executes it in the developer's shell — the same execute-later route as
-    ;; cargo bin above.
+    ;; The machine-shared tool store. The unsandboxed flox activation installs the
+    ;; greptile CLI here (npm --ignore-scripts, so no package code runs), links it
+    ;; into the venv bin, and `hogli review` executes it in the developer's shell —
+    ;; the same execute-later route as cargo bin above.
     (subpath (string-append (param "HOME") "/.config/posthog/tools"))
     ;; …and the ancestor nodes, so a rename cannot swap in a symlinked ~/.config or
     ;; ~/.config/posthog and move the store out from under the subpath deny — the

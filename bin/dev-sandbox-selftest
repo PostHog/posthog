@@ -236,6 +236,14 @@ if [[ -n "$gitcommon" && -f "$gitcommon/config" ]]; then
 else
     echo "  --   repo .git/config not found, skipping"
 fi
+# npm user config: registry/proxy/cafile keys redirect where an unsandboxed npm
+# (the activation's tool-store install) downloads code from — the ~/.gitconfig
+# escape with npm as the trusted tool.
+if [[ -f "$HOME/.npmrc" ]]; then
+    check_write_blocked_existing "$HOME/.npmrc" "npm user config (registry/proxy redirect)"
+else
+    check_write_blocked "$HOME/.npmrc" "npm user config (registry/proxy redirect)"
+fi
 # The scripts that actually run outside the sandbox. core.hooksPath points git at
 # .husky, so the .git/hooks deny above guards a directory git never reads once that
 # is set; these are the real hooks. .flox/env holds the activation scripts, and

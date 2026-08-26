@@ -377,15 +377,23 @@ fi
 #
 # The store is an execute-later target: Step 2b links the binary into the venv
 # and `hogli review` runs it in the developer's shell, outside the sandbox. The
-# sandbox therefore write-denies the store (see bin/dev-sandbox.sb), so npm
-# installs into a sandbox-writable staging dir and this unsandboxed shell
-# publishes the result. Do not point npm at the store directly: sandboxed, the
-# write is denied, and unsandboxed it would leave the store writable to any
-# compromised dependency the sandbox runs later.
+# sandbox therefore write-denies the store (see bin/dev-sandbox.sb) and this
+# trusted, unsandboxed shell performs the install itself. Skipping the sandbox
+# is safe here: --ignore-scripts keeps package code from running at install
+# time (npm only downloads, integrity-checks, and extracts), and the CLI runs
+# unsandboxed at review time anyway. Do not sandbox the npm run instead: any
+# sandbox-writable path it installs through (a TMPDIR staging dir, the shared
+# ~/.npm cache) gives a concurrently sandboxed dependency a window to swap the
+# binary before it is published. Every input this npm run reads is pinned away
+# from sandboxed writers: the cache lives inside the write-denied store, the
+# user config is disabled (and the sandbox write-denies ~/.npmrc anyway), and
+# cwd plus a fresh package.json keep the project-config lookup inside the
+# store instead of walking up to $HOME.
 _GREPTILE_VERSION="3.4.1"
 _GREPTILE_STORE="$HOME/.config/posthog/tools/greptile/$_GREPTILE_VERSION"
 _GREPTILE_BIN="$_GREPTILE_STORE/node_modules/.bin/greptile"
 _GREPTILE_STAMP="$_GREPTILE_STORE/.complete"
+_GREPTILE_CACHE="$_GREPTILE_STORE/.npm-cache"
 
 _install_greptile() {
   # Explicit `|| return`/`|| exit`: callers suppress errexit, so a failed
@@ -396,18 +404,15 @@ _install_greptile() {
     # activations (fresh worktrees) installing the same version.
     flock 9 || exit 1
     if [[ ! -x "$_GREPTILE_BIN" || ! -f "$_GREPTILE_STAMP" ]]; then
-      _staging=$(mktemp -d) || exit 1
-      trap 'rm -rf "$_staging"' EXIT
-      if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-        # printf %q: dev-sandbox re-parses its command string, so the path
-        # must survive a TMPDIR with spaces or quotes.
-        "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix $(printf '%q' "$_staging") --no-fund --no-audit greptile@$_GREPTILE_VERSION" || exit 1
-      else
-        npm install --prefix "$_staging" --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1
-      fi
-      [[ -x "$_staging/node_modules/.bin/greptile" ]] || exit 1
-      rm -rf "$_GREPTILE_STORE/node_modules" || exit 1
-      mv "$_staging/node_modules" "$_GREPTILE_STORE/node_modules" || exit 1
+      cd "$_GREPTILE_STORE" || exit 1
+      # Rebuild from a clean slate: npm trusts an existing node_modules tree,
+      # so leftovers from an interrupted install (or from before the store was
+      # write-denied) must not survive into the published result.
+      rm -rf node_modules package-lock.json "$_GREPTILE_CACHE" || exit 1
+      echo '{}' > package.json || exit 1
+      NPM_CONFIG_USERCONFIG=/dev/null npm install --cache "$_GREPTILE_CACHE" \
+        --ignore-scripts --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1
+      rm -rf "$_GREPTILE_CACHE"
       [[ -x "$_GREPTILE_BIN" ]] || exit 1
       touch "$_GREPTILE_STAMP" || exit 1
     fi
