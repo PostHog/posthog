@@ -8,14 +8,12 @@ from unittest.mock import patch
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
 from products.signals.backend.emission.google_search_console_opportunities import (
     GOOGLE_SEARCH_CONSOLE_CONFIG,
-    GSC_MAX_CTR,
-    GSC_MAX_POSITION,
-    GSC_MIN_IMPRESSIONS,
     google_search_console_opportunity_emitter,
     google_search_console_record_fetcher,
 )
 from products.signals.backend.emission.registry import get_signal_config, is_signal_emission_registered
 from products.signals.backend.models import SignalEmissionRecord
+from products.web_analytics.backend.facade import GSC_MAX_CTR, GSC_MAX_POSITION, GSC_MIN_IMPRESSIONS
 
 _FETCHER_MODULE = "products.signals.backend.emission.google_search_console_opportunities"
 

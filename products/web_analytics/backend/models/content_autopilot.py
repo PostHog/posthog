@@ -1,0 +1,189 @@
+from django.db import models
+
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
+
+
+def default_content_autopilot_package() -> dict[str, object]:
+    return {
+        "file_path": "",
+        "title": "",
+        "description": "",
+        "slug": "",
+        "markdown": "",
+        "frontmatter": [],
+        "internal_links": [],
+        "source_notes": [],
+    }
+
+
+def default_content_autopilot_validation_report() -> dict[str, object]:
+    return {"passed": False, "checks": []}
+
+
+class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
+    class DeliveryMode(models.TextChoices):
+        EXPORT_ONLY = "export_only", "Export only"
+        GITHUB = "github", "GitHub"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        db_index=False,
+        related_name="content_autopilot_site_profiles",
+    )
+    name = models.CharField(max_length=255, default="")
+    domain = models.URLField(max_length=2048)
+    source_urls = models.JSONField(default=list)
+    content_boundaries = models.JSONField(default=list)
+    brand_rules = models.JSONField(default=list)
+    search_console_enabled = models.BooleanField(default=False)
+    delivery_mode = models.CharField(max_length=32, choices=DeliveryMode.choices, default=DeliveryMode.EXPORT_ONLY)
+    github_repository = models.CharField(max_length=512, blank=True, default="")
+    base_branch = models.CharField(max_length=255, blank=True, default="main")
+    content_directories = models.JSONField(default=list)
+    url_to_file_convention = models.TextField(blank=True, default="")
+    created_by_id = models.BigIntegerField(null=True, blank=True)
+    updated_by_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_contentautopilotsiteprofile"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "domain"], name="content_auto_profile_team_domain"),
+        ]
+
+
+class ContentAutopilotRun(TeamScopedRootMixin, UUIDModel):
+    class RunStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GENERATING = "generating", "Generating"
+        READY_FOR_REVIEW = "ready_for_review", "Ready for review"
+        COMPLETED = "completed", "Completed"
+        CANCELED = "canceled", "Canceled"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="content_autopilot_runs",
+    )
+    profile = models.ForeignKey(ContentAutopilotSiteProfile, on_delete=models.CASCADE, related_name="runs")
+    run_status = models.CharField(max_length=32, choices=RunStatus.choices, default=RunStatus.PENDING)
+    input_snapshot = models.JSONField(default=dict)
+    selected_opportunities = models.JSONField(default=list)
+    errors = models.JSONField(default=list)
+    crawl_snapshot_key = models.CharField(max_length=1024, blank=True, default="")
+    workflow_id = models.CharField(max_length=255, blank=True, default="")
+    triggered_by_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_contentautopilotrun"
+        indexes = [models.Index(fields=["team", "-created_at"], name="content_auto_run_team_created")]
+
+
+class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
+    class ProposalType(models.TextChoices):
+        NEW_CONTENT = "new_content", "New content"
+        PAGE_IMPROVEMENT = "page_improvement", "Page improvement"
+
+    class LifecycleStatus(models.TextChoices):
+        GENERATING = "generating", "Generating"
+        READY_FOR_REVIEW = "ready_for_review", "Ready for review"
+        REJECTED = "rejected", "Rejected"
+        EXPORTED = "exported", "Exported"
+        PR_OPENED = "pr_opened", "Pull request opened"
+        PUBLISHED = "published", "Published"
+        MEASURING = "measuring", "Measuring"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    class DeliveryState(models.TextChoices):
+        NOT_DELIVERED = "not_delivered", "Not delivered"
+        DELIVERING = "delivering", "Delivering"
+        DELIVERED = "delivered", "Delivered"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="content_autopilot_proposals",
+    )
+    run = models.ForeignKey(ContentAutopilotRun, on_delete=models.CASCADE, related_name="proposals")
+    proposal_type = models.CharField(max_length=32, choices=ProposalType.choices)
+    lifecycle_status = models.CharField(
+        max_length=32,
+        choices=LifecycleStatus.choices,
+        default=LifecycleStatus.GENERATING,
+    )
+    title = models.CharField(max_length=512)
+    target_query = models.CharField(max_length=512, blank=True, default="")
+    target_url = models.URLField(max_length=2048, blank=True, default="")
+    audience = models.TextField(blank=True, default="")
+    search_intent = models.TextField(blank=True, default="")
+    expected_outcome = models.TextField(blank=True, default="")
+    evidence = models.JSONField(default=list)
+    source_ledger = models.JSONField(default=list)
+    validation_report = models.JSONField(default=default_content_autopilot_validation_report)
+    generation_history = models.JSONField(default=list)
+    content_package = models.JSONField(default=default_content_autopilot_package)
+    original_markdown = models.TextField(blank=True, default="")
+    proposed_markdown = models.TextField(blank=True, default="")
+    delivery_state = models.CharField(
+        max_length=32,
+        choices=DeliveryState.choices,
+        default=DeliveryState.NOT_DELIVERED,
+    )
+    delivery_reference = models.CharField(max_length=1024, blank=True, default="")
+    pull_request_url = models.URLField(max_length=2048, blank=True, default="")
+    live_url = models.URLField(max_length=2048, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_contentautopilotproposal"
+        indexes = [
+            models.Index(fields=["team", "lifecycle_status", "-created_at"], name="content_auto_prop_status"),
+        ]
+
+
+class ContentAutopilotMeasurement(TeamScopedRootMixin, UUIDModel):
+    class OutcomeClassification(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IMPROVED = "improved", "Improved"
+        INCONCLUSIVE = "inconclusive", "Inconclusive"
+        DECLINED = "declined", "Declined"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="content_autopilot_measurements",
+    )
+    proposal = models.OneToOneField(ContentAutopilotProposal, on_delete=models.CASCADE, related_name="measurement")
+    baseline = models.JSONField(default=dict)
+    day_28 = models.JSONField(default=dict)
+    day_56 = models.JSONField(default=dict)
+    site_wide_controls = models.JSONField(default=dict)
+    outcome_classification = models.CharField(
+        max_length=32,
+        choices=OutcomeClassification.choices,
+        default=OutcomeClassification.PENDING,
+    )
+    is_confounded = models.BooleanField(default=False)
+    baseline_at = models.DateTimeField(null=True, blank=True)
+    day_28_at = models.DateTimeField(null=True, blank=True)
+    day_56_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_contentautopilotmeasurement"
