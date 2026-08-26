@@ -71,7 +71,6 @@ export async function cleanupCodexHome(
 export async function prepareCodexHome(options: {
   appDataPath: string;
   taskRunId: string;
-  /** Seed the stored ChatGPT login into the run's home (own-subscription sessions). */
   subscription?: boolean;
   bundledSkillsDir: string;
   log: AgentScopedLogger;

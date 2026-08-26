@@ -346,14 +346,34 @@ describe("prepareCodexHome", () => {
 
     await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
     expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":2}');
-    if (process.platform !== "win32") {
-      // The pre-existing store must end up owner-only once rewritten.
-      expect(statSync(storedLogin).mode & 0o777).toBe(0o600);
-    }
 
     await cleanupCodexHome(appDataPath, taskRunId);
     expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":2}');
   });
+
+  it.skipIf(process.platform === "win32")(
+    "writeBackSubscriptionLogin leaves the rewritten store owner-only",
+    async () => {
+      const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+      await mkdir(subscriptionHome, { recursive: true });
+      const storedLogin = path.join(subscriptionHome, "auth.json");
+      // A store created without a mode (e.g. by an older build) is 0644.
+      await writeFile(storedLogin, '{"token":1}');
+
+      const codexHome = await prepareCodexHome({
+        appDataPath,
+        taskRunId,
+        subscription: true,
+        bundledSkillsDir,
+        log: noopLog,
+      });
+      await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
+
+      await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
+
+      expect(statSync(storedLogin).mode & 0o777).toBe(0o600);
+    },
+  );
 
   it("writeBackSubscriptionLogin never overwrites a login that changed since seeding", async () => {
     const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
