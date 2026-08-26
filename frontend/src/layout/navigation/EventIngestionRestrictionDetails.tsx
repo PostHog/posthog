@@ -1,7 +1,9 @@
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { EventIngestionRestriction, RestrictionType } from 'lib/logic/eventIngestionRestrictionLogic'
 
-const RESTRICTION_EFFECTS: Record<RestrictionType, { label: string; description: string }> = {
+import type { PipelinesEnumApi } from '~/generated/core/api.schemas'
+
+const RESTRICTION_EFFECTS: Partial<Record<string, { label: string; description: string }>> = {
     [RestrictionType.DROP_EVENT_FROM_INGESTION]: {
         label: 'Events dropped',
         description: 'Matching events are not stored. This data is lost and cannot be recovered.',
@@ -17,9 +19,51 @@ const RESTRICTION_EFFECTS: Record<RestrictionType, { label: string; description:
     },
 }
 
-const MAX_DISTINCT_IDS_SHOWN = 20
+const PIPELINE_LABELS: Record<PipelinesEnumApi, string> = {
+    analytics: 'analytics events',
+    session_recordings: 'session recordings',
+    errortracking: 'error tracking',
+    clientwarnings: 'client warnings',
+    ai: 'AI events',
+}
 
-/** Explains each active ingestion restriction: what it does to matching events and which distinct IDs it targets. */
+const MAX_VALUES_SHOWN = 20
+
+interface ScopeFilter {
+    label: string
+    values: string[]
+}
+
+function scopeFilters(restriction: EventIngestionRestriction): ScopeFilter[] {
+    return [
+        { label: 'distinct ID', values: restriction.distinct_ids ?? [] },
+        { label: 'session ID', values: restriction.session_ids ?? [] },
+        { label: 'event name', values: restriction.event_names ?? [] },
+        { label: 'event UUID', values: restriction.event_uuids ?? [] },
+    ].filter((filter) => filter.values.length > 0)
+}
+
+function ScopeFilterValues({ filter }: { filter: ScopeFilter }): JSX.Element {
+    const hidden = filter.values.length - MAX_VALUES_SHOWN
+    return (
+        <div>
+            <div className="text-secondary text-xs mb-1">
+                Only {filter.values.length === 1 ? 'this' : `these ${filter.values.length}`} {filter.label}
+                {filter.values.length === 1 ? '' : 's'}:
+            </div>
+            <div className="flex flex-wrap gap-1">
+                {filter.values.slice(0, MAX_VALUES_SHOWN).map((value) => (
+                    <code key={value} className="text-xs break-all">
+                        {value}
+                    </code>
+                ))}
+                {hidden > 0 && <span className="text-secondary text-xs">and {hidden} more</span>}
+            </div>
+        </div>
+    )
+}
+
+/** Explains each active ingestion restriction: what it does to matching events and which events it targets. */
 export function EventIngestionRestrictionDetails({
     restrictions,
 }: {
@@ -39,32 +83,32 @@ export function EventIngestionRestrictionDetails({
             </p>
             <ul className="deprecated-space-y-3">
                 {knownRestrictions.map((restriction) => {
-                    const effect = RESTRICTION_EFFECTS[restriction.restriction_type]
-                    const distinctIds = restriction.distinct_ids ?? []
-                    const scopedToDistinctIds = distinctIds.length > 0
+                    const effect = RESTRICTION_EFFECTS[restriction.restriction_type]!
+                    const filters = scopeFilters(restriction)
+                    const pipelines = (restriction.pipelines ?? []).map(
+                        (pipeline) => PIPELINE_LABELS[pipeline] ?? pipeline
+                    )
+                    const isScoped = filters.length > 0
                     return (
                         <li key={restriction.restriction_type} className="border rounded p-3">
                             <div className="flex items-center gap-2 mb-1">
-                                <LemonTag type={scopedToDistinctIds ? 'warning' : 'danger'}>{effect.label}</LemonTag>
+                                <LemonTag type={isScoped ? 'warning' : 'danger'}>{effect.label}</LemonTag>
                                 <span className="text-secondary text-xs">
-                                    {scopedToDistinctIds
-                                        ? `Applies to ${distinctIds.length} distinct ID${distinctIds.length === 1 ? '' : 's'}`
-                                        : 'Applies to all events in this project'}
+                                    {isScoped ? 'Applies to some events' : 'Applies to all events'}
+                                    {pipelines.length > 0 ? ` in ${pipelines.join(', ')}` : ''}
                                 </span>
                             </div>
                             <p className="mb-0">{effect.description}</p>
-                            {scopedToDistinctIds && (
-                                <div className="mt-2 flex flex-wrap gap-1">
-                                    {distinctIds.slice(0, MAX_DISTINCT_IDS_SHOWN).map((distinctId) => (
-                                        <code key={distinctId} className="text-xs break-all">
-                                            {distinctId}
-                                        </code>
-                                    ))}
-                                    {distinctIds.length > MAX_DISTINCT_IDS_SHOWN && (
-                                        <span className="text-secondary text-xs">
-                                            and {distinctIds.length - MAX_DISTINCT_IDS_SHOWN} more
-                                        </span>
+                            {isScoped && (
+                                <div className="mt-2 deprecated-space-y-2">
+                                    {filters.length > 1 && (
+                                        <div className="text-secondary text-xs">
+                                            An event is affected only when it matches every filter below.
+                                        </div>
                                     )}
+                                    {filters.map((filter) => (
+                                        <ScopeFilterValues key={filter.label} filter={filter} />
+                                    ))}
                                 </div>
                             )}
                         </li>

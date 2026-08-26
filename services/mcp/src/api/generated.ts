@@ -32585,6 +32585,63 @@ export namespace Schemas {
     }
 
     /**
+     * * `skip_person_processing` - Skip Person Processing
+     * * `drop_event_from_ingestion` - Drop Event From Ingestion
+     * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
+     * * `redirect_to_dlq` - Redirect To Dlq
+     * * `redirect_to_topic` - Redirect To Topic
+     */
+    export type RestrictionTypeEnum = typeof RestrictionTypeEnum[keyof typeof RestrictionTypeEnum];
+
+
+    export const RestrictionTypeEnum = {
+      SkipPersonProcessing: 'skip_person_processing',
+      DropEventFromIngestion: 'drop_event_from_ingestion',
+      ForceOverflowFromIngestion: 'force_overflow_from_ingestion',
+      RedirectToDlq: 'redirect_to_dlq',
+      RedirectToTopic: 'redirect_to_topic',
+    } as const;
+
+    /**
+     * * `analytics` - Analytics
+     * * `session_recordings` - Session Recordings
+     * * `errortracking` - Errortracking
+     * * `clientwarnings` - Clientwarnings
+     * * `ai` - Ai
+     */
+    export type PipelinesEnum = typeof PipelinesEnum[keyof typeof PipelinesEnum];
+
+
+    export const PipelinesEnum = {
+      Analytics: 'analytics',
+      SessionRecordings: 'session_recordings',
+      Errortracking: 'errortracking',
+      Clientwarnings: 'clientwarnings',
+      Ai: 'ai',
+    } as const;
+
+    export interface EventIngestionRestriction {
+      /** What happens to matching events: dropped, sent to the overflow lane, or ingested without person processing.
+       *
+       * * `skip_person_processing` - Skip Person Processing
+       * * `drop_event_from_ingestion` - Drop Event From Ingestion
+       * * `force_overflow_from_ingestion` - Force Overflow From Ingestion
+       * * `redirect_to_dlq` - Redirect To Dlq
+       * * `redirect_to_topic` - Redirect To Topic */
+      restriction_type: RestrictionTypeEnum;
+      /** Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID. */
+      distinct_ids: string[];
+      /** Session IDs the restriction applies to. Empty means it is not filtered by session ID. */
+      session_ids: string[];
+      /** Event names the restriction applies to. Empty means it is not filtered by event name. */
+      event_names: string[];
+      /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
+      event_uuids: string[];
+      /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
+      pipelines: PipelinesEnum[];
+    }
+
+    /**
      * * `DateTime` - DateTime
      * * `String` - String
      * * `Numeric` - Numeric
@@ -87520,6 +87577,13 @@ export namespace Schemas {
      * Name of the evaluation context to restore to suggestions.
      */
     context_name: string;
+    };
+
+    export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type RoleExternalReferencesListParams = {

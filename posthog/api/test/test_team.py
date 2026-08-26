@@ -256,7 +256,16 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
                 response.json(),
-                [{"restriction_type": RestrictionType.SKIP_PERSON_PROCESSING, "distinct_ids": ["own-user"]}],
+                [
+                    {
+                        "restriction_type": RestrictionType.SKIP_PERSON_PROCESSING,
+                        "distinct_ids": ["own-user"],
+                        "session_ids": [],
+                        "event_names": [],
+                        "event_uuids": [],
+                        "pipelines": ["analytics"],
+                    }
+                ],
             )
 
             response = self.client.get(f"/api/environments/{other_team.pk}/event_ingestion_restrictions/")
