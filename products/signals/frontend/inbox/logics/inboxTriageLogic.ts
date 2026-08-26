@@ -95,19 +95,19 @@ export interface inboxTriageLogicActions {
     loadMore: () => {
         value: true
     } // reportListLogic
-    loadMoreReportsSuccess: (
-        reportsResponse: import('./reportListLogic').ReportListResponse,
-        payload?: any
-    ) => {
-        payload?: any
-        reportsResponse: import('./reportListLogic').ReportListResponse
-    } // reportListLogic
     loadMoreReportsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
+    } // reportListLogic
+    loadMoreReportsSuccess: (
+        reportsResponse: import('./reportListLogic').ReportListResponse,
+        payload?: any
+    ) => {
+        payload?: any
+        reportsResponse: import('./reportListLogic').ReportListResponse
     } // reportListLogic
     loadReportsSuccess: (
         reportsResponse: import('./reportListLogic').ReportListResponse,

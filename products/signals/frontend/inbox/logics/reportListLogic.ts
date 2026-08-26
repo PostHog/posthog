@@ -141,8 +141,8 @@ export interface reportListLogicValues {
         hasActiveFilters: boolean
         scope: InboxScope
     } | null
-    primarySectionKey: InboxReportSectionKey
     loadedQueryKey: string | null
+    primarySectionKey: InboxReportSectionKey
     reports: SignalReport[]
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
@@ -272,6 +272,7 @@ export interface reportListLogicActions {
 export interface reportListLogicMeta {
     key: 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
+        primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         listApiParams: (
             searchQuery: string,
             sortField: InboxSortField,
@@ -283,7 +284,6 @@ export interface reportListLogicMeta {
             user: UserType | null,
             arg: any
         ) => any
-        primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
         visibleReports: (reports: SignalReport[], visibleCount: number) => SignalReport[]
         hiddenReportCount: (totalCount: number | null, count: number | null, visibleReports: SignalReport[]) => number
