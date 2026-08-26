@@ -153,7 +153,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         <FunctionTemplateEditor />
                     ) : (
                         <EmailTemplater
-                            value={template?.content.email}
+                            value={template?.content.email ?? null}
                             onChange={(value) => setTemplateValue('content.email', value)}
                             onChangeTemplating={(templating) =>
                                 setTemplateValue('content.email.templating', templating)

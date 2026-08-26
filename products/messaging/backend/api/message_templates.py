@@ -243,9 +243,7 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {
                     "content": {
-                        "function": {
-                            "template_id": f"'{template_id}' is internal and cannot be saved as a template."
-                        }
+                        "function": {"template_id": f"'{template_id}' is internal and cannot be saved as a template."}
                     }
                 }
             )
