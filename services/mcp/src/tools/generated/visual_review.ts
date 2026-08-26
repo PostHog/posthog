@@ -3,8 +3,15 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    VisualReviewReposBaselinesRetrieveParams,
+    VisualReviewReposFlakinessRetrieveParams,
     VisualReviewReposListQueryParams,
+    VisualReviewReposQuarantineListParams,
+    VisualReviewReposQuarantineListQueryParams,
     VisualReviewReposRetrieveParams,
+    VisualReviewReposRunsCountsRetrieveParams,
+    VisualReviewReposRunsListParams,
+    VisualReviewReposRunsListQueryParams,
     VisualReviewRunsApproveCreateBody,
     VisualReviewRunsApproveCreateParams,
     VisualReviewRunsFinalizeCreateBody,
@@ -23,6 +30,42 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const VisualReviewReposBaselinesRetrieveSchema = VisualReviewReposBaselinesRetrieveParams.omit({ project_id: true })
+
+const visualReviewReposBaselinesRetrieve = (): ToolBase<
+    typeof VisualReviewReposBaselinesRetrieveSchema,
+    Schemas.BaselineOverview
+> => ({
+    name: 'visual-review-repos-baselines-retrieve',
+    schema: VisualReviewReposBaselinesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisualReviewReposBaselinesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BaselineOverview>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/baselines/`,
+        })
+        return result
+    },
+})
+
+const VisualReviewReposFlakinessRetrieveSchema = VisualReviewReposFlakinessRetrieveParams.omit({ project_id: true })
+
+const visualReviewReposFlakinessRetrieve = (): ToolBase<
+    typeof VisualReviewReposFlakinessRetrieveSchema,
+    Schemas.FlakinessOverview
+> => ({
+    name: 'visual-review-repos-flakiness-retrieve',
+    schema: VisualReviewReposFlakinessRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisualReviewReposFlakinessRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FlakinessOverview>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/flakiness/`,
+        })
+        return result
+    },
+})
 
 const VisualReviewReposListSchema = VisualReviewReposListQueryParams
 
@@ -46,6 +89,32 @@ const visualReviewReposList = (): ToolBase<
     },
 })
 
+const VisualReviewReposQuarantineListSchema = VisualReviewReposQuarantineListParams.omit({ project_id: true }).extend(
+    VisualReviewReposQuarantineListQueryParams.shape
+)
+
+const visualReviewReposQuarantineList = (): ToolBase<
+    typeof VisualReviewReposQuarantineListSchema,
+    WithPostHogUrl<Schemas.PaginatedQuarantinedIdentifierEntryList>
+> => ({
+    name: 'visual-review-repos-quarantine-list',
+    schema: VisualReviewReposQuarantineListSchema,
+    handler: async (context: Context, params: z.infer<typeof VisualReviewReposQuarantineListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedQuarantinedIdentifierEntryList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/quarantine/`,
+            query: {
+                identifier: params.identifier,
+                limit: params.limit,
+                offset: params.offset,
+                run_type: params.run_type,
+            },
+        })
+        return await withPostHogUrl(context, result, '/visual_review')
+    },
+})
+
 const VisualReviewReposRetrieveSchema = VisualReviewReposRetrieveParams.omit({ project_id: true })
 
 const visualReviewReposRetrieve = (): ToolBase<typeof VisualReviewReposRetrieveSchema, Schemas.Repo> => ({
@@ -58,6 +127,61 @@ const visualReviewReposRetrieve = (): ToolBase<typeof VisualReviewReposRetrieveS
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const VisualReviewReposRunsCountsRetrieveSchema = VisualReviewReposRunsCountsRetrieveParams.omit({ project_id: true })
+
+const visualReviewReposRunsCountsRetrieve = (): ToolBase<
+    typeof VisualReviewReposRunsCountsRetrieveSchema,
+    Schemas.ReviewStateCounts
+> => ({
+    name: 'visual-review-repos-runs-counts-retrieve',
+    schema: VisualReviewReposRunsCountsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisualReviewReposRunsCountsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReviewStateCounts>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.repo_id))}/runs/counts/`,
+        })
+        return result
+    },
+})
+
+const VisualReviewReposRunsListSchema = VisualReviewReposRunsListParams.omit({ project_id: true }).extend(
+    VisualReviewReposRunsListQueryParams.shape
+)
+
+const visualReviewReposRunsList = (): ToolBase<
+    typeof VisualReviewReposRunsListSchema,
+    WithPostHogUrl<Schemas.PaginatedRunList>
+> => ({
+    name: 'visual-review-repos-runs-list',
+    schema: VisualReviewReposRunsListSchema,
+    handler: async (context: Context, params: z.infer<typeof VisualReviewReposRunsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedRunList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.repo_id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                review_state: params.review_state,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/visual_review/runs/${item.id}`)
+                    )
+                ),
+            },
+            '/visual_review'
+        )
     },
 })
 
@@ -285,8 +409,13 @@ const visualReviewRunsToleratedHashesList = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'visual-review-repos-baselines-retrieve': visualReviewReposBaselinesRetrieve,
+    'visual-review-repos-flakiness-retrieve': visualReviewReposFlakinessRetrieve,
     'visual-review-repos-list': visualReviewReposList,
+    'visual-review-repos-quarantine-list': visualReviewReposQuarantineList,
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
+    'visual-review-repos-runs-counts-retrieve': visualReviewReposRunsCountsRetrieve,
+    'visual-review-repos-runs-list': visualReviewReposRunsList,
     'visual-review-runs-approve-create': visualReviewRunsApproveCreate,
     'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
     'visual-review-runs-finalize-create': visualReviewRunsFinalizeCreate,
