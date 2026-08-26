@@ -1033,6 +1033,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         template_name: res.template?.name,
                         type: res.type,
                         enabled: res.enabled,
+                        // Tracks adoption of the autocapture element filter, the self-serve way to
+                        // drop clicks whose text holds personal data.
+                        has_element_filters: (res.filters?.properties ?? []).some((p) => p.type === 'element'),
                     })
 
                     // Track product intent when creating a new hog function

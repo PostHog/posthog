@@ -102,6 +102,28 @@ describe('hog-function-filtering', () => {
                 }
             `)
         })
+
+        it('should extract autocapture element fields from a populated elements_chain', () => {
+            const globals: HogFunctionInvocationGlobals = {
+                project: { id: 1, name: 'Test Project', url: 'http://example.com' },
+                event: {
+                    uuid: 'event_uuid',
+                    event: '$autocapture',
+                    distinct_id: 'user_123',
+                    properties: {},
+                    elements_chain: 'a:href="https://example.com":text="Order #1234":attr_id="button1";button',
+                    timestamp: '2025-01-01T00:00:00.000Z',
+                    url: 'http://example.com/event',
+                },
+            }
+
+            const response = convertToHogFunctionFilterGlobal(globals)
+
+            expect(response.elements_chain_texts).toEqual(['Order #1234'])
+            expect(response.elements_chain_href).toBe('https://example.com')
+            expect(response.elements_chain_ids).toEqual(['button1'])
+            expect(response.elements_chain_elements).toEqual(['a', 'button'])
+        })
     })
     describe('convertClickhouseRawEventToFilterGlobals', () => {
         it('should convert RawClickHouseEvent to HogFunctionFilterGlobals with basic event data', () => {
