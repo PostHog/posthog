@@ -45956,7 +45956,7 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `teams` - teams */
       type: NotificationDestinationTypeEnum;
-      /** True when every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. False when at least one is off, which happens when delivery failures auto-disable it. */
+      /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
       enabled: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
