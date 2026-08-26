@@ -39,9 +39,11 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-import { compareScoutsByName, scoutGroup, ScoutRosterRow } from '../utils/scoutGroups'
+import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
+/** Roster order: A to Z by name, or by lifecycle group so scouts that need a decision lead. */
+export type ScoutRosterSort = 'name' | 'status'
 import {
     computeFleetSummary,
     computeScoutRollups,
@@ -192,6 +194,7 @@ export interface scoutFleetLogicValues {
     manualRunScoutIds: string[]
     rollups: Map<string, ScoutRollup>
     rosterEvaluatedAt: number
+    rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
     runningChatType: ScoutChatType | null
     runsWindow: {
@@ -206,6 +209,7 @@ export interface scoutFleetLogicValues {
     scoutEnabledFilter: ScoutEnabledFilter
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutRosterSort: ScoutRosterSort
     scoutRuns: SignalScoutRunSummary[]
     scoutRunsLoadedOnce: boolean
     scoutRunsLoading: boolean
@@ -339,6 +343,9 @@ export interface scoutFleetLogicActions {
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
     }
+    setScoutRosterSort: (sort: ScoutRosterSort) => {
+        sort: ScoutRosterSort
+    }
     setScoutSearch: (search: string) => {
         search: string
     }
@@ -399,8 +406,14 @@ export interface scoutFleetLogicMeta {
             rosterEvaluatedAt: number,
             activeScoutTags: string[],
             scoutSearch: string,
-            scoutEnabledFilter: ScoutEnabledFilter
+            scoutEnabledFilter: ScoutEnabledFilter,
+            scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
+        rosterGroupCounts: (
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            rollups: Map<string, ScoutRollup>,
+            rosterEvaluatedAt: number
+        ) => Record<ScoutGroupKey, number>
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
             count: number
@@ -450,6 +463,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         setScoutSearch: (search: string) => ({ search }),
         setRosterEvaluatedAt: (evaluatedAt: number) => ({ evaluatedAt }),
         setScoutEnabledFilter: (filter: ScoutEnabledFilter) => ({ filter }),
+        setScoutRosterSort: (sort: ScoutRosterSort) => ({ sort }),
         // Bulk-applies the roster filters from the URL. Kept out of `actionToUrl` so hydrating from a
         // link does not echo the same URL back as a fresh history entry.
         hydrateRosterFilters: (search: string, filter: ScoutEnabledFilter, tags: string[]) => ({
@@ -652,6 +666,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 hydrateRosterFilters: (_, { filter }) => filter,
             },
         ],
+        scoutRosterSort: [
+            'name' as ScoutRosterSort,
+            {
+                setScoutRosterSort: (_, { sort }) => sort,
+            },
+        ],
         rosterEvaluatedAt: [
             0,
             {
@@ -781,6 +801,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 s.activeScoutTags,
                 s.scoutSearch,
                 s.scoutEnabledFilter,
+                s.scoutRosterSort,
             ],
             (
                 scoutConfigs: SignalScoutConfig[] | null,
@@ -788,11 +809,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 rosterEvaluatedAt: number,
                 activeScoutTags: string[],
                 scoutSearch: string,
-                scoutEnabledFilter: ScoutEnabledFilter
+                scoutEnabledFilter: ScoutEnabledFilter,
+                scoutRosterSort: ScoutRosterSort
             ): ScoutRosterRow[] => {
                 const query = scoutSearch.trim().toLowerCase()
                 const now = new Date(rosterEvaluatedAt)
-                return [...(scoutConfigs ?? [])]
+                const rows = [...(scoutConfigs ?? [])]
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
                     .filter(
                         (config) =>
@@ -807,6 +829,37 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     )
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
+                if (scoutRosterSort === 'status') {
+                    // Stable: rows are already A to Z, so scouts in one group keep their name order.
+                    rows.sort((a, b) => SCOUT_GROUP_ORDER.indexOf(a.group) - SCOUT_GROUP_ORDER.indexOf(b.group))
+                }
+                return rows
+            },
+        ],
+        /**
+         * Group sizes over the whole fleet, unnarrowed by search — the roster stats state how many
+         * scouts need a decision, and that number must not move as you type into the search box.
+         */
+        rosterGroupCounts: [
+            (s) => [s.scoutConfigs, s.rollups, s.rosterEvaluatedAt],
+            (
+                scoutConfigs: SignalScoutConfig[] | null,
+                rollups: Map<string, ScoutRollup>,
+                rosterEvaluatedAt: number
+            ): Record<ScoutGroupKey, number> => {
+                const now = new Date(rosterEvaluatedAt)
+                const counts: Record<ScoutGroupKey, number> = {
+                    needs_you: 0,
+                    working: 0,
+                    watching: 0,
+                    dry_run: 0,
+                    settling_in: 0,
+                    off: 0,
+                }
+                for (const config of scoutConfigs ?? []) {
+                    counts[scoutGroup(config, rollups.get(config.skill_name), now)] += 1
+                }
+                return counts
             },
         ],
         // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend
