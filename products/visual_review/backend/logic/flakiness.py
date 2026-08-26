@@ -236,6 +236,11 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # `Max` the most recent flip, which stays right when a baseline is reverted
     # to a hash it held before.
     #
+    # CHANGED is not only a flip. A snapshot that keeps rendering differently
+    # from an unchanged baseline, with no toleration to match it, records
+    # CHANGED on every run. `Max` then reports the latest failure instead of the
+    # last real move, so the age reads too new for that snapshot.
+    #
     # Grouping the whole history by `baseline_hash` instead would read more
     # precisely, but it admits every historical row rather than the rare event
     # rows, which is the shape `baseline_overview` documents as ~7s and an OOM
