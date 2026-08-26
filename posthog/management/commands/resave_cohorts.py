@@ -147,7 +147,9 @@ class Command(BaseCommand):
                 style = self.style.WARNING if (stats.errors > 0 or stats.validation_errors > 0) else self.style.SUCCESS
                 self.stdout.write(style(msg))
 
-        unclassified = self._unclassified_cohort_ids(selection, dry_run)
+        # A dry run persists nothing, so there is no post-run state to verify. `None` keeps that
+        # apart from an empty list, which would claim the check ran and found nothing.
+        unclassified = None if dry_run else self._unclassified_cohort_ids(selection)
 
         # Log final summary
         change_pct = round((global_changed / global_total * 100), 2) if global_total > 0 else 0
@@ -163,11 +165,12 @@ class Command(BaseCommand):
             validation_error_count=global_validation_errors,
             change_percentage=change_pct,
             realtime_percentage=realtime_pct,
-            unclassified_count=len(unclassified),
+            unclassified_count=None if unclassified is None else len(unclassified),
         )
         self.stdout.write("")
         healthy = global_errors == 0 and global_validation_errors == 0 and not unclassified
         final_style = self.style.SUCCESS if healthy else self.style.WARNING
+        unclassified_label = "unclassified not checked" if unclassified is None else f"{len(unclassified)} unclassified"
         self.stdout.write(
             final_style(
                 f"Done{dry_run_label}. "
@@ -175,24 +178,22 @@ class Command(BaseCommand):
                 f"{global_changed} changed ({change_pct}%), "
                 f"{global_prospective_realtime} realtime ({realtime_pct}%), "
                 f"{global_errors} errors, {global_validation_errors} validation errors, "
-                f"{len(unclassified)} unclassified"
+                f"{unclassified_label}"
             )
         )
 
         if unclassified and selection.explicit:
             self._fail_on_unclassified(unclassified)
 
-    def _unclassified_cohort_ids(self, selection: TeamSelection, dry_run: bool) -> list[int]:
+    def _unclassified_cohort_ids(self, selection: TeamSelection) -> list[int]:
         """Cohorts the realtime gate routes that still have a null `condition_type`, read back from
         the database.
 
         Reading persisted state covers every way a cohort ends up unclassified: a save that raised, a
         filter set the validator rejected, and a well-formed filter group with no leaf conditions,
-        which the resave classifies as realtime and leaves with a null `condition_type`.
+        which the resave classifies as realtime and leaves with a null `condition_type`. It only
+        means anything after a run that persisted, so the caller skips it on a dry run.
         """
-        if dry_run:
-            # Nothing was persisted, so this would report the state the run started from.
-            return []
         qs = Cohort.objects.filter(cohort_type__in=REALTIME_GATED_COHORT_TYPES, condition_type__isnull=True)
         if selection.team_ids is not None:
             qs = qs.filter(team_id__in=selection.team_ids)

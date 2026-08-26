@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import StringIO
 from typing import Any
 
 import pytest
@@ -629,6 +630,28 @@ class TestResaveCohortsCommandConditionTypeVerification(BaseTest):
         call_command("resave_cohorts")
 
         cohort.refresh_from_db()
+        assert cohort.condition_type is None
+
+    def test_dry_run_reports_the_verification_as_unchecked_rather_than_clean(self):
+        # Nothing is persisted, so the post-run query would read the state the run started from.
+        # Saying so beats printing a zero that reads as "every cohort is classified".
+        Cohort.objects.create(team=self.team, name="rt", filters=_make_realtime_filters())
+        out = StringIO()
+
+        call_command("resave_cohorts", team_id=[self.team.id], dry_run=True, stdout=out)
+
+        assert "unclassified not checked" in out.getvalue()
+
+    def test_dry_run_neither_persists_nor_fails_on_an_unclassified_gated_cohort(self):
+        cohort = Cohort.objects.create(team=self.team, name="leafless", filters={"properties": {"type": "AND"}})
+        Cohort.objects.filter(id=cohort.id).update(cohort_type="realtime", condition_type=None)
+        out = StringIO()
+
+        call_command("resave_cohorts", team_id=[self.team.id], dry_run=True, stdout=out)
+
+        assert "unclassified not checked" in out.getvalue()
+        cohort.refresh_from_db()
+        assert cohort.filters == {"properties": {"type": "AND"}}
         assert cohort.condition_type is None
 
     def test_unclassifiable_non_gated_cohort_does_not_fail_the_command(self):
