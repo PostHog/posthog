@@ -3603,6 +3603,130 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(data["active"])
         self.assertEqual(len(data), 1)
 
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_ignores_a_spoofed_basic_auth_header(self, token_type):
+        # Assertion auth short-circuits before the Basic header is ever validated, so a caller
+        # can authenticate as itself with a signed assertion while stapling a Basic header
+        # naming another client. The ownership check must bind to the verified assertion
+        # identity, not the unverified header, or the caller reads that other client's token.
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+                headers={"Authorization": self.get_basic_auth_header("test_confidential_client_id", "anything")},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
+    def _create_token_pair_for_app(
+        self, app: OAuthApplication, *, scope: str = "openid"
+    ) -> tuple[OAuthAccessToken, OAuthRefreshToken]:
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token=f"at_{app.id}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app,
+            user=self.user,
+            token=f"rt_{app.id}",
+            access_token=access_token,
+            scoped_teams=[],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        return access_token, refresh_token
+
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_with_client_assertion_rejects_a_different_clients_token(self, token_type):
+        # A private_key_jwt CIMD client carries its identity in the assertion's `sub`, not in
+        # HTTP Basic auth or a `client_id` form field. The ownership check must still bind to
+        # that identity, or an assertion-authenticated caller can introspect any client's token.
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_with_client_assertion_allows_own_token(self, token_type):
+        # A CIMD client's wire identity is its cimd_metadata_url (effective_client_id), not
+        # the opaque client_id PostHog assigns at registration. Comparing against the opaque
+        # value would reject a CIMD client introspecting even its own token.
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        access_token, refresh_token = self._create_token_pair_for_app(app)
+        token = access_token if token_type == "access_token" else refresh_token
+
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_id": app.cimd_metadata_url,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["client_id"], app.client_id)
+
     def test_introspection_with_bearer_token_requires_introspection_scope(self):
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         token_to_introspect, _ = self._create_access_and_refresh_tokens()
