@@ -42687,6 +42687,7 @@ const github = __importStar(__nccwpck_require__(3228));
 const filter_1 = __nccwpck_require__(9037);
 const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
+const shadow = __importStar(__nccwpck_require__(5763));
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
 async function run() {
@@ -42753,7 +42754,9 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
             }
             const pr = github.context.payload.pull_request;
             if (token) {
-                return await getChangedFilesFromApi(token, pr);
+                const apiFiles = await getChangedFilesFromApi(token, pr);
+                await shadow.report(apiFiles, pr);
+                return apiFiles;
             }
             if (github.context.eventName === 'pull_request_target') {
                 // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
@@ -42924,6 +42927,151 @@ function getErrorMessage(error) {
     return String(error);
 }
 run();
+
+
+/***/ }),
+
+/***/ 5763:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.compareWithMergeCommit = compareWithMergeCommit;
+exports.report = report;
+const core = __importStar(__nccwpck_require__(7484));
+const exec_1 = __nccwpck_require__(5236);
+// Compares the API's changed-file list against the same list derived locally from
+// the pull request's merge commit, and reports disagreement without acting on it.
+// The API result stays authoritative, so a wrong local answer can only produce a
+// log line. Removing the API call later is only safe once this has run quiet
+// across the PR shapes no offline sample can reach: merged PRs, very large diffs,
+// and PRs GitHub has not finished computing a merge ref for.
+//
+// PostHog/posthog#55830 detected changes from `base.sha..HEAD`, which reports every
+// commit the branch picked up when master was merged into it as the PR's own work.
+// The merge commit's first parent is the base GitHub actually merged against, so
+// `HEAD^1..HEAD` is the PR's own changes and matches what the API returns.
+const MERGE_REF_FETCH_DEPTH = 2;
+async function git(args) {
+    const res = await (0, exec_1.getExecOutput)('git', args, { ignoreReturnCode: true, silent: true });
+    return { code: res.exitCode, out: res.stdout.trim() };
+}
+// The merge ref is not guaranteed to be present or current: a shallow checkout has
+// no parents, and GitHub recomputes the ref asynchronously after a push. Requiring
+// the second parent to equal the head SHA rejects a stale ref rather than reading
+// it as this PR's changes.
+async function localChangedFiles(pr) {
+    const fetched = await git([
+        'fetch',
+        '--no-tags',
+        '--filter=blob:none',
+        `--depth=${MERGE_REF_FETCH_DEPTH}`,
+        'origin',
+        `refs/pull/${pr.number}/merge`
+    ]);
+    if (fetched.code !== 0) {
+        throw new Error('no merge ref');
+    }
+    const parents = await git(['rev-list', '--parents', '-n', '1', 'FETCH_HEAD']);
+    if (parents.code !== 0 || parents.out.split(/\s+/).length !== 3) {
+        throw new Error('merge ref has no second parent');
+    }
+    const head = await git(['rev-parse', 'FETCH_HEAD^2']);
+    if (head.code !== 0 || head.out !== pr.head.sha) {
+        throw new Error(`merge ref is stale (^2=${head.out.slice(0, 8)}, head=${pr.head.sha.slice(0, 8)})`);
+    }
+    // --no-renames so a rename arrives as a delete plus an add, which is the shape
+    // the API path builds by hand from `previous_filename`.
+    const diff = await git(['diff', '--no-renames', '--name-only', 'FETCH_HEAD^1', 'FETCH_HEAD']);
+    if (diff.code !== 0) {
+        throw new Error('diff failed');
+    }
+    return diff.out.split('\n').filter(Boolean);
+}
+function compare(apiFiles, gitFiles) {
+    const api = new Set(apiFiles.map(f => f.filename));
+    const local = new Set(gitFiles);
+    const onlyInApi = [...api].filter(f => !local.has(f));
+    const onlyInGit = [...local].filter(f => !api.has(f));
+    return {
+        verdict: onlyInApi.length === 0 && onlyInGit.length === 0 ? 'match' : 'mismatch',
+        apiCount: api.size,
+        gitCount: local.size,
+        onlyInApi: onlyInApi.slice(0, 20),
+        onlyInGit: onlyInGit.slice(0, 20)
+    };
+}
+async function compareWithMergeCommit(apiFiles, pr) {
+    try {
+        return compare(apiFiles, await localChangedFiles(pr));
+    }
+    catch (error) {
+        return {
+            verdict: 'unavailable',
+            reason: error instanceof Error ? error.message : String(error),
+            apiCount: apiFiles.length
+        };
+    }
+}
+// Never throws: the filter's real answer is already computed by the time this runs,
+// so nothing here is worth failing a CI job over.
+async function report(apiFiles, pr) {
+    try {
+        core.startGroup('Shadow: merge-commit change detection');
+        const result = await compareWithMergeCommit(apiFiles, pr);
+        if (result.verdict === 'match') {
+            core.info(`shadow: match (${result.apiCount} files)`);
+        }
+        else if (result.verdict === 'unavailable') {
+            core.info(`shadow: unavailable (${result.reason})`);
+        }
+        else {
+            core.warning(`shadow: MISMATCH api=${result.apiCount} git=${result.gitCount} ` +
+                `onlyInApi=${JSON.stringify(result.onlyInApi)} onlyInGit=${JSON.stringify(result.onlyInGit)}`);
+        }
+        core.setOutput('shadow_verdict', result.verdict);
+    }
+    catch (error) {
+        core.info(`shadow: skipped (${error instanceof Error ? error.message : String(error)})`);
+    }
+    finally {
+        core.endGroup();
+    }
+}
 
 
 /***/ }),
