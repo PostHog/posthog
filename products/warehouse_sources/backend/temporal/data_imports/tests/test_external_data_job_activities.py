@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCustomerFacingError(SimpleTestCase):
@@ -176,3 +177,62 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     schema.refresh_from_db()
     assert schema.status == ExternalDataSchema.Status.FAILED
     assert schema.latest_error == "could not create the sync job"
+
+
+# transaction=True for the same reason as the test above: the activity resolves the source through
+# database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
+@parameterized.expand(
+    [
+        # A customer relation whose own definition writes while we read it (a view or trigger that
+        # refreshes a materialized view). psycopg raises it on the source connection, so both the
+        # friendly message and the disable are correct.
+        ("raised_by_the_source", False, True),
+        # The identical SQLSTATE 25006 wording from our own app DB after a primary failover. Nothing
+        # is wrong with the source, and disabling makes the customer re-enable a sync our outage
+        # stopped.
+        ("raised_by_our_app_db", True, False),
+    ]
+)
+@pytest.mark.django_db(transaction=True)
+def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_it(
+    _name: str, platform_error: bool, expect_disabled: bool
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=ExternalDataSourceType.POSTGRES.value)
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="table")
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error="cannot execute UPDATE in a read-only transaction",
+        latest_error="cannot execute UPDATE in a read-only transaction",
+        platform_error=platform_error,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    assert mock_update_should_sync.called is expect_disabled
+    customer_message = mock_update_job_status.call_args.kwargs["latest_error"] or ""
+    assert ("tries to write to your database" in customer_message) is expect_disabled

@@ -93,6 +93,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     EnrichTableSemanticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
@@ -205,6 +206,26 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     return message or str(cause)
 
 
+# Django's exception class name for a write rejected by a demoted standby after a failover
+# (psycopg's ReadOnlySqlTransaction, surfaced as django.db.InternalError). Only our own ORM produces
+# it: sources reach a customer database over a raw driver connection, whose read-only error arrives
+# as ReadOnlySqlTransaction and whose base class is psycopg's InternalError_, neither of which
+# renders under this name.
+_APP_DB_FAILURE_TYPE = "InternalError"
+
+
+def _is_app_db_failure(cause: BaseException | None) -> bool:
+    """Whether an activity failed against PostHog's own app DB rather than the customer's source.
+
+    Temporal renders an activity failure as an ``ApplicationError`` carrying the original exception's
+    class name in ``type`` — the one part of the exception that survives the workflow boundary, since
+    the message alone can't tell our failover apart from the source-side condition worded the same
+    way. Activities that reach the app DB but never pass through ``_handle_import_error`` (creating
+    the job row, the post-import steps) surface here unwrapped, which is what this catches.
+    """
+    return isinstance(cause, exceptions.ApplicationError) and cause.type == _APP_DB_FAILURE_TYPE
+
+
 def _fail_stale_running_schema(
     schema_id: str, team_id: int, latest_error: str | None, logger: FilteringBoundLogger
 ) -> None:
@@ -234,6 +255,12 @@ class UpdateExternalDataJobStatusInputs:
     # Run id stamped on the job row by the create-job activity, so finalization can resolve this
     # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
     workflow_run_id: str | None = None
+    # Set when the run failed against PostHog's own app DB rather than the customer's source, so
+    # finalization can skip the source classification below. That classification reads only
+    # `internal_error` text, and our app DB's failover wording is identical to the source-side
+    # wording the Postgres map matches — without this flag our outage disables a working sync.
+    # Optional for mixed-version workers mid-rollout.
+    platform_error: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -322,7 +349,14 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         else:
             non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
-        has_non_retryable_error = error_message_matches(internal_error_normalized, non_retryable_errors.keys())
+        # A failure against our own app DB carries the same text as several source-side conditions
+        # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
+        # matching it here would disable a sync whose source never failed. The flag is the only
+        # signal that survives: Temporal renders the cause as a string, dropping the exception type
+        # the activity classified it by.
+        has_non_retryable_error = not inputs.platform_error and error_message_matches(
+            internal_error_normalized, non_retryable_errors.keys()
+        )
         if has_non_retryable_error:
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
@@ -927,7 +961,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = _customer_facing_error(e.cause)
+                update_inputs.platform_error = _is_app_db_failure(e.cause)
+                update_inputs.latest_error = (
+                    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+                    if update_inputs.platform_error
+                    else _customer_facing_error(e.cause)
+                )
                 raise
         except Exception as e:
             # Catch all
