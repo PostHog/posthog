@@ -369,6 +369,23 @@ class TestGarageDrives:
                 """,
                 {("product_analytics", "PathsQuery"): 1},
             ),
+            # two bases define the helper; the one that executes wins whatever the order
+            (
+                """
+                class Quiet(TestCase):
+                    def _run(self, query):
+                        return query
+
+                class Posting(APIBaseTest):
+                    def _run(self, query):
+                        return self.client.post("/api/projects/1/query/", {"query": query})
+
+                class TestPaths(Quiet, Posting):
+                    def test_paths(self):
+                        assert self._run({"kind": "PathsQuery"})
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
             # a bare string in a test that never executes, or a URL segment, is not a drive
             (
                 """
