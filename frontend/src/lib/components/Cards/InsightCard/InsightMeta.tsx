@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -41,9 +41,10 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { DashboardFilter, Node, ProductKey, TileFilters } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -172,7 +173,7 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
+    const { exportContext, insightData, insightDataRaw, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
         insightAlertsLogic({
@@ -192,7 +193,7 @@ export function InsightMeta({
         })
     )
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
+    const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -238,6 +239,9 @@ export function InsightMeta({
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
     })
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
+
+    const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
+    const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
@@ -625,6 +629,33 @@ export function InsightMeta({
                                             export_context: exportContext,
                                         },
                                     ]}
+                                    copyToClipboardItems={
+                                        showCopyTableData
+                                            ? [
+                                                  {
+                                                      title: 'CSV',
+                                                      onClick: () => {
+                                                          if (!copyTableAdapter) {
+                                                              return
+                                                          }
+                                                          copyTableData(
+                                                              copyTableAdapter.toTableData(),
+                                                              ExporterFormat.CSV
+                                                          )
+                                                          reportInsightResultsCopiedToClipboard(
+                                                              'csv',
+                                                              insight.id ?? null,
+                                                              dashboardId ?? null
+                                                          )
+                                                      },
+                                                      disabledReason: copyTableAdapter
+                                                          ? undefined
+                                                          : 'No data to copy yet',
+                                                      'data-attr': 'insight-card-copy-as-csv',
+                                                  },
+                                              ]
+                                            : undefined
+                                    }
                                 />
                             </>
                         ) : null}

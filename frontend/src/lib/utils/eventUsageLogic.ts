@@ -1583,6 +1583,15 @@ export interface eventUsageLogicActions {
         insightShortId: InsightShortId
         loadingMilliseconds: number
     }
+    reportInsightResultsCopiedToClipboard: (
+        format: string,
+        insightId: number | null,
+        dashboardId: number | null
+    ) => {
+        dashboardId: number | null
+        format: string
+        insightId: number | null
+    }
     reportInsightSaved: (
         insight: Partial<QueryBasedInsightModel> | null,
         query: Node | null,
@@ -2521,6 +2530,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             toDashboardId: number,
             tileType: DashboardWidgetType
         ) => ({ fromDashboardId, toDashboardId, tileType }),
+        reportInsightResultsCopiedToClipboard: (
+            format: string,
+            insightId: number | null,
+            dashboardId: number | null
+        ) => ({ format, insightId, dashboardId }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightNewInsightClicked: (insightType: string, presetKey?: string) => ({
@@ -3664,6 +3678,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 from_dashboard_id: fromDashboardId,
                 to_dashboard_id: toDashboardId,
                 tile_type: tileType,
+            })
+        },
+        reportInsightResultsCopiedToClipboard: async ({ format, insightId, dashboardId }) => {
+            posthog.capture('insight results copied to clipboard', {
+                format,
+                insight_id: insightId,
+                dashboard_id: dashboardId,
             })
         },
         reportInsightsTableCalcToggled: async (payload) => {

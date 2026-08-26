@@ -18,17 +18,26 @@ export interface ExportButtonItem {
     insight?: number
 }
 
+/** A client-side copy action rendered in a "Copy to clipboard" section below the export formats. */
+export interface ExportButtonCopyToClipboardItem {
+    title: string
+    onClick: () => void
+    disabledReason?: string
+    'data-attr'?: string
+}
+
 export interface ExportButtonProps extends Pick<
     LemonButtonProps,
     'disabledReason' | 'icon' | 'sideIcon' | 'id' | 'type' | 'fullWidth'
 > {
     items: ExportButtonItem[]
+    copyToClipboardItems?: ExportButtonCopyToClipboardItem[]
     buttonCopy?: string
     size?: LemonButtonProps['size']
 }
 
 export const ExportButton: React.FunctionComponent<ExportButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    forwardRef(function ExportButton({ items, buttonCopy, ...buttonProps }, ref): JSX.Element {
+    forwardRef(function ExportButton({ items, copyToClipboardItems, buttonCopy, ...buttonProps }, ref): JSX.Element {
         useMountedLogic(exportsLogic)
 
         const { actions } = exportsLogic
@@ -95,6 +104,23 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                                     </LemonButton>
                                 )
                             })}
+                            {copyToClipboardItems && copyToClipboardItems.length > 0 ? (
+                                <>
+                                    <h5 className="mt-2">Copy to clipboard</h5>
+                                    <LemonDivider />
+                                    {copyToClipboardItems.map((item, i) => (
+                                        <LemonButton
+                                            key={i}
+                                            fullWidth
+                                            onClick={item.onClick}
+                                            disabledReason={item.disabledReason}
+                                            data-attr={item['data-attr']}
+                                        >
+                                            {item.title}
+                                        </LemonButton>
+                                    ))}
+                                </>
+                            ) : null}
                         </>
                     ),
                 }}

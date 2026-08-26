@@ -5,10 +5,10 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
+import { copyTableData } from '~/queries/nodes/InsightViz/exportAdapters'
 import { QuerySchema } from '~/queries/schema/schema-general'
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
-import { exportTableData } from './webAnalyticsExportUtils'
 import { useWebTileExportAdapter } from './webTileHeaderHooks'
 
 interface WebAnalyticsExportProps {
@@ -26,7 +26,7 @@ export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportPr
 
     const handleCopy = (format: ExporterFormat): void => {
         const tableData = adapter.toTableData()
-        exportTableData(tableData, format)
+        copyTableData(tableData, format)
         exportTriggered()
     }
 
