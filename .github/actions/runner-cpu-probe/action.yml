@@ -8,7 +8,7 @@ inputs:
     seconds:
         description: Seconds per openssl speed pass. Two passes run (1 thread, then nproc).
         required: false
-        default: '2'
+        default: '1'
     small_files:
         description: How many small files the disk probe writes and hashes.
         required: false
@@ -41,12 +41,13 @@ runs:
                   mem_gb=$(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo)
 
                   # openssl speed does fixed-time work and reports throughput, so a slower
-                  # core reads as a lower number rather than a longer step. The last column
-                  # is the 16384-byte block rate.
+                  # core reads as a lower number rather than a longer step. -seconds applies
+                  # per block size and the default sweep is six of them, so -bytes pins one
+                  # and keeps this step to a couple of seconds.
                   local k1 kn
-                  k1=$(openssl speed -seconds "$PROBE_SECONDS" -evp sha256 2>/dev/null \
+                  k1=$(openssl speed -seconds "$PROBE_SECONDS" -bytes 16384 -evp sha256 2>/dev/null \
                        | tail -1 | awk '{gsub(/k/,"",$NF); print $NF}')
-                  kn=$(openssl speed -seconds "$PROBE_SECONDS" -multi "$cores" -evp sha256 2>/dev/null \
+                  kn=$(openssl speed -seconds "$PROBE_SECONDS" -bytes 16384 -multi "$cores" -evp sha256 2>/dev/null \
                        | tail -1 | awk '{gsub(/k/,"",$NF); print $NF}')
 
                   # Sequential write to separate disk throughput from CPU. direct IO is not
