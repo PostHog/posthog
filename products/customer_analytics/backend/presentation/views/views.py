@@ -79,6 +79,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyDefinitionSerializer,
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
+    CustomPropertySyncRunListQuerySerializer,
     CustomPropertySyncRunSerializer,
     CustomPropertySyncTriggerResponseSerializer,
     CustomPropertyValueSerializer,
@@ -1335,13 +1336,13 @@ class CustomPropertySourceViewSet(
 
     @extend_schema(
         operation_id="custom_property_sources_runs_list",
+        parameters=[CustomPropertySyncRunListQuerySerializer],
         responses={200: CustomPropertySyncRunSerializer(many=True)},
     )
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
-        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
-        errors."""
+        """The source's sync history, newest first. Person and group runs require viewer access to
+        their warehouse source because the response includes row counts and sync errors."""
         # Hide the run history of a group-target source from callers without group read authorization.
         source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
         if (
@@ -1350,6 +1351,11 @@ class CustomPropertySourceViewSet(
             and not _has_group_scope(request, write=False)
         ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if source is not None and self._definition_target_type(source.definition) == "account":
+            self._report_usage(request, "account property sync history viewed")
+        query = CustomPropertySyncRunListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        search = query.validated_data.get("search", "").strip() or None
         try:
             return self._paginate_via_facade(
                 request,
@@ -1359,6 +1365,8 @@ class CustomPropertySourceViewSet(
                     offset=offset,
                     limit=limit,
                     user_access_control=_warehouse_scoped_uac(self),
+                    include_temporal_urls=bool(request.user.is_staff or is_impersonated(request)),
+                    search=search,
                 ),
                 CustomPropertySyncRunSerializer,
             )
