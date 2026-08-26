@@ -55,6 +55,7 @@ describe("activityFeed", () => {
         id: "report-1",
         title: "Checkout conversion dropped",
         summary: "Mobile customers abandon payment",
+        priority: "P3",
         updated_at: "2026-08-25T11:00:00Z",
       } as SignalReport,
     ];
@@ -66,5 +67,9 @@ describe("activityFeed", () => {
     expect(
       filterActivityFeedItems(feed, "mobile").map((item) => item.id),
     ).toEqual(["report:report-1"]);
+    expect(filterActivityFeedItems(feed, "P3").map((item) => item.id)).toEqual([
+      "report:report-1",
+    ]);
+    expect(filterActivityFeedItems(feed, "P1")).toEqual([]);
   });
 });

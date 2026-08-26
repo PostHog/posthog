@@ -102,7 +102,12 @@ export function filterActivityFeedItems(
             item.task.author?.last_name,
             item.task.author?.email,
           ]
-        : [item.report.title, item.report.summary, "P1", "Self-driving"];
+        : [
+            item.report.title,
+            item.report.summary,
+            item.report.priority,
+            "Self-driving",
+          ];
 
     return searchableText.some((value) =>
       value?.toLowerCase().includes(normalizedQuery),

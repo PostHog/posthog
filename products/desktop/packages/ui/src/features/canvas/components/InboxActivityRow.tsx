@@ -57,7 +57,11 @@ export function InboxActivityRow({
       onClick={activate}
       loading={!onActivate && isOpening}
       disabled={!onActivate && isOpening}
-      aria-label={`${title} P1 Self-driving report`}
+      aria-label={
+        report.priority
+          ? `${title} ${report.priority} Self-driving report`
+          : `${title} Self-driving report`
+      }
       left
       className={`${compact ? "py-1.5" : "py-2"} ${isSelected ? "bg-fill-selected" : ""}`}
     >
@@ -67,7 +71,9 @@ export function InboxActivityRow({
           className={`bg-(--orange-3) text-(--orange-11) ring-(--orange-5) ring-1 ring-inset ${compact ? "size-4" : ""}`}
         >
           <AvatarFallback>
-            <span className="font-bold text-[7px]">P1</span>
+            <span className="font-bold text-[7px]">
+              {report.priority ?? "–"}
+            </span>
           </AvatarFallback>
         </Avatar>
       </span>
