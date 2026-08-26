@@ -38,7 +38,7 @@
     SELECT
       breakdown_value,
       dateDiff('week', toStartOfWeek(toDateTime('2023-01-01 00:00:00'), 0), toStartOfWeek(cohort_at, 0)) AS cohort_index,
-      count(DISTINCT actor_id) AS cohort_size
+      count(actor_id) AS cohort_size
     FROM
       acquisition
     GROUP BY

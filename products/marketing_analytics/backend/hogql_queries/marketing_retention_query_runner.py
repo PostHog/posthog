@@ -165,6 +165,12 @@ class MarketingAnalyticsRetentionQueryRunner(
     def cohort_starts(self) -> list[datetime]:
         """One entry per cohort row: the aligned start of each acquisition period in the range.
 
+        The first entry aligns backwards off `date_from`, so it can start before the range the filter bar
+        shows: a Monday-to-Sunday request on a team whose weeks start on Sunday opens its first cohort the
+        day before. That is deliberate, because a cohort cut short at its start understates its own
+        intake, and the whole first row would then read as a drop that never happened. The trailing edge
+        gets no such treatment, which is what `MarketingAnalyticsRetentionCell.complete` reports.
+
         Truncated to the most recent MAX_COHORTS, because an old cohort with few columns left to show is
         the least interesting part of a range someone widened by accident.
 
@@ -380,22 +386,28 @@ class MarketingAnalyticsRetentionQueryRunner(
 
         The denominator for every cell in the row. The cells themselves all come from `matrix`, period 0
         included.
+
+        A plain `count` rather than a distinct one, because `acquisition` groups by person, and both
+        columns grouped on here are functions of that one row, so a person reaches exactly one group
+        once. Reintroducing anything that fans `acquisition` out per person breaks that.
         """
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=[_BREAKDOWN_VALUE]),
                 ast.Alias(alias=_COHORT_INDEX, expr=self._interval_index_expr(ast.Field(chain=[_COHORT_AT]))),
-                ast.Alias(
-                    alias=_COHORT_SIZE,
-                    expr=ast.Call(name="count", args=[ast.Field(chain=[_ACTOR_ID])], distinct=True),
-                ),
+                ast.Alias(alias=_COHORT_SIZE, expr=ast.Call(name="count", args=[ast.Field(chain=[_ACTOR_ID])])),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[_ACQUISITION_CTE])),
             group_by=[ast.Field(chain=[_BREAKDOWN_VALUE]), ast.Field(chain=[_COHORT_INDEX])],
         )
 
     def _build_matrix_select(self) -> ast.SelectQuery:
-        """(F) The cells: people from one cohort seen again N periods later."""
+        """(F) The cells: people from one cohort seen again N periods later.
+
+        Counted distinctly, unlike `cohort_sizes`. The join fans out by the periods a person was active
+        in, and it is the grouping alone that pins each person back to one row per period, so a count
+        here is one refactor away from double-counting.
+        """
         cohort_index = self._interval_index_expr(ast.Field(chain=[_ACQUISITION_CTE, _COHORT_AT]))
         intervals_from_base = ast.ArithmeticOperation(
             left=ast.Field(chain=[_ACTIVITY_CTE, _ACTIVITY_INDEX]),
