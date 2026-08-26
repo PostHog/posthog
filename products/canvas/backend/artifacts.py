@@ -25,9 +25,9 @@ from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotModif
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from posthog.models import OrganizationMembership, Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage import object_storage
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.canvas.backend.contract import artifact_csp
 from products.canvas.backend.models import CanvasBuild
 

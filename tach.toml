@@ -864,6 +864,8 @@ depends_on = [
     "products.tasks",
     # The annotations.create action verb (via the annotations facade).
     "products.annotations",
+    # Artifact fetches re-check the minting user's team access (via the access control facade).
+    "products.access_control",
 ]
 layer = "modules"
 
