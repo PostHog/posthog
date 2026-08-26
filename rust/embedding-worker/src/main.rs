@@ -49,13 +49,12 @@ pub async fn index() -> &'static str {
 async fn ad_hoc_handler(
     State(context): State<Arc<AppContext>>,
     Json(request): Json<AdHocEmbeddingRequest>,
-) -> Result<Json<AdHocEmbeddingResponse>, StatusCode> {
+) -> Result<Json<AdHocEmbeddingResponse>, (StatusCode, String)> {
     match handle_ad_hoc_request(context, request).await {
         Ok(response) => Ok(Json(response)),
         Err(e) => {
-            // TODO - this is a hack until I do a proper pass and add real error enums
             error!("Ad hoc embedding request failed: {:?}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
+            Err((e.status_code(), e.message().to_owned()))
         }
     }
 }

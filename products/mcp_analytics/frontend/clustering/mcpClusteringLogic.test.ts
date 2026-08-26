@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { urls } from '~/scenes/urls'
 import { initKeaTests } from '~/test/init'
@@ -154,6 +157,22 @@ describe('mcpClusteringLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    // Clustering embeds intents, so without the org's consent it can only fail. The tab has to
+    // say so and offer the approval up front — not show a generic error with no way forward.
+    it.each([
+        ['the organization has approved AI data processing', true, false],
+        ['the organization has not approved AI data processing', false, true],
+    ])('requires consent when %s', async (_label, approved, expected) => {
+        // Settle the initial org load first, so the case's consent value can't be overwritten.
+        await expectLogic(organizationLogic).toFinishAllListeners()
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: approved,
+        })
+
+        expect(logic.values.aiConsentRequired).toBe(expected)
     })
 
     // The scorecards are the entry point into the list: each one states a count and
