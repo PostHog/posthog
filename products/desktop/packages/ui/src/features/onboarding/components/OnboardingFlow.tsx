@@ -163,11 +163,10 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   }, []);
 
   const viewedStepRef = useRef<OnboardingStep | null>(null);
-  // A step counts as viewed once its gates have answered and it survives in the
-  // active set. Two paths depend on that wait. A step recorded before the gates
-  // answer can still be dropped, which reports a view that no person can
-  // advance. A step entered by the self-heal in useOnboardingFlow has no other
-  // tracking path, which reports an advance with no matching view.
+  // Recorded on the same condition that renders a step, so the flow cannot show
+  // a step it did not record. A step entered by the self-heal in
+  // useOnboardingFlow reaches the person through here too, and has no other
+  // tracking path.
   useEffect(() => {
     if (!stepsResolved || currentIndex < 0) return;
     if (viewedStepRef.current === currentStep) return;
@@ -330,7 +329,16 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   return (
     <FullScreenLayout footerRight={footerRight} onOpenSupport={onOpenSupport}>
       <AnimatePresence mode="wait" custom={direction}>
-        {currentStep === "project-select" && (
+        {!stepsResolved && (
+          <div
+            key="resolving-steps"
+            className="flex min-h-0 w-full flex-1 items-center justify-center"
+          >
+            <div className="size-5 animate-spin rounded-full border-(--gray-6) border-2 border-t-(--gray-11)" />
+          </div>
+        )}
+
+        {stepsResolved && currentStep === "project-select" && (
           <motion.div
             key="project-select"
             custom={direction}
@@ -345,7 +353,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
           </motion.div>
         )}
 
-        {currentStep === "consent" && (
+        {stepsResolved && currentStep === "consent" && (
           <motion.div
             key="consent"
             custom={direction}
@@ -365,7 +373,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
           </motion.div>
         )}
 
-        {currentStep === "connect-github" && (
+        {stepsResolved && currentStep === "connect-github" && (
           <motion.div
             key="connect-github"
             custom={direction}
@@ -380,7 +388,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
           </motion.div>
         )}
 
-        {currentStep === "install-cli" && (
+        {stepsResolved && currentStep === "install-cli" && (
           <motion.div
             key="install-cli"
             custom={direction}
@@ -395,7 +403,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
           </motion.div>
         )}
 
-        {currentStep === "select-repo" && (
+        {stepsResolved && currentStep === "select-repo" && (
           <motion.div
             key="select-repo"
             custom={direction}

@@ -36,6 +36,9 @@ import {
 
 export type { DetectedRepo };
 
+/** How long the flow waits on a gate that neither answers nor fails. */
+const GATE_WAIT_MS = 2_500;
+
 export function useOnboardingFlow() {
   const hostClient = useHostTRPCClient();
   const { localWorkspaces } = useHostCapabilities();
@@ -135,18 +138,19 @@ export function useOnboardingFlow() {
     ],
   );
 
-  const { data: githubUserIntegrations } = useUserGithubIntegrations();
+  const { data: githubUserIntegrations, isPending: githubIntegrationsPending } =
+    useUserGithubIntegrations();
   // The install-cli step only offers git and gh, so a ready toolchain skips it.
   // InstallCliStep reuses these cached results when the step does render.
   const trpc = useHostTRPC();
   // Cloud-only hosts serve no git procedures, and the CLI step is moot there.
-  const { data: gitStatus } = useQuery(
+  const { data: gitStatus, isPending: gitStatusPending } = useQuery(
     trpc.git.getGitStatus.queryOptions(undefined, {
       staleTime: 30_000,
       enabled: localWorkspaces,
     }),
   );
-  const { data: ghStatus } = useQuery(
+  const { data: ghStatus, isPending: ghStatusPending } = useQuery(
     trpc.git.getGhStatus.queryOptions(undefined, {
       staleTime: 30_000,
       enabled: localWorkspaces,
@@ -161,14 +165,23 @@ export function useOnboardingFlow() {
       setCliReady(true);
       return;
     }
-    if (gitStatus === undefined || ghStatus === undefined) return;
+    if (gitStatusPending || ghStatusPending) return;
     setCliReady(
-      gitStatus.installed && ghStatus.installed && ghStatus.authenticated,
+      gitStatus?.installed === true &&
+        ghStatus?.installed === true &&
+        ghStatus?.authenticated === true,
     );
-  }, [cliReady, localWorkspaces, gitStatus, ghStatus]);
-  const hasGithubIntegration = githubUserIntegrations
-    ? githubUserIntegrations.length > 0
-    : undefined;
+  }, [
+    cliReady,
+    localWorkspaces,
+    gitStatus,
+    ghStatus,
+    gitStatusPending,
+    ghStatusPending,
+  ]);
+  const hasGithubIntegration = githubIntegrationsPending
+    ? undefined
+    : (githubUserIntegrations?.length ?? 0) > 0;
   // Counted off the store rather than through useProjects, whose auto-select
   // effect would then run in a second place and re-clear the query cache.
   const orgProjectsMap = useAuthStateValue((state) => state.orgProjectsMap);
@@ -206,10 +219,15 @@ export function useOnboardingFlow() {
     );
   }, [consent]);
 
+  // A failed lookup is an answer for step selection, because it can no longer
+  // drop the step. Every gate falls open on failure and keeps the step it
+  // governs, which is what an unresolved gate already did.
   const consentRequired =
-    consentRequirement?.organizationId === consent.organizationId
-      ? consentRequirement?.required
-      : undefined;
+    consent.status === "error"
+      ? true
+      : consentRequirement?.organizationId === consent.organizationId
+        ? consentRequirement?.required
+        : undefined;
   const sampledConsentRequirement =
     consentRequirement?.organizationId === consent.organizationId
       ? consentRequirement
@@ -225,7 +243,16 @@ export function useOnboardingFlow() {
     [hasGithubIntegration, cliReady, projectCount, consentRequired],
   );
   const activeSteps = useMemo(() => computeActiveSteps(stepGates), [stepGates]);
-  const stepsResolved = stepGatesResolved(stepGates);
+
+  // Every gate falls open on failure, so this normally settles on its own. The
+  // timer covers a lookup that neither answers nor fails, where holding the
+  // flow forever would be worse than showing a step a late gate can still drop.
+  const [gateWaitElapsed, setGateWaitElapsed] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setGateWaitElapsed(true), GATE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  const stepsResolved = stepGatesResolved(stepGates) || gateWaitElapsed;
 
   useEffect(() => {
     if (!activeSteps.includes(currentStep)) {
