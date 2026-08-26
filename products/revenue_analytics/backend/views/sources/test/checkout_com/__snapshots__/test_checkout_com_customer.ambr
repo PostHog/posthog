@@ -1,0 +1,44 @@
+# serializer version: 1
+# name: TestCustomerCheckoutComBuilder.test_build_customer_query_with_customers_and_payments_schemas
+  '''
+  SELECT outer.id AS id,
+         'checkoutcom.checkout_test' AS source_label,
+         parseDateTimeBestEffort(toString(outer.payment_requested_on)) AS timestamp,
+         name AS name,
+         email AS email,
+         phone AS phone,
+         NULL AS address,
+         metadata AS metadata,
+         NULL AS country,
+         cohort AS cohort,
+         NULL AS initial_coupon,
+         NULL AS initial_coupon_id
+  FROM checkout_test_customers AS outer
+  LEFT JOIN
+    (SELECT nullIf(JSONExtractString(payment.customer, 'id'), '') AS customer_id,
+            formatDateTime(toStartOfMonth(min(parseDateTimeBestEffort(toString(requested_on)))), '%Y-%m') AS cohort
+     FROM checkout_test_payments AS payment
+     GROUP BY customer_id) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)
+  ORDER BY timestamp DESC
+  LIMIT 1 BY id
+  '''
+# ---
+# name: TestCustomerCheckoutComBuilder.test_build_customer_query_without_payments_schema
+  '''
+  SELECT outer.id AS id,
+         'checkoutcom.checkout_test' AS source_label,
+         parseDateTimeBestEffort(toString(outer.payment_requested_on)) AS timestamp,
+         name AS name,
+         email AS email,
+         phone AS phone,
+         NULL AS address,
+         metadata AS metadata,
+         NULL AS country,
+         NULL AS cohort,
+         NULL AS initial_coupon,
+         NULL AS initial_coupon_id
+  FROM checkout_test_customers AS outer
+  ORDER BY timestamp DESC
+  LIMIT 1 BY id
+  '''
+# ---

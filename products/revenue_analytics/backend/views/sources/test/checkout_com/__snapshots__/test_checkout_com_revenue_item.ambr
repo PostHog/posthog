@@ -1,0 +1,35 @@
+# serializer version: 1
+# name: TestRevenueItemCheckoutComBuilder.test_build_revenue_item_query_with_payments_and_actions_schemas
+  '''
+  SELECT action.id AS id,
+         action.id AS invoice_item_id,
+         'checkoutcom.checkout_test' AS source_label,
+         parseDateTimeBestEffort(toString(action.processed_on)) AS timestamp,
+         parseDateTimeBestEffort(toString(payment.requested_on)) AS created_at,
+         ifNull(equals(lower(payment.payment_type), 'recurring'), false) AS is_recurring,
+         NULL AS product_id,
+         nullIf(JSONExtractString(payment.customer, 'id'), '') AS customer_id,
+         NULL AS group_0_key,
+         NULL AS group_1_key,
+         NULL AS group_2_key,
+         NULL AS group_3_key,
+         NULL AS group_4_key,
+         NULL AS invoice_id,
+         NULL AS subscription_id,
+         NULL AS session_id,
+         NULL AS event_name,
+         NULL AS coupon,
+         NULL AS coupon_id,
+         upper(payment.currency) AS original_currency,
+         toDecimal(action.amount, 10) AS original_amount,
+         in(original_currency,
+            ['BIF', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+           multiIf(enable_currency_aware_divider, toDecimal(1, 10), in(original_currency, ['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']), toDecimal(1000, 10), toDecimal(100, 10)) AS currency_aware_divider,
+           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+           'USD' AS currency,
+           convertCurrency(original_currency, currency, currency_aware_amount, _toDate(ifNull(timestamp, toDateTime(0)))) AS amount
+  FROM checkout_test_payment_actions AS action
+  INNER JOIN checkout_test_payments AS payment ON equals(action.payment_id, payment.id)
+  WHERE and(equals(lower(action.type), 'capture'), action.approved)
+  '''
+# ---

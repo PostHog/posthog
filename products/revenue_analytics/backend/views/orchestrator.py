@@ -17,7 +17,10 @@ from products.revenue_analytics.backend.views.sources.registry import BUILDERS
 from products.warehouse_sources.backend.facade.api import list_revenue_sources
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE]
+SUPPORTED_SOURCES: list[ExternalDataSourceType] = [
+    ExternalDataSourceType.STRIPE,
+    ExternalDataSourceType.CHECKOUTCOM,
+]
 
 
 def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHandle]:

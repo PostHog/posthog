@@ -13,6 +13,11 @@ from products.revenue_analytics.backend.views import (
     RevenueAnalyticsSubscriptionView,
 )
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
+from products.revenue_analytics.backend.views.sources.checkout_com.helpers import (
+    CUSTOMER_RESOURCE_NAME as CHECKOUT_COM_CUSTOMER_RESOURCE_NAME,
+    PAYMENT_ACTION_RESOURCE_NAME as CHECKOUT_COM_PAYMENT_ACTION_RESOURCE_NAME,
+    PAYMENT_RESOURCE_NAME as CHECKOUT_COM_PAYMENT_RESOURCE_NAME,
+)
 from products.revenue_analytics.backend.views.sources.helpers import ZERO_DECIMAL_CURRENCIES_IN_STRIPE
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -281,3 +286,91 @@ class TestRevenueAnalyticsViews(BaseTest):
         subscription_views = [v for v in source_views if isinstance(v, RevenueAnalyticsSubscriptionView)]
         self.assertEqual(len(subscription_views), 1)
         self.assertEqual(subscription_views[0].name, "stripe.subscription_revenue_view")
+
+
+class TestRevenueAnalyticsViewsForCheckoutCom(BaseTest):
+    def setUp(self):
+        super().setUp()
+
+        self.timings = HogQLTimings()
+
+        # A Checkout.com source and no Stripe source at all
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.CHECKOUTCOM,
+        )
+
+        # Revenue analytics is only enabled by default for Stripe sources
+        revenue_analytics_config = self.source.revenue_analytics_config_safe
+        revenue_analytics_config.enabled = True
+        revenue_analytics_config.save()
+
+        self.credentials = DataWarehouseCredential.objects.create(
+            access_key="blah", access_secret="blah", team=self.team
+        )
+
+        for schema_name in [
+            CHECKOUT_COM_PAYMENT_RESOURCE_NAME,
+            CHECKOUT_COM_PAYMENT_ACTION_RESOURCE_NAME,
+            CHECKOUT_COM_CUSTOMER_RESOURCE_NAME,
+        ]:
+            table = DataWarehouseTable.objects.create(
+                name=f"checkoutcom_{schema_name}",
+                format="Parquet",
+                team=self.team,
+                external_data_source=self.source,
+                external_data_source_id=self.source.id,
+                credential=self.credentials,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                name=schema_name,
+                source=self.source,
+                table=table,
+                should_sync=True,
+                last_synced_at="2024-01-01",
+            )
+
+    def test_builds_views_for_checkout_com_source_without_stripe(self):
+        views = build_all_revenue_analytics_views(self.team, self.timings)
+        source_views = [v for v in views if v.source_id == str(self.source.id)]
+
+        names = [view.name for view in source_views]
+        self.assertEqual(
+            sorted(names),
+            [
+                "checkoutcom.charge_revenue_view",
+                "checkoutcom.customer_revenue_view",
+                "checkoutcom.revenue_item_revenue_view",
+            ],
+        )
+
+        charge_views = [v for v in source_views if isinstance(v, RevenueAnalyticsChargeView)]
+        self.assertEqual(len(charge_views), 1)
+
+        customer_views = [v for v in source_views if isinstance(v, RevenueAnalyticsCustomerView)]
+        self.assertEqual(len(customer_views), 1)
+
+        revenue_item_views = [v for v in source_views if isinstance(v, RevenueAnalyticsRevenueItemView)]
+        self.assertEqual(len(revenue_item_views), 1)
+
+        # Checkout.com has no product, subscription or invoice objects, so those views
+        # (and the MRR view built on top of them) must not be fabricated
+        self.assertEqual([v for v in source_views if isinstance(v, RevenueAnalyticsProductView)], [])
+        self.assertEqual([v for v in source_views if isinstance(v, RevenueAnalyticsSubscriptionView)], [])
+        self.assertEqual([v for v in source_views if isinstance(v, RevenueAnalyticsMRRView)], [])
+
+    def test_revenue_view_prefix(self):
+        self.source.prefix = "prefix"
+        self.source.save()
+
+        views = build_all_revenue_analytics_views(self.team, self.timings)
+        source_views = [v for v in views if v.source_id == str(self.source.id)]
+        self.assertIn("checkoutcom.prefix.revenue_item_revenue_view", [s.name for s in source_views])

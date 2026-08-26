@@ -15,7 +15,7 @@ from products.warehouse_sources.backend.facade.contracts import RevenueSource
 
 @frozen
 class SourceHandle:
-    type: Literal["events", "stripe"]
+    type: Literal["events", "stripe", "checkoutcom"]
     team: Team
     source: Optional[RevenueSource] = None
     event: Optional[RevenueAnalyticsEventItem] = None
