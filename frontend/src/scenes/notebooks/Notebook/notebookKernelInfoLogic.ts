@@ -1,16 +1,4 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    beforeUnmount,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -558,21 +546,34 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         if (props.mode && props.mode !== 'notebook') {
             return
         }
-        const scheduleRefresh = (): void => {
-            const delayMs = values.isStarting ? 2000 : 10000
-            cache.kernelInfoRefresh = window.setTimeout(() => {
-                if (!values.actionInFlight.refresh) {
-                    actions.loadKernelInfo()
-                }
-                scheduleRefresh()
-            }, delayMs)
-        }
         actions.loadKernelInfo()
-        scheduleRefresh()
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.kernelInfoRefresh) {
-            clearTimeout(cache.kernelInfoRefresh)
-        }
+        cache.disposables.add(() => {
+            // Reschedules itself rather than using setInterval, because a starting kernel is
+            // polled five times more often than a settled one.
+            let timeoutId = 0
+            const scheduleRefresh = (): void => {
+                timeoutId = window.setTimeout(
+                    () => {
+                        // A replaced kea store drops this logic without unmounting it, so the
+                        // disposable that owns this timer never runs its cleanup. Storybook does
+                        // that on every story mount. The `cache` identity check finds the case a
+                        // path check misses, which is a new logic mounted at the same path by the
+                        // next story. Without it, reading `values` here either throws "Can not
+                        // find path" or reads the wrong store, and both surface in the story as
+                        // an unhandled error.
+                        if (notebookKernelInfoLogic.findMounted(props.shortId)?.cache !== cache) {
+                            return
+                        }
+                        if (!values.actionInFlight.refresh) {
+                            actions.loadKernelInfo()
+                        }
+                        scheduleRefresh()
+                    },
+                    values.isStarting ? 2000 : 10000
+                )
+            }
+            scheduleRefresh()
+            return () => clearTimeout(timeoutId)
+        }, 'kernelInfoRefresh')
     }),
 ])
