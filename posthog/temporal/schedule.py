@@ -33,10 +33,12 @@ from posthog.temporal.ai_observability.evaluation_clustering.schedule import (
     create_evaluation_clustering_schedule,
     create_evaluation_sampler_schedule,
 )
+from posthog.temporal.ai_observability.trace_clustering import constants as trace_clustering_constants
 from posthog.temporal.ai_observability.trace_clustering.schedule import (
     create_generation_clustering_coordinator_schedule,
     create_trace_clustering_coordinator_schedule,
 )
+from posthog.temporal.ai_observability.trace_summarization import constants as trace_summarization_constants
 from posthog.temporal.ai_observability.trace_summarization.schedule import (
     create_batch_generation_summarization_schedule,
     create_batch_trace_summarization_schedule,
@@ -690,6 +692,28 @@ async def cleanup_cohort_calculation_schedules(client: Client):
             await a_delete_schedule(client, schedule_id)
 
 
+async def cleanup_non_cloud_ai_observability_schedules(client: Client):
+    """Reap the AI observability clustering and summarization schedules on non-cloud deployments.
+
+    These coordinators need the AI gateway, which only exists in cloud, so they register only under
+    CLOUD_DEPLOYMENT. Temporal keeps a schedule until code deletes it, so dropping them from the
+    registration list does not remove rows an earlier release already created. A non-cloud instance
+    that deployed such a release keeps firing them every tick. Reap them so those instances converge.
+    On cloud this is a no-op: the creators above own these IDs.
+    """
+    if settings.CLOUD_DEPLOYMENT:
+        return
+    schedule_ids = [
+        trace_summarization_constants.COORDINATOR_SCHEDULE_ID,
+        trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+        trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
+        trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+    ]
+    for schedule_id in schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
 async def create_run_usage_reports_schedule(client: Client):
     """Intraday usage report run every 30 minutes.
 
@@ -878,6 +902,7 @@ schedules = [
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
     cleanup_cohort_calculation_schedules,
+    cleanup_non_cloud_ai_observability_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,

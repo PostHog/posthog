@@ -6,7 +6,13 @@ from django.test import override_settings
 
 from temporalio.client import Schedule, ScheduleActionStartWorkflow
 
-from posthog.temporal.schedule import create_wa_digest_notification_schedule, create_wa_weekly_digest_schedule
+from posthog.temporal.ai_observability.trace_clustering import constants as trace_clustering_constants
+from posthog.temporal.ai_observability.trace_summarization import constants as trace_summarization_constants
+from posthog.temporal.schedule import (
+    cleanup_non_cloud_ai_observability_schedules,
+    create_wa_digest_notification_schedule,
+    create_wa_weekly_digest_schedule,
+)
 
 
 # Both WA digest schedules pin their task queue, and the worker registers those workflows on
@@ -36,3 +42,38 @@ async def test_wa_digest_schedules_target_the_weekly_digest_queue() -> None:
         task_queues.append(schedule.action.task_queue)
 
     assert task_queues == [settings.WEEKLY_DIGEST_TASK_QUEUE] * 2
+
+
+# The reaper converges non-cloud instances that still hold clustering/summarization schedule rows a
+# prior release created. Off cloud it must delete all four; on cloud the guard must stop it deleting
+# schedules the coordinators still run, so it deletes nothing.
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cloud_deployment,expected_deleted",
+    [
+        (
+            None,
+            [
+                trace_summarization_constants.COORDINATOR_SCHEDULE_ID,
+                trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+                trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
+                trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+            ],
+        ),
+        ("US", []),
+    ],
+)
+async def test_cleanup_non_cloud_ai_observability_schedules(cloud_deployment, expected_deleted) -> None:
+    deleted: list[str] = []
+
+    with (
+        override_settings(CLOUD_DEPLOYMENT=cloud_deployment),
+        mock.patch("posthog.temporal.schedule.a_schedule_exists", new=mock.AsyncMock(return_value=True)),
+        mock.patch(
+            "posthog.temporal.schedule.a_delete_schedule",
+            new=mock.AsyncMock(side_effect=lambda client, schedule_id: deleted.append(schedule_id)),
+        ),
+    ):
+        await cleanup_non_cloud_ai_observability_schedules(mock.MagicMock())
+
+    assert deleted == expected_deleted
