@@ -1,3 +1,6 @@
+import * as os from 'os'
+import * as path from 'path'
+
 import * as core from '@actions/core'
 import {getExecOutput} from '@actions/exec'
 import {PullRequest} from '@octokit/webhooks-types'
@@ -8,13 +11,14 @@ import {File} from './file'
 // the pull request's merge commit, and reports disagreement without acting on it.
 // The API result stays authoritative, so a wrong local answer can only produce a
 // log line. Removing the API call later is only safe once this has run quiet
-// across the PR shapes no offline sample can reach: merged PRs, very large diffs,
-// and PRs GitHub has not finished computing a merge ref for.
+// across the shapes no offline sample can reach: merged pull requests, very large
+// diffs, and ones GitHub has not finished computing a merge ref for.
 //
-// PostHog/posthog#55830 detected changes from `base.sha..HEAD`, which reports every
-// commit the branch picked up when master was merged into it as the PR's own work.
-// The merge commit's first parent is the base GitHub actually merged against, so
-// `HEAD^1..HEAD` is the PR's own changes and matches what the API returns.
+// Detecting changes from `base.sha..HEAD` instead reports every commit the branch
+// picked up when the base was merged into it as the pull request's own work, which
+// is wrong by thousands of files on a branch that has taken master in. The merge
+// commit's first parent is the base GitHub actually merged against, so
+// `HEAD^1..HEAD` is the pull request's own changes and matches the API.
 
 const MERGE_REF_FETCH_DEPTH = 2
 
@@ -29,45 +33,85 @@ interface ShadowResult {
   onlyInGit?: string[]
 }
 
-async function git(args: string[]): Promise<{code: number; out: string}> {
-  const res = await getExecOutput('git', args, {ignoreReturnCode: true, silent: true})
+// Every git call is confined to a scratch repository. `--depth` and `--filter`
+// rewrite `.git/shallow` and the promisor config of whatever repository they run
+// in, and steps later in the same job read history from the workspace checkout:
+// ci-dagster and ci-e2e-playwright resolve `git merge-base HEAD^2 origin/<base>`
+// after this action returns, and an empty merge base there silently drops their
+// schema cache.
+async function git(gitDir: string, args: string[]): Promise<{code: number; out: string}> {
+  const res = await getExecOutput('git', ['--git-dir', gitDir, ...args], {
+    ignoreReturnCode: true,
+    silent: true
+  })
   return {code: res.exitCode, out: res.stdout.trim()}
 }
 
-// The merge ref is not guaranteed to be present or current: a shallow checkout has
-// no parents, and GitHub recomputes the ref asynchronously after a push. Requiring
-// the second parent to equal the head SHA rejects a stale ref rather than reading
-// it as this PR's changes.
+async function scratchRepo(): Promise<string> {
+  const gitDir = path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'paths-filter-shadow.git')
+  const init = await getExecOutput('git', ['init', '--bare', '--quiet', gitDir], {
+    ignoreReturnCode: true,
+    silent: true
+  })
+  if (init.exitCode !== 0) {
+    throw new Error('cannot create scratch repository')
+  }
+  return gitDir
+}
+
+// The workspace remote carries no credentials of its own: actions/checkout keeps the
+// token in an http.extraheader the scratch repository does not inherit. A private
+// remote therefore reports unavailable rather than comparing against a partial fetch.
+async function originUrl(): Promise<string> {
+  const server = process.env.GITHUB_SERVER_URL
+  const repo = process.env.GITHUB_REPOSITORY
+  if (server && repo) {
+    return `${server}/${repo}`
+  }
+  const remote = await getExecOutput('git', ['remote', 'get-url', 'origin'], {
+    ignoreReturnCode: true,
+    silent: true
+  })
+  if (remote.exitCode !== 0 || !remote.stdout.trim()) {
+    throw new Error('cannot resolve origin url')
+  }
+  return remote.stdout.trim()
+}
+
+// The merge ref is not guaranteed to be present or current: GitHub recomputes it
+// asynchronously after a push. Requiring the second parent to equal the head SHA
+// rejects a stale ref rather than reading it as this pull request's changes.
 async function localChangedFiles(pr: PullRequest): Promise<string[]> {
-  const fetched = await git([
+  const gitDir = await scratchRepo()
+  const url = await originUrl()
+
+  const fetched = await git(gitDir, [
     'fetch',
     '--no-tags',
     '--filter=blob:none',
     `--depth=${MERGE_REF_FETCH_DEPTH}`,
-    'origin',
+    url,
     `refs/pull/${pr.number}/merge`
   ])
   if (fetched.code !== 0) {
     throw new Error('no merge ref')
   }
 
-  const parents = await git(['rev-list', '--parents', '-n', '1', 'FETCH_HEAD'])
-  if (parents.code !== 0 || parents.out.split(/\s+/).length !== 3) {
+  const head = await git(gitDir, ['rev-parse', 'FETCH_HEAD^2'])
+  if (head.code !== 0) {
     throw new Error('merge ref has no second parent')
   }
-
-  const head = await git(['rev-parse', 'FETCH_HEAD^2'])
-  if (head.code !== 0 || head.out !== pr.head.sha) {
+  if (head.out !== pr.head.sha) {
     throw new Error(`merge ref is stale (^2=${head.out.slice(0, 8)}, head=${pr.head.sha.slice(0, 8)})`)
   }
 
   // --no-renames so a rename arrives as a delete plus an add, which is the shape
   // the API path builds by hand from `previous_filename`.
-  const diff = await git(['diff', '--no-renames', '--name-only', 'FETCH_HEAD^1', 'FETCH_HEAD'])
+  const diff = await git(gitDir, ['diff', '--no-renames', '--name-only', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'])
   if (diff.code !== 0) {
     throw new Error('diff failed')
   }
-  return diff.out.split('\n').filter(Boolean)
+  return diff.out.split('\0').filter(Boolean)
 }
 
 function compare(apiFiles: File[], gitFiles: string[]): ShadowResult {
@@ -112,7 +156,6 @@ export async function report(apiFiles: File[], pr: PullRequest): Promise<void> {
           `onlyInApi=${JSON.stringify(result.onlyInApi)} onlyInGit=${JSON.stringify(result.onlyInGit)}`
       )
     }
-    core.setOutput('shadow_verdict', result.verdict)
   } catch (error) {
     core.info(`shadow: skipped (${error instanceof Error ? error.message : String(error)})`)
   } finally {
