@@ -75,8 +75,8 @@ def conversations_ticket_fetcher(
     if config.where_clause:
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (where_clause is a hardcoded config constant, not user input)
         tickets_qs = tickets_qs.extra(where=[config.where_clause])
-    tickets_qs = tickets_qs.values(*config.fields).order_by(config.partition_field)[: config.max_records]
-    tickets = list(tickets_qs)
+    ticket_rows = tickets_qs.values(*config.fields).order_by(config.partition_field)[: config.max_records]
+    tickets = list(ticket_rows)
     if not tickets:
         return []
     ticket_ids = [t["id"] for t in tickets]
