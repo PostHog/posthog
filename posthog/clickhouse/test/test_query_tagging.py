@@ -102,6 +102,20 @@ def test_failure_on_incorrect_type():
     assert get_query_tags() == create_base_tags()
 
 
+@parameterized.expand(
+    [
+        # (input, expected stored value) — the client `productKey` is a free-form string.
+        ("api", "api"),  # a Product member
+        ("actions", "actions"),  # a ProductKey member, not a Product
+        ("athena", None),  # unknown product — dropped, not raised
+    ]
+)
+def test_unknown_product_is_dropped_not_raised(product, expected):
+    reset_query_tags()
+    tag_queries(product=product)
+    assert get_query_tag_value("product") == expected
+
+
 def test_session_id_accepts_non_uuid_strings():
     reset_query_tags()
     tag_queries(session_id="not-a-uuid-but-valid-string")
