@@ -201,6 +201,17 @@ export function navigateToArchived(): void {
   void getRouterOrNull()?.navigate({ to: "/archived" });
 }
 
+export function navigateToSupport(): void {
+  void getRouterOrNull()?.navigate({ to: "/support" });
+}
+
+export function navigateToSupportTicket(ticketId: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/support/$ticketId",
+    params: { ticketId },
+  });
+}
+
 export function navigateToCommandCenter(): void {
   void getRouterOrNull()?.navigate({ to: "/command-center" });
 }

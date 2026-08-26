@@ -21,11 +21,13 @@ export type AppViewType =
   | "context"
   | "skills"
   | "mcp-servers"
-  | "settings";
+  | "settings"
+  | "support";
 
 export interface AppView {
   type: AppViewType;
   taskId?: string;
+  ticketId?: string;
   folderId?: string;
   folderRepository?: string;
   pendingTaskKey?: string;
@@ -74,6 +76,11 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "loops" };
     case "/archived":
       return { type: "archived" };
+    case "/support":
+    case "/support/":
+      return { type: "support" };
+    case "/support/$ticketId":
+      return { type: "support", ticketId: last.params.ticketId };
     case "/command-center":
       return { type: "command-center" };
     case "/context":
@@ -134,12 +141,13 @@ export function useAppView(): AppView {
   const taskId = last?.params.taskId;
   const pendingKey = last?.params.key;
   const folderId = last?.params.folderId;
+  const ticketId = last?.params.ticketId;
 
   return useMemo(() => {
     // Rebuild the match from primitives so the memo depends only on stable
     // values — the `last` selector returns a fresh object every render.
     const match = fullPath
-      ? { fullPath, params: { taskId, key: pendingKey, folderId } }
+      ? { fullPath, params: { taskId, key: pendingKey, folderId, ticketId } }
       : null;
     const view = deriveFromMatches(match ? [match] : []);
 
@@ -159,7 +167,7 @@ export function useAppView(): AppView {
       };
     }
     return view;
-  }, [fullPath, taskId, pendingKey, folderId, prefill]);
+  }, [fullPath, taskId, pendingKey, folderId, ticketId, prefill]);
 }
 
 /**

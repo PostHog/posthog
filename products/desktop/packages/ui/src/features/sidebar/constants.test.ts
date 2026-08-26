@@ -32,7 +32,7 @@ describe("orderedNavItems", () => {
 
     const ids = orderedNavItems(withoutConfigure).map((item) => item.id);
 
-    expect(ids.indexOf("configure")).toBe(ids.indexOf("contexts") + 1);
+    expect(ids.indexOf("configure")).toBe(ids.indexOf("support") + 1);
   });
 
   it("keeps Activity directly below Inbox in an existing persisted order", () => {
@@ -52,6 +52,7 @@ describe("orderedNavItems", () => {
       "loops",
       "command-center",
       "contexts",
+      "support",
       "configure",
     ]);
   });

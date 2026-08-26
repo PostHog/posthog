@@ -46,6 +46,12 @@ export const CUSTOMIZABLE_NAV_ITEMS = [
     defaultVisible: true,
   },
   {
+    id: "support",
+    label: "Support",
+    analyticsId: "support",
+    defaultVisible: true,
+  },
+  {
     id: "configure",
     label: "Settings",
     analyticsId: "configure",

@@ -3,7 +3,7 @@ import type {
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
-import type { AgentRuntime } from "@posthog/shared";
+import type { AgentRuntime, WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   forwardRef,
@@ -56,7 +56,12 @@ export interface ChannelHomeComposerHandle {
 
 interface ChannelHomeComposerProps {
   /** Backend channel UUID that owns the created task (its feed home). */
-  channelId: string;
+  channelId?: string;
+  /** Identity for the draft and session when there is no channel. */
+  contextKey?: string;
+  preferredWorkspaceMode?: WorkspaceMode;
+  placeholder?: string;
+  editorHeight?: "default" | "large";
   channelName?: string;
   /** Channel CONTEXT.md, attached to the created task as background. */
   channelContext?: string;
@@ -64,9 +69,9 @@ interface ChannelHomeComposerProps {
   channelGithubIntegration?: number | null;
   onTaskCreated: (task: Task) => void;
   /** Post an optimistic kickoff to the feed the instant a submit is accepted. */
-  onPendingStart: (kickoff: PendingKickoff) => void;
+  onPendingStart?: (kickoff: PendingKickoff) => void;
   /** Drop that optimistic kickoff once the task is created (or creation fails). */
-  onPendingEnd: (id: string) => void;
+  onPendingEnd?: (id: string) => void;
 }
 
 // The prompt box at the bottom of a channel's homepage. A trimmed-down sibling
@@ -81,6 +86,10 @@ export const ChannelHomeComposer = forwardRef<
 >(function ChannelHomeComposer(
   {
     channelId,
+    contextKey,
+    preferredWorkspaceMode,
+    placeholder = "What do you want to ship?",
+    editorHeight = "large",
     channelName,
     channelContext,
     channelRepositories = [],
@@ -91,9 +100,13 @@ export const ChannelHomeComposer = forwardRef<
   },
   ref,
 ) {
-  const sessionId = `channel-home:${channelId}`;
+  const composerKey = channelId ?? contextKey ?? "composer";
+  const sessionId = `channel-home:${composerKey}`;
   const contextLayerEnabled = useContextLayerFlag();
-  const wiki = useChannelWikiContext(channelId, contextLayerEnabled);
+  const wiki = useChannelWikiContext(
+    channelId ?? "",
+    contextLayerEnabled && !!channelId,
+  );
   const effectiveChannelContext = wiki.useLegacy ? channelContext : undefined;
   const editorRef = useRef<EditorHandle>(null);
   const [editorIsEmpty, setEditorIsEmpty] = useState(true);
@@ -151,6 +164,7 @@ export const ChannelHomeComposer = forwardRef<
     hasGithubIntegration,
     isLoadingIntegrations,
     allowWorktree: false,
+    preferredMode: preferredWorkspaceMode,
   });
   const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
     null,
@@ -160,7 +174,7 @@ export const ChannelHomeComposer = forwardRef<
   >(null);
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
   const repositoryDraft = useTaskRepositoryDraftStore(
-    (s) => s.drafts[channelId],
+    (s) => s.drafts[composerKey],
   );
   const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
   const {
@@ -240,7 +254,7 @@ export const ChannelHomeComposer = forwardRef<
       // row in the same tick so the two never show at once.
       onTaskCreated(task);
       const id = pendingIdsRef.current.shift();
-      if (id) onPendingEnd(id);
+      if (id) onPendingEnd?.(id);
     },
     [onTaskCreated, onPendingEnd],
   );
@@ -297,7 +311,7 @@ export const ChannelHomeComposer = forwardRef<
       globalThis.crypto?.randomUUID?.() ??
       `pending-${prompt.length}-${Date.now()}`;
     pendingIdsRef.current.push(id);
-    onPendingStart({ id, prompt });
+    onPendingStart?.({ id, prompt });
 
     const created = await handleSubmit(content);
     if (!created) {
@@ -305,7 +319,7 @@ export const ChannelHomeComposer = forwardRef<
       // queued. Pull its row and give the full structured prompt (chips and
       // attachments, not just flattened text) back so the user can retry.
       pendingIdsRef.current = pendingIdsRef.current.filter((p) => p !== id);
-      onPendingEnd(id);
+      onPendingEnd?.(id);
       editor.insertEditorContent(content);
     }
   }, [canSubmit, handleSubmit, onPendingStart, onPendingEnd]);
@@ -419,12 +433,12 @@ export const ChannelHomeComposer = forwardRef<
         integrationId={taskGithubIntegration}
         folder={taskFolder}
         onApply={(selection) => {
-          setRepositoryDraft(channelId, {
+          setRepositoryDraft(composerKey, {
             repositories: selection.repositories,
             githubIntegration: selection.integrationId,
             folder: selection.folder,
           });
-          if (selection.saveToSpace && workspaceMode === "cloud") {
+          if (channelId && selection.saveToSpace && workspaceMode === "cloud") {
             updateChannelRepositories.mutate(
               {
                 channelId,
@@ -443,8 +457,8 @@ export const ChannelHomeComposer = forwardRef<
       <PromptInput
         ref={editorRef}
         sessionId={sessionId}
-        placeholder="What do you want to ship?"
-        editorHeight="large"
+        placeholder={placeholder}
+        editorHeight={editorHeight}
         disabled={isBusy}
         isLoading={isBusy}
         autoFocus

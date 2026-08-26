@@ -18,6 +18,11 @@ export interface UseResolvedWorkspaceModeInput {
   isLoadingIntegrations: boolean;
   pinCloud?: boolean;
   allowWorktree?: boolean;
+  /**
+   * A surface's own starting mode, tried before the stored preference. Soft,
+   * unlike `pinCloud`: it still falls back to local when cloud cannot work.
+   */
+  preferredMode?: WorkspaceMode;
 }
 
 export interface ResolvedWorkspaceMode {
@@ -31,6 +36,7 @@ export function useResolvedWorkspaceMode({
   isLoadingIntegrations,
   pinCloud = false,
   allowWorktree = true,
+  preferredMode: surfacePreferredMode,
 }: UseResolvedWorkspaceModeInput): ResolvedWorkspaceMode {
   const {
     lastUsedWorkspaceMode,
@@ -43,7 +49,8 @@ export function useResolvedWorkspaceMode({
   const cloudModeEnabled = useCloudModeEnabled();
   const flagsLoaded = useFeatureFlagsLoaded();
 
-  const storedMode = lastUsedWorkspaceMode || DEFAULT_WORKSPACE_MODE;
+  const storedMode =
+    surfacePreferredMode ?? (lastUsedWorkspaceMode || DEFAULT_WORKSPACE_MODE);
   const preferredMode: WorkspaceMode =
     allowWorktree || storedMode === "cloud" ? storedMode : "local";
   const localFallback: LocalWorkspaceMode = allowWorktree

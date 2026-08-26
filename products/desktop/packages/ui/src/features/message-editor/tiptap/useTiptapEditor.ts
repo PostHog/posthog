@@ -66,6 +66,7 @@ export interface UseTiptapEditorOptions {
     fileMentions?: boolean;
     commands?: boolean;
     bashMode?: boolean;
+    formatting?: boolean;
   };
   clearOnSubmit?: boolean;
   /** What the composer starts from when this session has no draft yet. */
@@ -265,6 +266,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     fileMentions = true,
     commands = true,
     bashMode: enableBashMode = true,
+    formatting = false,
   } = capabilities;
 
   const callbackRefs = useRef({
@@ -345,6 +347,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
         placeholder,
         fileMentions,
         commands,
+        formatting,
       }),
       editable: !disabled,
       autofocus: autoFocus ? "end" : false,

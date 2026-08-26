@@ -30,6 +30,7 @@ import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
+import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -38,6 +39,7 @@ import {
   NAV_RAIL_WIDTH,
 } from "@posthog/ui/features/sidebar/constants";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
@@ -186,6 +188,7 @@ export function NavRail() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
   const contextEnabled = useContextLayerFlag();
+  const supportEnabled = useSupportFlag();
   const tabsEnabled = useSpacesTabs();
   const openBrowserTab = useOpenBrowserTab();
 
@@ -195,10 +198,12 @@ export function NavRail() {
   });
   const { unreadCount: unseenActivity } = useTaskActivity();
   const commandCenterCount = useCommandCenterActiveCount();
+  const supportOpenCount = useSupportMyOpenCount({ enabled: supportEnabled });
   const counts: RailCounts = {
     inbox: inboxCounts.pulls,
     activity: unseenActivity,
     commandCenter: commandCenterCount,
+    support: supportOpenCount,
   };
   // The route is the only thing that says where you are, so the rail cannot
   // light a destination the screen isn't on.
@@ -212,6 +217,7 @@ export function NavRail() {
     home: homeEnabled,
     loops: loopsEnabled,
     context: contextEnabled,
+    support: supportEnabled,
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 

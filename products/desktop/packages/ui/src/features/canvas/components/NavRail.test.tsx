@@ -50,6 +50,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   useInboxAllReports: () => ({ counts: { pulls: 1 } }),
 }));
+vi.mock("@posthog/ui/features/support/hooks/useSupportMyOpenCount", () => ({
+  useSupportMyOpenCount: () => 0,
+}));
 vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
   ProjectSwitcher: () => (
     <button type="button" aria-label="Project switcher">
@@ -73,6 +76,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToLoops: vi.fn(),
   navigateToCommandCenter: vi.fn(),
   navigateToSpacesContext: vi.fn(),
+  navigateToSupport: vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
@@ -80,7 +84,11 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
 }));
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
-import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
+import {
+  DESKTOP_HOME_FLAG,
+  DESKTOP_SUPPORT_FLAG,
+  type RailVisit,
+} from "@posthog/shared";
 import {
   clearKeepListForRoute,
   shouldKeepListForRoute,
@@ -144,6 +152,15 @@ describe("NavRail", () => {
     render(<NavRail />);
 
     expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
+  });
+
+  it("shows Support only when its feature flag is on", () => {
+    const { rerender } = render(<NavRail />);
+    expect(screen.queryByLabelText("Support")).not.toBeInTheDocument();
+
+    mocks.featureFlags.set(DESKTOP_SUPPORT_FLAG, true);
+    rerender(<NavRail />);
+    expect(screen.getByLabelText("Support")).toBeInTheDocument();
   });
 
   it("keeps Search directly above Settings at the bottom of the rail", () => {

@@ -4,6 +4,7 @@ import {
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
+  LifebuoyIcon,
   Lightning,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
@@ -36,6 +37,7 @@ import {
   navigateToLoops,
   navigateToSpaces,
   navigateToSpacesContext,
+  navigateToSupport,
 } from "@posthog/ui/router/navigationBridge";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import type { ComponentType } from "react";
@@ -44,6 +46,7 @@ export interface RailCounts {
   inbox: number;
   activity: number;
   commandCenter: number;
+  support: number;
 }
 
 export interface RailDestination {
@@ -68,6 +71,7 @@ export interface RailDestination {
     home: boolean;
     loops: boolean;
     context: boolean;
+    support: boolean;
   }) => boolean;
 }
 
@@ -212,6 +216,17 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     onPick: navigateToSpacesContext,
     enabled: (flags) => flags.context,
   },
+  {
+    pane: "support",
+    customizableId: "support",
+    label: "Support",
+    analyticsId: "support",
+    Icon: LifebuoyIcon,
+    href: "/support",
+    onPick: navigateToSupport,
+    count: (counts) => counts.support,
+    enabled: (flags) => flags.support,
+  },
 ];
 
 // Deliberately not the shared `orderedNavItems`: its adjacency rule pins
@@ -222,16 +237,18 @@ export function visibleRailDestinations({
   home,
   loops,
   context,
+  support,
 }: {
   overrides: NavItemOverrides;
   order: readonly CustomizableNavItemId[];
   home: boolean;
   loops: boolean;
   context: boolean;
+  support: boolean;
 }): readonly RailDestination[] {
   const shown = RAIL_DESTINATIONS.filter(
     ({ customizableId, enabled }) =>
-      (enabled?.({ home, loops, context }) ?? true) &&
+      (enabled?.({ home, loops, context, support }) ?? true) &&
       (!customizableId || isNavItemVisible(overrides, customizableId)),
   );
   if (order.length === 0) return shown;

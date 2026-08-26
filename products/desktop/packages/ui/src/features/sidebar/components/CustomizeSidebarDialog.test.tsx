@@ -175,6 +175,7 @@ describe("CustomizeSidebarSettings", () => {
       "activity",
       "command-center",
       "contexts",
+      "support",
       "configure",
     ]);
     expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.SIDEBAR_REORDERED, {

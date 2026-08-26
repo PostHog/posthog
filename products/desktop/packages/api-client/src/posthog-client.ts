@@ -207,6 +207,143 @@ export interface TaskUsage {
   total_cost_usd: number;
 }
 
+export const SUPPORT_THREAD_PAGE_SIZE = 50;
+export const SUPPORT_ACTIVITY_PAGE_SIZE = 50;
+export const SUPPORT_HISTORY_PAGE_SIZE = 10;
+
+export type SupportTicket = Omit<Schemas.Ticket, "tags" | "assignee"> & {
+  tags?: string[];
+  assignee: Schemas.TicketAssignment | null;
+};
+
+export interface SupportTicketMessage {
+  id: string;
+  content: string;
+  author_type?: "customer" | "support" | "AI";
+  author_name: string;
+  is_private: boolean;
+  version: number;
+  created_at: string;
+}
+
+export interface SupportTicketPage {
+  results: SupportTicket[];
+  count: number;
+}
+
+export interface SupportActivityChange {
+  field?: string | null;
+  before?: unknown;
+  after?: unknown;
+}
+
+export interface SupportActivityEntry {
+  id: string;
+  activity: string;
+  created_at: string;
+  is_system?: boolean | null;
+  user?: { first_name?: string; last_name?: string; email?: string } | null;
+  detail?: { changes?: SupportActivityChange[] | null } | null;
+}
+
+export interface SupportTicketMessagePage {
+  results: SupportTicketMessage[];
+  count: number;
+}
+
+export type SupportTicketView = Schemas.TicketView & {
+  is_favorited?: boolean;
+};
+
+export type SupportTicketAssigneeInput =
+  | { type: "user"; id: number }
+  | { type: "role"; id: string }
+  | null;
+
+export interface SupportTicketUpdate {
+  status?: Schemas.TicketStatusEnum;
+  priority?: Schemas.PriorityEnum | null;
+  snoozed_until?: string | null;
+  tags?: string[];
+  assignee?: SupportTicketAssigneeInput;
+}
+
+export type SupportAssigneeFilter =
+  | "me"
+  | "unassigned"
+  | { type: "user"; id: number }
+  | { type: "role"; id: string };
+
+export interface SupportTicketListOptions {
+  status?: Schemas.TicketStatusEnum[];
+  priority?: Schemas.PriorityEnum[];
+  channelSource?: Schemas.ChannelSourceEnum;
+  sla?: "breached" | "at-risk" | "on-track";
+  assignee?: SupportAssigneeFilter[];
+  tags?: string[];
+  distinctIds?: string[];
+  search?: string;
+  orderBy?: SupportTicketOrderBy;
+  view?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type SupportTicketOrderBy =
+  | "-updated_at"
+  | "updated_at"
+  | "-created_at"
+  | "created_at"
+  | "-sla_due_at"
+  | "sla_due_at"
+  | "-ticket_number"
+  | "ticket_number";
+
+function encodeSupportAssignee(entry: SupportAssigneeFilter): string {
+  return typeof entry === "string" ? entry : `${entry.type}:${entry.id}`;
+}
+
+function buildSupportTicketQuery(
+  options?: SupportTicketListOptions,
+): Record<string, string> {
+  const query: Record<string, string> = {};
+  if (options?.status?.length) {
+    query.status = options.status.join(",");
+  }
+  if (options?.priority?.length) {
+    query.priority = options.priority.join(",");
+  }
+  if (options?.channelSource) {
+    query.channel_source = options.channelSource;
+  }
+  if (options?.sla) {
+    query.sla = options.sla;
+  }
+  if (options?.assignee?.length) {
+    query.assignee = options.assignee.map(encodeSupportAssignee).join(",");
+  }
+  if (options?.tags?.length) {
+    query.tags = JSON.stringify(options.tags);
+  }
+  if (options?.distinctIds?.length) {
+    query.distinct_ids = options.distinctIds.join(",");
+  }
+  if (options?.search) {
+    query.search = options.search;
+  }
+  if (options?.view) {
+    query.view = options.view;
+  }
+  query.order_by = options?.orderBy ?? "-updated_at";
+  query.limit = String(options?.limit ?? SUPPORT_TICKETS_PAGE_SIZE);
+  if (options?.offset) {
+    query.offset = String(options.offset);
+  }
+  return query;
+}
+
+export const SUPPORT_TICKETS_PAGE_SIZE = 50;
+
 export interface TaskListOptions {
   repository?: string;
   createdBy?: number;
@@ -6909,6 +7046,141 @@ export class PostHogAPIClient {
       }
       default:
         return null;
+    }
+  }
+
+  async listSupportTickets(
+    options?: SupportTicketListOptions,
+  ): Promise<SupportTicketPage> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    for (const [key, value] of Object.entries(
+      buildSupportTicketQuery(options),
+    )) {
+      url.searchParams.set(key, value);
+    }
+
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    const data = (await response.json()) as {
+      results?: SupportTicket[];
+      count?: number;
+    };
+    return {
+      results: data.results ?? [],
+      count: data.count ?? data.results?.length ?? 0,
+    };
+  }
+
+  async getSupportTicket(ticketId: string): Promise<SupportTicket> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.get(
+      `/api/projects/{project_id}/conversations/tickets/{id}/`,
+      { path: { project_id: teamId.toString(), id: ticketId } },
+    );
+    return data as SupportTicket;
+  }
+
+  async listSupportTicketMessages(
+    ticketId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<SupportTicketMessagePage> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/${ticketId}/messages/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set(
+      "limit",
+      String(options?.limit ?? SUPPORT_THREAD_PAGE_SIZE),
+    );
+    if (options?.offset) {
+      url.searchParams.set("offset", String(options.offset));
+    }
+
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    const data = (await response.json()) as {
+      results?: SupportTicketMessage[];
+      count?: number;
+    };
+    return {
+      results: data.results ?? [],
+      count: data.count ?? data.results?.length ?? 0,
+    };
+  }
+
+  async replyToSupportTicket(
+    ticketId: string,
+    input: { message: string; isPrivate: boolean },
+  ): Promise<SupportTicketMessage> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/${ticketId}/reply/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify({
+          message: input.message,
+          is_private: input.isPrivate,
+        }),
+      },
+    });
+
+    return (await response.json()) as SupportTicketMessage;
+  }
+
+  async updateSupportTicket(
+    ticketId: string,
+    updates: SupportTicketUpdate,
+  ): Promise<SupportTicket> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/${ticketId}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify(updates) },
+    });
+    return (await response.json()) as SupportTicket;
+  }
+
+  async listSupportTicketViews(): Promise<SupportTicketView[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/views/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    const data = (await response.json()) as { results?: SupportTicketView[] };
+    return data.results ?? [];
+  }
+
+  async listSupportTicketActivity(
+    ticketId: string,
+  ): Promise<SupportActivityEntry[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/activity_log/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("scope", "Ticket");
+    url.searchParams.set("item_id", ticketId);
+    url.searchParams.set("page_size", String(SUPPORT_ACTIVITY_PAGE_SIZE));
+
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path,
+      });
+      const data = (await response.json()) as {
+        results?: SupportActivityEntry[];
+      };
+      return data.results ?? [];
+    } catch (error) {
+      if (requestErrorStatus(error) === 402) {
+        return [];
+      }
+      throw error;
     }
   }
 }

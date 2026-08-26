@@ -79,6 +79,7 @@ import {
   openSettings,
 } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { useSupportCommands } from "@posthog/ui/features/support/useSupportCommands";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
@@ -220,6 +221,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     import.meta.env.DEV,
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const supportCommands = useSupportCommands(closeSettingsDialog);
   // With channel reports on, spaces own reports and the inbox entry goes away.
   const channelReportsEnabled = useChannelReportsEnabled();
   const spendAnalysisEnabled = useSpendAnalysisEnabled();
@@ -568,6 +570,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       { label: "Developer", items: developer },
     ];
 
+    if (supportCommands.length > 0) {
+      out.unshift({ label: "Support", items: supportCommands });
+    }
+
     if (folders.length > 0) {
       out.push({
         label: "New task in folder",
@@ -597,6 +603,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
+    supportCommands,
     channelReportsEnabled,
     spendAnalysisEnabled,
   ]);

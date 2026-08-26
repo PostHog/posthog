@@ -9,6 +9,7 @@ import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/use
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
+import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
@@ -18,6 +19,7 @@ import {
   orderedNavItems,
 } from "@posthog/ui/features/sidebar/constants";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import {
   navigateToActivity,
   navigateToCommandCenter,
@@ -25,6 +27,7 @@ import {
   navigateToInbox,
   navigateToLoops,
   navigateToSpacesContext,
+  navigateToSupport,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -41,6 +44,7 @@ import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
 import { SearchItem } from "./items/SearchItem";
+import { SupportItem } from "./items/SupportItem";
 
 interface SidebarNavSectionProps {
   // The Command Center badge counts how many command-center cells point at a
@@ -79,6 +83,7 @@ export function SidebarNavSection({
   const reportsInboxEnabled = useReportsInboxEnabled();
   const inboxDecisionCount = useInboxDecisionCount();
   const contextEnabled = useContextLayerFlag();
+  const supportEnabled = useSupportFlag();
   const inSpaces = useRouterState({
     select: (state) => state.location.pathname.startsWith("/spaces"),
   });
@@ -94,6 +99,10 @@ export function SidebarNavSection({
   const isLoopsActive = view.type === "loops";
   const isCommandCenterActive = view.type === "command-center";
   const isContextActive = view.type === "context";
+  const isSupportActive = view.type === "support";
+
+  // My open tickets — the queue's default view, so the badge and the list agree.
+  const supportOpenCount = useSupportMyOpenCount({ enabled: supportEnabled });
 
   // Only subscribe to the task list when a parent hasn't already supplied the
   // count — keeps the standalone (Channels) render self-contained without
@@ -143,6 +152,7 @@ export function SidebarNavSection({
     inbox: !channelReportsEnabled || reportsInboxEnabled,
     "command-center": true,
     contexts: contextEnabled,
+    support: supportEnabled,
     activity: bluebirdEnabled,
     configure: true,
     loops: loopsEnabled,
@@ -206,6 +216,14 @@ export function SidebarNavSection({
         depth={depth}
         isActive={isContextActive}
         onClick={withNavTrack("contexts", goContext, depth)}
+      />
+    ),
+    support: (depth) => (
+      <SupportItem
+        depth={depth}
+        isActive={isSupportActive}
+        onClick={withNavTrack("support", navigateToSupport, depth)}
+        openCount={supportOpenCount}
       />
     ),
   };

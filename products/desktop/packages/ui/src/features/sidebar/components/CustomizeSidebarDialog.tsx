@@ -5,6 +5,7 @@ import {
   BookOpenTextIcon,
   DotsSixVertical,
   EnvelopeSimple,
+  LifebuoyIcon,
   SlidersHorizontal,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
@@ -12,6 +13,7 @@ import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import {
   CUSTOMIZABLE_NAV_ITEMS,
   type CustomizableNavItem,
@@ -31,6 +33,7 @@ const ITEM_ICONS: Record<
   React.ComponentType<{ size?: number | string }>
 > = {
   inbox: EnvelopeSimple,
+  support: LifebuoyIcon,
   "command-center": SquaresFourIcon,
   activity: Bell,
   configure: SlidersHorizontal,
@@ -47,6 +50,7 @@ function sameOrder(
 
 export function CustomizeSidebarSettings() {
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const supportEnabled = useSupportFlag();
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
@@ -76,6 +80,7 @@ export function CustomizeSidebarSettings() {
   const items = orderedNavItems(previewOrder ?? navItemOrder).filter(
     ({ id }) => {
       if (id === "loops") return loopsEnabled;
+      if (id === "support") return supportEnabled;
       if (id === "activity") return bluebirdEnabled;
       if (id === "contexts") return contextEnabled;
       return true;

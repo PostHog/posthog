@@ -64,6 +64,9 @@ vi.mock("@posthog/ui/features/folders/useFolders", () => ({
 vi.mock("@posthog/ui/router/useAppView", () => ({
   useAppView: () => ({ type: "home" }),
 }));
+vi.mock("@posthog/ui/features/support/useSupportCommands", () => ({
+  useSupportCommands: () => [],
+}));
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null, hasDiff: false, prUrl: null }),
 }));

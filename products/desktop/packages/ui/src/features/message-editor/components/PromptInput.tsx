@@ -32,6 +32,7 @@ import { useTiptapEditor } from "../tiptap/useTiptapEditor";
 import type { EditorHandle } from "../types";
 import { AttachmentMenu } from "./AttachmentMenu";
 import { AttachmentsBar, type AttachmentUploadStatus } from "./AttachmentsBar";
+import { FormattingToolbar } from "./FormattingToolbar";
 import { SlotMachineSubmit } from "./SlotMachineSubmit";
 
 export type { EditorHandle };
@@ -71,6 +72,8 @@ export interface PromptInputProps {
   // capabilities
   enableBashMode?: boolean;
   enableCommands?: boolean;
+  /** Rich text marks plus the formatting bar. Off by default. */
+  enableFormatting?: boolean;
   // toolbar slots
   modelSelector?: React.ReactElement | null | false;
   reasoningSelector?: React.ReactElement | null | false;
@@ -129,7 +132,8 @@ export interface PromptInputProps {
   // manual submit override (for flows like new-task that submit outside the editor hook)
   onSubmitClick?: () => unknown;
   submitTooltipOverride?: string;
-  editorHeight?: "default" | "large";
+  /** "fill" grows with the container instead of capping, for a resizable composer. */
+  editorHeight?: "default" | "large" | "fill";
   tourTarget?: string;
 }
 
@@ -153,6 +157,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       autoresearch,
       enableBashMode = false,
       enableCommands = true,
+      enableFormatting = false,
       modelSelector,
       reasoningSelector,
       messagingModeToggle,
@@ -241,6 +246,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       capabilities: {
         bashMode: enableBashMode,
         commands: enableCommands,
+        formatting: enableFormatting,
       },
       getPromptHistory,
       onPromptRecall,
@@ -482,8 +488,12 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // carries the muted colour the addons would have supplied.
     const toolbar = (!hideDefaultToolbar ||
       toolbarEndSlot ||
-      messagingModeToggle) && (
+      messagingModeToggle ||
+      enableFormatting) && (
       <div className="flex select-none items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
+        {enableFormatting && (
+          <FormattingToolbar editor={editor} disabled={disabled} />
+        )}
         {!hideDefaultToolbar && (
           <>
             <AttachmentMenu
@@ -532,12 +542,13 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       </div>
     );
 
+    const fills = editorHeight === "fill";
     const composerRow = (
-      <Flex gap="2" align="stretch">
+      <Flex gap="2" align="stretch" className={fills ? "min-h-0 flex-1" : ""}>
         <InputGroup
           onClick={handleContainerClick}
           onContextMenu={handleContextMenu}
-          className={`h-auto flex-1 cursor-text bg-card ${isBashMode ? "ring-1 ring-blue-9" : "focus-within:border-ring/50 focus-within:ring-3 focus-within:ring-ring/30"}`}
+          className={`${fills ? "h-full items-stretch" : "h-auto"} flex-1 cursor-text bg-card ${isBashMode ? "ring-1 ring-blue-9" : "focus-within:border-ring/50 focus-within:ring-3 focus-within:ring-ring/30"}`}
           {...(tourTarget && {
             "data-tour": `${tourTarget}-editor`,
             "data-tour-ready": !isEmpty ? "true" : undefined,
@@ -566,7 +577,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               reserves the cluster's width so a long line never runs underneath
               — measured rather than fixed, because an adornment beside the
               button makes that width depend on what's in it. */}
-          <div className="relative w-full">
+          <div className={clsx("relative w-full", fills && "h-full")}>
             <div
               // Gated on the cluster existing rather than trusting the last
               // measurement: the observer's cleanup can't clear the width, so
@@ -578,7 +589,9 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               }}
               className={clsx(
                 "cli-editor-scroll relative min-h-[37px] w-full overflow-y-auto py-2 pl-2 text-[14px]",
-                editorHeight === "large" ? "max-h-[45vh]" : "max-h-[200px]",
+                editorHeight === "fill" && "h-full",
+                editorHeight === "large" && "max-h-[45vh]",
+                editorHeight === "default" && "max-h-[200px]",
                 // A disabled editor still looks editable: the caret is the only
                 // tell, and it is absent precisely because you cannot focus it.
                 disabled && "text-muted-foreground",
@@ -611,7 +624,11 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     );
 
     return (
-      <Flex direction="column" gap="1">
+      <Flex
+        direction="column"
+        gap="1"
+        className={fills ? "h-full min-h-0" : ""}
+      >
         {composerRow}
         {toolbar}
       </Flex>

@@ -87,6 +87,14 @@ export const REPORT_CHAT_DEFAULT_OPEN_FLAG =
 export const TRIAGE_FOCUS_FLAG = "posthog-desktop-triage-focus";
 
 /**
+ * Gates the Support surface: the nav destination in both shells, the /support
+ * routes, and the ticket commands in the command menu. Reads Conversations
+ * tickets from the PostHog API, so it is distinct from the server-side
+ * `product-support-*` family that gates the Conversations product itself.
+ */
+export const DESKTOP_SUPPORT_FLAG = "desktop-support";
+
+/**
  * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
  * `test` variant sends `x-posthog-provider: bedrock`, which the gateway routes
  * to its Bedrock backend; `control` sends nothing and the gateway keeps its

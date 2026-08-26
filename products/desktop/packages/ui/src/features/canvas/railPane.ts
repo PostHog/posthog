@@ -15,7 +15,8 @@ export type NavRailPane =
   | "inbox"
   | "command-center"
   | "loops"
-  | "context";
+  | "context"
+  | "support";
 
 /**
  * The root path of each destination.
@@ -32,6 +33,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   "command-center": "/command-center",
   loops: "/loops",
   context: "/spaces/context",
+  support: "/support",
 };
 
 // Spaces is absent: it takes everything nothing else claims, so listing it
@@ -43,6 +45,7 @@ const CLAIMED: readonly NavRailPane[] = [
   "command-center",
   "loops",
   "context",
+  "support",
 ];
 
 export function railPaneForPath(fullPath: string): NavRailPane {
