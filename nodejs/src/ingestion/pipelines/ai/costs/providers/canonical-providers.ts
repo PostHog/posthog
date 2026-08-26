@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-25 10:09:06 UTC
+// Generated at: 2026-08-25 20:05:23 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -16,6 +16,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
+    | 'amazon-bedrock-us-west-2'
     | 'ambient'
     | 'ambient-fp4'
     | 'ambient-fp8'
@@ -72,7 +73,6 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
-    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
@@ -95,6 +95,7 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-int4'
     | 'io-net-fp16'
+    | 'io-net-fp4'
     | 'io-net-fp8'
     | 'ionstream-fp4'
     | 'liquid-fp8'
@@ -141,8 +142,6 @@ export type CanonicalProvider =
     | 'open-inference-fp4'
     | 'openai'
     | 'openai-default'
-    | 'openai-default-flex'
-    | 'openai-default-priority'
     | 'openai-fast'
     | 'openai-flex'
     | 'openai-priority'
