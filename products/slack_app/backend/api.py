@@ -608,32 +608,41 @@ def _is_emit_only_mirror(request: HttpRequest) -> bool:
     return request.headers.get(EMIT_ONLY_MIRROR_HEADER) == "1"
 
 
-def _proxy_event_to_region(
-    request: HttpRequest, target_domain: str, extra_headers: dict[str, str] | None = None
-) -> requests.Response | None:
-    """Forward the original Slack event to the other region, tagged so the receiver does not hop again."""
+def _proxy_target_url(request: HttpRequest, target_domain: str) -> str:
     parsed_url = urlparse(request.build_absolute_uri())
     # In dev the EU "region" is plain-HTTP localhost while the incoming URI is HTTPS (ngrok-
     # terminated TLS), so always pick the scheme by target domain rather than copying the
     # inbound one. Production talks HTTPS region-to-region.
     target_scheme = "http" if settings.DEBUG else "https"
-    target_url = urlunparse(parsed_url._replace(scheme=target_scheme, netloc=target_domain))
+    return urlunparse(parsed_url._replace(scheme=target_scheme, netloc=target_domain))
+
+
+def _proxy_request_headers(request: HttpRequest) -> dict[str, str]:
     # Drop Host plus the host-identifying forwarded headers so the receiver computes its own
     # host from the new TCP connection rather than mirroring the sender's edge. X-Forwarded-For
     # is intentionally preserved so the original Slack client IP survives the inter-region hop.
     stripped = {"host", "x-forwarded-host", "forwarded"}
     headers = {key: value for key, value in request.headers.items() if key.lower() not in stripped}
     headers[REGION_PROXY_HEADER] = "1"
-    if extra_headers:
-        headers.update(extra_headers)
+    return headers
 
+
+def send_region_proxy_request(
+    *,
+    method: str,
+    target_url: str,
+    headers: dict[str, str],
+    params: dict[str, list[str]] | None = None,
+    body: bytes | None = None,
+) -> requests.Response | None:
+    """POST a Slack event payload to the other region and translate the outcome into logs."""
     try:
         response = requests.request(
-            method=request.method or "POST",
+            method=method,
             url=target_url,
             headers=headers,
-            params=dict(request.GET.lists()) if request.GET else None,
-            data=request.body or None,
+            params=params,
+            data=body,
             timeout=REGION_PROXY_TIMEOUT_SECONDS,
         )
         if 200 <= response.status_code < 300:
@@ -649,6 +658,17 @@ def _proxy_event_to_region(
     except requests.RequestException as exc:
         logger.exception("slack_app_region_proxy_failed", error=str(exc), target_url=target_url)
         return None
+
+
+def _proxy_event_to_region(request: HttpRequest, target_domain: str) -> requests.Response | None:
+    """Forward the original Slack event to the other region, tagged so the receiver does not hop again."""
+    return send_region_proxy_request(
+        method=request.method or "POST",
+        target_url=_proxy_target_url(request, target_domain),
+        headers=_proxy_request_headers(request),
+        params=dict(request.GET.lists()) if request.GET else None,
+        body=request.body or None,
+    )
 
 
 def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> str:
@@ -675,13 +695,13 @@ def _mirror_message_event_to_other_region(
     incoming_host: str,
     other_domain: str,
 ) -> None:
-    """Send an emit-only copy of a top-level channel post to the other region when it also holds the workspace.
+    """Queue an emit-only copy of a top-level channel post for the other region.
 
     A workspace connected in both regions gets its events consumed by the region Slack delivers to,
-    and the plain hand-off only fires when that region holds no connection — so the other region's
-    workflow triggers would otherwise never see a top-level channel message. Fire-and-forget: the
-    local pipeline continues regardless, and a failed mirror costs the other region one message,
-    not this region's handling.
+    and the plain hand-off only fires when that region holds no connection, so the other region's
+    workflow triggers would otherwise never see a top-level channel message. The claims probe and
+    the cross-region POST run in a Celery task: top-level posts dominate wire volume and the webhook
+    owes Slack an ack within three seconds, so this path spends no cross-region I/O inline.
 
     Only top-level posts are mirrored. A thread reply already reaches the follow-up pipeline's
     region gate and crosses through it, so mirroring one would make the other region emit it twice.
@@ -690,14 +710,24 @@ def _mirror_message_event_to_other_region(
         return
     if not is_triggering_message(event):
         return
-    claimed = does_other_region_claim_workspace(
-        slack_team_id=slack_team_id,
-        kinds=[SLACK_INTEGRATION_KIND],
-        incoming_host=incoming_host,
-    )
-    if not claimed:
-        return
-    _proxy_event_to_region(request, other_domain, extra_headers={EMIT_ONLY_MIRROR_HEADER: "1"})
+    headers = _proxy_request_headers(request)
+    headers[EMIT_ONLY_MIRROR_HEADER] = "1"
+    # noqa reason: the task module imports this module's probe and transport, so a module-level
+    # import here would be circular.
+    from products.slack_app.backend.tasks import mirror_slack_message_event  # noqa: PLC0415
+
+    try:
+        mirror_slack_message_event.delay(
+            slack_team_id=slack_team_id,
+            incoming_host=incoming_host,
+            target_url=_proxy_target_url(request, other_domain),
+            headers=headers,
+            body=(request.body or b"").decode("utf-8"),
+        )
+    except Exception:
+        # A broker failure must not 500 the shared webhook: Slack would redeliver, and the mention
+        # pipeline would handle the copy again. A lost mirror costs the other region one message.
+        logger.exception("slack_app_mirror_dispatch_failed", slack_team_id=slack_team_id)
 
 
 def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
