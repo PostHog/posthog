@@ -13,6 +13,18 @@ toggle:
 - **Error Tracking spikes** — "an issue spiked around here"
 - **Logs anomalies** — "log volume for this service looked anomalous around here"
 
+To be precise about pre-existing vs. net new in the PoC: the trace-exemplar dots
+shipped before this branch — [#69574](https://github.com/PostHog/posthog/pull/69574)
+built the metric→trace samples pivot, [#72116](https://github.com/PostHog/posthog/pull/72116)
+put the clickable exemplar dots on the viewer chart, and
+[#76683](https://github.com/PostHog/posthog/pull/76683) rebuilt them as
+`MetricsExemplarMarkers` in the quill chart rewrite. This PoC only _updates_ them
+(an explicit `brand-blue` color and a tooltip label, so they stay distinguishable
+from the new markers). The error-spike dots are **net new**, deliberately modeled
+on that exemplar mechanism: same marker component and render-time overlay pattern,
+different data source (Error Tracking spike events) and pivot target (the issue
+page instead of a trace).
+
 The appeal: both would be _read-time_ integrations (call another product's
 existing query surface at render time), not ClickHouse schema or ingestion
 changes — matching the ingestion-averse framing of this brainstorm.
