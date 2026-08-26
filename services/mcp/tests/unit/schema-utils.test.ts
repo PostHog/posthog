@@ -197,6 +197,68 @@ describe('schema-utils', () => {
             expect(result.variants![0]!.properties.a).toEqual(expect.objectContaining({ type: 'string' }))
         })
 
+        // Regression: when variants of a directly-addressable union share a complex
+        // property under one name but with different schemas (e.g. `config` across the
+        // batch-export destination variants), each variant's drill hint must carry its
+        // own variant index. Without it every variant advertised the same
+        // `<field>.config` path, and `resolveSchemaPath` returned only the first
+        // variant's shape — the other variants' configs were unreachable.
+        it('gives each union variant an indexed drill path for a shared complex property', () => {
+            const destination = {
+                anyOf: [
+                    {
+                        type: 'object',
+                        title: 'Databricks',
+                        properties: { config: { type: 'object', properties: { http_path: { type: 'string' } } } },
+                    },
+                    {
+                        type: 'object',
+                        title: 'BigQuery',
+                        properties: { config: { type: 'object', properties: { dataset_id: { type: 'string' } } } },
+                    },
+                ],
+            }
+            const root = { type: 'object', properties: { destination } }
+
+            const result = summarizeSchema(destination, 'batch-export-create', 'destination')
+            expect(result.variants!.map((v) => v.properties.config?.hint)).toEqual([
+                'DO NOT GUESS — you MUST run `schema batch-export-create destination.0.config` before populating this field',
+                'DO NOT GUESS — you MUST run `schema batch-export-create destination.1.config` before populating this field',
+            ])
+
+            // Each advertised path resolves to that variant's own config, not just the first.
+            expect(resolveSchemaPath(root, 'destination.0.config')).toEqual({
+                type: 'object',
+                properties: { http_path: { type: 'string' } },
+            })
+            expect(resolveSchemaPath(root, 'destination.1.config')).toEqual({
+                type: 'object',
+                properties: { dataset_id: { type: 'string' } },
+            })
+        })
+
+        // The array-of-union counterpart stays first-match: a numeric segment indexes
+        // the array (resolving back to `items`), so per-variant indices there would
+        // point at the wrong node. Variants under an array keep the shared path.
+        it('does not index variant hints for a union reached through an array', () => {
+            const schema = {
+                type: 'array',
+                items: {
+                    anyOf: [
+                        { type: 'object', title: 'A', properties: { cfg: { type: 'object', properties: {} } } },
+                        { type: 'object', title: 'B', properties: { cfg: { type: 'object', properties: {} } } },
+                    ],
+                },
+            }
+
+            const result = summarizeSchema(schema, 'query-trends', 'series')
+            for (const variant of result.items!.variants!) {
+                expect(variant.properties.cfg?.hint).toBe(
+                    'DO NOT GUESS — you MUST run `schema query-trends series.cfg` before populating this field'
+                )
+            }
+        })
+
         // Array `items` and union variants don't consume a path segment, so a hint on a
         // field reached through them must still point at `<field>.<name>` for the
         // follow-up `schema` call to resolve.

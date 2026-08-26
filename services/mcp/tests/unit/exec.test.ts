@@ -1046,6 +1046,69 @@ describe('exec tool', () => {
             expect(variantFields).toContain('kind')
             expect(variantFields).toContain('event')
         })
+
+        // Regression for the reported bug: `retentionFilter.returningEntity` and
+        // `retentionFilter.targetEntity` each embed the whole property-filter union
+        // twice (events + actions variants). That fit under the whole-schema budget,
+        // so the drill-down returned it raw — ~7k tokens per field. The field must now
+        // resolve to a compact discriminator: the event/action variants with their
+        // scalar fields, and the property-filter union behind its own drill-down hint.
+        it.each(['returningEntity', 'targetEntity'])(
+            'eval: query-retention retentionFilter.%s drill-down stays compact and hides the property union',
+            async (entityField) => {
+                const context: Context = {
+                    api: {} as any,
+                    cache: {} as any,
+                    env: {
+                        MCP_APPS_BASE_URL: undefined,
+                        POSTHOG_ANALYTICS_API_KEY: undefined,
+                        POSTHOG_ANALYTICS_HOST: undefined,
+                        POSTHOG_API_BASE_URL: undefined,
+                        POSTHOG_PUBLIC_URL: undefined,
+                        POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                        POSTHOG_UI_APPS_TOKEN: undefined,
+                    },
+                    stateManager: {
+                        getApiKey: async () => ({ scopes: ['*'] }),
+                        getAiConsentGiven: async () => true,
+                    } as any,
+                    sessionManager: new SessionManager({} as any),
+                    getDistinctId: async () => 'test-distinct-id',
+                    trackEvent: async () => {},
+                }
+                const v2Tools = await getToolsFromContext(context)
+                const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
+
+                const path = `retentionFilter.${entityField}`
+                const raw = (await exec.handler(context, { command: `schema query-retention ${path}` })) as string
+
+                // The raw union inlined ~7k tokens; the summarized field must stay small.
+                expect(estimateTokens(raw)).toBeLessThan(1500)
+
+                const drilled = JSON.parse(raw) as {
+                    field?: string
+                    schema?: { variants?: Array<{ properties?: Record<string, { hint?: string }> }> }
+                }
+                expect(drilled.field).toBe(path)
+
+                const variants = drilled.schema?.variants
+                expect(variants?.length).toBe(2)
+
+                // The event/action discriminator stays visible inline.
+                const variantFields = variants!.flatMap((v) => Object.keys(v.properties ?? {}))
+                expect(variantFields).toContain('id')
+                expect(variantFields).toContain('type')
+
+                // Each entity variant hides its property-filter union behind its own
+                // variant-indexed drill hint, so both variants' unions stay reachable
+                // (following a shared path would resolve only the first variant).
+                const propsHints = variants!.map((v) => v.properties?.properties?.hint)
+                expect(propsHints).toEqual([
+                    `DO NOT GUESS — you MUST run \`schema query-retention ${path}.0.properties\` before populating this field`,
+                    `DO NOT GUESS — you MUST run \`schema query-retention ${path}.1.properties\` before populating this field`,
+                ])
+            }
+        )
     })
 
     describe('search command', () => {

@@ -8,7 +8,13 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
-import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import {
+    FIELD_INLINE_CHAR_LIMIT,
+    TOKEN_CHAR_LIMIT,
+    listAvailablePaths,
+    resolveSchemaPath,
+    summarizeSchema,
+} from './schema-utils'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -829,7 +835,7 @@ export function createExecTool(
                         field: fieldPath,
                         schema: resolved,
                     })
-                    if (serialized.length <= TOKEN_CHAR_LIMIT) {
+                    if (serialized.length <= FIELD_INLINE_CHAR_LIMIT) {
                         return serialized
                     }
 
