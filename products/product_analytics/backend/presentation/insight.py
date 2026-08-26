@@ -2532,7 +2532,8 @@ When set, the specified dashboard's filters and date range override will be appl
         description=(
             "Record that the current user has just viewed one or more insights. "
             "Submitted ids that do not belong to the current project or that point at deleted insights "
-            "are silently dropped. Returns 201 on success regardless of how many ids were retained."
+            "are silently dropped, as are views from impersonated staff-support sessions. "
+            "Returns 201 on success regardless of how many ids were retained."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
@@ -2541,6 +2542,11 @@ When set, the specified dashboard's filters and date range override will be appl
         Update insight view timestamps in bulk.
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
+        # Views during staff impersonation aren't the team's own activity - skip the write
+        # so support sessions don't bump the team-facing "Last viewed" column.
+        if is_impersonated(request):
+            return Response(status=status.HTTP_201_CREATED)
+
         insight_ids: list[int] = request.validated_data["insight_ids"]
 
         visible_insight_ids = list(
