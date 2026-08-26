@@ -16,6 +16,9 @@ concurrency:
 
 jobs:
     changes:
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         permissions:
             contents: read
             pull-requests: read
