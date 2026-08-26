@@ -118,6 +118,44 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
+        "state,timed_out,expected_reason",
+        [
+            ({"prewarmed": True, "await_user_message": True}, True, "idle_timeout"),
+            ({"prewarmed": True, "await_user_message": True}, False, "other"),
+            # Activation clears `await_user_message`, so this warm was used. Counting it as a miss
+            # would understate the warm hit rate the rollout decision reads.
+            ({"prewarmed": True}, True, None),
+            # Mid-activation: the marker is set before the first message is signaled and
+            # `await_user_message` is cleared only after, so a run that terminalizes in between still
+            # carries both older markers while already counted as activated.
+            ({"prewarmed": True, "await_user_message": True, "warm_activated": True}, True, None),
+            # Never warmed at all — a plain run terminalizing is not a warm miss.
+            ({}, True, None),
+        ],
+    )
+    def test_counts_a_warm_run_that_terminalized_unused(
+        self, activity_environment: ActivityEnvironment, test_task_run: TaskRun, state, timed_out, expected_reason
+    ) -> None:
+        test_task_run.state = state
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        with patch("products.tasks.backend.metrics.observe_prewarmed_unused") as m_observe:
+            async_to_sync(_run_update_task_run_status)(
+                activity_environment,
+                UpdateTaskRunStatusInput(
+                    run_id=str(test_task_run.id),
+                    status=TaskRun.Status.COMPLETED,
+                    timed_out_inactivity=timed_out,
+                ),
+            )
+
+        if expected_reason is None:
+            m_observe.assert_not_called()
+        else:
+            assert m_observe.call_args.kwargs["reason"] == expected_reason
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
         "marker",
         [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
     )
