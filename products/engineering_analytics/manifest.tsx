@@ -68,6 +68,7 @@ export const manifest: ProductManifest = {
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
         '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
         '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+        '/engineering-analytics/dora': ['EngineeringAnalytics', 'engineeringAnalyticsDora'],
         '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
         '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
             'EngineeringAnalyticsPullRequest',
@@ -97,6 +98,7 @@ export const manifest: ProductManifest = {
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
         engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
         engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+        engineeringAnalyticsDora: (): string => '/engineering-analytics/dora',
         engineeringAnalyticsTeam: (ownerTeam: string): string =>
             `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>

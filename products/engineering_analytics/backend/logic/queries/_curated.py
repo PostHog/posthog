@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_trunk_merge_queue_table,
 )
 from products.engineering_analytics.backend.logic.views import (
+    deployments,
     issue_events,
     job_costs,
     pull_requests,
@@ -204,6 +205,20 @@ class CuratedGitHubSource:
         if not self._tables.issue_events:
             return None
         return f"({issue_events.build_query(self._tables.issue_events)})"
+
+    def deployments_source(self) -> str | None:
+        """Curated deployments ``SELECT`` subquery, or None when the optional deploy pair isn't
+        synced. Gated on BOTH deploy tables: a deployment's outcome lives on its status rows, so
+        one table without the other can't serve an honest read."""
+        if not (self._tables.deployments and self._tables.deployment_statuses):
+            return None
+        return f"({deployments.build_deployments_query(self._tables.deployments)})"
+
+    def deployment_statuses_source(self) -> str | None:
+        """Curated deployment-statuses ``SELECT`` subquery, gated with ``deployments_source``."""
+        if not (self._tables.deployments and self._tables.deployment_statuses):
+            return None
+        return f"({deployments.build_deployment_statuses_query(self._tables.deployment_statuses)})"
 
     def ready_to_merge_sql(self) -> ReadyToMergeSql:
         """SQL for the per-PR ready-to-merge measure, off the PR source aliased ``pr``. Degrades to

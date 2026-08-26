@@ -52,11 +52,24 @@ TEAM_MEMBERS_SCHEMA = "team_members"
 # Immutable issue/PR events, the substrate for ready-to-merge timing. Optional at the source,
 # so reads must degrade gracefully (no transition data) exactly like workflow_jobs.
 ISSUE_EVENTS_SCHEMA = "issue_events"
+# Deploy requests and their append-oriented status history, the DORA substrate. Both are
+# optional at the source and only useful together (a deployment without statuses never
+# succeeded or failed), so reads must degrade gracefully when either is unsynced.
+DEPLOYMENTS_SCHEMA = "deployments"
+DEPLOYMENT_STATUSES_SCHEMA = "deployment_statuses"
 
 # The curated endpoints we resolve per repo. A source's other synced endpoints (issues, commits,
 # teams, …) are irrelevant to the CI/PR read layer and dropped during grouping.
 _CURATED_ENDPOINTS = frozenset(
-    {PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA, ISSUE_EVENTS_SCHEMA}
+    {
+        PULL_REQUESTS_SCHEMA,
+        WORKFLOW_RUNS_SCHEMA,
+        WORKFLOW_JOBS_SCHEMA,
+        TEAM_MEMBERS_SCHEMA,
+        ISSUE_EVENTS_SCHEMA,
+        DEPLOYMENTS_SCHEMA,
+        DEPLOYMENT_STATUSES_SCHEMA,
+    }
 )
 
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
@@ -78,6 +91,10 @@ class GitHubTables:
     team_members: str | None = None
     # Optional: present only once issue events are synced; None means "no transition data".
     issue_events: str | None = None
+    # Optional pair: present only once deploys are synced; None means "no deploy data". Only
+    # useful together, so consumers gate on both.
+    deployments: str | None = None
+    deployment_statuses: str | None = None
     # Used to scope cross-store reads such as CI traces to the selected source's repository.
     repository: str = ""
 
@@ -147,6 +164,8 @@ def resolve_github_tables(
                 workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
                 team_members=tables.get(TEAM_MEMBERS_SCHEMA),
                 issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
+                deployments=tables.get(DEPLOYMENTS_SCHEMA),
+                deployment_statuses=tables.get(DEPLOYMENT_STATUSES_SCHEMA),
                 repository=candidate.repository,
             )
     if source_id is not None:

@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { EngineeringAnalyticsDora } from './EngineeringAnalyticsDora'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
@@ -69,6 +70,13 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             content: <EngineeringAnalyticsTestHealth />,
             link: combineUrl(urls.engineeringAnalyticsTestHealth(), linkParams).url,
             'data-attr': 'engineering-analytics-test-health-tab',
+        },
+        {
+            key: 'dora',
+            label: 'DORA',
+            content: <EngineeringAnalyticsDora />,
+            link: combineUrl(urls.engineeringAnalyticsDora(), linkParams).url,
+            'data-attr': 'engineering-analytics-dora-tab',
         },
     ]
 

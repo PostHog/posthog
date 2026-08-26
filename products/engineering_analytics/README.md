@@ -99,10 +99,12 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 | Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                          |
 | Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)      |
 | Time-in-review, approvals                                                    | PR lifecycle events (webhooks to events, PR as group type): deferred |
-| Deploys and DORA                                                             | Deploy data: deferred                                                |
+| Deploys and DORA                                                             | Warehouse `github_deployments` + `github_deployment_statuses`        |
 
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
 Immutable lifecycle events are the only thing the deferred events destination is for.
+Deploys left that deferral: unlike the snapshots, `github_deployment_statuses` is an append-oriented, webhook-fed status history (one row per transition), so DORA reads don't need the events destination.
+Change failure rate and time-to-restore still lack an incident link, so they ship as honest deploy-status proxies (`metric_quality: partial`).
 
 ## Locked decisions
 
