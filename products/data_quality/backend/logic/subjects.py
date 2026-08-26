@@ -75,6 +75,29 @@ def _resolve_view(team_id: int, subject_uuid: str | UUID) -> SubjectRef:
     )
 
 
+def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUID, column_name: str) -> str | None:
+    """The column's ClickHouse type, or None when the subject or the column cannot be established.
+
+    None is unknown, not "untyped": a view records its columns only once it has run, so a check
+    authored against a fresh view has nothing to read here.
+    """
+    if not column_name:
+        return None
+    kind = SubjectType(subject_type)
+    if kind is SubjectType.TABLE:
+        table = warehouse_facade.get_queryable_table(UUID(str(subject_uuid)), team_id)
+        columns = table.columns if table else {}
+    else:
+        columns = data_modeling_facade.get_saved_query_columns(team_id, subject_uuid)
+    entry = (columns or {}).get(column_name)
+    # A table records either a bare type string (older rows) or a dict keyed "clickhouse", the same
+    # two shapes hogql_fields_and_structure_for_columns handles; the saved-query facade already
+    # unwrapped a view's entry to the string.
+    if isinstance(entry, dict):
+        entry = entry.get("clickhouse")
+    return entry if isinstance(entry, str) else None
+
+
 def _missing(kind: SubjectType, subject_uuid: str | UUID) -> SubjectRef:
     return SubjectRef(
         subject_type=kind,
