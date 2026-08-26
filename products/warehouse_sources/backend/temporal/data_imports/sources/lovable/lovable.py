@@ -58,6 +58,9 @@ def _client(api_key: str) -> RESTClient:
         allowed_hosts=[],
         allow_redirects=False,
         request_timeout=REQUEST_TIMEOUT_SECONDS,
+        # capture=False: workspace, project, member, and PII-label rows carry names, emails, and
+        # free-text security-finding content the generic scrubber's name-based denylist won't catch.
+        capture=False,
     )
 
 
@@ -204,7 +207,9 @@ def lovable_source(
 
 def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
     is_valid, status_code = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        # capture=False: the probe's response body carries the caller's real account/workspace
+        # details, which the generic scrubber's name-based denylist won't catch.
+        lambda: make_tracked_session(redact_values=(api_key,), capture=False),
         f"{LOVABLE_API_BASE_URL}/{api_version}/me",
         headers={API_KEY_HEADER: api_key},
         # The key rides a custom header, which `requests` replays across a cross-origin redirect.
