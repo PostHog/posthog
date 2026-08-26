@@ -36,6 +36,9 @@ export function getHiddenSettingsCategories({
   if (!billingEnabled && !spendAnalysisEnabled) {
     hiddenCategories.add("plan-usage");
   }
+  if (!spendAnalysisEnabled) {
+    hiddenCategories.add("cost-management");
+  }
   if (!localWorkspaces) {
     for (const category of LOCAL_ONLY_CATEGORIES) {
       hiddenCategories.add(category);

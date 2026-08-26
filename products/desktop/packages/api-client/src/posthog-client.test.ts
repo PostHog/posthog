@@ -10,6 +10,37 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  describe("setUserSpendLimit", () => {
+    // The shared fetcher throws on non-2xx, so the endpoint's `detail` must be
+    // unwrapped for the settings toast rather than the raw fetcher string.
+    it("surfaces the endpoint detail when the gateway rejects the limit", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ detail: "Limit must be above current spend." }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const error = await client
+        .setUserSpendLimit(10, 30 * 24 * 60 * 60)
+        .catch((e: unknown) => e);
+      // The exact clean detail, not the raw `Failed request: [400] {...}`.
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        "Limit must be above current spend.",
+      );
+    });
+  });
+
   describe("getInsightDefinition", () => {
     it("loads the saved insight with a blocking refresh and returns its result", async () => {
       const fetch = vi.fn().mockResolvedValue(

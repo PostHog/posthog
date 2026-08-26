@@ -10,8 +10,15 @@ import { Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
 import { closeHub, createHub } from './db/hub'
-import { PostgresRouter } from './db/postgres'
+import { PostgresRouter, PostgresUse } from './db/postgres'
+import { captureTeamEvent } from './posthog'
 import { TeamManager } from './team-manager'
+
+jest.mock('~/common/utils/posthog', () => ({
+    captureTeamEvent: jest.fn(),
+}))
+
+const mockCaptureTeamEvent = captureTeamEvent as jest.Mock
 
 describe('TeamManager()', () => {
     let hub: Hub
@@ -260,6 +267,83 @@ describe('TeamManager()', () => {
             ])
             const result = await teamManager.hasAvailableFeature(teamId, 'data_pipelines')
             expect(result).toBe(true)
+        })
+    })
+
+    describe('setTeamIngestedEvent()', () => {
+        const newTeamToken = 'token-for-a-team-with-no-events-yet'
+        let newTeam: Team
+
+        const readIngestedEvent = async (id: Team['id']): Promise<boolean> => {
+            const result = await postgres.query<{ ingested_event: boolean }>(
+                PostgresUse.COMMON_READ,
+                'SELECT ingested_event FROM posthog_team WHERE id = $1',
+                [id],
+                'test-read-ingested-event'
+            )
+            return result.rows[0].ingested_event
+        }
+
+        beforeEach(async () => {
+            await createTeam(postgres, organizationId, newTeamToken, { ingested_event: false })
+            const loaded = await teamManager.getTeamByToken(newTeamToken)
+            expect(loaded?.ingested_event).toBe(false)
+            newTeam = loaded as Team
+        })
+
+        it('flips the flag and captures the first event for each org member', async () => {
+            await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
+
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
+            expect(mockCaptureTeamEvent).toHaveBeenCalledWith(
+                newTeam,
+                'first team event ingested',
+                expect.objectContaining({ sdk: 'web' }),
+                expect.any(String)
+            )
+        })
+
+        it('does nothing on a repeat call through a stale team object', async () => {
+            await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
+            mockCaptureTeamEvent.mockClear()
+
+            // `newTeam` still reads ingested_event=false, which is the stale-cache case exactly.
+            await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
+
+            expect(mockCaptureTeamEvent).not.toHaveBeenCalled()
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+        })
+
+        it('captures exactly once when two workers race on the same new team', async () => {
+            await Promise.all([
+                teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' }),
+                teamManager.setTeamIngestedEvent({ ...newTeam }, { $lib: 'web' }),
+            ])
+
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+        })
+
+        it('refreshes the token cache entry so the next lookup sees the flag', async () => {
+            await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
+            fetchTeamsSpy.mockClear()
+
+            // Ingestion only ever looks teams up by token, so the token entry is the one that has
+            // to be invalidated. `Date.now` is frozen here, so nothing else can expire it.
+            const reloaded = await teamManager.getTeamByToken(newTeamToken)
+
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+            expect(reloaded?.ingested_event).toBe(true)
+        })
+
+        it('issues no query at all for a team already flagged as ingested', async () => {
+            const querySpy = jest.spyOn(postgres, 'query')
+
+            await teamManager.setTeamIngestedEvent({ ...newTeam, ingested_event: true }, { $lib: 'web' })
+
+            expect(querySpy).not.toHaveBeenCalled()
+            expect(mockCaptureTeamEvent).not.toHaveBeenCalled()
         })
     })
 })

@@ -46,6 +46,28 @@ type InboxSignalsFilterStore = InboxSignalsFilterState &
   InboxSignalsFilterActions;
 
 /**
+ * Whether a filter that can hide reports is active. Sort only reorders the
+ * list, so it does not count. This is the single definition of "filtered" used
+ * by the empty states and the filter bar.
+ *
+ * `includePrFilter` defaults to true. Surfaces that neither apply nor expose the
+ * PR filter (the legacy Reports and Pull requests tabs) pass false, so a stored
+ * PR filter they ignore does not make their empty state read as "filtered".
+ */
+export function hasActiveInboxFilters(
+  state: InboxSignalsFilterState,
+  options?: { includePrFilter?: boolean },
+): boolean {
+  const includePrFilter = options?.includePrFilter ?? true;
+  return (
+    state.searchQuery.trim().length > 0 ||
+    state.sourceProductFilter.length > 0 ||
+    state.priorityFilter.length > 0 ||
+    (includePrFilter && state.prFilter !== "all")
+  );
+}
+
+/**
  * v2 dropped per-status and per-reviewer filter UI; surviving consumers are sort,
  * search, source-product, and priority. Bumping the persist version drops the
  * old `statusFilter` / `suggestedReviewerFilter` / `hasInitializedSuggestedReviewerFilter`
