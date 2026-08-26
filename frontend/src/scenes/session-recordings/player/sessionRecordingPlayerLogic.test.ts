@@ -18,6 +18,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
+import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -27,12 +28,7 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import {
-    findNewEvents,
-    findSegmentForTimestamp,
-    isUsableHeatmapUrl,
-    stripRrwebScriptShims,
-} from './sessionRecordingPlayerLogic'
+import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'

@@ -59,6 +59,7 @@ import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analy
 import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
+    isUsableHeatmapUrl,
     persistReplayIframeData,
 } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
@@ -250,13 +251,6 @@ function rejectHeatmapSnapshot(reason: keyof typeof SNAPSHOT_REJECTION_PROBLEM, 
     lemonToast.error(
         `${SNAPSHOT_REJECTION_PROBLEM[reason]} Try a different moment, or create a heatmap from the page URL instead.`
     )
-}
-
-// Mobile snapshots with no captured href resolve to the literal 'unknown', which the heatmap query
-// cannot match, so treat it and an empty URL as unusable.
-export function isUsableHeatmapUrl(url: string | undefined): url is string {
-    const trimmed = url?.trim()
-    return !!trimmed && trimmed !== 'unknown'
 }
 
 /**
@@ -3139,7 +3133,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const url = values.currentURL
+            const url = values.currentURL?.trim()
             if (!isUsableHeatmapUrl(url)) {
                 rejectHeatmapSnapshot('no_url', rawIframeHtml.length)
                 return

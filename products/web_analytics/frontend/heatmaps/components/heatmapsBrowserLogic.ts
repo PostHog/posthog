@@ -42,6 +42,7 @@ import type { HeatmapPreflightResponseApi } from 'products/web_analytics/fronten
 import {
     ReplayIframeData,
     getStoredRecordingBackground,
+    isUsableHeatmapUrl,
     removeReplayIframeDataFromLocalStorage,
 } from '../replayIframeData'
 
@@ -499,7 +500,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             false,
             {
                 setReplayIframeData: (_, { replayIframeData }) =>
-                    !!replayIframeData?.url?.trim().length && !!replayIframeData?.html.trim().length,
+                    isUsableHeatmapUrl(replayIframeData?.url) && !!replayIframeData?.html.trim().length,
             },
         ],
         replayIframeData: [
@@ -662,7 +663,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
         },
         setReplayIframeData: ({ replayIframeData }) => {
-            if (replayIframeData && replayIframeData.url) {
+            if (isUsableHeatmapUrl(replayIframeData?.url)) {
                 actions.setHref(replayIframeData.url)
                 // Auto-detect match type for replay data URLs too
                 const isPattern = isUrlPattern(replayIframeData.url)
@@ -708,6 +709,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // No page URL and no recording snapshot: clear the stale href so a previous page's
                 // heatmap does not repaint over the page now in the frame.
                 actions.setHref('')
+                actions.setHrefMatchType('exact')
             }
 
             actions.loadHeatmap()
