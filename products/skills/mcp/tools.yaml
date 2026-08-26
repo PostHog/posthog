@@ -33,6 +33,9 @@ tools:
     llm-skills-name-publish-community-create:
         operation: llm_skills_name_publish_community_create
         enabled: false
+    llm-skills-sandbox-bundle-retrieve:
+        operation: llm_skills_sandbox_bundle_retrieve
+        enabled: false
     skill-archive:
         operation: llm_skills_name_archive_create
         enabled: true

@@ -29,13 +29,13 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes
+from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, load_skill_export
+from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_sandbox_skill_bundle, load_skill_export
 from ..marketplace.credentials import (
     build_codex_install_command,
     build_install_command,
@@ -116,6 +116,9 @@ logger = structlog.get_logger(__name__)
 # Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
+
+
+SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
 
 
 def _file_extension(path: str) -> str:
@@ -723,6 +726,39 @@ class LLMSkillViewSet(
         zip_bytes = build_skill_zip(export)
         response = HttpResponse(zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{skill.name}.zip"'
+        return response
+
+    @extend_schema(responses={(200, "application/zip"): OpenApiTypes.BINARY})
+    @action(methods=["GET"], detail=False, url_path="sandbox_bundle", required_scopes=["llm_skill:read"])
+    @llma_track_latency("llma_skills_sandbox_bundle")
+    @monitor(feature=None, endpoint="llma_skills_sandbox_bundle", method="GET")
+    def sandbox_bundle(self, request: Request, **kwargs) -> Response | HttpResponse:
+        """One zip of the requesting user's store skills, for a sandbox to unpack into its skill dirs."""
+        user = cast(User, request.user)
+        flag_value = posthog_feature_flag_value(
+            SANDBOX_SKILLS_FEATURE_FLAG,
+            user.distinct_id or str(user.uuid),
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+        )
+        # None means the flag service did not answer. A sandbox treats 404 as "not enabled", so
+        # do not hand it that on an outage; 503 lets the caller tell the two apart.
+        if flag_value is None:
+            return Response(
+                {"detail": "Feature flag evaluation is unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        # A plain 404 Response, not NotFound: @monitor counts raised exceptions as endpoint errors,
+        # and every sandbox in a non-flagged project hits this path once per run.
+        if not flag_value:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        bundle = build_sandbox_skill_bundle(self.team, user)
+        response = HttpResponse(bundle.zip_bytes, content_type="application/zip")
+        response["Content-Disposition"] = 'attachment; filename="skills-sandbox-bundle.zip"'
+        # Counts only: names are unbounded and would blow past proxy header limits for heavy users.
+        response["X-Skills-Included"] = str(len(bundle.included))
+        response["X-Skills-Dropped"] = str(len(bundle.dropped))
+        response["X-Skills-Skipped"] = str(len(bundle.skipped))
         return response
 
     @extend_schema(request=LLMSkillImportSerializer, responses={201: LLMSkillSerializer})

@@ -23,7 +23,7 @@ from posthog.models.utils import hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 
 from ...api.skill_serializers import validate_skill_file_path
-from ...api.skill_services import archive_skill
+from ...api.skill_services import archive_skill, set_skill_owners
 from ...marketplace import adapters
 from ...marketplace.adapters import build_team_marketplace_tree
 from ...marketplace.credentials import issue_marketplace_credential
@@ -153,6 +153,129 @@ class TestSkillZipExport(APIBaseTest):
         response = self.client.get(self._url("too-long"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["problems"]
+
+
+SANDBOX_FLAG = "posthog.permissions.posthoganalytics.feature_enabled"
+
+
+class TestSkillSandboxBundle(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/llm_skills/sandbox_bundle"
+
+    def _create_skill(self, name: str, *, created_by: User | None = None, **overrides) -> LLMSkill:
+        fields = {
+            "team": self.team,
+            "name": name,
+            "description": f"{name} description.",
+            "body": f"# {name}\n",
+            "version": 1,
+            "is_latest": True,
+            "created_by": created_by or self.user,
+            **overrides,
+        }
+        return LLMSkill.objects.create(**fields)
+
+    def _fetch(self, *, flag: bool | None = True, **headers):
+        with patch(SANDBOX_FLAG, return_value=flag):
+            return self.client.get(self._url(), **headers)
+
+    @staticmethod
+    def _skill_dirs(response) -> set[str]:
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            return {name.split("/", 1)[0] for name in archive.namelist()}
+
+    def test_flag_off_is_404(self):
+        self._create_skill("mine")
+        assert self._fetch(flag=False).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_flag_service_unavailable_is_503_not_404(self):
+        self._create_skill("mine")
+        assert self._fetch(flag=None).status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_personal_api_key_with_read_scope_gets_the_bundle(self):
+        self._create_skill("mine")
+        self.client.logout()
+        _mint_pak(self.user, scopes=["llm_skill:read"])
+
+        response = self._fetch(HTTP_AUTHORIZATION=f"Bearer {_PAK_TOKEN}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self._skill_dirs(response) == {"mine"}
+
+    def test_bundle_contains_only_skills_the_user_created_or_owns(self):
+        self._create_skill("mine")
+        LLMSkillFile.objects.create(skill=self._create_skill("with-file"), path="scripts/run.py", content="print(1)\n")
+        self._create_skill("owned", created_by=self.other_user)
+        set_skill_owners(self.team, "owned", [self.user])
+        self._create_skill("someone-elses", created_by=self.other_user)
+        self._create_skill("signals-scout-x", category="scout")
+        self._create_skill("archived", deleted=True)
+        self._create_skill("old-version", is_latest=False)
+        # The latest row carries the last editor; the creator of version 1 still gets the skill.
+        self._create_skill("edited-by-other", is_latest=False)
+        self._create_skill("edited-by-other", version=2, created_by=self.other_user)
+        self._create_skill("created-by-other-edited-by-me", created_by=self.other_user, is_latest=False)
+        self._create_skill("created-by-other-edited-by-me", version=2)
+
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response["Content-Type"] == "application/zip"
+        assert response["X-Skills-Included"] == "4"
+        assert response["X-Skills-Dropped"] == "0"
+        assert response["X-Skills-Skipped"] == "0"
+        assert self._skill_dirs(response) == {"mine", "with-file", "owned", "edited-by-other"}
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert "with-file/scripts/run.py" in archive.namelist()
+            assert "with-file/agents/openai.yaml" in archive.namelist()
+            assert "name: mine" in archive.read("mine/SKILL.md").decode()
+
+    def test_over_cap_keeps_newest_and_drops_the_rest(self):
+        base = timezone.now()
+        for index, name in enumerate(["oldest", "middle", "newest"]):
+            skill = self._create_skill(name)
+            LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
+
+        with patch.object(adapters, "MAX_SANDBOX_BUNDLE_SKILLS", 2):
+            response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._skill_dirs(response) == {"newest", "middle"}
+        assert response["X-Skills-Dropped"] == "1"
+
+    def test_byte_cap_stops_at_the_first_skill_that_does_not_fit(self):
+        base = timezone.now()
+        for index, (name, body) in enumerate([("older-small", "x"), ("huge", "x" * 10_000), ("newest-small", "x")]):
+            skill = self._create_skill(name, body=body)
+            LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
+
+        with patch.object(adapters, "MAX_SANDBOX_BUNDLE_BYTES", 5_000):
+            response = self._fetch()
+
+        assert self._skill_dirs(response) == {"newest-small"}
+        assert response["X-Skills-Dropped"] == "2"
+
+    def test_spec_invalid_skill_is_skipped_not_fatal(self):
+        self._create_skill("fine")
+        self._create_skill("too-long", description="x" * 1025)
+
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._skill_dirs(response) == {"fine"}
+        assert response["X-Skills-Skipped"] == "1"
+        assert response["X-Skills-Dropped"] == "0"
+
+    def test_no_skills_is_an_empty_zip(self):
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response["X-Skills-Included"] == "0"
+        assert self._skill_dirs(response) == set()
 
 
 class TestSkillMarketplaceGit(APIBaseTest):

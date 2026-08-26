@@ -7,17 +7,28 @@ serialization and git synthesis stay unit-testable without booting the app.
 from typing import Any
 
 from django.core.cache import cache
-from django.db.models import Max
+from django.db.models import Max, Q
 
 import structlog
 from rest_framework import serializers
 
-from posthog.models import Team
+from posthog.dataclasses import frozen
+from posthog.models import Team, User
 
 from ..api.skill_serializers import validate_skill_file_path
+from ..api.skill_services import skill_names_owned_by
 from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
-from .packaging import SkillExport, SkillFileExport, build_marketplace_tree, compute_plugin_version
+from .packaging import (
+    SkillExport,
+    SkillFileExport,
+    build_marketplace_tree,
+    build_skill_tree,
+    build_skills_bundle_zip,
+    compute_plugin_version,
+    file_tree_bytes,
+    validate_for_export,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +54,11 @@ _MARKETPLACE_VERSION_CACHE_TTL_SECONDS = 15
 _MAX_MARKETPLACE_TREE_BYTES = 64_000_000
 # Don't pickle a very large synthesized repo into the shared cache — serve it uncached instead.
 _MAX_CACHEABLE_PACKFILE_BYTES = 16_000_000
+
+# A sandbox bundle is fetched once per run and unpacked into the harness's skill directories, so it
+# is bounded by what a coding agent can usefully load, not by what the team owns.
+MAX_SANDBOX_BUNDLE_SKILLS = 20
+MAX_SANDBOX_BUNDLE_BYTES = 5_000_000
 
 
 def skill_to_export(skill: LLMSkill, files: list[LLMSkillFile]) -> SkillExport:
@@ -184,3 +200,69 @@ def _team_plugin_version(team: Team) -> str:
     # within the same second still produce distinct versions and clients don't miss an update.
     latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
     return compute_plugin_version(int(latest.timestamp() * 1000)) if latest is not None else "1.0.0"
+
+
+@frozen
+class SandboxSkillBundle:
+    zip_bytes: bytes
+    included: list[str]
+    dropped: list[str]
+    skipped: list[str]
+
+
+def build_sandbox_skill_bundle(team: Team, user: User) -> SandboxSkillBundle:
+    """One zip of the skills a user created or owns, for unpacking into a sandbox's skill dirs.
+
+    Newest first. The walk stops at the first skill that would cross the count or byte cap; every
+    skill after it is ``dropped`` and only its name is read. Skills that fail the spec check are
+    ``skipped`` and do not count. Scouts are excluded because the scout harness loads its own skill.
+    """
+    # Creation seeds an owner row, but skills that predate owners only carry ``created_by``. The
+    # version 1 row keeps the original creator; later versions are stamped with whoever edited them.
+    created_names = LLMSkill.objects.filter(team=team, deleted=False, version=1, created_by=user).values("name")
+    skills = list(
+        LLMSkill.objects.filter(team=team, deleted=False, is_latest=True)
+        .exclude(category="scout")
+        .filter(Q(name__in=created_names) | Q(name__in=skill_names_owned_by(team, user.id)))
+        .order_by("-updated_at", "name")
+    )
+
+    trees: dict[str, FileTree] = {}
+    dropped: list[str] = []
+    skipped: list[str] = []
+    total_bytes = 0
+    capped = False
+    for skill in skills:
+        if capped:
+            dropped.append(skill.name)
+            continue
+        export = load_skill_export(skill)
+        if validate_for_export(export):
+            skipped.append(skill.name)
+            continue
+        tree = build_skill_tree(export)
+        tree_bytes = file_tree_bytes(tree)
+        if len(trees) >= MAX_SANDBOX_BUNDLE_SKILLS or total_bytes + tree_bytes > MAX_SANDBOX_BUNDLE_BYTES:
+            capped = True
+            dropped.append(skill.name)
+            continue
+        total_bytes += tree_bytes
+        trees[skill.name] = tree
+
+    if skipped:
+        logger.warning("skills_sandbox_bundle_skipped_invalid", team_id=team.id, user_id=user.id, skills=skipped)
+    if dropped:
+        logger.warning(
+            "skills_sandbox_bundle_dropped_over_cap",
+            team_id=team.id,
+            user_id=user.id,
+            skills=dropped,
+            included_bytes=total_bytes,
+        )
+
+    return SandboxSkillBundle(
+        zip_bytes=build_skills_bundle_zip(trees),
+        included=list(trees),
+        dropped=dropped,
+        skipped=skipped,
+    )

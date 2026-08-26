@@ -24,6 +24,14 @@ unit-testable against the real `git` binary without booting the app
 
 - **Zip export** — `GET /api/projects/:team/llm_skills/name/:name/export` → `application/zip`,
   one spec-compliant skill directory nested under `:name/` (web-authenticated, `llm_skill:read`).
+- **Sandbox bundle** — `GET /api/projects/:team/llm_skills/sandbox_bundle` → `application/zip`,
+  every skill the requesting user created or owns (latest, not archived, not `scout`), each nested
+  under `<name>/` so the zip unpacks straight into `~/.claude/skills` / `~/.agents/skills`. Newest
+  first, capped at 20 skills and 5 MB uncompressed; the walk stops at the first skill that would
+  cross a cap. `X-Skills-Included`, `X-Skills-Dropped` (over the cap) and `X-Skills-Skipped`
+  (failed the spec check) carry counts; names are logged. Behind the `skills-store-in-sandbox` flag
+  (off → 404, flag service unavailable → 503). `llm_skill:read`, which the sandbox OAuth token
+  already carries.
 - **Zip import** — `POST /api/projects/:team/llm_skills/import` (multipart `file` field, a spec
   skill `.zip`) → creates the skill (web-authenticated, `llm_skill:write`). The inverse of
   export: `parse_skill_zip` reads `SKILL.md` frontmatter + bundled files. Round-trips with export.

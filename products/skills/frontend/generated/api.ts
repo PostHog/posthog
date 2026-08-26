@@ -501,3 +501,17 @@ export const llmSkillsResolveNameRetrieve = async (
         method: 'GET',
     })
 }
+
+export const getLlmSkillsSandboxBundleRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_skills/sandbox_bundle/`
+}
+
+/**
+ * One zip of the requesting user's store skills, for a sandbox to unpack into its skill dirs.
+ */
+export const llmSkillsSandboxBundleRetrieve = async (projectId: string, options?: RequestInit): Promise<Blob> => {
+    return apiMutator<Blob>(getLlmSkillsSandboxBundleRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}

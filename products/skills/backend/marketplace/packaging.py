@@ -156,6 +156,24 @@ def build_skill_zip(skill: SkillExport) -> bytes:
     return buffer.getvalue()
 
 
+def build_skills_bundle_zip(trees: dict[str, FileTree]) -> bytes:
+    """Many rendered skill trees in one zip, each nested under ``<name>/`` like ``build_skill_zip``.
+
+    Unpacking the result into a skills directory (``~/.claude/skills``, ``~/.agents/skills``)
+    yields one spec-compliant directory per skill, so a harness discovers them natively.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, tree in trees.items():
+            for rel_path, content in tree.items():
+                archive.writestr(f"{name}/{rel_path}", content)
+    return buffer.getvalue()
+
+
+def file_tree_bytes(tree: FileTree) -> int:
+    return sum(len(content.encode("utf-8")) for content in tree.values())
+
+
 def parse_skill_md(content: str) -> dict:
     """Parse a SKILL.md string into spec fields (inverse of ``render_skill_md``).
 
