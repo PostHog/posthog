@@ -5130,7 +5130,7 @@
         }
     },
     "file-download-batch-exports-create": {
-        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Start file download export",
@@ -9282,7 +9282,7 @@
         }
     },
     "scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.",
+        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it. Optionally pass `expires_at` when the memory is only true for a while (a cooldown, a window you're watching) so it retires itself instead of waiting for a `scout-scratchpad-forget` you may never make. Each write carries the whole entry, so omitting `expires_at` on a later write clears an expiry set earlier.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Remember a scratchpad entry",
@@ -9296,7 +9296,7 @@
         }
     },
     "scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.",
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the scout scratchpad",
@@ -10168,7 +10168,7 @@
         }
     },
     "subscriptions-deliveries-list": {
-        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown) and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report.",
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown), ai_report_prompt (the prompt it was generated from), and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report and its prompt.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "List subscription deliveries",

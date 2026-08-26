@@ -23,6 +23,7 @@ from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
+from products.access_control.backend.models.role import Role
 from products.actions.backend.models.action import Action
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -58,8 +59,6 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-
-from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models.account import Account
