@@ -18,8 +18,10 @@ from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
+from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_client, is_interactive_desktop_grant
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
+from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS
 from posthog.utils import get_instance_realm
 
 if TYPE_CHECKING:
@@ -274,11 +276,26 @@ def report_user_organization_membership_level_changed(
 
 
 class EventSource(StrEnum):
+    """Which PostHog surface a request came from.
+
+    `mcp` means a third-party agent. A PostHog surface that reaches the backend through the
+    MCP server reports itself instead, so "MCP adoption" measures other people's agents.
+    """
+
     WEB = "web"
     API = "api"
     CLI = "cli"
     POSTHOG_AI = "posthog_ai"
+    # Headless coding agents: the cloud agent and the local agent. Distinct from DESKTOP and
+    # MOBILE, which are apps a person is sitting in front of.
     POSTHOG_CODE = "posthog_code"
+    # Signals: scouts, report implementations, and scout chat. Every one of them mints under the
+    # Signals OAuth application, which is what tells them apart from the coding agents they
+    # otherwise look identical to.
+    SELF_DRIVING = "self_driving"
+    DESKTOP = "desktop"
+    MOBILE = "mobile"
+    SLACK = "slack"
     TERRAFORM = "terraform"
     MCP = "mcp"
     WIZARD = "wizard"
@@ -292,8 +309,41 @@ class EventSource(StrEnum):
 # the harness, not self-reported by the model). Callers use this to hold agent writes to a
 # review-then-apply path; the web app has its own confirm UI, and headless callers (raw API keys,
 # Terraform) apply in one call.
+#
+# DESKTOP, MOBILE and SLACK belong here for the same reason as the rest: each is a managed channel
+# an LLM drives. Leaving one out drops the review step for that surface with nothing else to
+# signal that it happened.
 AGENT_EVENT_SOURCES = frozenset(
-    {EventSource.MCP, EventSource.POSTHOG_CODE, EventSource.WIZARD, EventSource.CLI, EventSource.POSTHOG_AI}
+    {
+        EventSource.MCP,
+        EventSource.POSTHOG_CODE,
+        EventSource.SELF_DRIVING,
+        EventSource.DESKTOP,
+        EventSource.MOBILE,
+        EventSource.SLACK,
+        EventSource.WIZARD,
+        EventSource.CLI,
+        EventSource.POSTHOG_AI,
+    }
+)
+
+# Surfaces that reach the backend through the MCP server. Code asking "did this arrive over MCP"
+# must test membership here rather than comparing against EventSource.MCP, which covers third-party
+# agents only and so leaves out every first-party surface. POSTHOG_CODE, DESKTOP and MOBILE are
+# included even though each also calls REST directly, because the overwhelming majority of their
+# traffic arrives over MCP and the direct calls come from the same clients.
+#
+# Only meaningful after DRF authentication, because desktop and Slack resolve from the OAuth grant.
+# Anything reading a source produced before that, such as the request middleware, sees plain MCP.
+MCP_TRANSPORT_EVENT_SOURCES = frozenset(
+    {
+        EventSource.MCP,
+        EventSource.DESKTOP,
+        EventSource.MOBILE,
+        EventSource.SLACK,
+        EventSource.POSTHOG_CODE,
+        EventSource.SELF_DRIVING,
+    }
 )
 
 
@@ -327,14 +377,70 @@ AnalyticsProps = TypedDict(
 
 _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
+# The Electron app's own user-agent, for the calls it makes straight to the REST API. Matched
+# before _POSTHOG_CODE_UA_RE, which would otherwise swallow it along with the headless agents.
+_DESKTOP_UA_TOKEN = "posthog/desktop.hog.dev"
+
+# The companion mobile app, matched ahead of _POSTHOG_CODE_UA_RE for the same reason. It
+# authenticates against the Desktop OAuth applications, so a mobile request that reached MCP
+# without declaring a consumer would resolve as DESKTOP. Nothing routes mobile through the MCP
+# server today, so the user-agent is the only signal that has to carry this surface.
+_MOBILE_UA_TOKEN = "posthog/mobile.hog.dev"
+
+# The MCP server's catch-all consumer, declared by every first-party caller that is neither Slack
+# nor PostHog AI: the cloud coding agent, signals scouts, signal_report, experiments, image_builder,
+# and the local agent PostHog Desktop hosts. That local agent forwards the user's own consented
+# Desktop token, so the OAuth grant cannot separate it from the app it runs inside. The declaration
+# is the only signal that can, which is why it outranks the grant below. The agents are not
+# separable from each other by header alone, so they share POSTHOG_CODE.
+_POSTHOG_CODE_MCP_CONSUMER = "posthog-code"
+
+# Surfaces a caller can declare in `X-Posthog-Mcp-Consumer` when it wraps the MCP server.
+# Honored only when a first-party OAuth application backs the request: the header is set by the
+# caller, so without that gate a third party could declare itself as one of PostHog's own.
+_FIRST_PARTY_MCP_CONSUMER_TO_SOURCE = {
+    "slack": EventSource.SLACK,
+    "posthog_ai": EventSource.POSTHOG_AI,
+    _POSTHOG_CODE_MCP_CONSUMER: EventSource.POSTHOG_CODE,
+}
+
 # The wizard appends `program: <id>` to its user-agent so the backend can tell the
 # self-driving onboarding program apart from other wizard programs (they all share the
 # `posthog/wizard` UA). Used to attribute self-driving-created sources distinctly.
 _WIZARD_SELF_DRIVING_PROGRAM_RE = re.compile(r"program:\s*self-driving")
 
 
+def _resolve_mcp_surface(request) -> EventSource:
+    """Which surface wrapped the MCP server, for a request the MCP server proxied.
+
+    Ends at MCP, meaning a third-party agent, unless a first-party OAuth application vouches for
+    the request, which is the only signal here a caller can't set for itself.
+
+    A declared consumer outranks the grant, because the agents PostHog Desktop hosts authenticate
+    with the same interactive token the app itself uses. Only a request that declares nothing is
+    resolved from the grant.
+    """
+    if not is_first_party_oauth_client(request):
+        return EventSource.MCP
+    consumer = request.headers.get("X-Posthog-Mcp-Consumer")
+    if consumer in (None, "") and is_interactive_desktop_grant(request):
+        return EventSource.DESKTOP
+    return _FIRST_PARTY_MCP_CONSUMER_TO_SOURCE.get(consumer, EventSource.MCP)
+
+
 def get_event_source(request) -> EventSource:
     """Determine the source of an API request for analytics."""
+    # A token minted against the PostHog AI OAuth app is authoritative — the auth
+    # credential can't be spoofed the way UA tokens and X-PostHog-Client can, so it
+    # wins over every header-based branch below.
+    client_id = get_oauth_client_id(request)
+    if client_id in POSTHOG_AI_OAUTH_APP_CLIENT_IDS:
+        return EventSource.POSTHOG_AI
+    # Same reasoning, and it has to sit above the user-agent branches for the same reason: a
+    # Signals run is a sandbox coding agent, so it carries the posthog-code user-agent and
+    # declares the posthog-code MCP consumer. Only the application it minted under separates it.
+    if client_id in SIGNALS_OAUTH_APP_CLIENT_IDS:
+        return EventSource.SELF_DRIVING
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""
@@ -345,12 +451,20 @@ def get_event_source(request) -> EventSource:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
         return EventSource.WIZARD
+    if _DESKTOP_UA_TOKEN in user_agent:
+        return EventSource.DESKTOP
+    if _MOBILE_UA_TOKEN in user_agent:
+        return EventSource.MOBILE
     if _POSTHOG_CODE_UA_RE.search(user_agent):
         return EventSource.POSTHOG_CODE
+    # The CLI is the one consumer honored without a first-party OAuth application behind it:
+    # it authenticates with a personal API key, so there is no application to vouch for it.
+    # Mis-declaring as the CLI only mislabels analytics — `cli` is already in
+    # AGENT_EVENT_SOURCES, so it buys no extra write latitude.
     if user_agent == "posthog-cli" or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli":
         return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
-        return EventSource.MCP
+        return _resolve_mcp_surface(request)
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie
     # which is available after Django's AuthenticationMiddleware runs.

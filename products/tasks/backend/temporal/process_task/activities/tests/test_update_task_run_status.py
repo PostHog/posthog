@@ -8,6 +8,7 @@ from temporalio.testing import ActivityEnvironment
 from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
+    TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
     update_task_run_status,
@@ -117,6 +118,44 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
+        "state,timed_out,expected_reason",
+        [
+            ({"prewarmed": True, "await_user_message": True}, True, "idle_timeout"),
+            ({"prewarmed": True, "await_user_message": True}, False, "other"),
+            # Activation clears `await_user_message`, so this warm was used. Counting it as a miss
+            # would understate the warm hit rate the rollout decision reads.
+            ({"prewarmed": True}, True, None),
+            # Mid-activation: the marker is set before the first message is signaled and
+            # `await_user_message` is cleared only after, so a run that terminalizes in between still
+            # carries both older markers while already counted as activated.
+            ({"prewarmed": True, "await_user_message": True, "warm_activated": True}, True, None),
+            # Never warmed at all — a plain run terminalizing is not a warm miss.
+            ({}, True, None),
+        ],
+    )
+    def test_counts_a_warm_run_that_terminalized_unused(
+        self, activity_environment: ActivityEnvironment, test_task_run: TaskRun, state, timed_out, expected_reason
+    ) -> None:
+        test_task_run.state = state
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        with patch("products.tasks.backend.metrics.observe_prewarmed_unused") as m_observe:
+            async_to_sync(_run_update_task_run_status)(
+                activity_environment,
+                UpdateTaskRunStatusInput(
+                    run_id=str(test_task_run.id),
+                    status=TaskRun.Status.COMPLETED,
+                    timed_out_inactivity=timed_out,
+                ),
+            )
+
+        if expected_reason is None:
+            m_observe.assert_not_called()
+        else:
+            assert m_observe.call_args.kwargs["reason"] == expected_reason
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
         "marker",
         [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
     )
@@ -191,10 +230,57 @@ class TestUpdateTaskRunStatusActivity:
         assert props["usage_turns"] == 3
         assert props["rtk_enabled"] is True
         assert props["run_environment"] == test_task_run.environment
+        assert props["termination_reason"] is None
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["rtk_enabled"] is True
         assert mock_record.call_args.kwargs["runtime_adapter"] == "codex"
         assert mock_record.call_args.kwargs["status"] == status
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status,timed_out_inactivity,timeout_marker,expected_event,expected_reason",
+        [
+            (TaskRun.Status.COMPLETED, True, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
+            (
+                TaskRun.Status.FAILED,
+                False,
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                "task_run_failed",
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+            ),
+        ],
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_terminal_analytics_carries_termination_reason(
+        self,
+        mock_capture,
+        activity_environment,
+        test_task_run,
+        status,
+        timed_out_inactivity,
+        timeout_marker,
+        expected_event,
+        expected_reason,
+    ):
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=status,
+            timed_out_inactivity=timed_out_inactivity,
+            timeout_marker=timeout_marker,
+            agent_active_at_termination=False,
+            end_of_turn_received=True,
+            last_agent_heartbeat_at="2026-08-19T10:00:00+00:00",
+            seconds_since_last_agent_heartbeat=1800.0,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
+        properties = captured[0].kwargs["properties"]
+        assert properties["termination_reason"] == expected_reason
+        assert properties["agent_active_at_termination"] is False
+        assert properties["end_of_turn_received"] is True
+        assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"
+        assert properties["seconds_since_last_agent_heartbeat"] == 1800.0
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(

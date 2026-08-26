@@ -14,6 +14,7 @@ import {
     SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
+import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { createProduceCollectedImagesStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-images-step'
 import { createProduceCollectedUrlsStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-urls-step'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
@@ -43,11 +44,12 @@ export interface MlMirrorImageScrubProducer {
 export interface MlMirrorUrlFetchProducer {
     outputs: IngestionOutputs<MlImageFetchOutput | MlImageScrubOutput>
     producedRefCacheMax: number
+    producedRefCacheWindowMs: number
+    crawlHistory?: Pick<CrawlHistoryStore, 'read'>
 }
 
 /**
- * Which collection lanes the anonymizer runs, and the key they derive their per-team ref prefix
- * from.
+ * Which collection lanes the anonymizer runs, and the key they derive their ref HMAC keys from.
  *
  * Separate from the two producer settings, because collecting and producing are separate
  * decisions. Collection alone measures. A produce puts original, unscrubbed URLs onto Kafka.
@@ -56,7 +58,7 @@ export interface MlMirrorUrlFetchProducer {
  * make that measurement impossible to take on its own.
  */
 export interface MlMirrorCollection {
-    /** The ML pseudonym HMAC key (also used by the block-metadata sink), for the per-team ref prefix. */
+    /** The ML pseudonym HMAC key, also used by the block-metadata sink. */
     pseudonymSecret: string | Buffer
     collectImages: boolean
     collectUrls: boolean
@@ -110,6 +112,8 @@ export function createMlMirrorReplayPipeline(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowMode,
                                         preservePartitionLocality: true,
+                                        // Mirrors replay, which never reads or writes persons.
+                                        pipelineWritesPersons: false,
                                     })
                                 )
                                 .pipe(createValidateSessionReplayHeadersStep())
@@ -188,10 +192,12 @@ export function createMlMirrorReplayPipeline(
                                                         : parsed
                                                     const withUrlsProduced = urlFetch
                                                         ? withImagesProduced.pipe(
-                                                              createProduceCollectedUrlsStep(
-                                                                  urlFetch.outputs,
-                                                                  urlFetch.producedRefCacheMax
-                                                              )
+                                                              createProduceCollectedUrlsStep(urlFetch.outputs, topHog, {
+                                                                  producedRefCacheMax: urlFetch.producedRefCacheMax,
+                                                                  producedRefCacheWindowMs:
+                                                                      urlFetch.producedRefCacheWindowMs,
+                                                                  crawlHistory: urlFetch.crawlHistory,
+                                                              })
                                                           )
                                                         : withImagesProduced
                                                     return withUrlsProduced.pipe(

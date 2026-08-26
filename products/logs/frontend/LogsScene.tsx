@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -25,7 +24,6 @@ import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/Lo
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 
-import { useOpenLogsSettingsPanel } from './hooks/useOpenLogsSettingsPanel'
 import { LogsAnomalies } from './LogsAnomalies'
 import { LOGS_SCENE_VIEWER_ID, LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
 
@@ -38,55 +36,10 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const useTabbedView = useFeatureFlag('LOGS_TABBED_VIEW')
-
     return (
         <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
-            {useTabbedView ? <LogsSceneTabbedContent /> : <LogsSceneContent />}
+            <LogsSceneTabbedContent />
         </SceneContent>
-    )
-}
-
-const LogsSceneContent = (): JSX.Element => {
-    const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
-    const openLogsSettings = useOpenLogsSettingsPanel()
-
-    return (
-        <>
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.Logs].name}
-                description={sceneConfigurations[Scene.Logs].description}
-                resourceType={{
-                    type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
-                }}
-                actions={
-                    <>
-                        {hasLogs && <LogsSceneFeedbackButton />}
-                        <LemonButton size="small" type="secondary" icon={<IconGear />} onClick={openLogsSettings}>
-                            Settings
-                        </LemonButton>
-                    </>
-                }
-            />
-            {teamHasLogsCheckFailed && (
-                <LemonBanner
-                    type="info"
-                    dismissKey="logs-setup-hint-banner"
-                    action={{
-                        to: 'https://posthog.com/docs/logs/',
-                        targetBlank: true,
-                        children: 'Setup guide',
-                    }}
-                >
-                    Unable to verify logs setup. If you haven't configured logging yet, check out our setup guide.
-                </LemonBanner>
-            )}
-            <LogsSetupPrompt>
-                <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
-                </div>
-            </LogsSetupPrompt>
-        </>
     )
 }
 
@@ -97,14 +50,13 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
     const showServicesV2 = useFeatureFlag('LOGS_SERVICES_VIEW_V2')
     const showServices = activeTab === 'services' && showServicesView
-    const showAlerting = useFeatureFlag('LOGS_ALERTING')
     const showTransformations = useFeatureFlag('LOGS_TRANSFORMATIONS')
     const showAnomalies = useFeatureFlag('LOGS_ANOMALIES')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
-        ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
+        { key: 'alerts', label: 'Alerts' },
         ...(showAnomalies ? [{ key: 'anomalies' as const, label: 'Anomalies' }] : []),
         { key: 'sql', label: 'SQL' },
         ...(showTransformations ? [{ key: 'transformations' as const, label: 'Transformations' }] : []),
@@ -161,7 +113,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     <LogsViewerModal />
                 </>
             )}
-            {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
+            {activeTab === 'alerts' && <LogsAlertingSection />}
             {activeTab === 'anomalies' && showAnomalies && <LogsAnomalies />}
             {activeTab === 'sql' && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}
             {activeTab === 'transformations' && showTransformations && <LogsTransformations />}

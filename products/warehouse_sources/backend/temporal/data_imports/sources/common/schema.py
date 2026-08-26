@@ -62,6 +62,24 @@ class SourceSchema:
     schema_metadata: dict[str, Any] | None = None
 
 
+def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
+    """Stable-sort candidate cursor fields so update-tracking columns come first.
+
+    Several surfaces default to the first candidate (the schema picker response, the sync
+    settings modal), so for sources with arbitrary user columns the leading candidate must
+    be one that advances on writes rather than whichever column comes first in the table
+    definition. Fields not in the preference list keep their original relative order.
+    """
+
+    def preference(field: IncrementalField) -> int:
+        name = (field.get("field") or "").lower()
+        if name in _INCREMENTAL_FIELD_PREFERENCE:
+            return _INCREMENTAL_FIELD_PREFERENCE.index(name)
+        return len(_INCREMENTAL_FIELD_PREFERENCE)
+
+    return sorted(incremental_fields, key=preference)
+
+
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
     """Pick the best incremental field for a table, preferring update-tracking columns."""
     candidates = [f for f in incremental_fields if f.get("field")]

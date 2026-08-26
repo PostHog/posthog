@@ -64,7 +64,7 @@ impl S3Client {
 
         let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&aws_config)
             .region(region)
-            .force_path_style(true); // Required for MinIO/localstack compatibility
+            .force_path_style(true); // Required for SeaweedFS compatibility
 
         if let Some(endpoint) = &config.endpoint {
             s3_config_builder = s3_config_builder.endpoint_url(endpoint);

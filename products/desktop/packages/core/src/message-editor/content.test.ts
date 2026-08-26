@@ -127,6 +127,73 @@ describe("xmlToContent", () => {
     ]);
   });
 
+  it.each([
+    ["insight", "9pQx3", '<insight id="9pQx3" />'],
+    [
+      "hogql",
+      "SELECT count() FROM events WHERE value < 3",
+      "<hogql>SELECT count() FROM events WHERE value &lt; 3</hogql>",
+    ],
+  ] as const)(
+    "serializes a %s object chip with its exact reference",
+    (objectKind, id, expected) => {
+      const content: EditorContent = {
+        segments: [
+          {
+            type: "chip",
+            chip: {
+              type: "posthog_object",
+              objectKind,
+              id,
+              label: "Referenced object",
+            },
+          },
+        ],
+      };
+
+      expect(contentToXml(content)).toBe(expected);
+    },
+  );
+
+  it("restores a hogql chip's exact query when parsing serialized content back", () => {
+    const query =
+      "SELECT count() FROM events WHERE value < 3 AND note = 'a & b'";
+    const serialized = contentToXml({
+      segments: [
+        {
+          type: "chip",
+          chip: {
+            type: "posthog_object",
+            objectKind: "hogql",
+            id: query,
+            label: "Referenced object",
+          },
+        },
+      ],
+    });
+
+    const { segments } = xmlToContent(serialized);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      type: "chip",
+      chip: { type: "posthog_object", objectKind: "hogql", id: query },
+    });
+  });
+
+  it("parses a dashboard tag into a PostHog object chip", () => {
+    expect(xmlToContent('<dashboard id="17" />').segments).toEqual([
+      {
+        type: "chip",
+        chip: {
+          type: "posthog_object",
+          objectKind: "dashboard",
+          id: "17",
+          label: "17",
+        },
+      },
+    ]);
+  });
+
   it("preserves surrounding text around chips", () => {
     const result = xmlToContent(
       'please review <file path="src/a.ts" /> and <file path="src/b.ts" />',

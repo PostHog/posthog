@@ -25,6 +25,9 @@ describe("resolveTaskContextMenuIntent", () => {
     expect(resolveTaskContextMenuIntent({ type: "stop" }, {})).toEqual({
       type: "stop",
     });
+    expect(resolveTaskContextMenuIntent({ type: "handoff" }, {})).toEqual({
+      type: "handoff",
+    });
     expect(resolveTaskContextMenuIntent({ type: "delete" }, {})).toEqual({
       type: "delete",
     });

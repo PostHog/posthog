@@ -60,6 +60,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "xor": HogQLFunctionMeta("xor", 2, None),
     "not": HogQLFunctionMeta("not", 1, 1, case_sensitive=False),
     # conditional
+    "_caseWithExpression": HogQLFunctionMeta("caseWithExpression", 4, None),
     "if": HogQLFunctionMeta("if", 3, 3, case_sensitive=False),
     "multiIf": HogQLFunctionMeta("multiIf", 3, None),
     "throwIf": HogQLFunctionMeta("throwIf", 2, 2),

@@ -49,7 +49,6 @@ export function CanvasAgentRequestDialog({
           <Button
             variant="primary"
             loading={loading}
-            disabled={loading}
             data-attr="canvas-agent-request-confirm"
             onClick={onConfirm}
           >

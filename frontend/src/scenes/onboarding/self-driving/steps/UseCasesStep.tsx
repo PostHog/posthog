@@ -1,5 +1,6 @@
 import { useActions } from 'kea'
 
+import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -12,10 +13,12 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
 
     return (
         <div className="flex flex-col gap-4 py-1">
+            {/* Use cases */}
             <div className="flex flex-col gap-3">
                 {ONBOARDING_USE_CASES.map((useCase) => {
                     const iconType = useCase.icon
                     const colorVar = `var(--color-product-${iconType.replace(/_/g, '-')}-light)`
+
                     return (
                         <button
                             key={useCase.key}
@@ -25,8 +28,6 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
                                 onContinue()
                             }}
                             className="OnboardingProductCard group flex items-center gap-4 p-4 rounded-lg border text-left cursor-pointer transition-all hover:shadow-sm"
-                            // Tailwind can't parameterize the product color, so the hover border
-                            // tint rides on a CSS variable the class below reads.
                             style={{ ['--goal-color' as string]: colorVar }}
                             data-attr={`self-driving-goal-${useCase.key}`}
                         >
@@ -38,14 +39,22 @@ export function UseCasesStep({ onContinue, onSkip }: { onContinue: () => void; o
                                     {iconForType(iconType)}
                                 </div>
                             </div>
+
                             <div className="flex-1 flex flex-col gap-1 min-w-0">
                                 <div className="font-semibold text-base">{useCase.title}</div>
                                 <div className="text-sm text-secondary text-balance">{useCase.description}</div>
+                            </div>
+
+                            {/* Pick button */}
+                            <div className="flex flex-row justify-center">
+                                <IconArrowRight className="text-xl" />
                             </div>
                         </button>
                     )
                 })}
             </div>
+
+            {/* Continue button */}
             <div className="flex justify-center">
                 <LemonButton
                     type="tertiary"

@@ -7,6 +7,7 @@ import psycopg
 import pyarrow as pa
 from psycopg import sql
 from psycopg.pq import TransactionStatus
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.r
     _build_query,
     _explain_query,
     _fetch_arrow_batches,
+    _is_transient_connection_drop_error,
     _libpq_rows_per_chunk,
     _stream_arrow_batches,
     _stream_rows_as_arrow_batches,
@@ -330,6 +332,72 @@ class TestGetPrimaryKeysForTable:
         cursor.fetchall.return_value = [("id",), ("email",)]
         assert impl.get_primary_keys_for_table(cursor, "public", "t") == ["id", "email"]
 
+    @pytest.mark.parametrize(
+        "table_type,expected_phrase",
+        [
+            ("view", "A view cannot have a primary key"),
+            ("materialized_view", "A materialized view cannot have a primary key"),
+        ],
+    )
+    def test_warns_that_a_relation_without_a_key_cannot_have_one(
+        self, impl, cursor, logger, table_type, expected_phrase
+    ):
+        # Neither relation can declare a PRIMARY KEY in Redshift, so the empty result is final —
+        # the message has to name the remedies rather than send the operator looking for a key.
+        cursor.fetchall.return_value = []
+
+        impl.get_primary_keys_for_table(cursor, "public", "t", logger, table_type)
+
+        warning = logger.warning.call_args.args[0]
+        assert expected_phrase in warning
+        assert "full table replication" in warning
+
+    def test_warns_that_a_table_declares_no_key_when_the_role_can_read_constraints(self, impl, cursor, logger):
+        # A key found elsewhere in the schema proves the role can read `table_constraints`, so this
+        # table's empty result is a real absence and the message can say so outright.
+        cursor.fetchall.return_value = []
+        cursor.execute.return_value = cursor
+        cursor.fetchone.return_value = (1,)
+
+        impl.get_primary_keys_for_table(cursor, "public", "t", logger, "table")
+
+        assert "No primary key is set on t" in logger.warning.call_args.args[0]
+
+    @pytest.mark.parametrize("probe_outcome", ["sees_nothing", "probe_fails"])
+    def test_does_not_claim_a_table_is_keyless_when_detection_is_undetermined(
+        self, impl, cursor, logger, probe_outcome
+    ):
+        # The reported bug: an unreadable key and an absent key both produce zero rows, and the
+        # message asserted the second. Asserting absence here sends the operator to set keys by
+        # hand for a condition they may not have.
+        cursor.fetchall.return_value = []
+        cursor.execute.return_value = cursor
+        cursor.fetchone.return_value = None
+        if probe_outcome == "probe_fails":
+            # Only the privilege probe is a LIMIT 1, so this fails it without counting calls.
+            def fail_the_probe(query, *args):
+                if "LIMIT 1" in query.as_string():
+                    raise Exception("permission denied")
+                return cursor
+
+            cursor.execute.side_effect = fail_the_probe
+
+        impl.get_primary_keys_for_table(cursor, "public", "t", logger, "table")
+
+        warning = logger.warning.call_args.args[0]
+        assert "Could not determine a primary key" in warning
+        assert "No primary key is set" not in warning
+
+    def test_orders_composite_key_columns_by_declared_position(self, impl, cursor):
+        # Without ORDER BY, Redshift returns the constraint's columns in arbitrary order and a
+        # composite key is assembled wrong, which silently corrupts incremental merge matching.
+        cursor.fetchall.return_value = [("a",), ("b",)]
+
+        impl.get_primary_keys_for_table(cursor, "public", "t")
+
+        assert "ORDER BY" in cursor.execute.call_args.args[0].as_string()
+        assert "kcu.ordinal_position" in cursor.execute.call_args.args[0].as_string()
+
 
 class TestGetTableMetadata:
     def test_builds_table_with_columns(self, impl, cursor):
@@ -350,9 +418,31 @@ class TestGetTableMetadata:
 
     def test_marks_view_when_is_view_true(self, impl, cursor):
         cursor.execute.return_value = cursor
-        cursor.fetchone.return_value = (True,)
+        # svv_mv_info probe first, then pg_views.
+        cursor.fetchone.side_effect = [(False,), (True,)]
         cursor.__iter__.return_value = iter([("id", "integer", "NO", None, None)])
         table = impl.get_table_metadata(cursor, "public", "myview")
+        assert table.type == "view"
+
+    def test_marks_materialized_view_when_svv_mv_info_matches(self, impl, cursor):
+        # Redshift has no `pg_matviews`, so the `pg_views` lookup alone reported every
+        # materialized view as a plain table.
+        cursor.execute.return_value = cursor
+        cursor.fetchone.side_effect = [(True,)]
+        cursor.__iter__.return_value = iter([("id", "integer", "NO", None, None)])
+
+        table = impl.get_table_metadata(cursor, "public", "daily_totals")
+
+        assert table.type == "materialized_view"
+
+    def test_falls_back_to_the_view_check_when_the_mv_probe_fails(self, impl, cursor):
+        # A role without access to `svv_mv_info` must still get a classified relation.
+        cursor.execute.side_effect = [Exception("permission denied for relation svv_mv_info"), cursor, cursor]
+        cursor.fetchone.return_value = (True,)
+        cursor.__iter__.return_value = iter([("id", "integer", "NO", None, None)])
+
+        table = impl.get_table_metadata(cursor, "public", "myview")
+
         assert table.type == "view"
 
     def test_populates_numeric_precision_and_scale_for_decimals(self, impl, cursor):
@@ -971,10 +1061,11 @@ class TestGetRowCounts:
         conn = MagicMock()
         cur = MagicMock()
         cur.__enter__.return_value = cur
-        # 1: SET statement_timeout, 2: svv_table_info, 3: pg_views, 4: UNION ALL view counts.
+        # 1: SET statement_timeout, 2: svv_table_info, 3: pg_views, 4: svv_mv_info, 5: UNION ALL counts.
         cur.fetchall.side_effect = [
             [("analytics", "events", 500)],  # svv_table_info (materialized tables)
             [("public", "events")],  # pg_views (views aren't in svv_table_info)
+            [],  # svv_mv_info
             [("public", "events", 42)],  # COUNT(*) per view
         ]
         conn.cursor.return_value = cur
@@ -983,6 +1074,37 @@ class TestGetRowCounts:
 
         # Same table name in two namespaces stays distinct; the view falls through to COUNT(*).
         assert result == {"analytics.events": 500, "public.events": 42}
+
+    def test_materialized_view_falls_through_to_count_query(self, impl):
+        # A materialized view is in neither `svv_table_info` (registered under an internal name)
+        # nor `pg_views`, so without the `svv_mv_info` probe it got no row count at all.
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.fetchall.side_effect = [
+            [],  # svv_table_info
+            [],  # pg_views
+            [("public", "daily_totals")],  # svv_mv_info
+            [("public", "daily_totals", 7)],  # COUNT(*)
+        ]
+        conn.cursor.return_value = cur
+
+        assert impl.get_row_counts(conn, _make_config(), ["daily_totals"]) == {"daily_totals": 7}
+
+    def test_failed_materialized_view_probe_keeps_the_other_counts(self, impl):
+        # The probe is isolated so a role without access to `svv_mv_info` loses only the
+        # materialized-view counts, not every count in the batch.
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.execute.side_effect = [None, None, None, Exception("permission denied for relation svv_mv_info")]
+        cur.fetchall.side_effect = [
+            [("public", "users", 500)],  # svv_table_info
+            [],  # pg_views
+        ]
+        conn.cursor.return_value = cur
+
+        assert impl.get_row_counts(conn, _make_config(), ["users"]) == {"users": 500}
 
     def test_returns_empty_on_exception(self, impl):
         conn = MagicMock()
@@ -1120,6 +1242,17 @@ class TestRedshiftSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
 
+    def test_query_timeout_raw_message_is_non_retryable(self):
+        # Mirrors the `InsufficientPrivilege` case above: the activity-level check matches raw
+        # `str(exception)`, which for `QueryTimeoutException` is just the message with no class
+        # name — only the `QueryTimeoutException` key (workflow layer only) would miss this,
+        # letting the activity retry a query that times out identically every attempt because the
+        # table's incremental field isn't a SORTKEY.
+        error_msg = "10 min timeout statement reached. Please ensure your incremental field (updated_at) is set as a SORTKEY on the table"
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable
+
 
 class TestRedshiftValidateCredentials:
     def test_server_without_ssl_returns_friendly_error_without_capturing(self, mocker):
@@ -1146,6 +1279,26 @@ class TestRedshiftValidateCredentials:
         assert ok is False
         assert error is not None and "does not support SSL" in error
         capture.assert_not_called()
+
+    def test_ssh_gateway_session_error_maps_to_actionable_message(self, mocker):
+        # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;
+        # it must be replaced with concrete guidance rather than surfaced verbatim.
+        config = _make_config()
+        source = RedshiftSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(
+            source,
+            "get_schemas",
+            side_effect=BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
+        )
+
+        ok, error = source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert error is not None
+        assert "Could not establish session to SSH gateway" not in error
+        assert "SSH tunnel" in error and "firewall" in error
 
 
 class TestRedshiftSourceForPipeline:
@@ -1223,7 +1376,65 @@ def build_pipeline_mocks(mocker):
     return mock_connect, streaming_cursor
 
 
+class TestIsTransientConnectionDropError:
+    def test_matches_connection_is_lost(self):
+        assert _is_transient_connection_drop_error(psycopg.OperationalError("the connection is lost")) is True
+
+    def test_does_not_match_unrelated_operational_error(self):
+        # A permanent, non-actionable failure that also raises OperationalError must not be
+        # swept up by the narrow "the connection is lost" match and retried in-process.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("password authentication failed for user testuser")
+            )
+            is False
+        )
+
+    def test_does_not_match_non_operational_error(self):
+        assert _is_transient_connection_drop_error(ValueError("the connection is lost")) is False
+
+
 class TestBuildPipeline:
+    def test_retries_once_on_transient_connection_drop_during_setup(self, build_pipeline_mocks, mocker):
+        # Regression: `get_table_metadata` hit a freshly opened connection that dropped
+        # (`psycopg.OperationalError: the connection is lost`) before setup finished. Without an
+        # in-process retry this failed the whole sync out to Temporal's activity-level retry, which
+        # restarts the entire setup phase from scratch instead of reconnecting once.
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
+        attempts = {"n": 0}
+        fake_table = Table(
+            name="messages",
+            parents=("public",),
+            columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
+            type="table",
+        )
+
+        def flaky_get_table_metadata(*args, **kwargs):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise psycopg.OperationalError("the connection is lost")
+            return fake_table
+
+        mocker.patch.object(RedshiftImplementation, "get_table_metadata", side_effect=flaky_get_table_metadata)
+
+        impl = RedshiftImplementation()
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+
+        assert attempts["n"] == 2
+        assert response.primary_keys == ["id"]
+
+    def test_gives_up_after_max_attempts_on_persistent_connection_drop(self, build_pipeline_mocks, mocker):
+        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.time.sleep")
+        mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            side_effect=psycopg.OperationalError("the connection is lost"),
+        )
+
+        impl = RedshiftImplementation()
+        with pytest.raises(psycopg.OperationalError):
+            impl.build_pipeline(_make_config(), _make_inputs())
+
     def test_returns_source_response(self, build_pipeline_mocks):
         mock_connect, _ = build_pipeline_mocks
         impl = RedshiftImplementation()

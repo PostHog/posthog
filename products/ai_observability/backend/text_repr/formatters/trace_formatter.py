@@ -177,14 +177,20 @@ def llm_trace_to_formatter_format(
     return trace_dict, hierarchy
 
 
-def _format_latency(latency: float) -> str:
-    """Format latency to 2 decimal places."""
-    return f"{latency:.2f}s"
+def _format_latency(latency: Any) -> str:
+    """Format latency to 2 decimal places. Coerces string-valued latencies before formatting."""
+    try:
+        return f"{float(latency):.2f}s"
+    except (TypeError, ValueError):
+        return str(latency)
 
 
-def _format_cost(cost: float) -> str:
-    """Format cost in USD."""
-    return f"${cost:.4f}"
+def _format_cost(cost: Any) -> str:
+    """Format cost in USD. Coerces string-valued costs before formatting."""
+    try:
+        return f"${float(cost):.4f}"
+    except (TypeError, ValueError):
+        return str(cost)
 
 
 def _get_event_summary(event: dict[str, Any]) -> str:

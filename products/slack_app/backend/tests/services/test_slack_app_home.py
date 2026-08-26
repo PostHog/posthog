@@ -27,12 +27,18 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
     ACTION_TASKS_PAGE_PREV,
@@ -453,6 +459,7 @@ class TestRenderHomeView:
                     TaskItem(
                         title="Fix flaky retention test",
                         posthog_url="https://app/project/1/tasks/abc",
+                        desktop_url=None,
                         status="in_progress",
                         repository="posthog/posthog",
                         pr_url=None,
@@ -467,6 +474,7 @@ class TestRenderHomeView:
                 total_filtered=25,
             ),
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
 
         # Equality both ways: an unroutable control fails on the left, and a card that
@@ -481,6 +489,69 @@ class TestRenderHomeView:
         assert (
             resolve_source(_make_row(runtime_adapter="claude", model="claude-opus-4-7")) == PreferenceSource.personal()
         )
+
+
+class TestThreadFollowupsCard:
+    def _view(self, mode) -> dict:
+        return render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            untagged_followup_mode=mode,
+        )
+
+    def test_card_absent_where_untagged_followups_do_not_run(self):
+        # Nothing to configure when replies are never picked up in the first place.
+        view = self._view(None)
+        assert ACTION_SET_UNTAGGED_FOLLOWUP_MODE not in _action_ids(view)
+
+    @pytest.mark.parametrize("mode", list(UntaggedFollowupMode))
+    def test_picker_preselects_the_stored_mode(self, mode):
+        # Without the right initial option the tab misreports the setting, and picking
+        # the value already stored is a no-op click that looks broken.
+        view = self._view(mode)
+        select = next(
+            el
+            for block in view["blocks"]
+            for el in block.get("elements", []) or []
+            if el.get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
+        )
+        assert select["initial_option"]["value"] == mode.value
+        assert {o["value"] for o in select["options"]} == set(UntaggedFollowupMode.values)
+
+
+class TestThreadFollowupsPicker:
+    def _pick(self, value: str) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [
+                {"action_id": ACTION_SET_UNTAGGED_FOLLOWUP_MODE, "selected_option": {"value": value}},
+            ],
+        }
+
+    @pytest.mark.parametrize(
+        "picked,expected",
+        [
+            (UntaggedFollowupMode.ASK.value, UntaggedFollowupMode.ASK.value),
+            (UntaggedFollowupMode.NEVER.value, UntaggedFollowupMode.NEVER.value),
+            (UntaggedFollowupMode.AUTO.value, UntaggedFollowupMode.AUTO.value),
+            # A value the tab never rendered isn't worth persisting — it would read
+            # back as `auto` anyway, but only after a round trip through the DB.
+            ("something-else", None),
+        ],
+    )
+    def test_pick_is_persisted_against_the_clicking_user(
+        self, slack_integration, mock_slack_client, flag_on, picked, expected
+    ):
+        payload = self._pick(picked)
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
+        assert (row.untagged_followup_mode if row else None) == expected
+        assert mock_slack_client.views_publish.called
 
 
 class TestLinkedAccountsCard:
@@ -593,9 +664,10 @@ class TestTasksCard:
         return base
 
     def _item(self, **overrides) -> TaskItem:
-        defaults = {
+        defaults: dict[str, Any] = {
             "title": "Fix flaky retention test",
             "posthog_url": "https://app/project/1/tasks/abc",
+            "desktop_url": None,
             "status": "in_progress",
             "repository": "posthog/posthog",
             "pr_url": "https://github.com/posthog/posthog/pull/123",
@@ -693,18 +765,11 @@ class TestTasksCard:
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
         assert "_Updated 5m ago_" in sub_rows[1]
 
-    @pytest.mark.parametrize(
-        "desktop_url,expected",
-        [
-            ("posthog-code://task/abc", "<posthog-code://task/abc|View on desktop>"),
-            (None, None),
-        ],
-    )
-    def test_desktop_link_appears_only_for_a_viewer_who_can_open_it(self, desktop_url, expected):
-        # A `posthog-code://` link dead-ends for anyone without the app, so it rides
-        # alongside the web link rather than replacing it.
+    def test_both_task_links_render_for_a_viewer_who_can_open_them(self):
+        # The desktop link dead-ends for anyone without the app, so it rides alongside the
+        # web one rather than replacing it.
         state = TasksState(
-            items=(self._item(desktop_url=desktop_url),),
+            items=(self._item(desktop_url="https://us.posthog.com/code/task/abc"),),
             has_any_tasks=True,
             page=0,
             total_pages=1,
@@ -714,10 +779,39 @@ class TestTasksCard:
         _, sub = self._task_items(view, expected_count=1)[0]
 
         assert "<https://app/project/1/tasks/abc|View on web>" in sub
-        if expected:
-            assert expected in sub
-        else:
-            assert "View on desktop" not in sub
+        assert "<https://us.posthog.com/code/task/abc|View on desktop>" in sub
+
+    def test_both_task_links_are_withheld_from_a_viewer_without_code_access(self):
+        # A task page is as much a dead end for them as the desktop app, so the pair goes
+        # together — the same rule the reply footer's links follow.
+        state = TasksState(
+            items=(self._item(posthog_url=None, desktop_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, sub = self._task_items(view, expected_count=1)[0]
+
+        assert "View on web" not in sub
+        assert "View on desktop" not in sub
+
+    def test_title_is_plain_text_when_neither_thread_nor_task_link_is_available(self):
+        # A row with no Slack permalink normally falls back to the task page. Withhold
+        # that too and the title has nowhere to point, so it must not render a link.
+        state = TasksState(
+            items=(self._item(thread_url=None, posthog_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        text = _all_text(view)
+
+        assert "*Fix flaky retention test*" in text
+        assert "|Fix flaky retention test>" not in text
 
     def test_task_with_no_repo_or_pr_skips_those_meta_parts(self):
         state = TasksState(

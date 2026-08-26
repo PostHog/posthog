@@ -10,6 +10,8 @@ import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
 } from "@posthog/shared";
+import { createPiContextWikiExtension } from "./context-wiki-extension";
+import { createPiEnrichmentExtension } from "./enrichment-extension";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
@@ -74,10 +76,14 @@ const extensionFactories: Record<PiRuntimeExtension, InlineExtension> = {
     name: "posthog-auto-publish",
     factory: createAutoPublishExtension(),
   },
+  "context-wiki": createPiContextWikiExtension(bootstrap.contextWikiPath),
 };
 const runtimeExtensions = (bootstrap.extensions ?? []).map(
   (extension) => extensionFactories[extension],
 );
+if (bootstrap.enrichment) {
+  runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
+}
 
 const runtime = await createHarnessRuntime({
   cwd,

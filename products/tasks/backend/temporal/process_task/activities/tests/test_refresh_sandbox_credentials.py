@@ -12,7 +12,7 @@ from posthog.models.integration import Integration
 
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxNotFoundError, SandboxNotRunningError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     refresh_sandbox_credentials,
@@ -35,8 +35,8 @@ class TestRefreshSandboxCredentialsActivity:
     ):
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
@@ -45,6 +45,7 @@ class TestRefreshSandboxCredentialsActivity:
             patch(
                 "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"
             ) as track_event,
+            patch("products.tasks.backend.logic.services.agent_command.send_agent_command") as send_agent_command,
         ):
             output = async_to_sync(activity_environment.run)(
                 refresh_sandbox_credentials,
@@ -54,6 +55,7 @@ class TestRefreshSandboxCredentialsActivity:
         assert output.refreshed_kinds == ["github"]
         assert output.next_refresh_seconds == 20 * 60
         assert output.sandbox_gone is False
+        send_agent_command.assert_not_called()
 
         # git remote rewrite + env-file read both ran against the sandbox.
         assert any("git remote set-url origin" in str(c.args[0]) for c in sandbox.execute.call_args_list)
@@ -63,6 +65,23 @@ class TestRefreshSandboxCredentialsActivity:
         event_name = track_event.call_args[0][0]
         assert event_name == "sandbox_credentials_refreshed"
         assert track_event.call_args.kwargs["properties"]["refreshed_kinds"] == ["github"]
+
+    def test_stops_refreshing_after_task_handoff(self, activity_environment, task_context, test_task, sandbox):
+        test_task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"}
+        test_task.save(update_fields=["state", "updated_at"])
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+            **{"return_value.get_by_id.return_value": sandbox},
+        ) as get_sandbox:
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.refreshed_kinds == []
+        assert output.no_credentials_left is True
+        get_sandbox.assert_not_called()
 
     def test_promoted_run_refreshes_as_user_not_the_team_installation(
         self, activity_environment, task_context, test_task, test_task_run, sandbox
@@ -74,8 +93,8 @@ class TestRefreshSandboxCredentialsActivity:
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
@@ -99,8 +118,8 @@ class TestRefreshSandboxCredentialsActivity:
                 "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Task"
             ) as mock_task,
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
@@ -125,8 +144,8 @@ class TestRefreshSandboxCredentialsActivity:
     def test_credential_failure_is_non_fatal(self, activity_environment, task_context, test_task, sandbox):
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
@@ -149,8 +168,8 @@ class TestRefreshSandboxCredentialsActivity:
         sandbox.is_running.return_value = False
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token"
@@ -177,8 +196,8 @@ class TestRefreshSandboxCredentialsActivity:
         # flag the refresh loop stops on, not as an error the loop swallows and retries.
         context = dataclasses.replace(task_context, task_id=str(uuid.uuid4()))
         with patch(
-            "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-            return_value=sandbox,
+            "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+            **{"return_value.get_by_id.return_value": sandbox},
         ):
             output = async_to_sync(activity_environment.run)(
                 refresh_sandbox_credentials,
@@ -195,11 +214,15 @@ class TestRefreshSandboxCredentialsActivity:
         # fire a spurious "task failed" alert after the run's PR is already open).
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                side_effect=SandboxNotFoundError(
-                    "Sandbox sandbox-abc not found",
-                    {"sandbox_id": "sandbox-abc"},
-                    cause=RuntimeError("Deadline Exceeded"),
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                return_value=MagicMock(
+                    get_by_id=MagicMock(
+                        side_effect=SandboxNotFoundError(
+                            "Sandbox sandbox-abc not found",
+                            {"sandbox_id": "sandbox-abc"},
+                            cause=RuntimeError("Deadline Exceeded"),
+                        )
+                    )
                 ),
             ),
             patch(
@@ -233,8 +256,8 @@ class TestRefreshSandboxCredentialsActivity:
         )
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
@@ -263,8 +286,8 @@ class TestRefreshSandboxCredentialsActivity:
         test_task.refresh_from_db()
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
             patch(
@@ -285,8 +308,8 @@ class TestRefreshSandboxCredentialsActivity:
     def test_excluded_kinds_report_nothing_left(self, activity_environment, task_context, test_task, sandbox):
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"
@@ -308,11 +331,15 @@ class TestRefreshSandboxCredentialsActivity:
     def test_sandbox_gone_wins_over_excluded_kinds(self, activity_environment, task_context, test_task):
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                side_effect=SandboxNotFoundError(
-                    "Sandbox sandbox-abc not found",
-                    {"sandbox_id": "sandbox-abc"},
-                    cause=RuntimeError("Deadline Exceeded"),
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                return_value=MagicMock(
+                    get_by_id=MagicMock(
+                        side_effect=SandboxNotFoundError(
+                            "Sandbox sandbox-abc not found",
+                            {"sandbox_id": "sandbox-abc"},
+                            cause=RuntimeError("Deadline Exceeded"),
+                        )
+                    )
                 ),
             ),
             patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
@@ -333,8 +360,8 @@ class TestRefreshSandboxCredentialsActivity:
         )
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",

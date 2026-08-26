@@ -1,25 +1,13 @@
 from datetime import datetime
-from typing import Any, TypeVar, cast
 from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
 from django.db.models import Count, Q, QuerySet
 
-from posthog.models.integration import (
-    GitHubIntegration,
-    GitLabIntegration,
-    Integration,
-    JiraIntegration,
-    LinearIntegration,
-)
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingBypassRule,
-    ErrorTrackingExternalReference,
-    ErrorTrackingGroupingRule,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -28,21 +16,11 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
-    ErrorTrackingSuppressionRule,
     ErrorTrackingSymbolSet,
 )
 
-CLIENT_EVALUABLE_PROPERTIES = frozenset({"$exception_types", "$exception_values"})
-
-# Regex and numeric coercion differ between posthog-js and the server evaluator, so those rules stay server-side.
-CLIENT_EVALUABLE_OPERATORS = frozenset({"exact", "is_not", "icontains", "not_icontains"})
-
 
 class ErrorTrackingReleaseHashInUseError(Exception):
-    pass
-
-
-class ErrorTrackingInvalidBytecodeError(Exception):
     pass
 
 
@@ -71,76 +49,6 @@ SPIKE_DETECTION_CONFIG_FIELDS = (
 
 class ErrorTrackingIssueNotFoundError(Exception):
     pass
-
-
-class ErrorTrackingExternalReferenceValidationError(Exception):
-    pass
-
-
-SUPPORTED_EXTERNAL_ISSUE_PROVIDERS = frozenset(
-    {
-        Integration.IntegrationKind.LINEAR,
-        Integration.IntegrationKind.GITHUB,
-        Integration.IntegrationKind.GITLAB,
-        Integration.IntegrationKind.JIRA,
-    }
-)
-
-EXTERNAL_REFERENCE_REQUIRED_CONFIG_FIELDS = {
-    Integration.IntegrationKind.GITHUB.value: ("repository", "title", "body"),
-    Integration.IntegrationKind.GITLAB.value: ("title", "body"),
-    Integration.IntegrationKind.LINEAR.value: ("team_id", "title", "description"),
-    Integration.IntegrationKind.JIRA.value: ("project_key", "title", "description"),
-}
-
-EXTERNAL_REFERENCE_NON_BLANK_CONFIG_FIELDS = {
-    Integration.IntegrationKind.GITHUB.value: ("repository", "title"),
-    Integration.IntegrationKind.GITLAB.value: ("title",),
-    Integration.IntegrationKind.LINEAR.value: ("team_id", "title"),
-    Integration.IntegrationKind.JIRA.value: ("project_key", "title"),
-}
-
-
-def is_supported_external_issue_provider(kind: str) -> bool:
-    return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
-
-
-def _validate_external_reference_config(integration: Integration, config: Any) -> None:
-    if not isinstance(config, dict):
-        raise ErrorTrackingExternalReferenceValidationError("External reference config must be an object.")
-
-    required_fields = EXTERNAL_REFERENCE_REQUIRED_CONFIG_FIELDS.get(integration.kind)
-    if required_fields is None:
-        raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
-
-    missing_fields = [field for field in required_fields if field not in config]
-    if missing_fields:
-        raise ErrorTrackingExternalReferenceValidationError(
-            f"Missing required config fields for {integration.kind}: {', '.join(missing_fields)}."
-        )
-
-    non_string_fields = [field for field in required_fields if not isinstance(config[field], str)]
-    if non_string_fields:
-        raise ErrorTrackingExternalReferenceValidationError(
-            f"Config fields for {integration.kind} must be strings: {', '.join(non_string_fields)}."
-        )
-
-    blank_fields = [
-        field for field in EXTERNAL_REFERENCE_NON_BLANK_CONFIG_FIELDS[integration.kind] if not config[field].strip()
-    ]
-    if blank_fields:
-        raise ErrorTrackingExternalReferenceValidationError(
-            f"Config fields for {integration.kind} cannot be blank: {', '.join(blank_fields)}."
-        )
-
-    if integration.kind == Integration.IntegrationKind.LINEAR:
-        team_id = config["team_id"]
-        teams = LinearIntegration(integration).list_teams() or []
-        valid_team_ids = {str(team["id"]) for team in teams if isinstance(team, dict) and team.get("id")}
-        if team_id not in valid_team_ids:
-            raise ErrorTrackingExternalReferenceValidationError(
-                "Invalid Linear team_id. Use integrations-linear-teams-retrieve to choose a team from this integration."
-            )
 
 
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
@@ -248,80 +156,38 @@ def get_issue_permalink_by_fingerprint(team_id: int, issue_id: UUID) -> str:
     )
 
 
-def list_external_references(team_id: int) -> QuerySet[ErrorTrackingExternalReference]:
-    return ErrorTrackingExternalReference.objects.select_related("integration").filter(issue__team_id=team_id)
-
-
-def get_external_reference(reference_id: UUID, team_id: int) -> ErrorTrackingExternalReference | None:
-    return list_external_references(team_id=team_id).filter(id=reference_id).first()
-
-
-def create_external_reference(
-    *,
-    team_id: int,
-    issue_id: UUID,
-    integration_id: int,
-    config: dict[str, Any],
-) -> ErrorTrackingExternalReference:
-    issue = ErrorTrackingIssue.objects.filter(id=issue_id, team_id=team_id).first()
-    if issue is None:
-        raise ErrorTrackingExternalReferenceValidationError("Issue does not belong to this team.")
-
-    integration = Integration.objects.filter(id=integration_id, team_id=team_id).first()
-    if integration is None:
-        raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
-
-    _validate_external_reference_config(integration, config)
-    provider_config = dict(config)
-
-    if integration.kind == Integration.IntegrationKind.GITHUB:
-        external_context = GitHubIntegration(integration).create_issue(provider_config)
-    elif integration.kind == Integration.IntegrationKind.GITLAB:
-        external_context = GitLabIntegration(integration).create_issue(provider_config)
-    elif integration.kind == Integration.IntegrationKind.LINEAR:
-        attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
-        external_context = LinearIntegration(integration).create_issue(attachment_url, provider_config)
-    elif integration.kind == Integration.IntegrationKind.JIRA:
-        external_context = JiraIntegration(integration).create_issue(provider_config)
-    else:
-        raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
-
-    return ErrorTrackingExternalReference.objects.create(
-        issue=issue,
-        integration=integration,
-        external_context=external_context,
-    )
-
-
 def get_issue_assignment(assignment_id: UUID | str) -> ErrorTrackingIssueAssignment:
     return ErrorTrackingIssueAssignment.objects.select_related("issue", "role").get(id=assignment_id)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
-    if not key or not value:
+    if not key:
         return []
+
+    if key == "severity":
+        severities = [severity.value for severity in ErrorTrackingIssue.Severity]
+        return [severity for severity in severities if not value or value.lower() in severity.lower()]
 
     queryset = ErrorTrackingIssue.objects.filter(team_id=team_id)
 
     if key == "name":
+        if value:
+            queryset = queryset.filter(name__icontains=value)
         return [
             issue_name
-            for issue_name in queryset.filter(name__icontains=value).values_list("name", flat=True)
+            for issue_name in queryset.order_by("name").values_list("name", flat=True).distinct()[:100]
             if issue_name is not None
         ]
 
     if key == "issue_description":
+        if value:
+            queryset = queryset.filter(description__icontains=value)
         return [
             issue_description
-            for issue_description in queryset.filter(description__icontains=value).values_list("description", flat=True)
+            for issue_description in queryset.order_by("description")
+            .values_list("description", flat=True)
+            .distinct()[:100]
             if issue_description is not None
-        ]
-
-    if key == "severity":
-        return [
-            severity
-            for severity in queryset.filter(severity__icontains=value).values_list("severity", flat=True).distinct()
-            if severity is not None
         ]
 
     return []
@@ -348,42 +214,6 @@ def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[
     return list(
         queryset.values("team_id").annotate(total=Count("id")).order_by("team_id").values_list("team_id", "total")
     )
-
-
-def build_external_issue_url(reference: ErrorTrackingExternalReference) -> str:
-    external_context: dict[str, str] = reference.external_context or {}
-    integration = reference.integration
-
-    if integration.kind == Integration.IntegrationKind.LINEAR:
-        issue_id = external_context.get("id")
-        if not issue_id:
-            return ""
-        url_key = LinearIntegration(integration).url_key()
-        return f"https://linear.app/{url_key}/issue/{issue_id}"
-
-    if integration.kind == Integration.IntegrationKind.GITHUB:
-        repository = external_context.get("repository")
-        number = external_context.get("number")
-        if not repository or not number:
-            return ""
-        org = GitHubIntegration(integration).organization()
-        return f"https://github.com/{org}/{repository}/issues/{number}"
-
-    if integration.kind == Integration.IntegrationKind.GITLAB:
-        issue_id = external_context.get("issue_id")
-        if not issue_id:
-            return ""
-        gitlab = GitLabIntegration(integration)
-        return f"{gitlab.hostname}/{gitlab.project_path}/issues/{issue_id}"
-
-    if integration.kind == Integration.IntegrationKind.JIRA:
-        issue_key = external_context.get("key")
-        if not issue_key:
-            return ""
-        jira = JiraIntegration(integration)
-        return f"{jira.site_url()}/browse/{issue_key}"
-
-    return ""
 
 
 def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
@@ -538,326 +368,3 @@ def update_release(
 def delete_release(team_id: int, release_id: str) -> bool:
     deleted, _ = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).delete()
     return deleted > 0
-
-
-# --- Rule bytecode compilation ---------------------------------------------
-# The HogQL compiler is a heavy import, so it loads lazily inside these helpers
-# rather than at module import time (this module is reachable from facade.api,
-# which config-only consumers import).
-
-
-def _validate_rule_bytecode(bytecode: list[Any]) -> None:
-    from products.error_tracking.backend.hogvm_stl import RUST_HOGVM_STL  # noqa: PLC0415
-
-    from common.hogvm.python.operation import Operation  # noqa: PLC0415 — keeps the heavy dep off the import path
-
-    for i, op in enumerate(bytecode):
-        if not isinstance(op, Operation):
-            continue
-        if op == Operation.CALL_GLOBAL:
-            name = bytecode[i + 1]
-            if not isinstance(name, str):
-                raise ErrorTrackingInvalidBytecodeError(f"Expected string for global function name, got {type(name)}")
-            if name not in RUST_HOGVM_STL:
-                raise ErrorTrackingInvalidBytecodeError(f"Unknown global function: {name}")
-
-
-def compile_filter_bytecode(team_id: int, filters: dict) -> list[Any]:
-    from posthog.schema import PropertyGroupFilterValue  # noqa: PLC0415
-
-    from posthog.hogql import ast  # noqa: PLC0415
-    from posthog.hogql.compiler.bytecode import create_bytecode  # noqa: PLC0415
-    from posthog.hogql.property import property_to_expr  # noqa: PLC0415
-
-    from posthog.models.team.team import Team  # noqa: PLC0415
-
-    team = Team.objects.get(id=team_id)
-    expr = property_to_expr(PropertyGroupFilterValue(**filters), team, strict=True)
-    bytecode = create_bytecode(ast.ReturnStatement(expr=expr)).bytecode
-    _validate_rule_bytecode(bytecode)
-    return bytecode
-
-
-def match_all_bytecode() -> list[Any]:
-    from posthog.hogql import ast  # noqa: PLC0415
-    from posthog.hogql.compiler.bytecode import create_bytecode  # noqa: PLC0415
-
-    return create_bytecode(ast.ReturnStatement(expr=ast.Constant(value=True))).bytecode
-
-
-_ReorderableRule = TypeVar(
-    "_ReorderableRule",
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingBypassRule,
-    ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-)
-
-
-def _reorder_rules(model: type[_ReorderableRule], team_id: int, orders: dict[str, int]) -> None:
-    rules = list(model.objects.filter(team_id=team_id, id__in=orders.keys()))
-    for rule in rules:
-        rule.order_key = orders[str(rule.id)]
-    model.objects.filter(team_id=team_id).bulk_update(rules, ["order_key"])
-
-
-def has_filter_values(json_filters: dict) -> bool:
-    """Whether a filter dict contains any actual filter values, recursively.
-
-    Non-dict entries count as "has values" so the request reaches pydantic
-    validation and is rejected with a 400 rather than raising AttributeError.
-    """
-    values = json_filters.get("values", [])
-    if not values:
-        return False
-    for value in values:
-        if not isinstance(value, dict):
-            return True
-        if "key" in value or has_filter_values(value):
-            return True
-    return False
-
-
-def _rule_bytecode(team_id: int, filters: dict) -> list[Any]:
-    if has_filter_values(filters):
-        return compile_filter_bytecode(team_id, filters)
-    return match_all_bytecode()
-
-
-def list_assignment_rules(team_id: int) -> QuerySet[ErrorTrackingAssignmentRule]:
-    return ErrorTrackingAssignmentRule.objects.filter(team_id=team_id).order_by("order_key")
-
-
-def get_assignment_rule(team_id: int, rule_id: str) -> ErrorTrackingAssignmentRule | None:
-    return ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=rule_id).first()
-
-
-def create_assignment_rule(
-    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID, order_key: int = 0
-) -> ErrorTrackingAssignmentRule:
-    return ErrorTrackingAssignmentRule.objects.create(
-        team_id=team_id,
-        filters=filters,
-        bytecode=_rule_bytecode(team_id, filters),
-        order_key=order_key,
-        user_id=cast(int, assignee_id) if assignee_type == "user" else None,
-        role_id=cast(UUID, assignee_id) if assignee_type == "role" else None,
-    )
-
-
-def update_assignment_rule(
-    team_id: int,
-    rule_id: str,
-    *,
-    filters: dict | None = None,
-    assignee: dict | None = None,
-) -> ErrorTrackingAssignmentRule | None:
-    rule = get_assignment_rule(team_id, rule_id)
-    if rule is None:
-        return None
-    if filters:
-        rule.filters = filters
-        rule.bytecode = _rule_bytecode(team_id, filters)
-    if assignee:
-        rule.user_id = assignee["id"] if assignee["type"] == "user" else None
-        rule.role_id = assignee["id"] if assignee["type"] == "role" else None
-    rule.disabled_data = None
-    rule.save()
-    return rule
-
-
-def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=rule_id).delete()
-    return deleted > 0
-
-
-def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingAssignmentRule, team_id, orders)
-
-
-def list_grouping_rules(team_id: int) -> QuerySet[ErrorTrackingGroupingRule]:
-    return ErrorTrackingGroupingRule.objects.filter(team_id=team_id).order_by("order_key")
-
-
-def grouping_rule_issue_map(team_id: int, rule_ids: list[str]) -> dict[str, tuple[UUID, str | None]]:
-    """Map grouping rule id -> (issue_id, issue_name) via the custom-rule fingerprint."""
-    if not rule_ids:
-        return {}
-    fingerprints = (
-        ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
-        .filter(team_id=team_id, fingerprint__in=[f"custom-rule:{rid}" for rid in rule_ids])
-        .only("fingerprint", "issue_id", "issue__id", "issue__name")
-    )
-    return {fp.fingerprint.removeprefix("custom-rule:"): (fp.issue.id, fp.issue.name) for fp in fingerprints}
-
-
-def get_grouping_rule(team_id: int, rule_id: str) -> ErrorTrackingGroupingRule | None:
-    return ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=rule_id).first()
-
-
-def create_grouping_rule(
-    team_id: int, *, filters: dict, assignee: dict | None = None, description: str | None = None
-) -> ErrorTrackingGroupingRule:
-    return ErrorTrackingGroupingRule.objects.create(
-        team_id=team_id,
-        filters=filters,
-        bytecode=compile_filter_bytecode(team_id, filters),
-        order_key=0,
-        user_id=assignee["id"] if assignee and assignee["type"] == "user" else None,
-        role_id=assignee["id"] if assignee and assignee["type"] == "role" else None,
-        description=description,
-    )
-
-
-def update_grouping_rule(
-    team_id: int, rule_id: str, *, filters: dict | None = None
-) -> ErrorTrackingGroupingRule | None:
-    rule = get_grouping_rule(team_id, rule_id)
-    if rule is None:
-        return None
-    if filters:
-        rule.filters = filters
-        rule.bytecode = compile_filter_bytecode(team_id, filters)
-    rule.disabled_data = None
-    rule.save()
-    return rule
-
-
-def delete_grouping_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=rule_id).delete()
-    return deleted > 0
-
-
-def reorder_grouping_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingGroupingRule, team_id, orders)
-
-
-def list_suppression_rules(team_id: int) -> QuerySet[ErrorTrackingSuppressionRule]:
-    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id).order_by("order_key")
-
-
-def get_suppression_rule(team_id: int, rule_id: str) -> ErrorTrackingSuppressionRule | None:
-    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, id=rule_id).first()
-
-
-def create_suppression_rule(team_id: int, *, filters: dict, sampling_rate: float) -> ErrorTrackingSuppressionRule:
-    return ErrorTrackingSuppressionRule.objects.create(
-        team_id=team_id,
-        filters=filters,
-        bytecode=_rule_bytecode(team_id, filters),
-        order_key=0,
-        sampling_rate=sampling_rate,
-    )
-
-
-def update_suppression_rule(
-    team_id: int,
-    rule_id: str,
-    *,
-    filters: dict | None = None,
-    sampling_rate: float | None = None,
-) -> ErrorTrackingSuppressionRule | None:
-    rule = get_suppression_rule(team_id, rule_id)
-    if rule is None:
-        return None
-    if filters is not None:
-        rule.filters = filters
-        rule.bytecode = _rule_bytecode(team_id, filters)
-    if sampling_rate is not None:
-        rule.sampling_rate = sampling_rate
-    rule.disabled_data = None
-    rule.save()
-    return rule
-
-
-def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, id=rule_id).delete()
-    return deleted > 0
-
-
-def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingSuppressionRule, team_id, orders)
-
-
-def list_bypass_rules(team_id: int) -> QuerySet[ErrorTrackingBypassRule]:
-    return ErrorTrackingBypassRule.objects.filter(team_id=team_id).order_by("order_key")
-
-
-def get_bypass_rule(team_id: int, rule_id: str) -> ErrorTrackingBypassRule | None:
-    return ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).first()
-
-
-def create_bypass_rule(team_id: int, *, filters: dict) -> ErrorTrackingBypassRule:
-    return ErrorTrackingBypassRule.objects.create(
-        team_id=team_id,
-        filters=filters,
-        bytecode=_rule_bytecode(team_id, filters),
-        order_key=0,
-    )
-
-
-def update_bypass_rule(
-    team_id: int,
-    rule_id: str,
-    *,
-    filters: dict | None = None,
-) -> ErrorTrackingBypassRule | None:
-    rule = get_bypass_rule(team_id, rule_id)
-    if rule is None:
-        return None
-    if filters is not None:
-        rule.filters = filters
-        rule.bytecode = _rule_bytecode(team_id, filters)
-    rule.disabled_data = None
-    rule.save()
-    return rule
-
-
-def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).delete()
-    return deleted > 0
-
-
-def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingBypassRule, team_id, orders)
-
-
-def get_client_safe_filters(filters: object) -> dict | None:
-    """Return filters that match the posthog-js suppression-rule contract, otherwise None.
-
-    Rules outside this flat shape are excluded and left to server-side evaluation during ingestion.
-    """
-    if not isinstance(filters, dict) or filters.get("type") not in {"AND", "OR"}:
-        return None
-
-    values = filters.get("values")
-    if not isinstance(values, list) or not values:
-        return None
-
-    for value in values:
-        if not isinstance(value, dict) or "values" in value:
-            return None
-        if not isinstance(value.get("type"), str):
-            return None
-        if value.get("key") not in CLIENT_EVALUABLE_PROPERTIES:
-            return None
-        if value.get("operator") not in CLIENT_EVALUABLE_OPERATORS:
-            return None
-        target = value.get("value")
-        if not isinstance(target, str) and not (
-            isinstance(target, list) and all(isinstance(item, str) for item in target)
-        ):
-            return None
-    return filters
-
-
-def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
-    rules = ErrorTrackingSuppressionRule.objects.filter(team_id=team_id).values_list("filters", "sampling_rate")
-    result = []
-    for filters, sampling_rate in rules:
-        if sampling_rate != 1.0:
-            continue
-        safe = get_client_safe_filters(filters)
-        if safe is not None:
-            result.append(safe)
-    return result

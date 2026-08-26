@@ -2,9 +2,9 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import type { ProcessSpawnedCallback } from "../../types";
+import { applyContextWikiEnv } from "../../context-wiki";
+import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
-import { CodexSettingsManager } from "./settings";
 
 /**
  * Host-facing codex options passed through `createAcpConnection`'s
@@ -65,9 +65,14 @@ export interface CodexAppServerProcessOptions {
   httpHeaders?: Record<string, string>;
   /** Extra codex `-c key=value` config overrides (e.g. auto_compact_token_limit). */
   configOverrides?: Record<string, string | number>;
+  /** Per-session context wiki mount forwarded to the subprocess env. */
+  contextWiki?: ContextWikiEnv;
   logger?: Logger;
   processCallbacks?: ProcessSpawnedCallback;
 }
+
+/** Idle time on a gateway SSE stream before codex abandons it and retries, in cloud sandboxes. */
+export const SANDBOX_STREAM_IDLE_TIMEOUT_MS = 90_000;
 
 export interface CodexAppServerProcess {
   process: ChildProcess;
@@ -141,16 +146,6 @@ export function buildAppServerArgs(
     );
   }
 
-  // Disable the user's ambient ~/.codex MCP servers so the adapter only exposes
-  // MCP servers PostHog injects per-thread; otherwise codex fails connecting to them.
-  for (const name of new CodexSettingsManager(
-    options.cwd ?? process.cwd(),
-  ).getSettings().mcpServerNames) {
-    // codex's `-c` parser rejects quoted/special key segments; skip such names.
-    if (!/^[A-Za-z0-9_-]+$/.test(name)) continue;
-    args.push("-c", `mcp_servers.${name}.enabled=false`);
-  }
-
   if (options.apiBaseUrl) {
     args.push("-c", `model_provider="posthog"`);
     args.push("-c", `model_providers.posthog.name="PostHog Gateway"`);
@@ -169,6 +164,19 @@ export function buildAppServerArgs(
       args.push(
         "-c",
         `model_providers.posthog.http_headers=${tomlInlineTable(options.httpHeaders)}`,
+      );
+    }
+
+    // Gateway response streams occasionally go silent mid-generation and stay
+    // open. Codex only retries once the stream has been idle for
+    // stream_idle_timeout_ms (default 300000), so each stall costs a cloud run
+    // five minutes of wall clock and sandbox occupancy. A shorter idle timeout
+    // bounds that cost; the retry re-issues the request. Cloud-only because a
+    // desktop user can see and interrupt a hung turn themselves.
+    if (environment.IS_SANDBOX) {
+      args.push(
+        "-c",
+        `model_providers.posthog.stream_idle_timeout_ms=${SANDBOX_STREAM_IDLE_TIMEOUT_MS}`,
       );
     }
   }
@@ -208,6 +216,7 @@ export function spawnCodexAppServerProcess(
   if (options.codexHome) {
     env.CODEX_HOME = options.codexHome;
   }
+  applyContextWikiEnv(env, options.contextWiki);
   env.PATH = `${dirname(options.binaryPath)}${delimiter}${env.PATH ?? ""}`;
 
   const args = buildAppServerArgs(options, env);

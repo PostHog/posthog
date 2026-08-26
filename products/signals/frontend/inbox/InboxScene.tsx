@@ -14,6 +14,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CardSkeleton } from './components/cards/CardSkeleton'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
+import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
+import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { FeatureDetail } from './components/detail/feature/FeatureDetail'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
@@ -99,6 +101,8 @@ function ActiveTabBody({
             return <NotActionableTab />
         case 'archived':
             return <ArchivedTab />
+        case 'scouts':
+            return <ScoutsRoster />
         case 'runs':
             return <RunsTab runs={signalRuns} loading={signalRunsLoading} />
         case 'config':
@@ -129,7 +133,9 @@ function InboxListView(): JSX.Element {
     // The takeover verdict is still settling: commit to neither UI. Rendering the tab bar or the
     // rail here is what caused the normal inbox to flash in and get replaced by the welcome page.
     const pending = onboardingMode === 'pending'
-    const showRail = wide && !onboarding && !pending
+    // The Scouts tab is a full-width table, and the rail's own scout widget just links here — so
+    // the rail would be both redundant and the reason the table has nowhere to breathe.
+    const showRail = wide && !onboarding && !pending && activeTab !== 'scouts'
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
@@ -319,7 +325,15 @@ export function InboxScene(): JSX.Element {
                               : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
-                    actions={undefined}
+                    // Creating a scout is the Scouts tab's primary action, so it sits in the scene
+                    // header rather than inside the roster — one predictable place, and it stays
+                    // reachable when the roster is filtered down to nothing. Not while onboarding
+                    // has the tab locked (or is still deciding): the roster isn't reachable then.
+                    actions={
+                        activeTab === 'scouts' && onboardingMode !== 'takeover' && onboardingMode !== 'pending' ? (
+                            <ScoutsRosterActions />
+                        ) : undefined
+                    }
                 />
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">

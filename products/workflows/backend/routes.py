@@ -1,10 +1,13 @@
 from posthog.api.routing import RouterRegistry
 
-from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.api import hog_flow, hog_flow_template, workflow_tasks
 
 
 def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"hog_flows", hog_flow.HogFlowViewSet, "project_hog_flows", ["team_id"])
+    routers.projects.register(
+        r"workflow_tasks", workflow_tasks.WorkflowTaskViewSet, "project_workflow_tasks", ["team_id"]
+    )
     routers.projects.register(
         r"hog_flow_templates",
         hog_flow_template.HogFlowTemplateViewSet,

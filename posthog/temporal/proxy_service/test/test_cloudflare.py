@@ -1,4 +1,6 @@
-from django.test import SimpleTestCase, TestCase
+from unittest.mock import Mock, patch
+
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -7,6 +9,8 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameSSLStatus,
     CustomHostnameStatus,
     _parse_hostname,
+    create_custom_hostname,
+    parse_cloudflare_error_code,
 )
 
 # Every status Cloudflare can send, which is a superset of what the enums name. Re-derive with:
@@ -111,3 +115,46 @@ class TestParseHostnameStatuses(SimpleTestCase):
     def test_an_unmodeled_hostname_status_is_not_active(self):
         info = _parse_hostname(_hostname_payload(status="some_future_status"))
         self.assertNotEqual(info.status, CustomHostnameStatus.ACTIVE)
+
+
+class TestCreateCustomHostname(SimpleTestCase):
+    @override_settings(CLOUDFLARE_API_TOKEN="token", CLOUDFLARE_ZONE_ID="zone")
+    @patch("posthog.temporal.proxy_service.cloudflare.requests.post")
+    def test_sets_minimum_tls_version(self, post):
+        response = Mock()
+        response.json.return_value = {"success": True, "result": _hostname_payload()}
+        post.return_value = response
+
+        create_custom_hostname("p.example.com")
+
+        post.assert_called_once_with(
+            "https://api.cloudflare.com/client/v4/zones/zone/custom_hostnames",
+            headers={"Authorization": "Bearer token", "Content-Type": "application/json"},
+            json={
+                "hostname": "p.example.com",
+                "ssl": {
+                    "method": "http",
+                    "type": "dv",
+                    "settings": {"min_tls_version": "1.2"},
+                },
+            },
+            timeout=8.0,
+        )
+
+
+class TestParseCloudflareErrorCode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("html_error_page", "<h1>Error 1014</h1> Ray ID: abc", 1014),
+            ("plain_text_body", "error code: 1014", 1014),
+            ("lowercase", "error 1014", 1014),
+            ("colon_separator", "Error: 1014", 1014),
+            ("other_code", "Error 1000 Access denied", 1000),
+            ("five_digit_code", "error code: 10140", None),
+            ("no_code", "403 Forbidden", None),
+            ("empty", "", None),
+            ("non_string", None, None),
+        ]
+    )
+    def test_extracts_error_code(self, _name, body, expected):
+        self.assertEqual(parse_cloudflare_error_code(body), expected)

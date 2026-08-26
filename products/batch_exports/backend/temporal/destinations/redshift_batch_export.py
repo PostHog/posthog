@@ -18,6 +18,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.integration import TLS, Authority, Credentials
 from posthog.temporal.common.base import PostHogWorkflow
@@ -645,10 +646,10 @@ class CopyParameters:
     authorization: IAMRole | AWSCredentials
 
 
-@dataclasses.dataclass
+@frozen
 class ConnectionParameters:
     user: str
-    password: str
+    password: str = dataclasses.field(repr=False)
     host: str
     port: int
     database: str
@@ -1065,9 +1066,7 @@ async def upload_manifest_file(
     """
 
     async with s3_client(
-        credentials.aws_access_key_id,
-        credentials.aws_secret_access_key,
-        credentials.aws_session_token,
+        credentials,
         region=region_name,
         # Required for unit tests which run against a local bucket, otherwise always None.
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT if settings.TEST else None,
@@ -1153,9 +1152,7 @@ async def delete_uploaded_files(
     this fails.
     """
     async with s3_client(
-        credentials.aws_access_key_id,
-        credentials.aws_secret_access_key,
-        credentials.aws_session_token,
+        credentials,
         region=region_name,
     ) as client:
 
@@ -1189,9 +1186,7 @@ async def is_s3_read_access_denied(
     """
     try:
         async with s3_client(
-            credentials.aws_access_key_id,
-            credentials.aws_secret_access_key,
-            credentials.aws_session_token,
+            credentials,
             region=region_name,
         ) as client:
             for key in keys:
@@ -1423,9 +1418,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                     )
 
         async with s3_client(
-            credentials.aws_access_key_id,
-            credentials.aws_secret_access_key,
-            credentials.aws_session_token,
+            credentials,
             region=inputs.copy.s3_bucket.region_name,
         ) as client:
             consumer = ConcurrentS3Consumer(

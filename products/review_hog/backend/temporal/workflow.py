@@ -31,13 +31,13 @@ from products.review_hog.backend.reviewer.constants import (
     MAX_CONCURRENT_SANDBOXES,
     VALIDATION_MAX_ATTEMPTS,
 )
+from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
     FetchPRDataInput,
-    FinalizeStatusCommentInput,
     GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,

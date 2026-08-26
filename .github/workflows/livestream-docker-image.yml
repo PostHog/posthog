@@ -23,7 +23,9 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
 
-        if: github.repository_owner == 'PostHog'
+        # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
+        # pulls images pushed for them, and each constituent PR already built its own.
+        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/')
 
         permissions:
             contents: read

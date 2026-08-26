@@ -5,6 +5,9 @@ export interface IntegrationAccount {
 
 export interface IntegrationConfig {
   account?: IntegrationAccount;
+  installation_id?: string | number;
+  /** GitHub's scope for the installation: "all" repositories or "selected" ones. */
+  repository_selection?: string | null;
   [key: string]: unknown;
 }
 
@@ -13,6 +16,11 @@ export interface Integration {
   kind: string;
   config?: IntegrationConfig;
   display_name?: string;
+  created_at?: string;
+  /** GitHub only. False when disconnecting would also uninstall the App from GitHub. */
+  installation_shared?: boolean | null;
+  /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
+  installation_status?: "connected" | "unavailable" | null;
   [key: string]: unknown;
 }
 

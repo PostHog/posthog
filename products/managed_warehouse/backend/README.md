@@ -1,5 +1,56 @@
 # DuckLake copy workflow configuration
 
+## DuckgresServer retirement telemetry
+
+ORM access to `DuckgresServer` emits the counter
+`warehouse.duckgres.server.model.access`. It has five bounded attributes: `operation`
+(`read`, `create`, `update`, or `delete`), the immediate `accessor_module` and
+`accessor_function`, and the meaningful outer `caller_module` and `caller_function`.
+The outer caller skips shared managed-warehouse configuration gateways so the result
+identifies the business workflow that still depends on the model. Caller names are
+limited to 160 characters. The metric deliberately excludes model fields,
+organization identifiers, connection details, and other customer data.
+
+Use the PostHog Metrics SQL editor to find active callers over a representative
+period:
+
+```sql
+SELECT
+    attributes['operation'] AS operation,
+    attributes['accessor_module'] AS accessor_module,
+    attributes['accessor_function'] AS accessor_function,
+    attributes['caller_module'] AS caller_module,
+    attributes['caller_function'] AS caller_function,
+    sum(value) AS accesses
+FROM posthog.metrics
+WHERE metric_name = 'warehouse.duckgres.server.model.access'
+    AND metric_type = 'counter'
+    AND aggregation_temporality = 'delta'
+    AND timestamp >= now() - INTERVAL 7 DAY
+GROUP BY operation, accessor_module, accessor_function, caller_module, caller_function
+ORDER BY accesses DESC
+```
+
+Reads are recorded through the model's default `objects` manager when a normal
+queryset is evaluated, or when `get`, `count`, `exists`, or `iterator` executes.
+Re-evaluating the same cached queryset does not emit another access. Normal model
+saves and deletes and queryset updates and deletes are also recorded once per ORM
+operation. Normal `async for` queryset evaluation uses `_fetch_all` and is recorded,
+although attribution may become `unknown` across its thread boundary.
+
+This is deliberately a probe of the default manager rather than proof of all model
+use. It does not observe reads through `_base_manager`, reverse one-to-one access,
+`select_related` or `prefetch_related` hydration, raw SQL, `raw()`/`RawQuerySet`, or
+`.aiterator()`. `bulk_create` bypasses the save signals. These paths can construct or
+write `DuckgresServer` instances without incrementing the counter.
+
+Before using an empty result as retirement evidence, confirm that another known
+metric from every relevant service is reaching the same Metrics project. Observe
+for at least one complete schedule window, remove the remaining callers, then
+repeat the query. An empty result cannot prove that the model is unused: a final
+static search for the model, its table, and reverse relation is mandatory before
+removal because telemetry cannot discover dormant or uninstrumented code paths.
+
 The DuckLake copy and registration workflows write data into a DuckLake-managed S3 bucket. There are three workflows:
 
 1. **Data Modeling** (`ducklake-copy.data-modeling`) - copies materialized saved query outputs
@@ -51,15 +102,15 @@ This path currently supports Parquet only. Support for Azure Blob Storage, CSV, 
 
 ## Feature flag gating
 
-Each workflow is gated by its own feature flag (evaluated via `feature_enabled`). Create or update the appropriate flag locally to target the team you are testing with—otherwise the copy workflow will be skipped even if the rest of the configuration is correct.
+Each workflow evaluates a feature flag through `feature_enabled`. Create or update the appropriate flag locally. The copy flags target the project, while `data-warehouse-scene` targets the organization. Otherwise, the workflow will be skipped even if the rest of the configuration is correct.
 
-| Workflow                 | Feature Flag                                  |
-| ------------------------ | --------------------------------------------- |
-| Data Modeling            | `ducklake-data-modeling-copy-workflow`        |
-| Data Imports             | `ducklake-data-imports-copy-workflow`         |
-| Data Import Registration | `ducklake-data-imports-registration-workflow` |
+| Workflow                 | Feature Flag                           |
+| ------------------------ | -------------------------------------- |
+| Data Modeling            | `ducklake-data-modeling-copy-workflow` |
+| Data Imports             | `ducklake-data-imports-copy-workflow`  |
+| Data Import Registration | `data-warehouse-scene`                 |
 
-The two data-import flags are independent and target the same stable DuckLake table. During rollout, enable only the intended path for a project; if both run for the same import, the last atomic table swap wins.
+The data-import copy and registration paths target the same stable DuckLake table. An organization with `data-warehouse-scene` enabled runs registration. Disable `ducklake-data-imports-copy-workflow` for its projects to avoid both paths applying the same import. If both run, the last atomic table swap wins.
 
 ## Data Ops workflow status
 
@@ -149,7 +200,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
 ### Testing Data Imports workflows
 
 1. **Start the dev stack**
-   Run `hogli start` (or `bin/start`) so Postgres, Duckgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Enable either `ducklake-data-imports-copy-workflow` for the existing Delta-copy path or `ducklake-data-imports-registration-workflow` for the prepared-Parquet path.
+   Run `hogli start` (or `bin/start`) so Postgres, Duckgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Enable `data-warehouse-scene` for the prepared-Parquet path. Enable `ducklake-data-imports-copy-workflow` only when testing the existing Delta-copy path; both paths run when both flags are enabled.
 
 2. **Trigger a data import sync from the app**
    In the PostHog UI, open Data Warehouse → Sources, connect a source (e.g., Stripe, Hubspot), select the schemas to sync, and click **Sync**. This schedules the `external-data-job` workflow.

@@ -16,9 +16,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership, User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
-from posthog.rbac.user_access_control import restricted_visible_membership_ids
 
-from ee.models.rbac.role import Role, RoleMembership
+from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
+from products.access_control.backend.models.role import Role, RoleMembership
 
 if TYPE_CHECKING:
     _MixinBase = TeamAndOrgViewSetMixin

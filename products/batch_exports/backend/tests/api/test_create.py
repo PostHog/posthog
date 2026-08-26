@@ -588,6 +588,18 @@ def test_create_batch_export_with_custom_schema(
             "SELECT coalesce((SELECT uuid FROM events LIMIT 1), uuid) AS foo FROM events",
             "Subqueries in SELECT expressions are not supported",
         ),
+        (
+            "SELECT event, $session_id FROM events",
+            "Batch exports cannot read these fields: $session_id. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
+        (
+            "SELECT event, person.created_at FROM events",
+            "Batch exports cannot read these fields: person_created_at. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
     ],
 )
 def test_create_batch_export_fails_with_invalid_query(

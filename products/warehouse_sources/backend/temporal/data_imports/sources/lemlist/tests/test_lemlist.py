@@ -11,6 +11,9 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.lemlist import (
+    LEMLIST_API_VERSION_V1,
+    LEMLIST_API_VERSION_V2,
+    LEMLIST_DEFAULT_VERSION,
     PAGE_SIZE,
     LemlistResumeConfig,
     _clamp_future_value_to_now,
@@ -62,13 +65,20 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock | None = None, **kwargs: Any):
+def _source(
+    endpoint: str,
+    manager: mock.MagicMock | None = None,
+    *,
+    api_version: str = LEMLIST_DEFAULT_VERSION,
+    **kwargs: Any,
+):
     return lemlist_source(
         api_key="key",
         endpoint=endpoint,
         team_id=1,
         job_id="j",
         resumable_source_manager=manager if manager is not None else _make_manager(),
+        api_version=api_version,
         **kwargs,
     )
 
@@ -182,6 +192,30 @@ class TestRequestParams:
         params = _wire(session, [_response([{"_id": "act_1"}])])
         _rows(_source("activities", should_use_incremental_field=False, db_incremental_field_last_value=None))
         assert "minDate" not in params[0]
+
+
+class TestVersionDispatch:
+    @parameterized.expand(
+        [
+            # campaigns/activities only serve v2, so the param rides either pin (v1 pins byte-for-byte).
+            ("campaigns_pin_v1", "campaigns", LEMLIST_API_VERSION_V1, [{"_id": "c"}], "v2"),
+            ("campaigns_pin_v2", "campaigns", LEMLIST_API_VERSION_V2, [{"_id": "c"}], "v2"),
+            # /team's v2 adds a users array, so version is sent only under a v2 pin.
+            ("team_pin_v1", "team", LEMLIST_API_VERSION_V1, {"_id": "t"}, None),
+            ("team_pin_v2", "team", LEMLIST_API_VERSION_V2, {"_id": "t"}, "v2"),
+            # Endpoints with no version variant never send the param, whatever the pin.
+            ("team_senders_pin_v2", "team_senders", LEMLIST_API_VERSION_V2, [{"userId": "u"}], None),
+            ("unsubscribes_pin_v2", "unsubscribes", LEMLIST_API_VERSION_V2, [{"_id": "u"}], None),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_version_param_per_endpoint_and_pin(
+        self, _name: str, endpoint: str, api_version: str, payload: Any, expected: str | None, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(payload)])
+        _rows(_source(endpoint, api_version=api_version))
+        assert params[0].get("version") == expected
 
 
 class TestValidateCredentials:

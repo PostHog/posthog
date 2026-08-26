@@ -75,6 +75,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     publish_report_completed_activity,
+    report_has_assigned_signals_activity,
     reset_report_to_potential_activity,
     revert_report_to_candidate_activity,
 )
@@ -126,6 +127,7 @@ ACTIVITIES = [
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     publish_report_completed_activity,
+    report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
     delete_team_reports_activity,
     get_grouping_paused_state_activity,

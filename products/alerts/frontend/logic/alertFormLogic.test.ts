@@ -218,6 +218,10 @@ describe('alertFormLogic', () => {
         expect(captureSpy).toHaveBeenCalledWith('alert creation completed', {
             ui_version: 'redesigned',
         })
+        expect(captureSpy).toHaveBeenCalledWith('alert wizard completed', {
+            action: 'created',
+            alert_type: 'insight',
+        })
 
         const toastOptions = successToastSpy.mock.calls[0][1] as { button: { action: () => void } }
         toastOptions.button.action()
@@ -320,6 +324,10 @@ describe('alertFormLogic', () => {
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
+        expect(captureSpy).toHaveBeenCalledWith('alert wizard completed', {
+            action: 'updated',
+            alert_type: 'insight',
+        })
     })
 
     it('blocks save when threshold alert has no lower or upper bound', async () => {

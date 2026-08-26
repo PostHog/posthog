@@ -7,6 +7,7 @@ This module provides functions to interact with Cloudflare's API for:
 - Getting Custom Hostname status (for monitoring certificate status)
 """
 
+import re
 import typing as t
 from dataclasses import dataclass, field
 from enum import Enum
@@ -16,6 +17,7 @@ from django.conf import settings
 import requests
 
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
+CLOUDFLARE_MIN_TLS_VERSION = "1.2"
 
 # Must stay under the tightest calling activity's 10s start_to_close, or Temporal kills the
 # activity before the request times out and a slow Cloudflare looks like an opaque timeout.
@@ -94,6 +96,68 @@ class CustomHostnameStatus(CloudflareStatus):
     PENDING_PROVISIONED = "pending_provisioned"
     PROVISIONED = "provisioned"
     BLOCKED = "blocked"
+
+
+# Custom Hostname statuses where Cloudflare stops serving traffic for the hostname, even when
+# the SSL certificate is active. `blocked` and `pending_blocked` mean the edge rejects requests
+# with a cross-user ban (error 1014). The usual cause is a zone hold on the customer's own
+# Cloudflare zone, which forbids other accounts from activating the domain. `moved` means the
+# hostname no longer points at our zone. `pending_migration` means the hostname is mid-migration
+# and does not serve traffic yet. All four statuses cause the certificate check to fail.
+BLOCKED_HOSTNAME_STATUSES: frozenset[CustomHostnameStatus] = frozenset(
+    {
+        CustomHostnameStatus.BLOCKED,
+        CustomHostnameStatus.PENDING_BLOCKED,
+        CustomHostnameStatus.MOVED,
+        CustomHostnameStatus.PENDING_MIGRATION,
+    }
+)
+
+# Cloudflare returns this error code in a 403 body when a hostname's CNAME target is banned
+# across accounts. See Cloudflare's 1xxx error reference.
+CLOUDFLARE_ERROR_CROSS_USER_BANNED = 1014
+
+# Cloudflare's HTML error page shows the code as "Error 1014". The plain-text
+# body sent to API clients shows "error code: 1014".
+_CF_ERROR_CODE_RE = re.compile(r"error(?:\s+code)?[ :]+(\d{4})(?!\d)", re.IGNORECASE)
+
+
+def parse_cloudflare_error_code(body: t.Any) -> t.Optional[int]:
+    """Extract the Cloudflare error code from a 403 or 5xx error page body.
+
+    Returns the first four-digit code found, or None when the body is not a string or
+    contains no Cloudflare error code.
+    """
+    if not isinstance(body, str):
+        return None
+    match = _CF_ERROR_CODE_RE.search(body)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def describe_blocked_hostname_status(status: CustomHostnameStatus, domain: str) -> str:
+    """Customer-facing sentence for a Custom Hostname stuck in a blocked or moved state."""
+    if status in (CustomHostnameStatus.MOVED, CustomHostnameStatus.PENDING_MIGRATION):
+        return (
+            f"`{domain}` is no longer served by the proxy. Its hostname was moved or is "
+            "mid-migration. Contact support to restore it."
+        )
+    return (
+        f"`{domain}` is blocked from activating on the proxy. This usually means its Cloudflare "
+        "zone has a hold that also covers subdomains. Release the hold on the zone's overview page "
+        'in Cloudflare, or turn off "Also prevent subdomains", then run diagnostics again. '
+        "If the domain is not on Cloudflare, contact support."
+    )
+
+
+def describe_cross_user_banned(domain: str) -> str:
+    """Customer-facing sentence for a 403 carrying Cloudflare error 1014."""
+    return (
+        f"`{domain}` is not authorized to serve traffic through the proxy (error 1014). "
+        "If the domain is on Cloudflare, check its zone for a hold that also covers subdomains "
+        "and release it, then run diagnostics again. Otherwise contact support."
+    )
 
 
 @dataclass
@@ -191,6 +255,9 @@ def create_custom_hostname(domain: str) -> CustomHostname:
         "ssl": {
             "method": "http",
             "type": "dv",
+            "settings": {
+                "min_tls_version": CLOUDFLARE_MIN_TLS_VERSION,
+            },
         },
     }
 

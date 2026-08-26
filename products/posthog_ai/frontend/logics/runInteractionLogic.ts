@@ -7,14 +7,16 @@ import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import {
+    buildRunCreateRequest,
     DEFAULT_COMPOSER_EFFORT,
     DEFAULT_COMPOSER_MODEL,
     resolveEffortForModel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
-    DEFAULT_COMPOSER_MODE,
+    getDefaultModeForRuntimeAdapter,
     getModeOption,
     type PermissionMode,
+    resolveModeForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModes'
 import {
     tasksRunCreate,
@@ -22,17 +24,20 @@ import {
     tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
 import {
-    ClaudeRuntimeAdapterEnumApi,
-    type ClaudeTaskRunCreateSchemaApi,
+    type ModelChoiceApi,
     type ReasoningEffortEnumApi,
+    RuntimeAdapterEnumApi,
+    type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
+import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
+import { taskWarmLogic } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 export interface RunInteractionLogicProps {
@@ -50,6 +55,8 @@ export interface RunInteractionLogicProps {
     currentModel?: string | null
     currentEffort?: string | null
     currentMode?: string | null
+    /** The harness the run booted on. Authoritative — a live run can't be moved to another one. */
+    currentRuntimeAdapter?: string | null
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string) => void
@@ -83,6 +90,7 @@ export interface runInteractionLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
+    catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     conversationClearSupported: boolean // runStreamLogic
     currentMode: string | null // runStreamLogic
@@ -159,6 +167,15 @@ export interface runInteractionLogicActions {
               }
             | undefined
     } // runStreamLogic
+    handleTerminalStatus: (status: {
+        errorMessage?: string | null
+        replayedFromHistory?: boolean
+        status: RunStatus
+    }) => {
+        errorMessage?: string | null | undefined
+        replayedFromHistory?: boolean | undefined
+        status: RunStatus
+    } // runStreamLogic
     markTurnComplete: () => {
         value: true
     } // runStreamLogic
@@ -182,6 +199,19 @@ export interface runInteractionLogicActions {
     setCurrentMode: (mode: string) => {
         mode: string
     } // runStreamLogic
+    consumeWarm: () => {
+        value: true
+    } // taskWarmLogic
+    noteDraft: (
+        hasText: boolean,
+        request: import('./taskWarmLogic').TaskWarmRequest
+    ) => {
+        hasText: boolean
+        request: import('./taskWarmLogic').TaskWarmRequest
+    } // taskWarmLogic
+    releaseWarm: () => {
+        value: true
+    } // taskWarmLogic
     claimApplyBackTargets: (streamKey: string) => {
         streamKey: string
     } // toolStreamEventsLogic
@@ -318,8 +348,18 @@ export interface runInteractionLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isTerminal: (currentRunStatus: RunStatus | null) => boolean
         selectedModel: (modelOverride: string | null, arg: any) => string
-        selectedEffort: (effortOverride: string | null, arg: any, selectedModel: string) => ReasoningEffortEnumApi
-        selectedMode: (modeOverride: PermissionMode | null, currentMode: string | null, arg: any) => PermissionMode
+        selectedEffort: (
+            effortOverride: string | null,
+            arg: any,
+            selectedModel: string,
+            catalogue: ModelChoiceApi[]
+        ) => ReasoningEffortEnumApi
+        selectedMode: (
+            modeOverride: PermissionMode | null,
+            currentMode: string | null,
+            arg: any,
+            arg2: any
+        ) => PermissionMode
         isBusy: (isThinking: boolean) => boolean
         canSend: (sending: boolean, isTerminal: boolean, currentProjectId: number | null) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean, clearing: boolean) => boolean
@@ -374,6 +414,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['contextItems', 'sentContextKeysByTask', 'seenContextLinesByTask'],
             aiConsentLogic,
             ['dataProcessingAccepted'],
+            modelCatalogueLogic,
+            ['catalogue'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -384,11 +426,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'cancelRun',
                 'markTurnComplete',
                 'setCurrentMode',
+                'handleTerminalStatus',
             ],
             attachedContextLogic,
             ['markContextSent'],
             toolStreamEventsLogic,
             ['claimApplyBackTargets', 'transferApplyBackTargets', 'releaseApplyBackTargets'],
+            taskWarmLogic({ taskId: props.taskId, resumeFromRunId: props.runId }),
+            ['noteDraft', 'consumeWarm', 'releaseWarm'],
         ],
     })),
 
@@ -587,9 +632,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             (override: string | null, current): string => override ?? current ?? DEFAULT_COMPOSER_MODEL,
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel],
-            (override: string | null, current, model: string): ReasoningEffortEnumApi =>
-                resolveEffortForModel(override ?? current ?? DEFAULT_COMPOSER_EFFORT, model),
+            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel, s.catalogue],
+            (
+                override: string | null,
+                current: string | null | undefined,
+                model: string,
+                catalogue: ModelChoiceApi[]
+            ): ReasoningEffortEnumApi =>
+                resolveEffortForModel(catalogue, override ?? current ?? DEFAULT_COMPOSER_EFFORT, model),
         ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
@@ -597,9 +647,20 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // mode, another runtime's vocabulary) degrades to the next fallback instead of leaking out as a
         // fake `PermissionMode`.
         selectedMode: [
-            (s) => [s.modeOverride, s.currentMode, (_, p) => p.currentMode],
-            (override: PermissionMode | null, current: string | null, initial): PermissionMode =>
-                override ?? getModeOption(current)?.value ?? getModeOption(initial)?.value ?? DEFAULT_COMPOSER_MODE,
+            (s) => [s.modeOverride, s.currentMode, (_, p) => p.currentMode, (_, p) => p.currentRuntimeAdapter],
+            (
+                override: PermissionMode | null,
+                current: string | null,
+                initial: string | null | undefined,
+                runtimeAdapter: string | null | undefined
+            ): PermissionMode => {
+                // Coerce onto the run's own harness: the wire can carry the other runtime's vocabulary
+                // (a run started from desktop or Slack), and showing `full access` on a Claude run — or
+                // sending it — is a mode that runtime rejects.
+                const adapter = runtimeAdapter ?? RuntimeAdapterEnumApi.Claude
+                const picked = override ?? getModeOption(current)?.value ?? getModeOption(initial)?.value
+                return picked ? resolveModeForRuntimeAdapter(adapter, picked) : getDefaultModeForRuntimeAdapter(adapter)
+            },
         ],
         // The agent is actively working a turn — a follow-up typed now should stage rather than send.
         isBusy: [(s) => [s.isThinking], (isThinking: boolean): boolean => isThinking],
@@ -645,6 +706,23 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
     }),
 
     listeners(({ actions, values, props }) => {
+        const noteTerminalDraft = (): void => {
+            // Consent gates warming as it gates sending: a warm boots a cloud sandbox and restores
+            // the task's repository snapshot, so typing must not start one before the organization
+            // accepts AI data processing.
+            if (!values.isTerminal || !values.dataProcessingAccepted) {
+                return
+            }
+            const createRequest = buildRunCreateRequest(
+                values.catalogue,
+                values.selectedModel,
+                values.selectedEffort,
+                values.selectedMode,
+                { resume_from_run_id: props.runId }
+            )
+            actions.noteDraft(Boolean(values.composerForm.draft.trim()), createRequest as WarmTaskResumeRequestApi)
+        }
+
         // Record the non-text refs just wrapped into a send under the task, so no later send anywhere in
         // the task's resume chain (including the next run after a terminal-run send) re-inflates them.
         const markPendingContextSent = (pendingContext: AttachedContextItem[]): void => {
@@ -697,6 +775,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // successful sync so the next send retries an unsent change.
                     const activeModel = values.sentModel ?? props.currentModel ?? DEFAULT_COMPOSER_MODEL
                     const activeEffort = resolveEffortForModel(
+                        values.catalogue,
                         values.sentEffort ?? props.currentEffort ?? DEFAULT_COMPOSER_EFFORT,
                         activeModel
                     )
@@ -716,11 +795,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         })
                         actions.setSentEffort(values.selectedEffort)
                     }
-                    const activeMode =
+                    const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
+                    const lastKnownMode =
                         values.sentMode ??
                         getModeOption(values.currentMode)?.value ??
-                        getModeOption(props.currentMode)?.value ??
-                        DEFAULT_COMPOSER_MODE
+                        getModeOption(props.currentMode)?.value
+                    const activeMode = lastKnownMode
+                        ? resolveModeForRuntimeAdapter(modeAdapter, lastKnownMode)
+                        : getDefaultModeForRuntimeAdapter(modeAdapter)
                     if (values.selectedMode !== activeMode) {
                         await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                             jsonrpc: '2.0',
@@ -765,11 +847,18 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             // unsupported value. No network here: the pick is synced to the agent at send time.
             setModel: ({ model }) => {
                 const currentEffort = values.effortOverride ?? props.currentEffort
-                const resolvedEffort = resolveEffortForModel(currentEffort, model)
+                const resolvedEffort = resolveEffortForModel(values.catalogue, currentEffort, model)
                 if (resolvedEffort !== currentEffort) {
                     actions.setEffort(resolvedEffort)
                 }
+                noteTerminalDraft()
             },
+
+            setEffort: noteTerminalDraft,
+            setMode: noteTerminalDraft,
+            setComposerFormValue: noteTerminalDraft,
+            setComposerFormValues: noteTerminalDraft,
+            handleTerminalStatus: noteTerminalDraft,
 
             startNewRun: async ({ content }) => {
                 if (values.startingRun || !content.trim() || values.currentProjectId == null) {
@@ -785,14 +874,17 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                     // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
-                    const createRequest: ClaudeTaskRunCreateSchemaApi = {
-                        runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-                        model: values.selectedModel,
-                        reasoning_effort: values.selectedEffort,
-                        initial_permission_mode: values.selectedMode,
-                        resume_from_run_id: props.runId,
-                        pending_user_message: wrapWithPosthogContext(content, pendingContext),
-                    }
+                    const createRequest = buildRunCreateRequest(
+                        values.catalogue,
+                        values.selectedModel,
+                        values.selectedEffort,
+                        values.selectedMode,
+                        {
+                            resume_from_run_id: props.runId,
+                            pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                        }
+                    )
+                    actions.consumeWarm()
                     const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
                     actions.resetComposerForm()
                     markPendingContextSent(pendingContext)
@@ -819,6 +911,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 actions.setClearing(true)
                 try {
                     await tasksRunsClearConversationCreate(String(values.currentProjectId), props.taskId, props.runId)
+                    // Any successor held right now was warmed before this boundary was written, so its
+                    // restored session still carries the conversation the clear just removed. Hand it
+                    // back; the next keystroke warms a fresh one on the cleared state.
+                    actions.releaseWarm()
                     actions.resetComposerForm()
                     // A finished run has no live stream to echo these back, so paint them from here.
                     // They match what the backend persisted, so a later replay folds the same thread.

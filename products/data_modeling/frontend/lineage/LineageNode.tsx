@@ -183,85 +183,91 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     }
 
     return (
-        <div
-            className={clsx(
-                'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
-                state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
-                !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
-                !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
-                state.isCurrent && 'border-2'
-            )}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                borderColor: state.isCurrent ? color : undefined,
-            }}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
-            onClick={callbacks.onClick}
-        >
-            {data.handles.map((handle) => (
-                <Handle
-                    key={handle.id}
-                    id={handle.id}
-                    type={handle.type}
-                    position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
-                    className="opacity-0"
-                    isConnectable={false}
-                />
-            ))}
+        <Tooltip title={node.name} delayMs={500}>
+            <div
+                className={clsx(
+                    'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
+                    state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
+                    !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
+                    !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
+                    state.isCurrent && 'border-2'
+                )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    borderColor: state.isCurrent ? color : undefined,
+                }}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+                onClick={callbacks.onClick}
+            >
+                {data.handles.map((handle) => (
+                    <Handle
+                        key={handle.id}
+                        id={handle.id}
+                        type={handle.type}
+                        position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
+                        className="opacity-0"
+                        isConnectable={false}
+                    />
+                ))}
 
-            {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
-                <RunArrow direction="upstream" layoutDirection={direction} onClick={stop(callbacks.onRunUpstream)} />
-            )}
-            {showRunArrows && node.downstream_count > 0 && callbacks.onRunDownstream && (
-                <RunArrow
-                    direction="downstream"
-                    layoutDirection={direction}
-                    onClick={stop(callbacks.onRunDownstream)}
-                />
-            )}
+                {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
+                    <RunArrow
+                        direction="upstream"
+                        layoutDirection={direction}
+                        onClick={stop(callbacks.onRunUpstream)}
+                    />
+                )}
+                {showRunArrows && node.downstream_count > 0 && callbacks.onRunDownstream && (
+                    <RunArrow
+                        direction="downstream"
+                        layoutDirection={direction}
+                        onClick={stop(callbacks.onRunDownstream)}
+                    />
+                )}
 
-            <div className="px-3 pt-3">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 min-w-0">
-                        {state.isCurrent && (
-                            <Tooltip title="This is the currently viewed node">
-                                <IconTarget className="text-warning text-sm shrink-0" />
+                <div className="px-3 pt-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1 min-w-0">
+                            {state.isCurrent && (
+                                <Tooltip title="This is the currently viewed node">
+                                    <IconTarget className="text-warning text-sm shrink-0" />
+                                </Tooltip>
+                            )}
+                            <NodeTypeTag type={node.type} />
+                        </div>
+                        {node.user_tag && (
+                            <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
+                                #{node.user_tag}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 py-2">
+                        <span className="font-medium text-sm truncate">{node.name}</span>
+                        {callbacks.onEdit && (
+                            <LemonButton
+                                size="xxsmall"
+                                type="secondary"
+                                icon={<IconPencil />}
+                                onClick={stop(callbacks.onEdit)}
+                            />
+                        )}
+                        {callbacks.onMaterialize && (node.type === 'matview' || node.type === 'endpoint') && (
+                            <Tooltip title={state.isRunning ? null : 'Run this node'}>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={stop(callbacks.onMaterialize)}
+                                    disabledReason={state.isRunning && 'This node is already running...'}
+                                    icon={state.isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
+                                />
                             </Tooltip>
                         )}
-                        <NodeTypeTag type={node.type} />
                     </div>
-                    {node.user_tag && (
-                        <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
-                            #{node.user_tag}
-                        </span>
-                    )}
                 </div>
-                <div className="flex items-center justify-between gap-2 py-2">
-                    <span className="font-medium text-sm truncate">{node.name}</span>
-                    {callbacks.onEdit && (
-                        <LemonButton
-                            size="xxsmall"
-                            type="secondary"
-                            icon={<IconPencil />}
-                            onClick={stop(callbacks.onEdit)}
-                        />
-                    )}
-                    {callbacks.onMaterialize && (node.type === 'matview' || node.type === 'endpoint') && (
-                        <Tooltip title={state.isRunning ? null : 'Run this node'}>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={stop(callbacks.onMaterialize)}
-                                disabledReason={state.isRunning && 'This node is already running...'}
-                                icon={state.isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
-                            />
-                        </Tooltip>
-                    )}
-                </div>
+                {showMetadata && <MetadataBar node={node} />}
             </div>
-            {showMetadata && <MetadataBar node={node} />}
-        </div>
+        </Tooltip>
     )
 }
 

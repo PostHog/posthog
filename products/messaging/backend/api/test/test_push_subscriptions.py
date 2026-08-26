@@ -4,6 +4,7 @@ import json
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import Client
 
 from cryptography.hazmat.primitives import serialization
@@ -60,6 +61,10 @@ class TestPushSubscriptionsAPI(BaseTest):
             config={"bundle_id": "com.example.app", "team_id": "TEAM123", "key_id": "KEY123"},
             sensitive_config={},
         )
+        # The discard-log window counter lives in the cache, which no transaction rolls back and which
+        # every test in the process shares. Tests here reuse one team id, so without this a test that
+        # logged a discard would suppress the line another test asserts on.
+        cache.clear()
 
     def _post(self, data: dict, api_key: str | None = None):
         payload = {**data, "api_key": api_key or self.team.api_token}
@@ -294,6 +299,76 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert data["push_enabled"] is False
         mock_capture.assert_not_called()
         assert counter._value.get() == before + 1
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_discard_is_logged_once_per_window_and_counted_every_time(self, mock_capture: MagicMock):
+        # The log names the project behind the discards, so it has to survive. It also has to stay
+        # bounded: discarding is this endpoint's most common request, so a line per discard restates
+        # one fact indefinitely. The counter carries the volume.
+        counter = PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration")
+        before = counter._value.get()
+        payload = {
+            "distinct_id": "user-1",
+            "device_token": "device-token",
+            "platform": "android",
+            "app_id": "nonexistent-project",
+        }
+
+        with capture_logs() as logs:
+            for _ in range(5):
+                assert self._post(payload).status_code == status.HTTP_200_OK
+            # A different app_id from the same team stays inside the same window. app_id is
+            # request-controlled, so keying the window on it would let one public project token mint
+            # unbounded cache entries.
+            for _ in range(2):
+                assert self._post({**payload, "app_id": "another-project"}).status_code == status.HTTP_200_OK
+
+        discard_logs = [log for log in logs if log["event"] == "push_subscription_discarded"]
+        assert len(discard_logs) == 1
+        assert discard_logs[0]["team_id"] == self.team.id
+        assert discard_logs[0]["app_id"] == "nonexistent-project"
+        assert counter._value.get() == before + 7
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_configured_app_registers_on_the_cached_path(self, mock_capture: MagicMock):
+        # The first request fills the team's app_id cache and the second reads it. A short-circuit
+        # that got those ids wrong would discard registrations the team is entitled to, and the device
+        # would never retry, because a 200 marks the token delivered.
+        mock_capture.return_value = MagicMock(status_code=200)
+        payload = {
+            "distinct_id": "user-1",
+            "device_token": "fcm-device-token-abc",
+            "platform": "android",
+            "app_id": "my-firebase-project",
+        }
+
+        for _ in range(2):
+            assert self._post(payload).status_code == status.HTTP_200_OK
+
+        assert mock_capture.call_count == 2
+
+    @patch("products.messaging.backend.api.push_subscriptions.cache")
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_configured_app_registers_when_the_cache_is_unavailable(
+        self, mock_capture: MagicMock, mock_cache: MagicMock
+    ):
+        # Failing closed here would turn a cache outage into silent fleet-wide discards, which the
+        # devices would then record as delivered.
+        mock_capture.return_value = MagicMock(status_code=200)
+        mock_cache.get.side_effect = Exception("cache down")
+        mock_cache.add.side_effect = Exception("cache down")
+
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_called_once()
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_team_isolation(self, mock_capture: MagicMock):

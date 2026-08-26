@@ -6,7 +6,7 @@ import logging
 import functools
 from abc import abstractmethod
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlparse
 
 from django.apps import apps
@@ -55,9 +55,11 @@ from posthog.models.utils import (
 )
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -483,8 +485,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
 
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.jwt"):
             if "authorization" in request.headers:
                 authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
@@ -494,6 +495,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
                         return (user, None)
+                    except AuthenticationFailed:
+                        raise
                     except jwt.DecodeError:
                         # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
                         return None
@@ -957,6 +960,84 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[str, Any] | None:
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        return None
+    authorization_match = re.match(r"^Bearer\s+(\S.+)$", authorization)
+    if not authorization_match:
+        return None
+    try:
+        return decode_jwt(authorization_match.group(1).strip(), PosthogJwtAudience.DELEGATED_USER)
+    except (jwt.DecodeError, jwt.InvalidAudienceError):
+        return None
+    except jwt.InvalidTokenError as error:
+        raise AuthenticationFailed(detail="Token invalid.") from error
+
+
+class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        if claims is None:
+            return None
+        personal_api_key_id = claims.get("personal_api_key_id")
+        if not personal_api_key_id:
+            return None
+        try:
+            personal_api_key = PersonalAPIKey.objects.select_related("user").get(
+                id=personal_api_key_id,
+                user_id=claims["id"],
+                user__is_active=True,
+            )
+        except (KeyError, PersonalAPIKey.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+
+        self.personal_api_key = personal_api_key
+        tag_authentication(
+            user_id=personal_api_key.user.pk,
+            team_id=personal_api_key.user.current_team_id,
+            access_method=AccessMethod.PERSONAL_API_KEY,
+            api_key_mask=personal_api_key.mask_value,
+            api_key_label=personal_api_key.label,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(personal_api_key.user)
+        return personal_api_key.user, None
+
+
+class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        if claims is None:
+            return None
+        oauth_access_token_id = claims.get("oauth_access_token_id")
+        if not oauth_access_token_id:
+            return None
+        try:
+            access_token = OAuthAccessToken.objects.select_related("user", "application").get(
+                id=oauth_access_token_id,
+                user_id=claims["id"],
+                user__is_active=True,
+                application__isnull=False,
+                expires__gt=timezone.now(),
+            )
+        except (KeyError, OAuthAccessToken.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source OAuth access token is no longer valid.") from error
+
+        self._enforce_toolbar_access(access_token)
+        self.access_token = access_token
+        tag_authentication(
+            user_id=access_token.user.pk,
+            team_id=access_token.user.current_team_id,
+            access_method=AccessMethod.OAUTH,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(access_token.user)
+            if access_token.impersonated_by_id is not None:
+                activity_storage.set_was_impersonated(True)
+        return access_token.user, None
+
+
 class WidgetAuthentication(authentication.BaseAuthentication):
     """
     Authenticate widget requests via conversations_settings.widget_public_token.
@@ -1080,6 +1161,106 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword
+
+
+class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
+    """DRF authentication for internal routes called by other PostHog services, verifying the
+    scoped per-purpose JWTs of posthog.scoped_service_jwt (the blessed replacement for
+    INTERNAL_API_SECRET). Subclass per purpose:
+
+        class ConversationsTicketJWTAuthentication(ScopedServiceJWTAuthentication):
+            purpose = CONVERSATIONS_TICKETS_PURPOSE
+
+    The request authenticates as a synthetic InternalAPIUser bound to the token's team.
+    When the URL carries a team_id, the token's team_id claim must match it, so a token
+    minted for one team can never read another's data even if both hit the same route.
+
+    require_team=False is for fleet-scoped purposes (cron-style calls with no team in the
+    URL or claims); team-scoped purposes must keep the default so a token without a team
+    claim fails closed instead of authenticating unscoped.
+    """
+
+    purpose: ClassVar[ScopedServiceJwtPurpose]
+    require_team: ClassVar[bool] = True
+
+    def authenticate(self, request: Request) -> Optional[tuple[Any, None]]:
+        header = authentication.get_authorization_header(request).split()
+        # No bearer header: return None (not raise) so the view's other authenticators,
+        # if any, still get their turn.
+        if not header or header[0].lower() != b"bearer":
+            return None
+        if len(header) != 2:
+            raise AuthenticationFailed("Invalid Authorization header.")
+
+        if not self.purpose.enabled():
+            # Fail closed at request time rather than startup: most processes never serve
+            # these routes and never get the secret injected, so a startup check would
+            # wrongly crash them (same reasoning as InternalAPIAuthentication).
+            logger.error(
+                "Scoped service JWT authentication attempted without configured secret",
+                extra={"path": request.path, "settings_name": self.purpose.settings_name},
+            )
+            raise AuthenticationFailed("Service token authentication is not configured.")
+
+        try:
+            token = header[1].decode()
+        except UnicodeDecodeError:
+            # UnicodeDecodeError is a ValueError, so without this clause a non-UTF-8 bearer
+            # value would escape as a 500 instead of a clean auth failure.
+            raise AuthenticationFailed("Invalid Authorization header.")
+
+        try:
+            claims = self.purpose.verify(token)
+        except jwt.PyJWTError:
+            raise AuthenticationFailed("Invalid or expired service token.")
+
+        return self._authenticate_claims(request, claims)
+
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, None]:
+        claim_team_id = claims.get("team_id")
+
+        if claim_team_id is None:
+            if self.require_team:
+                raise AuthenticationFailed("Service token is missing its team claim.")
+            return InternalAPIUser(), None
+
+        url_team_id = _team_id_from_request_path(request)
+        if url_team_id is not None and str(claim_team_id) != url_team_id:
+            raise AuthenticationFailed("Service token team does not match the requested team.")
+
+        Team = apps.get_model(app_label="posthog", model_name="Team")
+        try:
+            team = Team.objects.only("id", "organization_id").get(id=claim_team_id)
+        except (Team.DoesNotExist, ValueError, TypeError):
+            raise AuthenticationFailed("Invalid service token team.")
+
+        return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), None
+
+    def authenticate_header(self, request: Request) -> str:
+        # Without a challenge value DRF renders every AuthenticationFailed from this class as
+        # 403 instead of 401, making a bad or expired service credential read as a permission
+        # failure to the calling service.
+        return "Bearer"
+
+
+def _team_id_from_request_path(request: Request) -> Optional[str]:
+    parser_context = getattr(request, "parser_context", None)
+    if isinstance(parser_context, dict):
+        kwargs = parser_context.get("kwargs")
+        if isinstance(kwargs, dict):
+            for lookup in ("parent_lookup_team_id", "team_id"):
+                if kwargs.get(lookup) is not None:
+                    return str(kwargs[lookup])
+
+    django_request = getattr(request, "_request", request)
+    resolver_match = getattr(django_request, "resolver_match", None)
+    if resolver_match and getattr(resolver_match, "kwargs", None):
+        for lookup in ("parent_lookup_team_id", "team_id"):
+            team_id = resolver_match.kwargs.get(lookup)
+            if team_id is not None:
+                return str(team_id)
+
+    return None
 
 
 def session_auth_required(endpoint):

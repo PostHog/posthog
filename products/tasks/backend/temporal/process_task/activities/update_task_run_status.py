@@ -10,7 +10,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.metrics import observe_wizard_run_unbound
+from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
@@ -35,7 +35,7 @@ _TERMINAL_STATE_MARKERS = (
 _TERMINAL_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 
 
-@dataclass
+@dataclass(frozen=False)
 class UpdateTaskRunStatusInput:
     run_id: str
     status: str
@@ -47,6 +47,10 @@ class UpdateTaskRunStatusInput:
     # One of _TERMINAL_STATE_MARKERS, recorded as a True key in TaskRun.state.
     # Optional with a default for the same in-flight payload reason as error_type.
     timeout_marker: Optional[str] = None
+    agent_active_at_termination: Optional[bool] = None
+    end_of_turn_received: Optional[bool] = None
+    last_agent_heartbeat_at: Optional[str] = None
+    seconds_since_last_agent_heartbeat: Optional[float] = None
 
 
 @activity.defn
@@ -120,6 +124,17 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     if input.timed_out_inactivity and old_status != input.status:
         task_run.task.soft_delete_if_unclaimed_prewarm(task_run)
 
+    # A warm Run that reaches terminal without ever being activated was never used — the sandbox was
+    # booted and thrown away. Counting it against `prewarmed_activated_total` gives the warm hit rate,
+    # and the reason separates a deliberate hand-back from one nobody reclaimed.
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
+        observe_prewarmed_unused_if_never_activated(
+            task_run,
+            reason="idle_timeout"
+            if input.timed_out_inactivity
+            else ("released" if input.status == TaskRun.Status.CANCELLED else "other"),
+        )
+
     if input.status in _TERMINAL_STATUSES:
         from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle
             handle_loop_run_terminal,
@@ -134,6 +149,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         "Task run status updated",
         run_id=input.run_id,
         status=input.status,
+        termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
     )
 
 
@@ -146,8 +162,23 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
     transition so activity retries and repeat updates don't double-count.
     """
     try:
+        marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
+        termination_reason = marker if marker in _TERMINAL_STATE_MARKERS else None
+        relay_state = {
+            "agent_active_at_termination": input.agent_active_at_termination,
+            "end_of_turn_received": input.end_of_turn_received,
+            "last_agent_heartbeat_at": input.last_agent_heartbeat_at,
+            "seconds_since_last_agent_heartbeat": input.seconds_since_last_agent_heartbeat,
+        }
         if input.status == TaskRun.Status.COMPLETED:
-            task_run.capture_event("task_run_completed", {"duration_seconds": task_run._duration_seconds()})
+            task_run.capture_event(
+                "task_run_completed",
+                {
+                    "duration_seconds": task_run._duration_seconds(),
+                    "termination_reason": termination_reason,
+                    **relay_state,
+                },
+            )
         else:
             task_run.capture_event(
                 "task_run_failed",
@@ -155,6 +186,8 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     "error_message": truncate_error_message(input.error_message or task_run.error_message),
                     "error_type": input.error_type or "unspecified",
                     "duration_seconds": task_run._duration_seconds(),
+                    "termination_reason": termination_reason,
+                    **relay_state,
                 },
             )
 

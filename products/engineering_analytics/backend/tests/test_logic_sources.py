@@ -466,7 +466,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
 
 class TestMultiSourceResolutionWarehouse(_WarehouseMixin, BaseTest):
     """A team with one GitHub source per repository: a repo-scoped read must resolve the source
-    connected for that repo, not the oldest one. Skips when object storage is unreachable."""
+    connected for that repo, not the oldest one."""
 
     def _connect_source(self, *, source_id: str, prefix: str, repository: str) -> ExternalDataSource:
         return ExternalDataSource.objects.create(

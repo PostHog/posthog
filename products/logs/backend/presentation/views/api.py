@@ -708,7 +708,7 @@ class _LogsServicesSummarySerializer(serializers.Serializer):
 class _LogsServicesResponseSerializer(serializers.Serializer):
     services = _LogsServiceAggregateSerializer(
         many=True,
-        help_text="Per-service aggregates, ordered by log_count descending. Capped at 1000 services.",
+        help_text="Per-service aggregates, ordered by log_count descending. Capped at 10000 services.",
     )
     sparkline = _LogsServicesSparklineBucketSerializer(
         many=True,
@@ -720,7 +720,7 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
     )
     total_services = serializers.IntegerField(
         help_text=(
-            "True distinct service count for the window and filters, unaffected by the 1000-service "
+            "True distinct service count for the window and filters, unaffected by the 10000-service "
             "cap on `services`. Greater than the length of `services` when the response is truncated."
         ),
     )
@@ -766,7 +766,8 @@ class _LogPatternExampleSerializer(serializers.Serializer):
     body = serializers.CharField(
         help_text=(
             "Log body as the miner saw it: whitespace-collapsed and truncated to the mining "
-            "length cap, not the raw stored line."
+            "length cap, with the message field extracted from JSON bodies. This is not the "
+            "raw stored line."
         ),
     )
     severity_text = serializers.CharField(help_text='Severity of the sampled line, e.g. "info", "error".')
@@ -837,9 +838,10 @@ class _LogPatternSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from "
-            "the template and validated against the pattern's own examples before being offered. "
-            "Null when the template lacks literal content or validation failed — never trust an "
-            "unvalidated predicate. Use with the message/regex log property filter."
+            "the template and validated against the raw bodies of the pattern's own sampled rows "
+            "before being offered. Null when the template lacks literal content or validation "
+            "failed. Never trust an unvalidated predicate. Use with the message/regex log "
+            "property filter."
         ),
     )
     match_literal = serializers.CharField(

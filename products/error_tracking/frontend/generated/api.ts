@@ -17,8 +17,12 @@ import type {
     ErrorTrackingBypassRuleCreateRequestApi,
     ErrorTrackingBypassRuleUpdateRequestApi,
     ErrorTrackingBypassRulesListParams,
+    ErrorTrackingExternalIssueSearchResultApi,
+    ErrorTrackingExternalReferenceCreateApi,
+    ErrorTrackingExternalReferenceLinkApi,
     ErrorTrackingExternalReferenceResultApi,
     ErrorTrackingExternalReferencesListParams,
+    ErrorTrackingExternalReferencesSearchIssuesRetrieveParams,
     ErrorTrackingFingerprintApi,
     ErrorTrackingFingerprintsListParams,
     ErrorTrackingFingerprintsResolveRetrieveParams,
@@ -48,6 +52,10 @@ import type {
     ErrorTrackingReleaseUpdateRequestApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingSettingsApi,
+    ErrorTrackingSeverityRuleApi,
+    ErrorTrackingSeverityRuleCreateRequestApi,
+    ErrorTrackingSeverityRuleListResponseApi,
+    ErrorTrackingSeverityRuleUpdateRequestApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
@@ -62,6 +70,7 @@ import type {
     ErrorTrackingSymbolSetBulkDeleteApi,
     ErrorTrackingSymbolSetBulkFinishUploadApi,
     ErrorTrackingSymbolSetBulkStartUploadApi,
+    ErrorTrackingSymbolSetBulkStartUploadResponseApi,
     ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
@@ -86,6 +95,8 @@ import type {
     PatchedErrorTrackingIssueWriteApi,
     PatchedErrorTrackingReleaseUpdateRequestApi,
     PatchedErrorTrackingSettingsApi,
+    PatchedErrorTrackingSeverityRuleReorderRequestApi,
+    PatchedErrorTrackingSeverityRuleUpdateRequestApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
     PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
@@ -408,14 +419,14 @@ export const getErrorTrackingExternalReferencesCreateUrl = (projectId: string) =
 
 export const errorTrackingExternalReferencesCreate = async (
     projectId: string,
-    errorTrackingExternalReferenceResultApi: NonReadonly<ErrorTrackingExternalReferenceResultApi>,
+    errorTrackingExternalReferenceCreateApi: NonReadonly<ErrorTrackingExternalReferenceCreateApi>,
     options?: RequestInit
 ): Promise<ErrorTrackingExternalReferenceResultApi> => {
     return apiMutator<ErrorTrackingExternalReferenceResultApi>(getErrorTrackingExternalReferencesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingExternalReferenceResultApi),
+        body: JSON.stringify(errorTrackingExternalReferenceCreateApi),
     })
 }
 
@@ -453,6 +464,65 @@ export const errorTrackingExternalReferencesDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getErrorTrackingExternalReferencesLinkIssueCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/external_references/link_issue/`
+}
+
+/**
+ * Link an error to an issue that already exists in the connected provider.
+ */
+export const errorTrackingExternalReferencesLinkIssueCreate = async (
+    projectId: string,
+    errorTrackingExternalReferenceLinkApi: ErrorTrackingExternalReferenceLinkApi,
+    options?: RequestInit
+): Promise<ErrorTrackingExternalReferenceResultApi> => {
+    return apiMutator<ErrorTrackingExternalReferenceResultApi>(
+        getErrorTrackingExternalReferencesLinkIssueCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingExternalReferenceLinkApi),
+        }
+    )
+}
+
+export const getErrorTrackingExternalReferencesSearchIssuesRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingExternalReferencesSearchIssuesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/external_references/search_issues/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/external_references/search_issues/`
+}
+
+/**
+ * Search a connected provider for existing issues to link an error to.
+ */
+export const errorTrackingExternalReferencesSearchIssuesRetrieve = async (
+    projectId: string,
+    params: ErrorTrackingExternalReferencesSearchIssuesRetrieveParams,
+    options?: RequestInit
+): Promise<ErrorTrackingExternalIssueSearchResultApi> => {
+    return apiMutator<ErrorTrackingExternalIssueSearchResultApi>(
+        getErrorTrackingExternalReferencesSearchIssuesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingFingerprintsListUrl = (
@@ -1264,6 +1334,120 @@ export const errorTrackingSettingsUpdateSettingsPartialUpdate = async (
     })
 }
 
+export const getErrorTrackingSeverityRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/`
+}
+
+export const errorTrackingSeverityRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSeverityRuleListResponseApi> => {
+    return apiMutator<ErrorTrackingSeverityRuleListResponseApi>(getErrorTrackingSeverityRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSeverityRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/`
+}
+
+export const errorTrackingSeverityRulesCreate = async (
+    projectId: string,
+    errorTrackingSeverityRuleCreateRequestApi: ErrorTrackingSeverityRuleCreateRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingSeverityRuleApi> => {
+    return apiMutator<ErrorTrackingSeverityRuleApi>(getErrorTrackingSeverityRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSeverityRuleCreateRequestApi),
+    })
+}
+
+export const getErrorTrackingSeverityRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
+}
+
+export const errorTrackingSeverityRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSeverityRuleApi> => {
+    return apiMutator<ErrorTrackingSeverityRuleApi>(getErrorTrackingSeverityRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSeverityRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
+}
+
+export const errorTrackingSeverityRulesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingSeverityRuleUpdateRequestApi?: ErrorTrackingSeverityRuleUpdateRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSeverityRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingSeverityRuleUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingSeverityRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
+}
+
+export const errorTrackingSeverityRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingSeverityRuleUpdateRequestApi?: PatchedErrorTrackingSeverityRuleUpdateRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSeverityRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingSeverityRuleUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingSeverityRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/${id}/`
+}
+
+export const errorTrackingSeverityRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSeverityRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getErrorTrackingSeverityRulesReorderPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/severity_rules/reorder/`
+}
+
+export const errorTrackingSeverityRulesReorderPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingSeverityRuleReorderRequestApi?: PatchedErrorTrackingSeverityRuleReorderRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSeverityRulesReorderPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingSeverityRuleReorderRequestApi),
+    })
+}
+
 export const getErrorTrackingSpikeDetectionConfigListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/spike_detection_config/`
 }
@@ -1673,11 +1857,14 @@ export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
     projectId: string,
     errorTrackingSymbolSetBulkStartUploadApi?: ErrorTrackingSymbolSetBulkStartUploadApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
-    })
+): Promise<ErrorTrackingSymbolSetBulkStartUploadResponseApi> => {
+    return apiMutator<ErrorTrackingSymbolSetBulkStartUploadResponseApi>(
+        getErrorTrackingSymbolSetsBulkStartUploadCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
+        }
+    )
 }

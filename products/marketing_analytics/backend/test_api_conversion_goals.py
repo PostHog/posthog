@@ -9,12 +9,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     ConversionGoalsListResponse,
     ConversionGoalSummary,
 )
-
-from ee.models.rbac.access_control import AccessControl
 
 SCHEMA_MAP = {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"}
 

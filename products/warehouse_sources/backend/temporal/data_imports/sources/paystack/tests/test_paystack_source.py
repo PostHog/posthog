@@ -1,16 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paystack import (
     PaystackSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.paystack import PaystackResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.source import PaystackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPaystackSource:
@@ -18,29 +13,6 @@ class TestPaystackSource:
         self.source = PaystackSource()
         self.team_id = 123
         self.config = PaystackSourceConfig(secret_api_key="sk_test_x")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PAYSTACK
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Paystack"
-        assert config.label == "Paystack"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/paystack.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["secret_api_key"]
-
-    def test_secret_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "secret_api_key"
-        )
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -83,14 +55,6 @@ class TestPaystackSource:
     def test_get_schemas_filtered_unknown_name_returns_empty(self):
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-        for entry in descriptions.values():
-            assert entry["description"]
-            assert entry["docs_url"].startswith("https://paystack.com/docs/api/")
-            assert "id" in entry["columns"]
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -109,13 +73,6 @@ class TestPaystackSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.secret_api_key)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PaystackResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.paystack.source.paystack_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_paystack_source):

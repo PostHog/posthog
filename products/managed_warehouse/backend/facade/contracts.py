@@ -30,8 +30,11 @@ __all__ = [
     "DuckLakeQueryResult",
     "DuckLakeS3Secret",
     "DuckLakeTableResult",
+    "DucklingTables",
     "ManagedWarehouseBackfillState",
+    "ManagedWarehousePostgresConnection",
     "ManagedWarehouseProvisionStatus",
+    "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
     "ManagedWarehouseSourceJobStatus",
     "ManagedWarehouseSourceJobUpdate",
@@ -96,7 +99,27 @@ class ServiceCredential:
 class ServiceCredentialUnavailable(RuntimeError):
     """The control plane couldn't issue a service credential (unreachable,
     org/team not provisioned, or a 5xx). Callers decide whether to fall back
-    to stored org-root credentials (transitional) or fail the run."""
+    to the stored server login or fail the run."""
+
+
+@frozen
+class ManagedWarehousePostgresConnection:
+    host: str
+    port: int
+    database: str
+    username: str
+    password: str = field(repr=False)
+    sslmode: str
+
+
+@frozen
+class ManagedWarehouseSourceAuth:
+    """Non-secret source fields needed to choose managed warehouse authentication."""
+
+    prefix: str | None
+    system_managed: bool
+    credential_kind: str | None
+    lifecycle_generation: int | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -115,7 +138,7 @@ class DuckgresQueryServerConfig:
     flight_port: int
     database: str
     username: str
-    password: str
+    password: str = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -126,7 +149,7 @@ class DuckLakeCatalogConnectionConfig:
     port: int
     database: str
     username: str | None
-    password: str | None
+    password: str | None = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -145,6 +168,14 @@ class DuckgresStoredServerConfig:
     query_server: DuckgresQueryServerConfig
     catalog: DuckLakeCatalogConnectionConfig | None
     bucket: DuckgresStoredBucketConfig | None
+
+
+@frozen
+class DucklingTables:
+    """The per-team events/persons duckling table names the backfill writes to."""
+
+    events_table: str
+    persons_table: str
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -138,6 +138,20 @@ async def test_lifespan_startup_skips_source_registry_prewarm_when_disabled() ->
 
 
 @pytest.mark.asyncio
+async def test_lifespan_startup_schedules_web_bot_auth_key_validation() -> None:
+    driver = _LifespanDriver([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
+
+    with override_settings(WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT=True):
+        with mock.patch(
+            "posthog.web_bot_auth_keys.validate_configured_web_bot_auth_private_keys_in_background"
+        ) as validate_keys:
+            await driver.run()
+
+    validate_keys.assert_called_once_with()
+    assert driver.sent == [{"type": "lifespan.startup.complete"}, {"type": "lifespan.shutdown.complete"}]
+
+
+@pytest.mark.asyncio
 async def test_lifespan_startup_prewarms_source_registry_before_reporting_ready() -> None:
     driver = _LifespanDriver([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
     sent_when_load_ran: list[dict] | None = None
