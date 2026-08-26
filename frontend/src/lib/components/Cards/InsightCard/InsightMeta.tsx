@@ -166,9 +166,7 @@ export function InsightMeta({
             deferInitialAlertsLoad: true,
         })
     )
-    const { samplingFactor, hasDataWarehouseSeries, hasOnlyDataWarehouseSeries } = useValues(
-        insightVizDataLogic(insightLogicProps)
-    )
+    const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
     const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { copyToDestinations } = useValues(
@@ -199,10 +197,9 @@ export function InsightMeta({
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
     // Keyed off the same effective date the heading prints, so the icon can't claim a range the tile isn't querying.
-    // Warehouse-only series don't read the events table, and shared or exported views give the viewer no way to act.
+    // Shared or exported views give the viewer no way to act.
     const showsDataRetentionWarning =
         retentionApplies &&
-        !hasOnlyDataWarehouseSeries &&
         placement !== DashboardPlacement.Public &&
         placement !== DashboardPlacement.Export &&
         exceedsRetention({

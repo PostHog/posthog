@@ -1,7 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 
 import { Node } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import {
+    isAnyDataWarehouseNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+} from '~/queries/utils'
 
 /** Whether one insight's date range reaches past the team's events retention window.
  *
@@ -28,7 +34,12 @@ export function exceedsRetention({
     if (isHogQLQuery(query) || (isDataVisualizationNode(query) && isHogQLQuery(query.source))) {
         return true
     }
-    const dateFrom = dateFromOverride ?? (isInsightVizNode(query) ? query.source?.dateRange?.date_from : undefined)
+    const source = isInsightVizNode(query) ? query.source : undefined
+    // Retention floors only the events table, so an insight reading warehouse tables alone can't be truncated.
+    if (isInsightQueryWithSeries(source) && source.series.length > 0 && source.series.every(isAnyDataWarehouseNode)) {
+        return false
+    }
+    const dateFrom = dateFromOverride ?? source?.dateRange?.date_from
     // "All time" resolves to the earliest event the floored query can still see, which is never older than the
     // window, so the resolved range alone can't reveal that older events were cut off.
     if (dateFrom === 'all') {

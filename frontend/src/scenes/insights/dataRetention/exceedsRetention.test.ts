@@ -4,10 +4,12 @@ import { exceedsRetention } from './exceedsRetention'
 
 const RETENTION_MONTHS = 12
 
-const insightViz = (dateFrom: string | null): any => ({
+const insightViz = (dateFrom: string | null, series: any[] = [{ kind: NodeKind.EventsNode }]): any => ({
     kind: NodeKind.InsightVizNode,
-    source: { kind: NodeKind.TrendsQuery, dateRange: { date_from: dateFrom } },
+    source: { kind: NodeKind.TrendsQuery, dateRange: { date_from: dateFrom }, series },
 })
+
+const WAREHOUSE_SERIES = { kind: NodeKind.DataWarehouseNode }
 
 const sqlInsight = (query: string): any => ({
     kind: NodeKind.DataVisualizationNode,
@@ -56,6 +58,22 @@ describe('exceedsRetention', () => {
             false,
         ],
         ['SQL warns whenever retention applies', sqlInsight('select 1'), undefined, undefined, RETENTION_MONTHS, true],
+        [
+            'a warehouse-only insight never warns',
+            insightViz('all', [WAREHOUSE_SERIES]),
+            undefined,
+            '2023-06-15',
+            RETENTION_MONTHS,
+            false,
+        ],
+        [
+            'a mixed events and warehouse insight warns',
+            insightViz('-3y', [{ kind: NodeKind.EventsNode }, WAREHOUSE_SERIES]),
+            undefined,
+            '2023-06-15',
+            RETENTION_MONTHS,
+            true,
+        ],
     ])(
         '%s',
         (
