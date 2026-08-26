@@ -1783,3 +1783,26 @@ class TestCreateFromTemplate(BaseTest):
         assert insight.query["kind"] == "InsightVizNode"
         assert insight.query["source"]["kind"] == "TrendsQuery"
         assert insight.query["source"]["series"][0]["event"] == "$pageview"
+
+    def test_tile_with_unconvertible_legacy_filters_does_not_fail_the_dashboard(self):
+        template = DashboardTemplate.objects.create(
+            team=self.team,
+            template_name="one broken tile",
+            dashboard_filters={},
+            tiles=[
+                {"type": "INSIGHT", "name": "broken", "filters": {"insight": "NOT_AN_INSIGHT_TYPE"}, "layouts": {}},
+                {
+                    "type": "INSIGHT",
+                    "name": "fine",
+                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
+                    "layouts": {},
+                },
+            ],
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="from broken template", filters={})
+
+        create_from_template(dashboard, template)
+
+        insights = Insight.objects.filter(team=self.team)
+        assert insights.count() == 1
+        assert insights.get().name == "fine"
