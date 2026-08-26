@@ -184,8 +184,17 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.warmingKey = key
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
+            cache.consumedWhileWarming = false
             try {
                 const warm = await tasksWarmCreate(String(values.currentProjectId), request)
+                if (cache.consumedWhileWarming) {
+                    // A submit consumed the warm while this POST was open. The backend's create may have
+                    // matched and activated this very Run for the submit, so installing a lease on it
+                    // would let a later selection change cancel a live run. Drop the response without a
+                    // lease. We can't tell an activated Run from an unactivated orphan here, so we never
+                    // cancel; an orphan falls to the server reaper. Partner of pendingRelease/pendingWarm.
+                    return
+                }
                 // An empty body is the documented "not warmed" answer — the flag is off, the pool is
                 // full, or the integration didn't resolve. Not an error, just no speedup this time.
                 if (warm?.task_id && warm?.run_id) {
@@ -244,6 +253,13 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.disposables.dispose('warm-release')
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
+            // The submit can beat an in-flight warm POST back to the client (the scene consumes only after
+            // its create resolves). Fence that response so its completion drops rather than installs a
+            // lease — otherwise a stale lease survives the submit and a later selection change cancels a
+            // Run the create may have activated. prewarm resets this flag when it opens the next POST.
+            if (cache.warming) {
+                cache.consumedWhileWarming = true
+            }
             actions.setWarmLease(null)
         },
     })),
