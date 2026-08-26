@@ -10,6 +10,8 @@ import type { WarmTaskRequestApi } from 'products/tasks/frontend/generated/api.s
 const WARM_DEBOUNCE_MS = 250
 /** Grace period after the draft empties before the warm sandbox is released. */
 const RELEASE_AFTER_EMPTY_MS = 5000
+/** Minimum gap between warm requests for the same selection, counted from the request, not the answer. */
+const WARM_RETRY_AFTER_MS = 5 * 60 * 1000
 
 /**
  * A warm sandbox the backend is holding for this composer. `key` is the selection the warm was booted
@@ -172,6 +174,17 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 cache.pendingRelease = false
                 return
             }
+            // A warm request that answered "not warmed" (the flag is off, the pool is full, the
+            // integration didn't resolve) leaves no lease, so the checks above can't stop the next
+            // keystroke from asking again — that is one POST per typing pause for the whole draft. Ask
+            // once per selection, then only after the cooldown, on the chance the answer has changed.
+            if (
+                cache.lastWarmRequestKey === key &&
+                cache.lastWarmRequestAt != null &&
+                Date.now() - cache.lastWarmRequestAt < WARM_RETRY_AFTER_MS
+            ) {
+                return
+            }
             // The selection changed out from under an existing warm (a different repo, branch, model or
             // permission mode); that sandbox can no longer serve this submit, so let it go and warm again.
             if (values.warmLease) {
@@ -202,6 +215,10 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             }
             cache.warming = true
             cache.warmingKey = key
+            // Stamped here rather than on the answer, so a slow or failed warm still holds off the next
+            // request for the full cooldown.
+            cache.lastWarmRequestKey = key
+            cache.lastWarmRequestAt = Date.now()
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
             cache.consumedWhileWarming = false
