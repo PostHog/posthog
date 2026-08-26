@@ -38,7 +38,7 @@ describe('taskWarmLogic', () => {
                     warmCalls += 1
                     return [200, { task_id: `warm-task-${warmCalls}`, run_id: `warm-run-${warmCalls}` }]
                 },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
                     cancelledRuns.push(params.runId as string)
                     return [200, {}]
                 },
@@ -108,7 +108,7 @@ describe('taskWarmLogic', () => {
                     })
                     return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
                 },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
                     cancelledRuns.push(params.runId as string)
                     return [200, {}]
                 },
@@ -178,7 +178,7 @@ describe('taskWarmLogic', () => {
                     }
                     return [200, { task_id: `warm-task-${n}`, run_id: `warm-run-${n}` }]
                 },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
                     cancelledRuns.push(params.runId as string)
                     return [200, {}]
                 },
@@ -212,7 +212,7 @@ describe('taskWarmLogic', () => {
                     })
                     return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
                 },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
                     cancelledRuns.push(params.runId as string)
                     return [200, {}]
                 },
@@ -245,7 +245,7 @@ describe('taskWarmLogic', () => {
                     })
                     return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
                 },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
                     cancelledRuns.push(params.runId as string)
                     return [200, {}]
                 },
@@ -279,7 +279,7 @@ describe('taskWarmLogic', () => {
                     warmCalls += 1
                     return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
                 },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
                     cancelledRuns.push(params.runId as string)
                     cancelSeen()
                     return [200, {}]
