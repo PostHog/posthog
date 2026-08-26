@@ -122,7 +122,12 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
 
 
 def _resolve_baselines_with_merge_base(
-    repo: Repo, run_type: str, branch: str, commit_sha: str | None = None
+    repo: Repo,
+    run_type: str,
+    branch: str,
+    *,
+    rendered_identifiers: set[str],
+    commit_sha: str | None = None,
 ) -> tuple[dict[str, str], int]:
     """Fetch branch baseline merged with merge-base baseline.
 
@@ -131,6 +136,13 @@ def _resolve_baselines_with_merge_base(
     rewrites the full file, and git rebase replays it destructively).
 
     Branch entries win on conflict so approvals are preserved.
+    Healing is limited to identifiers this run rendered. An entry missing
+    from the branch baseline whose story still renders is the rebase loss
+    above. An entry missing from both is one the branch deleted on purpose,
+    and restoring it only manufactures a REMOVED — on a merge-queue branch
+    nobody can approve that away, so it reds the batch until the deleting
+    PR lands.
+
     Identifiers previously approved as REMOVED on this branch are
     tombstoned — healing would otherwise resurrect them from master
     and re-flag them as removed on every subsequent run.
@@ -177,7 +189,11 @@ def _resolve_baselines_with_merge_base(
 
     source_pr_number = github_api._verified_merge_queue_source_pr(github, repo.repo_full_name, branch)
     tombstoned = _tombstoned_identifiers(repo, run_type, branch, source_pr_number=source_pr_number)
-    healable_merge_base = {k: v for k, v in merge_base_baseline.items() if k not in tombstoned}
+    healable_merge_base = {
+        identifier: baseline_hash
+        for identifier, baseline_hash in merge_base_baseline.items()
+        if identifier not in tombstoned and identifier in rendered_identifiers
+    }
 
     healed = set(healable_merge_base) - set(branch_baseline)
     merged = {**healable_merge_base, **branch_baseline}

@@ -108,7 +108,9 @@ class TestMergeBaseBaselineHealing:
         baseline = {"A": "h1", "B": "h2"}
         self._mock_github(mocker, branch_baseline=baseline, merge_base_baseline=baseline)
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers={"A", "B"}
+        )
 
         assert merged == baseline
         assert healed == 0
@@ -118,7 +120,9 @@ class TestMergeBaseBaselineHealing:
         merge_base_baseline = {"A": "h1", "B": "h2", "C": "h3"}
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers={"A", "B", "C"}
+        )
 
         assert merged == {"A": "h1", "B": "h2", "C": "h3"}
         assert healed == 2
@@ -128,7 +132,9 @@ class TestMergeBaseBaselineHealing:
         merge_base_baseline = {"A": "master_hash", "B": "h2"}
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers={"A", "B"}
+        )
 
         assert merged["A"] == "branch_hash"
         assert merged["B"] == "h2"
@@ -139,7 +145,9 @@ class TestMergeBaseBaselineHealing:
         merge_base_baseline = {"A": "h1"}
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers={"A", "NewStory"}
+        )
 
         assert "NewStory" in merged
         assert merged["NewStory"] == "new_hash"
@@ -149,7 +157,9 @@ class TestMergeBaseBaselineHealing:
         baseline = {"A": "h1"}
         self._mock_github(mocker, branch_baseline=baseline, default_branch="master")
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "master")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "master", rendered_identifiers={"A"}
+        )
 
         assert merged == baseline
         assert healed == 0
@@ -173,7 +183,7 @@ class TestMergeBaseBaselineHealing:
         )
 
         merged, healed = baselines._resolve_baselines_with_merge_base(
-            repo, "storybook", "master", commit_sha=commit_sha
+            repo, "storybook", "master", rendered_identifiers={"A", "B"}, commit_sha=commit_sha
         )
 
         assert merged == expected_baseline
@@ -182,8 +192,8 @@ class TestMergeBaseBaselineHealing:
     def test_non_default_branch_ignores_commit_sha(self, repo, mocker):
         """On non-default branches, commit_sha is ignored — branch name is used."""
         branch_baseline = {"A": "h1"}
-        merge_base_baseline = {"A": "h1", "C": "h3"}
         commit_baseline = {"X": "hx"}  # Should NOT be used
+        merge_base_baseline = {"A": "h1", "C": "h3"}
         self._mock_github(
             mocker,
             branch_baseline=branch_baseline,
@@ -192,18 +202,45 @@ class TestMergeBaseBaselineHealing:
         )
 
         merged, healed = baselines._resolve_baselines_with_merge_base(
-            repo, "storybook", "my-branch", commit_sha="deadbeef"
+            repo, "storybook", "my-branch", rendered_identifiers={"A", "C"}, commit_sha="deadbeef"
         )
 
-        # Should use branch baseline + merge-base healing, NOT the commit baseline
         assert merged == {"A": "h1", "C": "h3"}
+        assert healed == 1
+
+    def test_does_not_heal_what_the_run_did_not_render(self, repo, mocker):
+        """A story deleted on the branch stays deleted — healing it back invents a REMOVED."""
+        branch_baseline = {"kept": "h1"}
+        merge_base_baseline = {"kept": "h1", "deleted-story": "h2"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers={"kept"}
+        )
+
+        assert merged == {"kept": "h1"}
+        assert healed == 0
+
+    def test_heals_what_the_run_still_renders(self, repo, mocker):
+        """Same missing entry, but the story renders — that is the rebase loss healing exists for."""
+        branch_baseline = {"kept": "h1"}
+        merge_base_baseline = {"kept": "h1", "lost-to-rebase": "h2"}
+        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers={"kept", "lost-to-rebase"}
+        )
+
+        assert merged == {"kept": "h1", "lost-to-rebase": "h2"}
         assert healed == 1
 
     def test_falls_back_on_merge_base_failure(self, repo, mocker):
         branch_baseline = {"A": "h1"}
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_sha=None)
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers={"A"}
+        )
 
         assert merged == branch_baseline
         assert healed == 0
@@ -216,7 +253,9 @@ class TestMergeBaseBaselineHealing:
             side_effect=[branch_baseline, Exception("GitHub 500")],
         )
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers={"A", "B"}
+        )
 
         assert merged == branch_baseline
         assert healed == 0
@@ -224,7 +263,9 @@ class TestMergeBaseBaselineHealing:
     def test_first_run_both_baselines_empty(self, repo, mocker):
         self._mock_github(mocker, branch_baseline={}, merge_base_baseline={})
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers=set()
+        )
 
         assert merged == {}
         assert healed == 0
@@ -246,7 +287,9 @@ class TestMergeBaseBaselineHealing:
         }
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, "storybook", "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, "storybook", "my-branch", rendered_identifiers=set(merge_base_baseline)
+        )
 
         assert len(merged) == 10
         assert healed == 8
@@ -256,7 +299,11 @@ class TestMergeBaseBaselineHealing:
         """Healed entries classify as unchanged when hashes match."""
         branch_baseline = {"existing": "h1"}
         merge_base_baseline = {"existing": "h1", "healed": "h2"}
-        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+        self._mock_github(
+            mocker,
+            branch_baseline=branch_baseline,
+            merge_base_baseline=merge_base_baseline,
+        )
 
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="h2", storage_path="p/h2")
@@ -333,6 +380,47 @@ class TestMergeBaseBaselineHealing:
             ),
             team_id=repo.team_id,
         )
+
+        runs.complete_run(run.id)
+
+        run.refresh_from_db()
+        assert run.removed_count == 0
+        assert run.new_count == 0
+        assert run.changed_count == 0
+
+    def test_merge_queue_batch_deleting_a_story_reports_no_removals(self, repo, mocker):
+        """A PR that deletes a story must not red every batch it shares until it lands.
+
+        The batch tree has the story and its baseline entry gone. The merge base is
+        still master, which has both. Healing off the merge base used to restore the
+        entry, and a merge-queue run has no reviewer to approve the removal away, so
+        every co-batched PR failed until the deleting PR merged.
+        """
+        batch_branch = "trunk-merge/pr-4242/0c2f75d8-0c2f-4c2f-8c2f-0c2f75d80c2f"
+        master_baseline = {"kept": "h1", "doomed": "h2"}
+        batch_baseline = {"kept": "h1"}
+        self._mock_github(
+            mocker,
+            branch_baseline=batch_baseline,
+            merge_base_baseline=master_baseline,
+            commit_sha_baselines={"batch-sha": batch_baseline},
+        )
+
+        artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+
+        # The batch renders everything except the story it deleted.
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="batch-sha",
+                branch=batch_branch,
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="kept", content_hash="h1")],
+            ),
+            team_id=repo.team_id,
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
 
         runs.complete_run(run.id)
 
@@ -477,7 +565,9 @@ class TestMergeBaseBaselineHealing:
             review_state=prior_review_state,
         )
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, run_branch)
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, RunType.STORYBOOK, run_branch, rendered_identifiers={"candidate"}
+        )
 
         if expect_tombstoned:
             assert merged == {}
@@ -538,7 +628,9 @@ class TestMergeBaseBaselineHealing:
             review_state=ReviewState.APPROVED,
         )
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, RunType.STORYBOOK, "my-branch", rendered_identifiers={"story-x"}
+        )
 
         # Latest approved outcome is NEW, not REMOVED — tombstone cleared, healing works
         assert "story-x" in merged
@@ -569,7 +661,9 @@ class TestMergeBaseBaselineHealing:
             review_state=ReviewState.APPROVED,
         )
 
-        merged, healed = baselines._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, "my-branch")
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo, RunType.STORYBOOK, "my-branch", rendered_identifiers={"story-x"}
+        )
 
         assert "story-x" not in merged
         assert healed == 0
