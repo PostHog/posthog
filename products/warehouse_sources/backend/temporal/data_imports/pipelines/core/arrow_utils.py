@@ -356,6 +356,22 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     incoming_table = incoming_table.set_column(
                         incoming_table.schema.get_field_index(delta_field.name), delta_field.name, parsed_timestamps
                     )
+            elif (pa.types.is_binary(delta_field.type) or pa.types.is_large_binary(delta_field.type)) and (
+                pa.types.is_string(incoming_column.type) or pa.types.is_large_string(incoming_column.type)
+            ):
+                # A table written before `hex_encode_id_binary_columns` stores this key as raw
+                # bytes while the batch now carries hex text. pyarrow casts string to binary
+                # without complaint, which would store the hex text as bytes: the merge predicate
+                # would then match no stored row and re-insert every incoming row. Fail instead,
+                # so the table is reset and re-synced onto the hex representation.
+                raise SchemaColumnTypeChangedException(
+                    f"Source column type changed: '{delta_field.name}' is stored as {delta_field.type} but now "
+                    f"arrives as hex text ({incoming_column.type}). Reset and fully re-sync this table to adopt "
+                    f"the new type.",
+                    column_name=delta_field.name,
+                    stored_type=delta_field.type,
+                    incoming_type=incoming_column.type,
+                )
             else:
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
@@ -627,6 +643,43 @@ class BinaryColumnReporter:
             self._logger.warning(
                 f"Column '{column_name}' was not synced because its binary values could not be converted to hex strings: {error}"
             )
+
+
+def hex_encode_id_binary_columns(
+    table: pa.Table,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
+    """Convert id-like binary columns of an Arrow-native batch to lowercase hex strings.
+
+    Sources that hand the pipeline Arrow tables (BigQuery, Snowflake, Databricks, MotherDuck)
+    never reach `_process_batch`, so their binary keys land in Delta as raw bytes, which cannot
+    be read or joined in HogQL. Same name/primary-key gate as the row path.
+
+    Non-key binary columns stay untouched: this path has always synced them, so dropping them
+    the way the row path does would delete data these tables already carry.
+    """
+    for index, field in enumerate(table.schema):
+        if not (pa.types.is_binary(field.type) or pa.types.is_large_binary(field.type)):
+            continue
+        if not _is_id_like_column(field.name, primary_keys):
+            continue
+
+        try:
+            hex_array = pa.array(
+                [None if value is None else value.hex() for value in table.column(field.name).to_pylist()],
+                type=pa.string(),
+            )
+        except (AttributeError, TypeError, ValueError) as e:
+            if binary_reporter:
+                binary_reporter.conversion_failed(field.name, e)
+            continue
+
+        table = table.set_column(index, field.with_type(pa.string()), hex_array)
+        if binary_reporter:
+            binary_reporter.converted(field.name)
+
+    return table
 
 
 def _convert_uuid_to_string(row: dict) -> dict:
