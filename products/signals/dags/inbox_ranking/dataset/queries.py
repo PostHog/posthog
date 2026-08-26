@@ -363,14 +363,18 @@ SELECT
     max(last_timestamp) AS latest_status_event_at,
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
     -- intended semantic: reasons only accompany dismissals/snoozes), not necessarily paired with
-    -- latest_status_event above.
-    argMax(bucket_dismissal_reason, last_timestamp) AS dismissal_reason,
+    -- latest_status_event above. Restricted to the latest transition's tenant, like the count
+    -- below: a reason-less genuine transition must not let an older reason from another team
+    -- through.
+    argMaxIf(bucket_dismissal_reason, last_timestamp, event_team_id = latest_event_team_id) AS dismissal_reason,
     -- Cumulative, unlike dismissal_reason above: a restore or a later dismissal with another reason
     -- overwrites the latest-wins reason, and a label that can revert to 0 breaks the training
     -- builder's assumption that labels only grow. Counted per bucket (a bucket that saw any wrong
-    -- reason counts once, so a same-bucket re-dismissal cannot erase it) and only for events that
+    -- reason counts once, so a same-bucket re-dismissal cannot erase it) and only for buckets that
     -- name the same tenant as the latest transition, which is the event the provenance
-    -- cross-check validates against Postgres. The dismiss_wrong head reads this column.
+    -- cross-check validates against Postgres. Buckets are split by tenant, so the flag and the
+    -- team it is checked against always come from the same events. The dismiss_wrong head reads
+    -- this column.
     countIf(
         outcome = 'dismissed' AND bucket_wrong_dismissal = 1 AND event_team_id = latest_event_team_id
     ) AS wrong_dismissal_count,
@@ -416,15 +420,19 @@ FROM (
     + """)) AS bucket_wrong_dismissal,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
-        nullIf(argMax(toString(properties.team_id), events.timestamp), '') AS event_team_id
+        nullIf(toString(properties.team_id), '') AS event_team_id
     FROM events
     WHERE event = 'signal_report_status_changed'
       AND events.timestamp >= toDateTime({labels_epoch}) AND events.timestamp < toDateTime({snapshot_end})
       AND toString(properties.report_id) != ''
+    -- The tenant is part of the bucket key: an event naming another team never shares a bucket
+    -- with the genuine transition it collides with, so its reason cannot be counted under the
+    -- genuine event's team.
     GROUP BY
         report_id,
         previous_status,
         status,
+        event_team_id,
         toStartOfInterval(events.timestamp, INTERVAL 10 MINUTE)
     )
 )

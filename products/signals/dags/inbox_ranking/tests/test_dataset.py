@@ -394,12 +394,21 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["wrong_dismissal_count"] == 1
         assert row["first_dismissed_server_at"] == T1
 
-    def test_wrong_dismissal_count_ignores_events_from_another_tenant(self):
+    @parameterized.expand(
+        [
+            ("later_bucket", T2, "ready", "resolved", None),
+            ("same_bucket", T1 + datetime.timedelta(minutes=1), "ready", "suppressed", "already_fixed"),
+        ]
+    )
+    def test_wrong_dismissal_count_ignores_events_from_another_tenant(self, _name, when, previous, status, reason):
         # A forged wrong dismissal naming another team, followed by a genuine transition, must not
-        # make the report a dismiss_wrong positive through the cumulative count.
+        # make the report a dismiss_wrong positive through the cumulative count. The same-bucket
+        # case lands both in one ten-minute dedupe bucket, where the bucket's wrong flag and the
+        # bucket's tenant would otherwise come from different events.
         self._transition(T1, "ready", "suppressed", "analysis_wrong", team_id=999)
-        self._transition(T2, "ready", "resolved")
+        self._transition(when, previous, status, reason)
 
         row = self._status_row()
         assert row["status_event_team_id"] == self.team.id
+        assert row["dismissal_reason"] == reason
         assert row["wrong_dismissal_count"] == 0
