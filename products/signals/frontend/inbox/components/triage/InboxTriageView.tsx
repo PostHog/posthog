@@ -37,6 +37,28 @@ function outsideDialogs(action: () => void): HotkeyInterface['action'] {
     }
 }
 
+export type TriageEnterIntent = 'passthrough' | 'open' | 'toggle'
+
+/**
+ * What the Enter chord does in triage, from the focused element and whether a modifier is held.
+ * Command/Ctrl+Enter opens the report from anywhere in the view — even when a just-clicked control
+ * still holds focus — so the modifier is checked before the plain-button guard. A focused link keeps
+ * its own Enter (activate it, or open in a new tab with the modifier), a key inside a dialog belongs
+ * to the dialog, and plain Enter on a focused button activates it rather than toggling the card.
+ */
+export function triageEnterIntent(target: HTMLElement | null, hasModifier: boolean): TriageEnterIntent {
+    if (target?.closest('a, .LemonModal')) {
+        return 'passthrough'
+    }
+    if (hasModifier) {
+        return 'open'
+    }
+    if (target?.closest('button')) {
+        return 'passthrough'
+    }
+    return 'toggle'
+}
+
 function PeekStrip({
     report,
     shortcut,
@@ -231,18 +253,17 @@ export function InboxTriageView(): JSX.Element {
             k: { action: outsideDialogs(() => navigate(-1)) },
             arrowup: { action: outsideDialogs(() => navigate(-1)) },
             enter: {
-                // Enter on a focused link or button has to activate it, not toggle the card.
                 action: (event) => {
-                    const target = event.target as HTMLElement | null
-                    if (target?.closest('a, button, .LemonModal')) {
+                    const intent = triageEnterIntent(event.target as HTMLElement | null, event.metaKey || event.ctrlKey)
+                    if (intent === 'passthrough') {
                         return
                     }
                     event.preventDefault()
-                    if (event.metaKey || event.ctrlKey) {
+                    if (intent === 'open') {
                         openCurrent()
-                        return
+                    } else {
+                        toggleExpanded()
                     }
-                    toggleExpanded()
                 },
                 willHandleEvent: true,
             },
