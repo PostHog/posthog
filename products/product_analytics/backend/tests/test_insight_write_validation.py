@@ -4,13 +4,22 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.product_analytics.backend.insight_write_validation import find_insight_write_rejection
+from products.product_analytics.backend.insight_write_validation import (
+    InsightWriteRejection,
+    find_insight_write_rejection,
+)
 
-TRENDS_SERIES = [{"kind": "EventsNode", "event": "$pageview"}]
+PAGEVIEW_SERIES = [{"kind": "EventsNode", "event": "$pageview"}]
+PAGEVIEW_FILTER_EVENTS = [{"id": "$pageview", "type": "events"}]
 
 
 class TestInsightWriteValidation(BaseTest):
-    def _find(self, *, query: dict[str, Any] | None = None, filters: dict[str, Any] | None = None) -> Any:
+    def _find(
+        self,
+        *,
+        query: dict[str, Any] | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> InsightWriteRejection | None:
         return find_insight_write_rejection(query=query, filters=filters, team=self.team, user=self.user)
 
     @parameterized.expand(
@@ -18,53 +27,74 @@ class TestInsightWriteValidation(BaseTest):
             (
                 "empty trends series",
                 {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
+                None,
                 "insight_requires_at_least_one_series",
+                "query",
             ),
             (
                 "empty trends series, unwrapped",
                 {"kind": "TrendsQuery", "series": []},
+                None,
                 "insight_requires_at_least_one_series",
+                "query",
             ),
             (
                 "empty lifecycle series",
                 {"kind": "InsightVizNode", "source": {"kind": "LifecycleQuery", "series": []}},
+                None,
                 "insight_requires_at_least_one_series",
+                "query",
             ),
             (
                 "funnel with a single step",
-                {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": TRENDS_SERIES}},
+                {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery", "series": PAGEVIEW_SERIES}},
+                None,
                 "funnels_require_at_least_two_steps",
+                "query",
+            ),
+            (
+                "legacy filters that convert to an empty series",
+                None,
+                {"insight": "TRENDS", "events": []},
+                "insight_requires_at_least_one_series",
+                "filters",
             ),
         ]
     )
-    def test_rejects_a_query_no_runner_can_execute(self, _name: str, query: dict, expected_code: str) -> None:
-        rejection = self._find(query=query)
+    def test_rejects_a_query_no_runner_can_execute(
+        self,
+        _name: str,
+        query: dict | None,
+        filters: dict | None,
+        expected_code: str,
+        expected_source: str,
+    ) -> None:
+        rejection = self._find(query=query, filters=filters)
 
         assert rejection is not None
         assert rejection.rule_code == expected_code
-        assert rejection.write_source == "query"
+        assert rejection.write_source == expected_source
 
     @parameterized.expand(
         [
             (
                 "trends with a series",
-                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": TRENDS_SERIES}},
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": PAGEVIEW_SERIES}},
+                None,
             ),
-            ("hogql", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}),
-            ("a kind no runner owns", {"kind": "SomeQueryWeDoNotHave", "series": []}),
-            ("a payload no runner can parse", {"kind": "TrendsQuery", "series": [{"nope": True}]}),
-            ("nothing written", None),
+            ("hogql", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}, None),
+            ("a kind no runner owns", {"kind": "SomeQueryWeDoNotHave", "series": []}, None),
+            ("a payload no runner can parse", {"kind": "TrendsQuery", "series": [{"nope": True}]}, None),
+            ("legacy filters with an event", None, {"insight": "TRENDS", "events": PAGEVIEW_FILTER_EVENTS}),
+            (
+                "a query that renders, alongside filters that would not",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": PAGEVIEW_SERIES}},
+                {"insight": "TRENDS", "events": []},
+            ),
+            ("nothing written", None, None),
         ]
     )
-    def test_accepts_everything_the_rules_do_not_refuse(self, _name: str, query: dict | None) -> None:
-        assert self._find(query=query) is None
-
-    def test_rejects_legacy_filters_that_convert_to_an_empty_series(self) -> None:
-        rejection = self._find(filters={"insight": "TRENDS", "events": []})
-
-        assert rejection is not None
-        assert rejection.rule_code == "insight_requires_at_least_one_series"
-        assert rejection.write_source == "filters"
-
-    def test_accepts_legacy_filters_with_an_event(self) -> None:
-        assert self._find(filters={"insight": "TRENDS", "events": [{"id": "$pageview", "type": "events"}]}) is None
+    def test_accepts_everything_the_rules_do_not_refuse(
+        self, _name: str, query: dict | None, filters: dict | None
+    ) -> None:
+        assert self._find(query=query, filters=filters) is None

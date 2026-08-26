@@ -13,8 +13,12 @@ shows which saves the rules would refuse before any save starts to fail.
 import logging
 from typing import Any, Literal
 
+from django.contrib.auth.models import AnonymousUser
+
 from prometheus_client import Counter
+from pydantic import BaseModel
 from rest_framework.exceptions import ErrorDetail, ValidationError
+from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
@@ -22,6 +26,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.synthetic_user import SyntheticUser
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,8 @@ INSIGHT_WRITE_VALIDATION_COUNTER = Counter(
 )
 
 WriteSource = Literal["query", "filters"]
+
+Writer = User | AnonymousUser | SyntheticUser
 
 
 @frozen
@@ -50,8 +57,8 @@ def validate_insight_write(
     query: dict[str, Any] | None,
     filters: dict[str, Any] | None,
     team: Team,
-    user: Any,
-    request: Any = None,
+    user: Writer,
+    request: Request | None = None,
 ) -> None:
     """Record, and once enforced reject, an insight write that no runner could execute."""
     rejection = find_insight_write_rejection(query=query, filters=filters, team=team, user=user)
@@ -73,9 +80,13 @@ def find_insight_write_rejection(
     query: dict[str, Any] | None,
     filters: dict[str, Any] | None,
     team: Team,
-    user: Any,
+    user: Writer,
 ) -> InsightWriteRejection | None:
-    """The first validation rule the written query breaks, or None if every rule passes."""
+    """The first validation rule the written query breaks, or None if every rule passes.
+
+    A write that carries both fields renders from the query, so the filters are ignored here
+    too.
+    """
     if query:
         return _rejection_for(query, write_source="query", team=team, user=user)
 
@@ -91,7 +102,7 @@ def find_insight_write_rejection(
     return None
 
 
-def is_insight_write_validation_enforced(user: Any, team: Team) -> bool:
+def is_insight_write_validation_enforced(user: Writer, team: Team) -> bool:
     distinct_id = getattr(user, "distinct_id", None)
     if not distinct_id:
         return False
@@ -112,11 +123,11 @@ def is_insight_write_validation_enforced(user: Any, team: Team) -> bool:
 
 
 def _rejection_for(
-    query: Any,
+    query: dict[str, Any] | BaseModel,
     *,
     write_source: WriteSource,
     team: Team,
-    user: Any,
+    user: Writer,
 ) -> InsightWriteRejection | None:
     runner = _runner_or_none(query, team=team, user=user)
     if runner is None:
@@ -141,7 +152,7 @@ def _rejection_for(
     return None
 
 
-def _runner_or_none(query: Any, *, team: Team, user: Any) -> QueryRunner | None:
+def _runner_or_none(query: dict[str, Any] | BaseModel, *, team: Team, user: Writer) -> QueryRunner | None:
     try:
         return get_query_runner_or_none(query, team, user=user if isinstance(user, User) else None)
     except Exception:
@@ -164,8 +175,8 @@ def _record(
     *,
     enforced: bool,
     team: Team,
-    user: Any,
-    request: Any,
+    user: Writer,
+    request: Request | None,
 ) -> None:
     mode = "enforced" if enforced else "shadow"
     INSIGHT_WRITE_VALIDATION_COUNTER.labels(

@@ -739,7 +739,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         validate_insight_write(
             query=query,
-            filters=attrs.get("filters") if using_legacy_filters else None,
+            filters=attrs.get("filters"),
             team=self.context["get_team"](),
             user=self.context["request"].user,
             request=self.context["request"],
