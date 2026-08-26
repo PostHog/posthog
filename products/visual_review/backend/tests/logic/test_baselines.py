@@ -57,6 +57,7 @@ class TestMergeBaseBaselineHealing:
         branch_baseline,
         merge_base_baseline=None,
         merge_base_sha="abc123",
+        merge_base_heads=None,
         default_branch="master",
         commit_sha_baselines=None,
         pr_head_sha=None,
@@ -93,6 +94,10 @@ class TestMergeBaseBaselineHealing:
         def fake_merge_base(github, repo_full_name, base, head):
             if pr_head_sha is not None and base == pr_head_sha:
                 return pr_head_sha if pr_head_is_ancestor else "unrelated-sha"
+            # `merge_base_heads` models refs GitHub still knows: a deleted branch
+            # 404s on compare, a commit does not.
+            if merge_base_heads is not None and head not in merge_base_heads:
+                return None
             return merge_base_sha
 
         mocker.patch("products.visual_review.backend.logic.github_api._fetch_baseline_file", side_effect=fake_fetch)
@@ -190,7 +195,7 @@ class TestMergeBaseBaselineHealing:
         assert healed == 0
 
     def test_non_default_branch_pins_to_commit_sha(self, repo, mocker):
-        """A branch deleted mid-run still resolves, because the ref is the commit."""
+        # The tip has moved on; the run is judged against the commit it tested.
         branch_tip_baseline = {"A": "h1", "stale": "h9"}
         commit_baseline = {"A": "h1"}
         merge_base_baseline = {"A": "h1", "C": "h3"}
@@ -209,7 +214,7 @@ class TestMergeBaseBaselineHealing:
         assert healed == 1
 
     def test_does_not_heal_what_the_run_did_not_render(self, repo, mocker):
-        """A story deleted on the branch stays deleted — healing it back invents a REMOVED."""
+        # A story the branch deleted stays deleted. Healing it back invents a removal.
         branch_baseline = {"kept": "h1"}
         merge_base_baseline = {"kept": "h1", "deleted-story": "h2"}
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
@@ -222,7 +227,7 @@ class TestMergeBaseBaselineHealing:
         assert healed == 0
 
     def test_heals_what_the_run_still_renders(self, repo, mocker):
-        """Same missing entry, but the story renders — that is the rebase loss healing exists for."""
+        # Same missing entry, but the story renders: the rebase loss healing exists for.
         branch_baseline = {"kept": "h1"}
         merge_base_baseline = {"kept": "h1", "lost-to-rebase": "h2"}
         self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
@@ -235,12 +240,9 @@ class TestMergeBaseBaselineHealing:
         assert healed == 1
 
     def test_deleted_branch_still_resolves_via_commit_sha(self, repo, mocker):
-        """A merge-queue branch is deleted once its batch resolves.
-
-        Fetching by branch name then 404s, which is indistinguishable from
-        "no baseline file yet" and reports the whole suite as new. The commit
-        outlives the ref, so pinning to it keeps the baseline readable.
-        """
+        # A merge-queue branch is deleted once its batch resolves. Fetching by name
+        # then 404s, which reads as "no baseline file yet" and reports the whole
+        # suite as new. The commit outlives the ref.
         self._mock_github(
             mocker,
             branch_baseline={},
@@ -258,6 +260,29 @@ class TestMergeBaseBaselineHealing:
 
         assert merged == {"A": "h1", "B": "h2"}
         assert healed == 0
+
+    def test_deleted_branch_still_heals_because_compare_uses_the_commit(self, repo, mocker):
+        # The compare API is asked from the same ref the baseline was read at.
+        # Asking by branch name 404s once the batch resolves, and healing would
+        # then switch off exactly on the branches that need it.
+        self._mock_github(
+            mocker,
+            branch_baseline={},
+            merge_base_baseline={"kept": "h1", "lost-to-rebase": "h2"},
+            merge_base_heads={"batch-sha"},
+            commit_sha_baselines={"batch-sha": {"kept": "h1"}},
+        )
+
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo,
+            "storybook",
+            "trunk-merge/pr-4242/0c2f75d8",
+            rendered_identifiers={"kept", "lost-to-rebase"},
+            commit_sha="batch-sha",
+        )
+
+        assert merged == {"kept": "h1", "lost-to-rebase": "h2"}
+        assert healed == 1
 
     def test_falls_back_on_merge_base_failure(self, repo, mocker):
         branch_baseline = {"A": "h1"}
@@ -415,13 +440,9 @@ class TestMergeBaseBaselineHealing:
         assert run.changed_count == 0
 
     def test_merge_queue_batch_deleting_a_story_reports_no_removals(self, repo, mocker):
-        """A PR that deletes a story must not red every batch it shares until it lands.
-
-        The batch tree has the story and its baseline entry gone. The merge base is
-        still master, which has both. Healing off the merge base used to restore the
-        entry, and a merge-queue run has no reviewer to approve the removal away, so
-        every co-batched PR failed until the deleting PR merged.
-        """
+        # The batch tree has the story and its entry gone; the merge base still has
+        # both. Healing used to restore the entry, and a queue run has no reviewer to
+        # approve the removal, so every co-batched PR failed until the deleter merged.
         batch_branch = "trunk-merge/pr-4242/0c2f75d8-0c2f-4c2f-8c2f-0c2f75d80c2f"
         master_baseline = {"kept": "h1", "doomed": "h2"}
         batch_baseline = {"kept": "h1"}

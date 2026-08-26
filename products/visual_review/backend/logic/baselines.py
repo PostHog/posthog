@@ -171,7 +171,9 @@ def _resolve_baselines_with_merge_base(
     if branch == default_branch:
         return branch_baseline, 0
 
-    merge_base_sha = github_api._get_merge_base_sha(github, repo.repo_full_name, default_branch, branch)
+    # Compare from the same ref the baseline was read at. A deleted branch 404s
+    # here, and healing would then switch off exactly when it is needed.
+    merge_base_sha = github_api._get_merge_base_sha(github, repo.repo_full_name, default_branch, baseline_ref)
     if not merge_base_sha:
         return branch_baseline, 0
 
@@ -188,7 +190,9 @@ def _resolve_baselines_with_merge_base(
     if not merge_base_baseline:
         return branch_baseline, 0
 
-    source_pr_number = github_api._verified_merge_queue_source_pr(github, repo.repo_full_name, branch)
+    source_pr_number = github_api._verified_merge_queue_source_pr(
+        github, repo.repo_full_name, branch, head_ref=baseline_ref
+    )
     tombstoned = _tombstoned_identifiers(repo, run_type, branch, source_pr_number=source_pr_number)
     healable_merge_base = {
         identifier: baseline_hash

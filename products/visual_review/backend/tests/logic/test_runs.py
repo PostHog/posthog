@@ -317,7 +317,7 @@ class TestRunOperations:
         assert completed.is_partial is False
 
     def test_complete_run_passes_commit_sha_to_baseline_resolution(self, repo, mocker):
-        """complete_run pins the baseline to the commit and limits healing to what rendered."""
+        # Pins the baseline to the commit, and limits healing to what rendered.
         run, _ = runs.create_run(
             CreateRunInput(
                 repo_id=repo.id,
