@@ -181,6 +181,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
+    WarmTaskResumeRequestSerializer,
+    WarmTaskResumeResponseSerializer,
     WizardCloudRunSerializer,
 )
 
@@ -1185,6 +1187,61 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result is None:
             return Response(status=status.HTTP_200_OK)
         return Response(WarmTaskResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
+
+    @extend_schema(operation_id="tasks_warm_resume_create")
+    @validated_request(
+        request_serializer=WarmTaskResumeRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=WarmTaskResumeResponseSerializer,
+                description="Successor Run provisioned, or an empty body when warming is unavailable or the source run changed.",
+            ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="PostHog Desktop access is required"
+            ),
+            404: OpenApiResponse(description="Task not found"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
+        },
+        summary="Warm a resumed task sandbox",
+        description=(
+            "Warm an idling successor for the task's latest terminal Run while the user composes the next "
+            "message. The successor restores the prior snapshot when compatible and waits for the normal "
+            "run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, "
+            "or the task advanced to another Run."
+        ),
+        include_serializer_context=True,
+    )
+    @action(detail=True, methods=["post"], url_path="warm", url_name="warm-resume", required_scopes=["task:write"])
+    def warm_resume(self, request, pk=None, **kwargs):
+        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        if task is None or not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
+            raise NotFound()
+        if task.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(task.origin_product):
+            return Response(status=status.HTTP_200_OK)
+        if access_response := code_access_required_response(request, self.organization, task_id=pk):
+            return access_response
+
+        user_id = self._user_id()
+        if user_id is None:
+            return Response(status=status.HTTP_200_OK)
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
+
+        result = tasks_facade.warm_task_resume_sandbox(
+            pk,
+            self.team_id,
+            user_id,
+            resume_from_run_id=request.validated_data["resume_from_run_id"],
+            runtime_adapter=request.validated_data.get("runtime_adapter"),
+            model=request.validated_data.get("model"),
+            reasoning_effort=request.validated_data.get("reasoning_effort"),
+            initial_permission_mode=request.validated_data.get("initial_permission_mode"),
+        )
+        if result is None:
+            return Response(status=status.HTTP_200_OK)
+        return Response(WarmTaskResumeResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
 
     @staticmethod
     def _task_error_response(error: tasks_contracts.TaskValidationError) -> Response:

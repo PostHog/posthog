@@ -113,6 +113,45 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert mock_warm.call_args.kwargs["custom_image_id"] == custom_image.id
 
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_resume_sandbox")
+    def test_resume_warm_endpoint_forwards_terminal_run_selection(self, mock_warm, _mock_warm_enabled):
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        terminal = task.create_run(mode="interactive")
+        terminal.status = TaskRun.Status.CANCELLED
+        terminal.save(update_fields=["status"])
+        mock_warm.return_value = contracts.WarmTaskDTO(task_id=task.id, run_id=terminal.id)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/warm/",
+            {
+                "resume_from_run_id": str(terminal.id),
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "high",
+                "initial_permission_mode": "plan",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        mock_warm.assert_called_once_with(
+            str(task.id),
+            self.team.id,
+            self.user.id,
+            resume_from_run_id=terminal.id,
+            runtime_adapter="claude",
+            model="claude-sonnet-5",
+            reasoning_effort="high",
+            initial_permission_mode="plan",
+        )
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     def test_warm_endpoint_accepts_repo_less_request(self, mock_warm, _mock_warm_enabled):
         mock_warm.return_value = None
@@ -883,6 +922,79 @@ class TestWarmRunRelease(APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         assert m_signal.called is expect_signal
+
+
+class TestWarmTaskResumeSandbox(APIBaseTest):
+    def test_warms_and_activates_a_successor_for_the_latest_terminal_run(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        terminal = task.create_run(
+            mode="interactive",
+            branch="main",
+            extra_state={
+                "snapshot_external_id": "snapshot-1",
+                "pr_base_branch": "main",
+                "auto_publish": True,
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "initial_permission_mode": "plan",
+            },
+        )
+        terminal.status = TaskRun.Status.CANCELLED
+        terminal.save(update_fields=["status"])
+
+        with (
+            patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False),
+            patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow") as execute_workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            warmed = facade.warm_task_resume_sandbox(
+                task.id,
+                self.team.id,
+                self.user.id,
+                resume_from_run_id=terminal.id,
+                runtime_adapter="claude",
+                model="claude-sonnet-5",
+                reasoning_effort="high",
+                initial_permission_mode="plan",
+            )
+
+        assert warmed is not None
+        warm_run = TaskRun.objects.get(id=warmed.run_id)
+        assert warm_run.state["resume_from_run_id"] == str(terminal.id)
+        assert warm_run.state["snapshot_external_id"] == "snapshot-1"
+        assert warm_run.state["await_user_message"] is True
+        assert warm_run.state["auto_publish"] is True
+        assert warm_run.state["pr_authorship_mode"] == "bot"
+        execute_workflow.assert_called_once()
+        assert execute_workflow.call_args.kwargs.get("create_pr", True) is True
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as signal:
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": terminal.id,
+                    "runtime_adapter": "claude",
+                    "model": "claude-sonnet-5",
+                    "reasoning_effort": "high",
+                    "initial_permission_mode": "plan",
+                    "pending_user_message": "continue",
+                },
+            )
+
+        assert result is not None and result.error is None
+        assert task.runs.count() == 2
+        signal.assert_called_once()
+        warm_run.refresh_from_db()
+        assert "await_user_message" not in warm_run.state
 
 
 class TestRunTaskWarmActivation(APIBaseTest):

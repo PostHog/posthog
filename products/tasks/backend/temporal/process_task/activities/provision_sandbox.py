@@ -20,6 +20,7 @@ from posthog.temporal.common.utils import asyncify
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
+    SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
     filter_user_sandbox_env_vars,
@@ -285,6 +286,29 @@ def _apply_modal_network_policy(
         return
     config.outbound_domain_allowlist = list(ctx.modal_domain_allowlist)
     config.network_policy_fingerprint = ctx.network_policy_fingerprint
+
+
+def _prewarmed_resume_needs_fresh_agent(
+    ctx: TaskProcessingContext,
+    prepared: PrepareSandboxForRepositoryOutput,
+    sandbox: SandboxBase,
+    *,
+    used_snapshot: bool,
+) -> bool:
+    """Whether a full resume snapshot bundled an agent that cannot idle before the resumed prompt."""
+    if (
+        not used_snapshot
+        or prepared.snapshot_external_id is None
+        or prepared.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
+        or not (ctx.state or {}).get("prewarmed")
+        or not (ctx.state or {}).get("resume_from_run_id")
+    ):
+        return False
+    try:
+        return not sandbox.agent_server_supports_prewarmed_resume_idle()
+    except Exception:
+        logger.warning("prewarmed_resume_agent_capability_probe_failed", extra={"run_id": ctx.run_id})
+        return True
 
 
 def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
@@ -794,6 +818,28 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 actual_used_snapshot = bool(
                     (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
                 )
+                if _prewarmed_resume_needs_fresh_agent(
+                    ctx,
+                    prepared,
+                    sandbox,
+                    used_snapshot=actual_used_snapshot,
+                ):
+                    emit_agent_log(
+                        ctx.run_id,
+                        "debug",
+                        "Resume snapshot uses an older agent; provisioning a fresh sandbox before prewarming",
+                    )
+                    sandbox.destroy()
+                    config.snapshot_id = None
+                    config.snapshot_external_id = None
+                    config.snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
+                    config.snapshot_mount_path = None
+                    config.snapshot_source = "none"
+                    config.snapshot_restored = False
+                    config.image_fallback = None
+                    sandbox = Sandbox.create(config)
+                    sandbox_created_at = timezone.now()
+                    actual_used_snapshot = False
                 sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
         except Exception:
             if config.outbound_domain_allowlist is not None:

@@ -2176,6 +2176,44 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Warm an idling successor for the task's latest terminal Run while the user composes the next message. The successor restores the prior snapshot when compatible and waits for the normal run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, or the task advanced to another Run.
+ * @summary Warm a resumed task sandbox
+ */
+export const TasksWarmResumeCreateBody = /* @__PURE__ */ zod
+    .object({
+        resume_from_run_id: zod
+            .uuid()
+            .describe("ID of the task's latest terminal run whose snapshot and conversation should be resumed."),
+        runtime_adapter: zod
+            .enum(['claude', 'codex'])
+            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .optional()
+            .describe(
+                'Agent runtime adapter to start before the next message is submitted.\n\n\* `claude` - claude\n\* `codex` - codex'
+            ),
+        model: zod.string().optional().describe('LLM model to start before the next message is submitted.'),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            )
+            .optional()
+            .describe(
+                'Reasoning effort to apply when the warmed successor receives its first message.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        initial_permission_mode: zod
+            .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+            .describe(
+                '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+            )
+            .optional()
+            .describe(
+                "Initial permission mode for the warmed successor's agent session.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+    })
+    .describe('Request body for warming a successor to an existing terminal task run.')
+
+/**
  * Create a new run for a specific task without starting execution.
  * @summary Create task run
  */

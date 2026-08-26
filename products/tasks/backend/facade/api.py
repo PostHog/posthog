@@ -6364,6 +6364,148 @@ def warm_task_sandbox(
     return contracts.WarmTaskDTO(task_id=task.id, run_id=result.run.id)
 
 
+def warm_task_resume_sandbox(
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int,
+    *,
+    resume_from_run_id: str | UUID,
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    initial_permission_mode: str | None = None,
+) -> contracts.WarmTaskDTO | None:
+    """Warm a successor for the task's current terminal run while its next message is composed."""
+    from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
+        PermissionDenied,
+        Throttled,
+    )
+
+    from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
+
+    from products.tasks.backend.logic.services.warm import (  # noqa: PLC0415 — keep warming deps off the api import path
+        SandboxWarmer,
+        WarmSourceChanged,
+    )
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        get_pr_authorship_mode,
+        get_provider_for_runtime_adapter,
+        get_reasoning_effort_error,
+        parse_run_state,
+    )
+
+    task = _visible_task_qs(team_id, user_id, for_control=True).select_related("team").filter(id=task_id).first()
+    if task is None:
+        return None
+
+    previous_run = task.runs.filter(id=resume_from_run_id).first()
+    if previous_run is None or not previous_run.is_terminal:
+        return None
+    latest_run = task.latest_run
+    latest_is_expected_source = latest_run is not None and latest_run.id == previous_run.id
+    latest_is_expected_warm = (
+        latest_run is not None
+        and not latest_run.is_terminal
+        and (latest_run.state or {}).get("await_user_message") is True
+        and (latest_run.state or {}).get("resume_from_run_id") == str(previous_run.id)
+    )
+    if not latest_is_expected_source and not latest_is_expected_warm:
+        return None
+
+    previous_state = parse_run_state(previous_run.state)
+    resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
+    resolved_model = model or previous_state.model
+    resolved_reasoning_effort = reasoning_effort or previous_state.reasoning_effort
+    resolved_permission_mode = initial_permission_mode or previous_state.initial_permission_mode or "default"
+    reasoning_effort_error = get_reasoning_effort_error(
+        runtime_adapter=resolved_runtime_adapter,
+        model=resolved_model,
+        reasoning_effort=resolved_reasoning_effort,
+    )
+    if reasoning_effort_error is not None:
+        return None
+
+    user = User.objects.get(pk=user_id)
+    model_access_error = get_model_access_error(resolved_model, distinct_id=user.distinct_id)
+    if model_access_error is not None:
+        return None
+
+    resolved_pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
+        task,
+        pr_authorship_mode=get_pr_authorship_mode(task, previous_run.state),
+        request_user_id=user_id,
+        github_user_token=None,
+    )
+    if validation_error is not None:
+        return None
+
+    branch = previous_state.pr_base_branch
+    sandbox_environment_id = previous_state.sandbox_environment_id
+    custom_image_id = (previous_run.state or {}).get("custom_image_id")
+    if not _warm_sandbox_selection_is_accessible(
+        team_id=team_id,
+        task_created_by_id=task.created_by_id,
+        sandbox_environment_id=sandbox_environment_id,
+        custom_image_id=custom_image_id,
+    ):
+        return None
+
+    def state_value(value: object | None) -> object | None:
+        return value.value if hasattr(value, "value") else value
+
+    extra_state: dict[str, Any] = {
+        "branch": branch,
+        "pr_base_branch": branch,
+        "pr_authorship_mode": state_value(resolved_pr_authorship_mode),
+        "auto_publish": previous_state.auto_publish,
+        "run_source": state_value(previous_state.run_source),
+        "signal_report_id": previous_state.signal_report_id,
+        "runtime_adapter": state_value(resolved_runtime_adapter),
+        "provider": state_value(get_provider_for_runtime_adapter(resolved_runtime_adapter)),
+        "model": resolved_model,
+        "reasoning_effort": state_value(resolved_reasoning_effort),
+        "context_window": previous_state.context_window,
+        "fast_mode": previous_state.fast_mode,
+        "initial_permission_mode": state_value(resolved_permission_mode),
+        "sandbox_environment_id": sandbox_environment_id,
+        "custom_image_id": custom_image_id,
+    }
+    extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
+    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
+        if protected_key in (previous_run.state or {}):
+            extra_state[protected_key] = (previous_run.state or {})[protected_key]
+    extra_state = {key: value for key, value in extra_state.items() if value is not None}
+    stable_selection = {
+        key: value
+        for key, value in extra_state.items()
+        if key
+        in {
+            "branch",
+            "runtime_adapter",
+            "model",
+            "context_window",
+            "fast_mode",
+            "initial_permission_mode",
+            "sandbox_environment_id",
+            "custom_image_id",
+            "pr_authorship_mode",
+            "github_credential_source",
+        }
+    }
+
+    try:
+        result = SandboxWarmer(task, user=user).warm(
+            mode="interactive",
+            extra_state=extra_state,
+            create_pr=True,
+            expected_resume_from_run_id=previous_run.id,
+            required_existing_state=stable_selection,
+        )
+    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged):
+        return None
+    return contracts.WarmTaskDTO(task_id=task.id, run_id=result.run.id)
+
+
 # --- Task run (the ``run`` action) ---
 
 
@@ -6412,6 +6554,22 @@ def run_task(
     pending_user_message = validated_data.get("pending_user_message")
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     is_pi_task = task.runtime == Task.Runtime.PI
+    previous_run: TaskRun | None = None
+    previous_state = None
+    if resume_from_run_id:
+        previous_run = task.runs.filter(id=resume_from_run_id).first()
+        if previous_run is None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
+            )
+        if not previous_run.matches_task_ownership(task):
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail",
+                    detail="This run belongs to a previous task owner. Start a new run instead.",
+                )
+            )
+        previous_state = parse_run_state(previous_run.state)
 
     if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
         # The inbox "Create PR" button sends no branch, so without this the run would target the
@@ -6426,10 +6584,35 @@ def run_task(
             team_id, task.repositories[0] if task.repositories else task.repository
         )
 
-    if not resume_from_run_id:
-        warm_run = _idling_warm_run_for_task(task)
-        if warm_run is not None and (branch or None) == (warm_run.branch or None):
-            warm_state = warm_run.state or {}
+    warm_run = _idling_warm_run_for_task(task)
+    if warm_run is not None:
+        warm_state = warm_run.state or {}
+        warm_resume_matches = resume_from_run_id is None or warm_state.get("resume_from_run_id") == str(
+            resume_from_run_id
+        )
+        effective_branch = branch
+        if effective_branch is None and previous_state is not None:
+            effective_branch = previous_state.pr_base_branch
+        if warm_resume_matches and (effective_branch or None) == (warm_run.branch or None):
+            desired_runtime_adapter = validated_data.get("runtime_adapter")
+            desired_model = validated_data.get("model")
+            desired_context_window = validated_data.get("context_window")
+            desired_fast_mode = validated_data.get("fast_mode")
+            desired_sandbox_environment_id = validated_data.get("sandbox_environment_id")
+            desired_custom_image_id = validated_data.get("custom_image_id")
+            if previous_state is not None:
+                assert previous_run is not None
+                desired_runtime_adapter = desired_runtime_adapter or previous_state.runtime_adapter
+                desired_model = desired_model or previous_state.model
+                desired_context_window = desired_context_window or previous_state.context_window
+                if desired_fast_mode is None:
+                    desired_fast_mode = previous_state.fast_mode
+                desired_sandbox_environment_id = desired_sandbox_environment_id or previous_state.sandbox_environment_id
+                desired_custom_image_id = desired_custom_image_id or (previous_run.state or {}).get("custom_image_id")
+
+            def state_value(value: object | None) -> object | None:
+                return value.value if hasattr(value, "value") else value
+
             warm_runtime_matches = (
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
@@ -6438,18 +6621,30 @@ def run_task(
                 warm_state.get("sandbox_environment_id") or None,
                 warm_state.get("custom_image_id") or None,
             ) == (
-                validated_data.get("runtime_adapter") or None,
-                validated_data.get("model") or None,
-                validated_data.get("context_window") or None,
-                validated_data.get("fast_mode") or None,
-                str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
-                str(validated_data["custom_image_id"]) if validated_data.get("custom_image_id") else None,
+                state_value(desired_runtime_adapter) or None,
+                desired_model or None,
+                desired_context_window or None,
+                desired_fast_mode or None,
+                str(desired_sandbox_environment_id) if desired_sandbox_environment_id else None,
+                str(desired_custom_image_id) if desired_custom_image_id else None,
             )
-            if warm_runtime_matches and _warm_sandbox_selection_is_accessible(
-                team_id=team_id,
-                task_created_by_id=task.created_by_id,
-                sandbox_environment_id=warm_state.get("sandbox_environment_id"),
-                custom_image_id=warm_state.get("custom_image_id"),
+            requested_permission_mode = validated_data.get("initial_permission_mode")
+            if previous_state is not None:
+                requested_permission_mode = (
+                    requested_permission_mode or previous_state.initial_permission_mode or "default"
+                )
+            warm_permission_matches = requested_permission_mode is None or warm_state.get(
+                "initial_permission_mode"
+            ) == state_value(requested_permission_mode)
+            if (
+                warm_runtime_matches
+                and warm_permission_matches
+                and _warm_sandbox_selection_is_accessible(
+                    team_id=team_id,
+                    task_created_by_id=task.created_by_id,
+                    sandbox_environment_id=warm_state.get("sandbox_environment_id"),
+                    custom_image_id=warm_state.get("custom_image_id"),
+                )
             ):
                 warm_staged_artifacts, warm_missing_artifact_ids = (
                     get_task_staged_artifacts(task, pending_user_artifact_ids)
@@ -6522,20 +6717,8 @@ def run_task(
         extra_state["rtk_enabled"] = rtk_enabled
 
     if resume_from_run_id:
-        previous_run = task.runs.filter(id=resume_from_run_id).first()
-        if not previous_run:
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
-            )
-        if not previous_run.matches_task_ownership(task):
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(
-                    kind="detail",
-                    detail="This run belongs to a previous task owner. Start a new run instead.",
-                )
-            )
-
-        prev_state = parse_run_state(previous_run.state)
+        assert previous_run is not None and previous_state is not None
+        prev_state = previous_state
         extra_state = extra_state or {}
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
@@ -6725,6 +6908,7 @@ def run_task(
     except TaskOwnershipChangedError:
         return None
     if is_pi_task and resume_from_run_id:
+        assert previous_run is not None
         task_run.active_task_session = previous_run.active_task_session
         task_run.save(update_fields=["active_task_session", "updated_at"])
 

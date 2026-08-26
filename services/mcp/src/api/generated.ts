@@ -83847,6 +83847,50 @@ export namespace Schemas {
       run_id: string;
     }
 
+    /**
+     * Request body for warming a successor to an existing terminal task run.
+     */
+    export interface WarmTaskResumeRequest {
+      /** ID of the task's latest terminal run whose snapshot and conversation should be resumed. */
+      resume_from_run_id: string;
+      /** Agent runtime adapter to start before the next message is submitted.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model to start before the next message is submitted. */
+      model?: string;
+      /** Reasoning effort to apply when the warmed successor receives its first message.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max
+       * * `ultracode` - ultracode */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Initial permission mode for the warmed successor's agent session.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto
+       * * `read-only` - read-only
+       * * `full-access` - full-access */
+      initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+    }
+
+    /**
+     * Response for a successfully warmed successor run on an existing task.
+     */
+    export interface WarmTaskResumeResponse {
+      /** ID of the existing task being resumed. */
+      task_id: string;
+      /** ID of the idling successor run that submit will activate. */
+      run_id: string;
+    }
+
     export interface WebAnalyticsRecapResponse {
       /** Unique visitors. */
       visitors: NumericMetric;

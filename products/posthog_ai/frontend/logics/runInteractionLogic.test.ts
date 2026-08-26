@@ -10,6 +10,7 @@ import {
     tasksRunCreate,
     tasksRunsClearConversationCreate,
     tasksRunsCommandCreate,
+    tasksWarmResumeCreate,
 } from 'products/tasks/frontend/generated/api'
 
 import { contextItemLine } from '../utils/posthogContextBlock'
@@ -34,6 +35,7 @@ jest.mock('./runStreamLogic', () => {
             cancelRun: (run?: unknown) => ({ run }),
             markTurnComplete: true,
             setCurrentMode: (mode: string) => ({ mode }),
+            handleTerminalStatus: (status: string) => ({ status }),
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
             setStubClearSupported: (supported: boolean) => ({ supported }),
@@ -43,6 +45,7 @@ jest.mock('./runStreamLogic', () => {
                 'in_progress',
                 {
                     setStubStatus: (_: string | null, { status }: { status: string | null }) => status,
+                    handleTerminalStatus: (_: string | null, { status }: { status: string }) => status,
                 },
             ],
             isThinking: [
@@ -95,6 +98,7 @@ jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsCommandCreate: jest.fn(),
     tasksRunCreate: jest.fn(),
     tasksRunsClearConversationCreate: jest.fn(),
+    tasksWarmResumeCreate: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
@@ -136,6 +140,7 @@ describe('runInteractionLogic', () => {
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({})
         ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
         ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
+        ;(tasksWarmResumeCreate as jest.Mock).mockResolvedValue({ task_id: TASK_ID, run_id: 'warm-run' })
         initKeaTests()
         project = projectLogic()
         project.mount()
@@ -378,6 +383,33 @@ describe('runInteractionLogic', () => {
         ])
         expect(logic.values.queuedMessages).toEqual([])
         expect(logic.values.composerForm.draft).toBe('')
+    })
+
+    it('warms the resumed run while composing and consumes it before submit', async () => {
+        jest.useFakeTimers()
+        setStatus('cancelled')
+        logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(tasksWarmResumeCreate).toHaveBeenCalledWith('997', TASK_ID, {
+            resume_from_run_id: RUN_ID,
+            runtime_adapter: 'claude',
+            model: 'claude-sonnet-5',
+            reasoning_effort: 'high',
+            initial_permission_mode: 'plan',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(tasksRunCreate).toHaveBeenCalledWith(
+            '997',
+            TASK_ID,
+            expect.objectContaining({ resume_from_run_id: RUN_ID })
+        )
     })
 
     it('records the boundary instead of starting a run when /clear is sent to a terminal run', async () => {
