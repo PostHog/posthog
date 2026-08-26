@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Collection, Iterable
+from dataclasses import replace
 from io import BytesIO
 from typing import Any, cast
 from uuid import uuid4
@@ -1876,6 +1877,7 @@ class TestMaterializeViewStagesAccountPropertyRows:
                 Prefix=prefix.removeprefix(f"{bucket_name}/"),
             )
             assert result.delta_version is not None
+            activity_environment.info = replace(activity_environment.info, workflow_run_id=str(uuid4()))
             staged = await activity_environment.run(
                 stage_warehouse_account_property_files_activity,
                 StageAccountPropertySyncInput(
