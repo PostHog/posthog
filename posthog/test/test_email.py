@@ -169,28 +169,45 @@ class TestEmail(BaseTest):
 
     @parameterized.expand(
         [
-            ("transient_disconnect", smtplib.SMTPServerDisconnected("dropped"), True),
-            ("transient_oserror", ConnectionResetError("reset"), True),
-            ("transient_timeout", TimeoutError("hung relay"), True),
+            ("transient_disconnect", smtplib.SMTPServerDisconnected("dropped"), True, "SMTPServerDisconnected"),
+            ("transient_oserror", ConnectionResetError("reset"), True, "ConnectionResetError"),
+            ("transient_timeout", TimeoutError("hung relay"), True, "TimeoutError"),
             # Send-path 4xx ("try again later") must re-raise so autoretry fires, not be swallowed.
-            ("transient_data_greylist", smtplib.SMTPDataError(451, b"greylisted, try later"), True),
-            ("transient_sender_421", smtplib.SMTPSenderRefused(421, b"service unavailable", "from@posthog.com"), True),
+            (
+                "transient_data_greylist",
+                smtplib.SMTPDataError(451, b"greylisted, try later"),
+                True,
+                "SMTPDataError (451)",
+            ),
+            (
+                "transient_sender_421",
+                smtplib.SMTPSenderRefused(421, b"service unavailable", "from@posthog.com"),
+                True,
+                "SMTPSenderRefused (421)",
+            ),
             (
                 "transient_recipients_greylist",
                 smtplib.SMTPRecipientsRefused({"x@posthog.com": (450, b"greylisted")}),
                 True,
+                "SMTPRecipientsRefused (450)",
             ),
-            ("permanent_auth", smtplib.SMTPAuthenticationError(535, b"bad creds"), False),
-            ("permanent_data_5xx", smtplib.SMTPDataError(554, b"transaction failed"), False),
-            ("permanent_recipients", smtplib.SMTPRecipientsRefused({}), False),
+            (
+                "permanent_auth",
+                smtplib.SMTPAuthenticationError(535, b"bad creds"),
+                False,
+                "SMTPAuthenticationError (535)",
+            ),
+            ("permanent_data_5xx", smtplib.SMTPDataError(554, b"transaction failed"), False, "SMTPDataError (554)"),
+            ("permanent_recipients", smtplib.SMTPRecipientsRefused({}), False, "SMTPRecipientsRefused"),
             (
                 "permanent_recipients_5xx",
                 smtplib.SMTPRecipientsRefused({"x@posthog.com": (550, b"no such user")}),
                 False,
+                "SMTPRecipientsRefused (550)",
             ),
         ]
     )
-    def test_smtp_error_retry_classification(self, name, exc, should_reraise) -> None:
+    def test_smtp_error_retry_classification(self, name, exc, should_reraise, expected_reason) -> None:
         # Transient errors (connection drops + send-path 4xx greylisting/421) re-raise so autoretry
         # fires; auth/5xx/permanent stay swallowed (no retry-storm of the relay's per-IP limit).
         # Both record one failed metric.
@@ -217,6 +234,49 @@ class TestEmail(BaseTest):
 
         after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 1.0)
+
+        # A raising send must still leave the row behind. Without it, zero rows means both "never
+        # tried" and "failed every attempt", which is the ambiguity the record exists to remove.
+        # The stored reason holds the class plus status code only, never the provider text, which
+        # quotes the recipient address that this table keeps hashed.
+        record = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes(f"{name}@posthog.com"), campaign_key=f"retry_{name}"
+        ).first()
+        assert record is not None
+        self.assertIsNone(record.sent_at)
+        self.assertIsNotNone(record.failed_at)
+        self.assertEqual(record.failure_count, 1)
+        self.assertEqual(record.last_failure_reason, expected_reason)
+
+    def test_smtp_retry_after_a_failed_attempt_still_sends(self) -> None:
+        # The row exists from the first attempt on, so it must not become an idempotency guard of
+        # its own, because dedupe keys off `sent_at`. If it did, a campaign that failed once would
+        # never be delivered on retry.
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch(
+                "django.core.mail.backends.locmem.EmailBackend.send_messages",
+                side_effect=[smtplib.SMTPServerDisconnected("dropped"), 1],
+            ),
+        ):
+            kwargs: dict[str, Any] = {
+                "to": [{"raw_email": "retried@posthog.com", "recipient": "retried@posthog.com"}],
+                "campaign_key": "retry_then_succeed",
+                "subject": "Subject",
+                "txt_body": "",
+                "html_body": "<p>hi</p>",
+                "headers": {},
+            }
+            with self.assertRaises(smtplib.SMTPServerDisconnected):
+                _send_via_smtp(**kwargs)
+            _send_via_smtp(**kwargs)
+
+        record = MessagingRecord.objects.filter(
+            email_hash__in=get_email_hashes("retried@posthog.com"), campaign_key="retry_then_succeed"
+        ).first()
+        assert record is not None
+        self.assertIsNotNone(record.sent_at)
+        self.assertEqual(record.failure_count, 1)  # the earlier attempt stays on the record
 
     def test_smtp_transient_failure_preserves_already_sent_recipients(self) -> None:
         # A transient failure on a later recipient must not roll back the recipients already
@@ -251,7 +311,9 @@ class TestEmail(BaseTest):
         second = MessagingRecord.objects.filter(
             email_hash__in=get_email_hashes("second@posthog.com"), campaign_key="batch_transient"
         ).first()
-        self.assertIsNone(second)  # its transaction rolled back → retried fresh, no half-written row
+        assert second is not None  # the attempt is on record, but unstamped, so the retry re-sends
+        self.assertIsNone(second.sent_at)
+        self.assertEqual(second.failure_count, 1)
 
     def test_smtp_connection_built_with_bounded_timeout(self) -> None:
         # Without a socket timeout a silently-hung relay pins the worker forever and the new
@@ -395,9 +457,12 @@ class TestEmail(BaseTest):
             # The error should be caught and logged, not raised
             message.send(send_async=False)
 
-            # Verify the message wasn't marked as sent
+            # Unsent, but on record: the provider's status code is kept, its response body is not.
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
-            self.assertIsNone(record)
+            assert record is not None
+            self.assertIsNone(record.sent_at)
+            self.assertEqual(record.failure_count, 1)
+            self.assertEqual(record.last_failure_reason, "EmailProviderError (400)")
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
