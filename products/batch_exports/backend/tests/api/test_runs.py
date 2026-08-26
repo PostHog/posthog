@@ -278,6 +278,44 @@ def test_get_batch_export_runs_rejects_unknown_status(client: HttpClient, team, 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
 
+def test_get_batch_export_runs_date_filter_depends_on_ordering(client: HttpClient, team, user):
+    """`after`/`before` filter on `created_at` unless ordering by `data_interval_start`, in which
+    case `start`/`end` filter the data interval instead, and the other pair has no effect."""
+    batch_export = create_batch_export(team, create_destination())
+    now = dt.datetime.now(dt.UTC)
+
+    # Recent data interval, but created a month ago.
+    run_by_interval = create_run(
+        batch_export,
+        status=BatchExportRun.Status.COMPLETED,
+        data_interval_start=now - dt.timedelta(hours=1),
+        data_interval_end=now,
+    )
+    BatchExportRun.objects.filter(id=run_by_interval.id).update(created_at=now - dt.timedelta(days=30))
+
+    # Data interval from a month ago, but created just now.
+    run_by_created_at = create_run(
+        batch_export,
+        status=BatchExportRun.Status.COMPLETED,
+        data_interval_start=now - dt.timedelta(days=30, hours=1),
+        data_interval_end=now - dt.timedelta(days=30),
+    )
+
+    client.force_login(user)
+
+    # Default ordering filters by created_at. `start` is passed too and must have no effect:
+    # if it did, run_by_created_at's month-old interval would exclude it from the result.
+    data = get_batch_export_runs_ok(client, team.pk, batch_export.id, after="-2d", start="-2d")
+    assert {run["id"] for run in data["results"]} == {str(run_by_created_at.id)}
+
+    # Ordering by data_interval_start filters by the interval instead. `after` is passed too and
+    # must have no effect: if it did, run_by_interval's month-old created_at would exclude it.
+    data = get_batch_export_runs_ok(
+        client, team.pk, batch_export.id, ordering="-data_interval_start", start="-2d", after="-2d"
+    )
+    assert {run["id"] for run in data["results"]} == {str(run_by_interval.id)}
+
+
 def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user):
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
