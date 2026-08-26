@@ -134,6 +134,9 @@ Developers can also manually tolerate a snapshot from the UI.
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
+A quarantined snapshot is not committed to the baseline, with one exception: a quarantined `new` snapshot that a person approved by identifier.
+This is the way to give a story a baseline entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
+The procedure is: open a PR that renders the story, approve the `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool; "Approve all" skips quarantined snapshots), finalize the run so the entry is committed to the PR branch, merge the PR, then lift the quarantine.
 
 **Flakiness tab** — surfaces the tolerated-hash data, which is otherwise written and never read.
 A snapshot is scored on how many alternate hashes the classifier can still match for its current baseline, so the score resets when the baseline moves.
