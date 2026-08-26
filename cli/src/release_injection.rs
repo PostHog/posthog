@@ -326,8 +326,9 @@ mod tests {
 
     #[test]
     fn rejects_a_release_id_that_is_not_a_36_byte_uuid() {
-        let dir = std::env::temp_dir();
-        let err = inject_release_id(&dir, "too-short", true).unwrap_err();
+        // An empty directory, so nothing is scanned even if the check ever moved after the walk.
+        let dir = tempfile::tempdir().unwrap();
+        let err = inject_release_id(dir.path(), "too-short", true).unwrap_err();
         assert!(err.to_string().contains("expected 36"));
     }
 }
