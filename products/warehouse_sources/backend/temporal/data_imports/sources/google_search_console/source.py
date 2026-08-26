@@ -93,6 +93,14 @@ class GoogleSearchConsoleSource(
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_query_search_analytics` already retries Search Analytics quota exhaustion in-line with
+        # backoff; if it stays exhausted once those retries run out, the property's quota refills
+        # over time and the resumable source picks up from the last saved date and row, so let
+        # Temporal retry the activity without paging it as a bug. The three quota raise sites carry a
+        # stable `(retryable)` marker, which does not collide with the 401/403 non-retryable keys.
+        return {"(retryable)"}
+
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:

@@ -104,7 +104,9 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
 
     Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
     the activity later (the resumable source picks up from the last saved date),
-    which is the right recovery for the longer 10-minute / daily load quotas.
+    which is the right recovery for the longer 10-minute / daily load quotas. Its
+    messages carry a `(retryable)` marker that `get_retryable_errors` matches, so
+    the self-recovering failure is logged as a warning instead of tracked as noise.
     """
 
 
@@ -389,7 +391,7 @@ def _query_search_analytics(
 
         if _is_daily_quota_error(response):
             raise GoogleSearchConsoleQuotaExceededError(
-                f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level"
+                f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level (retryable)"
             )
 
         # Quota (403 usageLimits / 429) and transient Google-side 5xx both clear on their own,
@@ -405,7 +407,7 @@ def _query_search_analytics(
                 # retries the activity (resuming from the last saved date).
                 response.raise_for_status()
             raise GoogleSearchConsoleQuotaExceededError(
-                f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries"
+                f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries (retryable)"
             )
 
         wait = _quota_backoff_seconds(response, attempt)
@@ -419,7 +421,7 @@ def _query_search_analytics(
         time.sleep(wait)
 
     # Unreachable: the loop either returns, raises for status, or raises the quota error.
-    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted")
+    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted (retryable)")
 
 
 def _parse_api_datetime(value: Any) -> dt.datetime | None:

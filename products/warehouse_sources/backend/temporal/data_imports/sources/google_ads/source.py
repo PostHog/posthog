@@ -162,6 +162,17 @@ class GoogleAdsSource(
             "Request had invalid authentication credentials": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_call_with_transient_retry` retries a RESOURCE_EXHAUSTED quota rejection in-line, but only
+        # a few times over a short backoff — far short of a real quota window. When quota stays
+        # exhausted past that budget, the gRPC `ResourceExhausted` re-raises with Google's canonical
+        # "Resource has been exhausted (e.g. check quota)." message. The quota refills over time and
+        # the resumable source picks up from the last saved checkpoint on the next Temporal retry, so
+        # classify it as retryable and log a warning instead of tracking it as a bug. The deterministic
+        # "Received message larger than max" abort carries its own distinct message, so it is not
+        # matched here and still surfaces as a real error.
+        return {"Resource has been exhausted"}
+
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:
         if "google_ads_integration_id" in job_inputs.keys():
