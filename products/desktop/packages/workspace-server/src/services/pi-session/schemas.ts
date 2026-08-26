@@ -12,9 +12,16 @@ import { z } from "zod";
 
 export { piRpcResponseSchema };
 
-export const startPiSessionInput = z.object({
+const piTaskContextInput = z.object({
   taskId: z.string(),
   cwd: z.string(),
+  customInstructions: z.string().optional(),
+  additionalDirectories: z.array(z.string()).optional(),
+  channelMode: z.boolean().optional(),
+});
+
+export const startPiSessionInput = z.object({
+  taskContext: piTaskContextInput,
   projectTrustPath: z.string().optional(),
   prompt: z.string(),
   model: z.string().optional(),
@@ -35,8 +42,7 @@ export const piSessionHealthOutput = z.object({
 });
 
 export const resumePiSessionInput = z.object({
-  taskId: z.string(),
-  cwd: z.string(),
+  taskContext: piTaskContextInput.pick({ taskId: true, cwd: true }),
   projectTrustPath: z.string().optional(),
 });
 
