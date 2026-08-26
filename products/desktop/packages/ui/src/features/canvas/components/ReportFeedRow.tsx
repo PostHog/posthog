@@ -12,7 +12,6 @@ import {
   ReportStateMonogram,
   reportRunState,
 } from "@posthog/ui/features/inbox/components/ReportStateMonogram";
-import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useMemo } from "react";
@@ -55,7 +54,6 @@ export function ReportFeedRow({
                 <span className="min-w-0 truncate font-semibold text-sm leading-snug">
                   {title}
                 </span>
-                {report.is_suggested_reviewer && <ForYouBadge />}
                 {report.implementation_pr_url && (
                   <GitPullRequestIcon
                     size={13}

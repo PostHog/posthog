@@ -43,9 +43,20 @@ vi.mock("@posthog/ui/router/useAppView", () => ({ useAppView }));
 // Channel reports defaults off here so the Inbox item renders; the flag-on
 // test flips it via `channelReportsFlag`.
 let channelReportsFlag = false;
+let reportsInboxFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (flag: string) =>
-    flag === "posthog-desktop-channel-reports" ? channelReportsFlag : true,
+    flag === "posthog-desktop-channel-reports"
+      ? channelReportsFlag
+      : flag === "posthog-desktop-reports-inbox"
+        ? reportsInboxFlag
+        : true,
+}));
+vi.mock("@posthog/ui/features/feature-flags/useChannelReportsEnabled", () => ({
+  useChannelReportsEnabled: () => channelReportsFlag,
+}));
+vi.mock("@posthog/ui/features/feature-flags/useReportsInboxEnabled", () => ({
+  useReportsInboxEnabled: () => reportsInboxFlag,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -82,8 +93,11 @@ vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
     selector: (s: { cells: (string | null)[] }) => unknown,
   ) => selector({ cells: [] }),
 }));
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxDecisionCount", () => ({
+  useInboxDecisionCount: () => 0,
+}));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
-  useInboxAllReports: () => ({ counts: { pulls: 0 } }),
+  useInboxAllReports: () => ({ scopedReports: [], counts: { pulls: 0 } }),
 }));
 vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
   useTasks: () => ({ data: [] }),
@@ -127,7 +141,7 @@ describe("SidebarNavSection", () => {
   });
 
   it.each([
-    ["inbox", "Inbox"],
+    ["inbox", "Self-driving"],
     ["command-center", "Command Center"],
     ["activity", "Activity"],
     ["configure", "Settings"],
@@ -148,16 +162,16 @@ describe("SidebarNavSection", () => {
     const position = (label: string) =>
       labels.findIndex((text) => text.includes(label));
 
-    expect(position("Inbox")).toBeLessThan(position("Activity"));
+    expect(position("Self-driving")).toBeLessThan(position("Activity"));
     expect(position("Activity")).toBeLessThan(position("Loops"));
-    expect(position("Inbox")).toBeLessThan(position("Loops"));
+    expect(position("Self-driving")).toBeLessThan(position("Loops"));
   });
 
   it("tracks top-level clicks with in_more false", async () => {
     const user = userEvent.setup();
     renderNav();
 
-    await user.click(screen.getByRole("button", { name: /Inbox/ }));
+    await user.click(screen.getByRole("button", { name: /Self-driving/ }));
 
     expect(navigateToInbox).toHaveBeenCalledTimes(1);
     // `layout` separates these from the nav rail's identically-named clicks.
@@ -170,7 +184,7 @@ describe("SidebarNavSection", () => {
   it("opens a destination in a new tab on Cmd-click", () => {
     renderNav();
 
-    fireEvent.click(screen.getByRole("button", { name: /Inbox/ }), {
+    fireEvent.click(screen.getByRole("button", { name: /Self-driving/ }), {
       metaKey: true,
     });
 
@@ -194,10 +208,24 @@ describe("SidebarNavSection", () => {
     try {
       renderNav();
       expect(
-        screen.queryByRole("button", { name: /Inbox/ }),
+        screen.queryByRole("button", { name: /Self-driving/ }),
       ).not.toBeInTheDocument();
     } finally {
       channelReportsFlag = false;
+    }
+  });
+
+  it("keeps the Inbox item when the reports inbox reclaims the slot", () => {
+    channelReportsFlag = true;
+    reportsInboxFlag = true;
+    try {
+      renderNav();
+      expect(
+        screen.getByRole("button", { name: /Self-driving/ }),
+      ).toBeInTheDocument();
+    } finally {
+      channelReportsFlag = false;
+      reportsInboxFlag = false;
     }
   });
 

@@ -203,6 +203,8 @@ export interface SignalReportApi {
     readonly artefact_count: number
     /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
     readonly charts: readonly ReportChartApi[]
+    /** Follow-up questions the report's author suggests asking about it, in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+    readonly suggested_prompts: readonly string[]
     /**
      * P0–P4 from the latest priority judgment artefact (when present).
      * @nullable
@@ -3303,6 +3305,13 @@ export interface EditReportRequestApi {
      * @nullable
      */
     charts?: ReportChartApi[] | null
+    /**
+     * The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report.
+     * @maxItems 3
+     * @nullable
+     * @items.maxLength 200
+     */
+    suggested_prompts?: string[] | null
 }
 
 export interface EditReportResponseApi {
@@ -3319,6 +3328,11 @@ export interface EditReportResponseApi {
      * @nullable
      */
     charts_set: number | null
+    /**
+     * How many questions the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
+     * @nullable
+     */
+    suggested_prompts_set: number | null
 }
 
 /**
@@ -3494,6 +3508,12 @@ export interface EmitReportRequestApi {
      * @maxItems 20
      */
     charts?: ReportChartApi[]
+    /**
+     * Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them.
+     * @maxItems 3
+     * @items.maxLength 200
+     */
+    suggested_prompts?: string[]
 }
 
 export interface EmitReportResponseApi {
@@ -3717,6 +3737,11 @@ export interface ScratchpadEntryApi {
      */
     updated_at: string | null
     /**
+     * ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.
+     * @nullable
+     */
+    expires_at?: string | null
+    /**
      * Run that wrote this entry, or null if human-authored.
      * @nullable
      */
@@ -3752,6 +3777,11 @@ export interface RememberRequestApi {
      * @nullable
      */
     run_id?: string | null
+    /**
+     * Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier.
+     * @nullable
+     */
+    expires_at?: string | null
 }
 
 /**
@@ -3890,9 +3920,12 @@ export const SignalSourceProductEnumApi = {
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
  * * `anomaly_investigation` - Anomaly investigation
+ * * `feedback` - Feedback
+ * * `review` - Review
  * * `ci_flaky_check` - CI flaky check
  * * `ci_broken_default_branch` - CI broken default branch
  * * `ci_duration_regression` - CI duration regression
+ * * `search_opportunity` - Search opportunity
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -3912,9 +3945,12 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
     AnomalyInvestigation: 'anomaly_investigation',
+    Feedback: 'feedback',
+    Review: 'review',
     CiFlakyCheck: 'ci_flaky_check',
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
+    SearchOpportunity: 'search_opportunity',
 } as const
 
 /**
@@ -4231,6 +4267,10 @@ export type SignalsScoutScratchpadSearchParams = {
      * ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).
      */
     date_to?: string
+    /**
+     * Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.
+     */
+    include_expired?: boolean
     /**
      * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
      * @minLength 1

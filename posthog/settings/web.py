@@ -364,6 +364,9 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 # region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
 # this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# Max orgs the daily ICP re-enrichment sweep re-fetches per run — the Harmonic spend/rate
+# bound for products/growth/backend/temporal/signup_enrichment/reenrichment.py.
+GROWTH_ICP_REENRICH_DAILY_CAP = get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int)
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
@@ -594,6 +597,11 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        # Shared by TaskCreate.origin_product and TaskWrite.origin_product. Needs naming because
+        # WarmTaskRequest.origin_product offers only the warmable subset, so "origin_product" alone
+        # no longer identifies one choice set. Keyed to the name the generator already produced
+        # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
+        "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
@@ -691,6 +699,9 @@ SPECTACULAR_SETTINGS = {
         "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
         "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
+        # `severity` is shared by a data quality check, its overview projection, and the severity a
+        # past run was judged at.
+        "DataQualityCheckSeverityEnum": ["error", "warn"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
         # `kind` is a generic field name; one shared name for the canvas kind set.
@@ -912,6 +923,16 @@ SPECTACULAR_SETTINGS = {
         "TaskExecutionModeEnum": ["interactive", "background"],
         # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
         "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+        "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "auto",
+            "read-only",
+            "full-access",
+            None,
+        ],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
@@ -1145,6 +1166,12 @@ API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "202
 # var without redeploy. 1.0 = emit every operation, 0.01 = 1% sample.
 # Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
 QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
+
+# Persons list SLO sampling rate. That endpoint runs its ActorsQuery through `calculate()`,
+# not `run()`, so it emits no query-service SLO events at all. It is lower volume than the
+# query service and its slow tail is the point of the measurement, so it samples ten times
+# higher. Same weighting rule: divide counts by `properties.sample_rate`.
+PERSONS_LIST_SLO_SAMPLE_RATE = get_from_env("PERSONS_LIST_SLO_SAMPLE_RATE", 1.0 if TEST else 0.1, type_cast=float)
 
 ####
 # Livestream
