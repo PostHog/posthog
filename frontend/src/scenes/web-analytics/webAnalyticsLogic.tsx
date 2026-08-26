@@ -70,6 +70,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
     Breadcrumb,
@@ -1651,12 +1652,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
 
+                // Summary cards and breakdown tables count $pageview OR $screen (event_type_expr in
+                // web_analytics_query_runner). The graph series match the same set, so a project that
+                // sends $screen traffic never gets an empty chart beside populated tiles.
+                const webEventProperties: AnyPropertyFilter[] = [
+                    { type: PropertyFilterType.HogQL, key: "event in ('$pageview', '$screen')" },
+                ]
+
                 const uniqueUserSeries: EventsNode = {
-                    event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
+                    event: null,
                     kind: NodeKind.EventsNode,
                     math: BaseMathType.UniqueUsers,
                     name: 'Pageview',
                     custom_name: 'Unique visitors',
+                    properties: webEventProperties,
                 }
 
                 const pageViewsSeries = {
@@ -1672,23 +1681,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 const sessionDurationSeries: EventsNode = {
-                    event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
+                    event: null,
                     kind: NodeKind.EventsNode,
                     math: PropertyMathType.Average,
                     math_property: '$session_duration',
                     math_property_type: 'session_properties',
                     name: 'Session duration',
                     custom_name: 'Average session duration',
+                    properties: webEventProperties,
                 }
 
                 const bounceRateSeries: EventsNode = {
-                    event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
+                    event: null,
                     kind: NodeKind.EventsNode,
                     math: PropertyMathType.Average,
                     math_property: '$is_bounce',
                     math_property_type: 'session_properties',
                     name: 'Bounce rate',
                     custom_name: 'Average bounce rate',
+                    properties: webEventProperties,
                 }
 
                 const uniqueConversionsSeries: ActionsNode | EventsNode | undefined = !conversionGoal

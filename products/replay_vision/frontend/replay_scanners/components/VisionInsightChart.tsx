@@ -19,6 +19,9 @@ interface VisionInsightChartProps {
     className?: string
     /** Custom handler for data point clicks (must be stable/memoized). Without one, charts stay static. */
     onDataPointClick?: QueryContext['onDataPointClick']
+    /** Empty-state copy for when the chart resolves with no data. Defaults to the generic "no matching events" text. */
+    emptyStateHeading?: string
+    emptyStateDetail?: string
 }
 
 /** Vision events all belong to one synthetic person, so the generic persons modal would only list meaningless actors. */
@@ -63,12 +66,14 @@ export function VisionInsightChart({
     insightProps,
     className,
     onDataPointClick,
+    emptyStateHeading,
+    emptyStateDetail,
 }: VisionInsightChartProps): JSX.Element {
     const chartQuery = useMemo(() => embeddedVisionChartQuery(query), [query])
     const chartProps = useMemo(() => adHocInsightProps(insightProps, chartQuery), [insightProps, chartQuery])
     const context = useMemo<QueryContext>(
-        () => ({ insightProps: chartProps, onDataPointClick }),
-        [chartProps, onDataPointClick]
+        () => ({ insightProps: chartProps, onDataPointClick, emptyStateHeading, emptyStateDetail }),
+        [chartProps, onDataPointClick, emptyStateHeading, emptyStateDetail]
     )
     const logic = insightVizDataLogic(chartProps)
     const { insightData, insightDataLoading } = useValues(logic)
