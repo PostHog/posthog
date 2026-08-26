@@ -502,6 +502,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
+    "DEFAULT_PARSER_CLASSES": [
+        "posthog.parsers.SafeJSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
+    ],
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "posthog.exceptions.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",

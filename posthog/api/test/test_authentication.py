@@ -2058,6 +2058,19 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
             self.assertEqual(str(model_key.last_used_at), "2021-08-25 22:10:14.252000+00:00")
 
+    def test_deeply_nested_body_returns_400_not_500(self):
+        # Auth reads request.data before authenticating, so a deeply nested body must
+        # fail as a 400, not a 500 from an unhandled RecursionError.
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/",
+            data="[" * 100_000,
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_personal_api_key_updates_last_used_at_outside_the_year(self):
         self.client.logout()
 
