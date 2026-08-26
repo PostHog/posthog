@@ -36,6 +36,7 @@ class NodeRole(StrEnum):
     # Below nodes are part of separate clusters.
     AI_EVENTS = "ai_events"
     AUX = "aux"
+    BATCH_EXPORTS = "batch_exports"
     OPS = "ops"
     SESSIONS = "sessions"
 
@@ -44,11 +45,19 @@ class NodeRole(StrEnum):
 # LOGS hosts replicated tables too (metric_series1/metric_samples1 via migration
 # 0283); non-sharded ALTERs on it run via any_host_by_roles like the satellites.
 DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.LOGS, NodeRole.OPS, NodeRole.SESSIONS}
+    {
+        NodeRole.DATA,
+        NodeRole.AI_EVENTS,
+        NodeRole.AUX,
+        NodeRole.BATCH_EXPORTS,
+        NodeRole.LOGS,
+        NodeRole.OPS,
+        NodeRole.SESSIONS,
+    }
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.OPS, NodeRole.SESSIONS}
 )
 
 

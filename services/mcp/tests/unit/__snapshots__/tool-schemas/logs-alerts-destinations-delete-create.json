@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "hog_function_ids": {
+            "description": "HogFunction IDs to delete as one atomic destination group.",
+            "items": {
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "description": "A UUID string identifying this logs alert configuration.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "hog_function_ids"],
+    "type": "object"
+}

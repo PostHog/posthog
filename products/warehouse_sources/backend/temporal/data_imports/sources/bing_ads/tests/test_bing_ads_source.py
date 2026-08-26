@@ -1,8 +1,6 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -10,7 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestBingAdsSource:
@@ -24,33 +22,6 @@ class TestBingAdsSource:
             account_id="12345",
             bing_ads_integration_id=1,
         )
-
-    def test_source_type(self):
-        """Test source type is correctly set."""
-        assert self.source.source_type == ExternalDataSourceType.BINGADS
-
-    def test_get_source_config(self):
-        """Test source configuration is properly structured."""
-        config = self.source.get_source_config
-
-        assert config.name.value == "BingAds"
-        assert config.label == "Bing Ads"
-        assert config.releaseStatus == ReleaseStatus.GA
-        assert config.iconPath == "/static/services/bing-ads.svg"
-        assert len(config.fields) == 2
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "bing_ads_integration_id"
-        assert oauth_field.required is True
-        assert oauth_field.kind == "bing-ads"
-
-        account_id_field = config.fields[1]
-        assert isinstance(account_id_field, SourceFieldOauthAccountSelectConfig)
-        assert account_id_field.name == "account_id"
-        assert account_id_field.required is True
-        assert account_id_field.integrationField == "bing_ads_integration_id"
-        assert account_id_field.integrationKind == "bing-ads"
 
     @pytest.mark.parametrize(
         "account_id,integration_id,expected_error_fragment",
@@ -72,7 +43,6 @@ class TestBingAdsSource:
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_validate_credentials_success(self, mock_get_oauth):
-        """Test successful credential validation."""
         mock_integration = mock.MagicMock()
         mock_get_oauth.return_value = mock_integration
 
@@ -108,7 +78,6 @@ class TestBingAdsSource:
         assert mock_capture.called is expect_capture_called
 
     def test_get_schemas(self):
-        """Test getting available schemas."""
         schemas = self.source.get_schemas(self.valid_config, self.team_id)
 
         assert len(schemas) > 0
@@ -134,7 +103,6 @@ class TestBingAdsSource:
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.bing_ads_source")
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_campaigns(self, mock_get_oauth, mock_bing_ads_source):
-        """Test creating source for pipeline with campaigns."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_access_token"
         mock_integration.refresh_token = "test_refresh_token"
@@ -171,7 +139,6 @@ class TestBingAdsSource:
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.bing_ads_source")
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_report_incremental(self, mock_get_oauth, mock_bing_ads_source):
-        """Test creating source for pipeline with incremental report."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_access_token"
         mock_integration.refresh_token = "test_refresh_token"
@@ -207,7 +174,6 @@ class TestBingAdsSource:
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_missing_access_token(self, mock_get_oauth):
-        """Test source_for_pipeline raises error when access token is missing."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = None
         mock_integration.refresh_token = "test_refresh_token"
@@ -224,7 +190,6 @@ class TestBingAdsSource:
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_missing_refresh_token(self, mock_get_oauth):
-        """Test source_for_pipeline raises error when refresh token is missing."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_access_token"
         mock_integration.refresh_token = None

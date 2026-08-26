@@ -2,10 +2,21 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    Link,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -27,6 +38,8 @@ export function FeatureRequestList(): JSX.Element {
         hasActiveFilters,
         listSearchParams,
         searchQuery,
+        creatorById,
+        members,
     } = useValues(featureRequestsLogic)
     const { openCreateRequest, openProductAreas, setFeatureRequestsPage, loadFeatureRequests, setSearchQuery } =
         useActions(featureRequestsLogic)
@@ -57,9 +70,9 @@ export function FeatureRequestList(): JSX.Element {
             ),
         },
         {
-            title: 'Account',
-            key: 'account',
-            render: (_, request) => request.account.name,
+            title: 'Accounts',
+            key: 'account_links',
+            render: (_, request) => request.account_links.map((link) => link.account.name).join(', '),
         },
         {
             title: 'Product areas',
@@ -81,6 +94,27 @@ export function FeatureRequestList(): JSX.Element {
             title: 'Priority',
             key: 'request_priority',
             render: (_, request) => <FeatureRequestPriorityBadge priority={request.request_priority} />,
+        },
+        {
+            title: 'Created by',
+            key: 'created_by',
+            render: (_, request) => {
+                if (request.created_by === null) {
+                    return <span className="text-muted">—</span>
+                }
+                if (members === null) {
+                    return <LemonSkeleton className="w-24 h-4" />
+                }
+                const creator = creatorById[request.created_by]
+                return creator ? (
+                    <div className="flex items-center gap-2">
+                        <ProfilePicture user={creator} size="sm" />
+                        <span className="whitespace-nowrap">{fullName(creator) || creator.email}</span>
+                    </div>
+                ) : (
+                    <span className="text-muted">Unknown user</span>
+                )
+            },
         },
         {
             title: 'Updated',

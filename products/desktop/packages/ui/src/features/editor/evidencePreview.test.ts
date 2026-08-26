@@ -72,6 +72,50 @@ describe("fetchEvidencePreview", () => {
     });
   });
 
+  it("uses the saved insight result without running a second query", async () => {
+    const runQuery = vi.fn();
+    const client = fakeClient({
+      getInsightDefinition: vi.fn().mockResolvedValue({
+        name: "Unique users per variant",
+        description: null,
+        query: {
+          kind: "InsightVizNode",
+          source: {
+            kind: "TrendsQuery",
+            trendsFilter: { display: "ActionsTable" },
+          },
+        },
+        response: {
+          results: [
+            {
+              label: "$feature_flag_called - true",
+              breakdown_value: "true",
+              data: [],
+              days: [],
+              aggregated_value: 2,
+            },
+            {
+              label: "$feature_flag_called - None",
+              breakdown_value: null,
+              data: [],
+              days: [],
+              aggregated_value: 4,
+            },
+          ],
+        },
+      }),
+      runQuery,
+    });
+
+    await expect(
+      fetchEvidencePreview(client, { kind: "insight", id: "sdyR2Pn8" }),
+    ).resolves.toMatchObject({
+      title: "Unique users per variant",
+      detail: "Breakdown, Total",
+    });
+    expect(runQuery).not.toHaveBeenCalled();
+  });
+
   it("returns null for an insight id that does not resolve", async () => {
     const client = fakeClient({
       getInsightDefinition: vi.fn().mockResolvedValue(null),

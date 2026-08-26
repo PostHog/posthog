@@ -1,7 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AppContext,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
 
@@ -30,6 +39,18 @@ const SAMPLE = {
     attributes: { endpoint: '/api/checkout' },
     resource_attributes: { 'service.name': 'checkout-demo' },
 }
+
+const filterGroupWith = (filters: Record<string, any>[]): UniversalFiltersGroup => ({
+    type: FilterLogicalOperator.And,
+    values: [
+        {
+            type: FilterLogicalOperator.And,
+            values: filters.map(
+                (filter) => ({ type: PropertyFilterType.MetricAttribute, ...filter }) as UniversalFiltersGroupValue
+            ),
+        },
+    ],
+})
 
 const UNTRACED_SAMPLE = {
     ...SAMPLE,
@@ -124,6 +145,46 @@ describe('metricsSamplesLogic', () => {
         expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
     })
 
+    // Regression: the panel listing emissions the chart above it excludes, because
+    // the request went out with only the metric name and date range.
+    it('scopes the request to the viewer filter bar and the picked metric type', async () => {
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+        metricsViewerLogic.actions.setSelectedMetricType('histogram')
+        metricsViewerLogic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'env', operator: PropertyOperator.Exact, value: ['prod'] }])
+        )
+
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        const [, request] = mockSamplesCreate.mock.calls[0]
+        expect(request.query.filters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
+        expect(request.query.metricType).toBe('histogram')
+    })
+
+    // Regression: samples going stale when a filter changes while the tab is open,
+    // and conversely needless requests while the tab is hidden.
+    it('refetches on filter change only while the samples tab is active', async () => {
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
+
+        metricsViewerLogic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'env', operator: PropertyOperator.Exact, value: ['prod'] }])
+        )
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
+        expect(mockSamplesCreate.mock.calls[1][1].query.filters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
+
+        logic.actions.setActiveTab('aggregates')
+        metricsViewerLogic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'env', operator: PropertyOperator.Exact, value: ['dev'] }])
+        )
+        await expectLogic(logic).delay(10)
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
+    })
+
     // Regression: exemplar dots on the chart silently vanish if untraced emissions
     // leak into (or traced ones are dropped from) the derived exemplar list.
     it('derives traceExemplars from traced samples only', async () => {
@@ -144,18 +205,12 @@ describe('metricsSamplesLogic', () => {
     })
 
     // Regression: the chart's exemplar overlay starves (never fetches samples)
-    // unless the samples tab happens to be open — a chart redraw must refresh
-    // them in chart mode, and must not fire needless requests in stat mode.
-    it('refreshes samples on chart query success only in chart mode', async () => {
+    // unless the samples tab happens to be open — a chart redraw must refresh them.
+    it('refreshes samples on chart query success', async () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
 
         metricsViewerLogic.actions.fetchQueryResultsSuccess([])
         await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
-        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
-
-        metricsViewerLogic.actions.setViewMode('stat')
-        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
-        await expectLogic(logic).delay(10)
         expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
     })
 })

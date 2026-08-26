@@ -96,6 +96,19 @@ class FinalizeRasterizationInput(BaseModel, frozen=True):
     render_fingerprint: str
 
 
+class RecordRasterizationFailureInput(BaseModel, frozen=True):
+    """The renderer's own error code and message, resolved in the workflow before the activity runs.
+
+    The code is the rasterizer's `RasterizationErrorCode`, which Temporal carries as the failure
+    type. Without persisting it the reason lives only in workflow history, where neither the user nor
+    a failure-rate breakdown can reach it.
+    """
+
+    exported_asset_id: int
+    error_code: str
+    error_message: str
+
+
 # Output destination fields — excluded so bucket/prefix changes don't invalidate caches.
 # recording_api_token is per-run and ephemeral, so it must never participate in the cache key.
 _FINGERPRINT_EXCLUDE: set[str] = {"team_id", "session_id", "s3_bucket", "s3_key_prefix", "recording_api_token"}

@@ -173,18 +173,17 @@ pub struct FlagRequest {
 #### GeoIP enrichment of `person_properties`
 
 Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.
-The lookup wins: a `$geoip_*` value in the request body is overwritten.
 
-That precedence is likely wrong for server-side evaluation, because the IP we geolocate is whoever the request appears to come from.
-A backend that doesn't forward the end user's IP resolves its own server's location, so a caller that resolved geo itself (from `CF-IPCountry`, `X-Forwarded-For`, or similar) loses values it is better placed to know.
+GeoIP only fills gaps. A `$geoip_*` key present in the request body is left alone, and a JSON null counts as absent, since callers clear a property with `$unset`, so a null is a gap to fill.
+This matters for server-side evaluation: the IP we geolocate is whoever made the HTTP request, so a call from a backend or an SSR render resolves the server's own location, not the end user's.
+A caller that resolved geo itself (from `CF-IPCountry`, `X-Forwarded-For`, or similar) is the authority for those keys.
 
-Before changing that, the affected population is being measured:
+Two signals size how often that precedence matters:
 
-- `flags_geoip_properties_differ_from_lookup_total` counts requests that supplied a `$geoip_*` value disagreeing with the lookup.
+- `flags_geoip_properties_differ_from_lookup_total` counts requests that supplied a `$geoip_*` value disagreeing with the lookup, i.e. requests that would evaluate differently if the lookup won.
 - The canonical log line carries the same fact as `geoip_properties_differ_from_lookup`. The counter has no labels, so query the log line in Loki to attribute a spike to a team or SDK.
 
-Both only measure. Nothing about evaluation changes until the precedence flip ships, and both are removable once it has settled.
-A JSON null in the request counts as absent for this purpose, since it carries no value to compare against the lookup.
+Both are removable once the precedence change has settled.
 
 ### `FlagsResponse` (v2 response)
 

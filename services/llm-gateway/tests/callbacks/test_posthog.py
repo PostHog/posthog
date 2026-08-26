@@ -183,36 +183,55 @@ class TestPostHogCallback:
             assert props["$ai_effort"] == expected
 
     @pytest.mark.asyncio
-    async def test_on_success_header_team_id_overrides_auth_user_team(
+    @pytest.mark.parametrize("event_method", ["_on_success", "_on_failure"])
+    @pytest.mark.parametrize(
+        "auth_method,is_staff,team_id,expected_team_id",
+        [
+            ("personal_api_key", True, 456, 999),
+            ("personal_api_key", False, 456, 456),
+            ("oauth_access_token", False, 456, 456),
+            ("oauth_access_token", False, None, None),
+        ],
+    )
+    async def test_team_attribution(
         self,
         callback: PostHogCallback,
-        auth_user: AuthenticatedUser,
         standard_logging_object: dict,
         mock_posthog_client: tuple,
+        event_method: str,
+        auth_method: str,
+        is_staff: bool,
+        team_id: int | None,
+        expected_team_id: int | None,
     ) -> None:
-        """A caller-supplied x-posthog-property-team_id wins over the key owner's team.
-
-        This is how a shared-key caller (e.g. signals) attributes a generation to the
-        customer team rather than the key owner's team that the usage reporter reads.
-        """
         _, mock_client = mock_posthog_client
         kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+        auth_user = AuthenticatedUser(
+            user_id=123,
+            team_id=team_id,
+            auth_method=auth_method,
+            distinct_id="user-distinct-id-123",
+            is_staff=is_staff,
+        )
 
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
             patch("llm_gateway.callbacks.posthog.get_product", return_value="signals"),
-            # headers arrive as strings — this is the realistic x-posthog-property-team_id path
             patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"team_id": "999"}),
         ):
-            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+            await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            call_kwargs = mock_client.capture.call_args.kwargs
-            props = call_kwargs["properties"]
-            # header-supplied customer team wins over auth_user.team_id (456), stored as an int
-            assert props["team_id"] == 999
+        call_kwargs = mock_client.capture.call_args.kwargs
+        props = mock_client.capture.call_args.kwargs["properties"]
+        if expected_team_id is None:
+            assert "team_id" not in props
+        else:
+            assert props["team_id"] == expected_team_id
             assert isinstance(props["team_id"], int)
-            # the analytics project the event lands in still follows the authenticated team
-            assert call_kwargs["groups"] == {"instance": "https://us.posthog.com", "project": 456}
+        expected_groups: dict[str, str | int] = {"instance": "https://us.posthog.com"}
+        if team_id is not None:
+            expected_groups["project"] = team_id
+        assert call_kwargs["groups"] == expected_groups
 
     @pytest.mark.asyncio
     async def test_on_success_invalid_header_team_id_falls_back_to_auth_team(

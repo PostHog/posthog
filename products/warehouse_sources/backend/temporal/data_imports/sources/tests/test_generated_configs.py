@@ -58,7 +58,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 
-def test_bigquery_config():
+# The form submits "temporary-dataset", but dataclasses.asdict() persists "temporary_dataset",
+# so a source that has been saved once is read back under the second spelling.
+@pytest.mark.parametrize("temporary_dataset_key", ["temporary-dataset", "temporary_dataset"])
+def test_bigquery_config(temporary_dataset_key: str):
     config = BigQuerySourceConfig.from_dict(
         {
             "key_file": {
@@ -69,7 +72,7 @@ def test_bigquery_config():
                 "token_uri": "token_uri",
             },
             "dataset_id": "dataset_id",
-            "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+            temporary_dataset_key: {"enabled": False, "temporary_dataset_id": ""},
             "dataset_project": {"enabled": False, "dataset_project_id": ""},
         }
     )

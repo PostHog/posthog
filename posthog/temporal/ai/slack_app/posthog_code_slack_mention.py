@@ -9,6 +9,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.ai.slack_app import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppModelOverride,
     SlackAppModelOverrideInput,
     cascade_posthog_code_repository_activity,
     classify_posthog_code_task_needs_repo_activity,
@@ -36,9 +37,10 @@ POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 # remains, keeping the recorded marker compatible for executions in flight
 # across the deploy that removes them. Standard two-step Temporal patch
 # lifecycle: those calls come out once the histories that recorded a plain
-# marker have drained in turn. The confirmation patch is younger and still
-# gated, so it stays a full `workflow.patched` branch until it drains too.
+# marker have drained in turn. The last two are younger and still gated, so they
+# stay full `workflow.patched` branches until they drain too.
 _PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS = "slack-file-only-followup-bypass-v1"
+_PATCH_ID_FOLLOWUP_MODEL_CLASSIFIER = "slack-app-followup-model-classifier-v1"
 _PATCH_ID_MODEL_CLASSIFIER = "slack-app-model-classifier-v1"
 _PATCH_ID_NO_PERSONAL_GITHUB_GATE = "slack-no-personal-github-gate-v1"
 _PATCH_ID_UNTAGGED_FOLLOWUP_CONFIRMATION = "slack-untagged-followup-confirmation-v1"
@@ -141,15 +143,48 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 if awaiting_confirmation:
                     return
 
-            followup_handled = await _execute_posthog_code_activity(
-                forward_posthog_code_followup_activity,
-                inputs,
-                channel,
-                thread_ts,
-                slack_user_id,
-                event.get("text", ""),
-                event.get("ts"),
-            )
+            # Read a model or effort request ("use fable for this one", "actually run
+            # this on opus") out of the message. Classified above the follow-up/new-task
+            # split because the mapping lookup that tells the two apart lives inside the
+            # follow-up activity: one call here serves whichever path the message takes,
+            # and recording the choice in history once stops a retry of either activity
+            # from landing on a different model than the first attempt announced. The
+            # feature flag is checked inside the activity — branching the workflow on a
+            # flag would be non-deterministic on replay.
+            model_override: SlackAppModelOverride | None = None
+            classified_before_split = workflow.patched(_PATCH_ID_FOLLOWUP_MODEL_CLASSIFIER)
+            if classified_before_split:
+                model_override = await _execute_posthog_code_activity(
+                    classify_slack_app_model_override_activity,
+                    SlackAppModelOverrideInput(
+                        integration_id=inputs.integration_id,
+                        slack_team_id=inputs.slack_team_id,
+                        event_text=event.get("text", ""),
+                    ),
+                )
+
+                followup_handled = await _execute_posthog_code_activity(
+                    forward_posthog_code_followup_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    event.get("text", ""),
+                    event.get("ts"),
+                    model_override,
+                )
+            else:
+                # Pre-patch histories recorded this activity without the override, and
+                # classified further down. Replaying them has to schedule the same call.
+                followup_handled = await _execute_posthog_code_activity(
+                    forward_posthog_code_followup_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    event.get("text", ""),
+                    event.get("ts"),
+                )
             if followup_handled:
                 return
 
@@ -162,11 +197,19 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
 
             user_id = inputs.user_id
 
+            # A forked run is the one case where the thread we read and the thread we
+            # answer in are different. `channel`/`thread_ts` stay the DM throughout —
+            # they own the task, the mapping, the reaction and every follow-up — while
+            # the context block is built from the channel thread the user forked.
+            # Unset for every other run, so both pairs coincide.
+            context_channel = inputs.fork_source_channel or channel
+            context_thread_ts = inputs.fork_source_thread_ts or thread_ts
+
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
                 inputs,
-                channel,
-                thread_ts,
+                context_channel,
+                context_thread_ts,
             )
             if not thread_messages:
                 return
@@ -181,6 +224,8 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 inputs,
                 event.get("text", ""),
                 user_id,
+                thread_messages,
+                event.get("ts"),
             )
 
             if cascade.mode == "auto":
@@ -248,20 +293,21 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             )
                             return
                         repository = self._selected_repo
-            # Read a per-task model choice ("use fable for this one") out of the
-            # mention. Runs here, past every gate that can still abandon the
-            # mention, so the reply announcing the model only ever describes a task
-            # that gets created. The feature flag is checked inside the activity —
-            # branching the workflow on a flag would be non-deterministic on replay.
             workflow.deprecate_patch(_PATCH_ID_MODEL_CLASSIFIER)
-            model_override = await _execute_posthog_code_activity(
-                classify_slack_app_model_override_activity,
-                SlackAppModelOverrideInput(
-                    integration_id=inputs.integration_id,
-                    slack_team_id=inputs.slack_team_id,
-                    event_text=event.get("text", ""),
-                ),
-            )
+            if not classified_before_split:
+                # Where pre-patch histories classify: past every gate that can still
+                # abandon the mention, so the call is only spent on a task that gets
+                # created. Newer executions trade that for one classification shared
+                # with the follow-up path, which retries far more often than it is
+                # abandoned here.
+                model_override = await _execute_posthog_code_activity(
+                    classify_slack_app_model_override_activity,
+                    SlackAppModelOverrideInput(
+                        integration_id=inputs.integration_id,
+                        slack_team_id=inputs.slack_team_id,
+                        event_text=event.get("text", ""),
+                    ),
+                )
 
             await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,

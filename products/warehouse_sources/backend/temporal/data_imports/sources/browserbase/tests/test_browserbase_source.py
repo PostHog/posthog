@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browserbas
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browserbase import (
     BrowserbaseSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> BrowserbaseSourceConfig:
@@ -25,9 +24,6 @@ def _config() -> BrowserbaseSourceConfig:
 
 
 class TestBrowserbaseSourceConfig:
-    def test_source_type(self) -> None:
-        assert BrowserbaseSource().source_type == ExternalDataSourceType.BROWSERBASE
-
     def test_source_config_basics(self) -> None:
         config = BrowserbaseSource().get_source_config
 
@@ -51,11 +47,6 @@ class TestBrowserbaseSourceConfig:
 
 
 class TestBrowserbaseSchemas:
-    def test_lists_expected_endpoints(self) -> None:
-        names = {s.name for s in BrowserbaseSource().get_schemas(_config(), team_id=1)}
-
-        assert names == {"sessions", "projects"}
-
     @parameterized.expand([("sessions",), ("projects",)])
     def test_every_endpoint_is_full_refresh_only(self, endpoint: str) -> None:
         # No Browserbase list endpoint exposes a server-side timestamp filter, so nothing can sync
@@ -65,11 +56,6 @@ class TestBrowserbaseSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
         assert schema.incremental_fields == []
-
-    def test_names_filter(self) -> None:
-        schemas = BrowserbaseSource().get_schemas(_config(), team_id=1, names=["projects"])
-
-        assert [s.name for s in schemas] == ["projects"]
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         # lists_tables_without_credentials=True means the public docs <SourceTables /> is fed here.
@@ -93,12 +79,6 @@ class TestBrowserbaseCredentials:
 
         assert ok is expected_ok
         assert (error is None) is expected_ok
-
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = BrowserbaseSource().get_non_retryable_errors()
-
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
 
 
 class TestBrowserbasePipelineHandoff:

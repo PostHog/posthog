@@ -21,6 +21,46 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+
+@dataclass(frozen=True)
+class RevenueViewSyncInput:
+    team_id: int
+    source_id: UUID
+    source_type: str
+    schema_name: str
+
+
+@dataclass(frozen=True)
+class RevenueSourceTable:
+    id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
+class RevenueSourceSchema:
+    name: str
+    table: RevenueSourceTable | None
+
+
+@dataclass(frozen=True)
+class RevenueSource:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    enabled: bool
+    include_invoiceless_charges: bool
+    schemas: tuple[RevenueSourceSchema, ...]
+
+
+@dataclass(frozen=True)
+class RevenueSourceSettings:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    deleted: bool
+    enabled: bool
+
+
 # --- Source ---
 
 

@@ -47,7 +47,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
     "@playwright/test": "^1.60.0",
-    "@posthog/rollup-plugin": "^1.4.4",
+    "@posthog/rollup-plugin": "^1.5.1",
     "@storybook/addon-a11y": "10.4.1",
     "@storybook/addon-docs": "10.4.1",
     "@storybook/react-vite": "10.4.1",
@@ -145,7 +145,7 @@
     "node-addon-api": "^8.5.0",
     "node-machine-id": "^1.1.12",
     "node-pty": "1.1.0",
-    "posthog-node": "^5.49.1",
+    "posthog-node": "^5.51.1",
     "radix-themes-tw": "0.2.3",
     "react": "19.2.6",
     "react-dom": "19.2.6",

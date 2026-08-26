@@ -433,6 +433,43 @@ runcmd:
         # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
         base_url = f"http://{self.droplet.ip_address}"
 
+        # The signup wizard gates on these keys from /_preflight, so they must
+        # report true once the stack is healthy (regression test for
+        # https://github.com/PostHog/posthog/issues/57899 and siblings).
+        preflight_required_keys = [
+            "django",
+            "redis",
+            "plugins",
+            "celery",
+            "clickhouse",
+            "kafka",
+            "db",
+            "object_storage",
+        ]
+        print("🩺 Checking /_preflight reports healthy...", flush=True)
+        preflight_deadline = time.time() + timeout_seconds
+        last_preflight_detail = ""
+        while time.time() < preflight_deadline:
+            try:
+                preflight_resp = requests.get(
+                    f"{base_url}/_preflight",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    timeout=10,
+                )
+                if preflight_resp.status_code == 200:
+                    failing_keys = [key for key in preflight_required_keys if not preflight_resp.json().get(key)]
+                    if not failing_keys:
+                        print("✅ Preflight reports all services healthy", flush=True)
+                        break
+                    last_preflight_detail = f"failing keys: {', '.join(failing_keys)}"
+                else:
+                    last_preflight_detail = f"HTTP {preflight_resp.status_code}"
+            except Exception as e:
+                last_preflight_detail = f"{type(e).__name__}: {e}"
+            print(f"   Preflight not healthy yet ({last_preflight_detail})", flush=True)
+            time.sleep(poll_interval)
+        else:
+            return False, f"Preflight never reported healthy within {timeout_seconds}s ({last_preflight_detail})"
+
         print("📝 Creating test user and fetching API keys via Django shell...", flush=True)
         script_path = os.path.join(os.path.dirname(__file__), "hobby-ci-setup-user.py")
         remote_script = "/tmp/hobby-ci-setup-user.py"
@@ -766,7 +803,10 @@ runcmd:
                 )
                 if query_resp.status_code == 200 and query_resp.json().get("results", []):
                     print(f"✅ Trace found after {attempt} poll(s)", flush=True)
-                    return True, "Events, log, exception issue, session recording, and trace ingested successfully"
+                    return (
+                        True,
+                        "Preflight healthy; events, log, exception issue, session recording, and trace ingested successfully",
+                    )
                 if query_resp.status_code != 200:
                     print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
                 else:

@@ -99,12 +99,32 @@ fn install_metrics_routes(
         .layer(axum::middleware::from_fn(track_metrics))
 }
 
+/// Buckets for etcd payload sizes, straddling the server's
+/// `--max-request-bytes` (1.5 MiB plus gRPC overhead) so a request or a
+/// response creeping toward the limit is visible before etcd starts
+/// rejecting it. The default ladder tops out at 10_000, which a list of
+/// a few hundred coordination records clears in one step.
+///
+/// Shared because the metric is emitted by the store layer itself, so
+/// every binary that opens an `EtcdStore` reports it — and a metric name
+/// carrying two different ladders across jobs cannot be aggregated.
+pub const ETCD_PAYLOAD_SIZE_BUCKETS_BYTES: &[f64] = &[
+    1024.0, 8192.0, 65536.0, 262144.0, 524288.0, 1048576.0, 1572864.0, 2097152.0, 4194304.0,
+];
+
 fn build_prometheus_builder(product: Option<String>) -> PrometheusBuilder {
     const BUCKETS: &[f64] = &[
         1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
     ];
 
-    let mut builder = PrometheusBuilder::new().set_buckets(BUCKETS).unwrap();
+    let mut builder = PrometheusBuilder::new()
+        .set_buckets(BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_payload_bytes".into()),
+            ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+        )
+        .unwrap();
     if let Some(product) = product {
         builder = builder.add_global_label("product", product);
     }

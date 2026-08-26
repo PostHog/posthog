@@ -1,9 +1,12 @@
+import asyncio
 import dataclasses
 
+import deltalake
 from structlog import get_logger
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.data_modeling.activities.materialize_view import get_aws_storage_options
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import promote_view_nodes_to_matview
@@ -57,6 +60,11 @@ def _update_saved_query_with_table(
     promote_view_nodes_to_matview(saved_query)
 
 
+async def _refresh_file_uris(table_uri: str) -> list[str]:
+    storage_options = get_aws_storage_options()
+    return await asyncio.to_thread(lambda: deltalake.DeltaTable(table_uri, storage_options=storage_options).file_uris())
+
+
 @dataclasses.dataclass
 class PrepareQueryableTableResult:
     storage_delta_mib: float | None
@@ -87,6 +95,7 @@ async def _stage_files(inputs: PrepareQueryableTableInputs, saved_query: DataWar
         preserve_table_name_casing=True,
         existing_queryable_folder=queryable_folder,
         logger=logger,
+        refresh_file_uris=lambda: _refresh_file_uris(inputs.table_uri),
     )
 
 

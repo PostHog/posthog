@@ -132,7 +132,7 @@ class TestCheckSuiteActivities(BaseTest):
         erroring = self._check(check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "nonsense ((("})
         prepared = self._prepare()
 
-        def _fake_query(query, team, query_type):
+        def _fake_query(query, team, query_type, **kwargs):
             failure_count = 4 if "total" in str(query.to_hogql()) else 0
             return _Response(["failure_count", "observed_value"], [failure_count, failure_count])
 

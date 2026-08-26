@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import importlib.util
@@ -7,6 +8,9 @@ from pathlib import Path
 from types import ModuleType
 
 import unittest
+from unittest import mock
+
+from parameterized import parameterized
 
 SCRIPT_PATH = Path(__file__).with_name("snob_backend_test_selection_shadow.py")
 
@@ -79,30 +83,37 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
 
     def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
-        selection = _load_selection_module()
+        with tempfile.TemporaryDirectory() as root:
+            tmp_path = Path(root)
+            selection = _load_selection_module()
+            selection.REPO_ROOT = tmp_path
 
-        result = selection.ast_select_tests(
-            ["posthog/api/project.py"],
-            {
-                "posthog/api/test/test_project.py": selection.TestFeatures(
-                    path="posthog/api/test/test_project.py",
-                    imports_api_client=True,
-                    api_tokens=("project",),
-                ),
-                "posthog/api/test/test_user.py": selection.TestFeatures(
-                    path="posthog/api/test/test_user.py",
-                    imports_api_client=True,
-                    api_tokens=("user",),
-                ),
-            },
-        )
+            neighbor = tmp_path / "posthog" / "api" / "test" / "test_project.py"
+            neighbor.parent.mkdir(parents=True)
+            neighbor.touch()
 
-        self.assertIn("conventional_neighbors", result.groups)
-        self.assertIn("posthog_api_route_tokens", result.groups)
-        # same-app fallback includes all tests under posthog/api/
-        self.assertIn("same_app:posthog/api", result.groups)
-        self.assertIn("posthog/api/test/test_project.py", result.tests)
-        self.assertIn("posthog/api/test/test_user.py", result.tests)
+            result = selection.ast_select_tests(
+                ["posthog/api/project.py"],
+                {
+                    "posthog/api/test/test_project.py": selection.TestFeatures(
+                        path="posthog/api/test/test_project.py",
+                        imports_api_client=True,
+                        api_tokens=("project",),
+                    ),
+                    "posthog/api/test/test_user.py": selection.TestFeatures(
+                        path="posthog/api/test/test_user.py",
+                        imports_api_client=True,
+                        api_tokens=("user",),
+                    ),
+                },
+            )
+
+            self.assertIn("conventional_neighbors", result.groups)
+            self.assertIn("posthog_api_route_tokens", result.groups)
+            # same-app fallback includes all tests under posthog/api/
+            self.assertIn("same_app:posthog/api", result.groups)
+            self.assertIn("posthog/api/test/test_project.py", result.tests)
+            self.assertIn("posthog/api/test/test_user.py", result.tests)
 
     def test_snob_selection_filters_to_python_files(self) -> None:
         selection = _load_selection_module()
@@ -261,17 +272,80 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         self.assertEqual([], result.full_run_reasons)
         self.assertEqual({"changed_tests": ["posthog/test/test_version_requirement.py"]}, result.groups)
 
-    def test_segments_for_test_file_mirrors_matrix_partition(self) -> None:
+    # ci-backend's `legacy` paths filter routes these into test selection, but none of
+    # them is Python, so the import graph reaches no test through them. Without a full-run
+    # pattern the selector returns an empty set and the narrowed run gates on nothing.
+    @parameterized.expand(
+        [
+            ("quarantine_lift", ".test_quarantine.json"),
+            ("hogql_parser_sources", "common/hogql_parser/HogQLParser.cpp"),
+            ("hogvm", "common/hogvm/python/execute.py"),
+            ("product_manifest", "products/surveys/manifest.tsx"),
+        ]
+    )
+    def test_non_python_legacy_inputs_signal_full_run(self, _name: str, path: str) -> None:
         selection = _load_selection_module()
 
-        self.assertEqual(selection.segments_for_test_file("posthog/models/test_a.py"), frozenset({"core"}))
-        # POE patterns run in both the Core matrix and the person-on-events matrix.
-        self.assertEqual(selection.segments_for_test_file("posthog/clickhouse/test_b.py"), frozenset({"core", "poe"}))
-        self.assertEqual(selection.segments_for_test_file("posthog/temporal/tests/test_c.py"), frozenset({"temporal"}))
-        # Explicitly ignored by the Core invocation, and not a draft-narrowable matrix.
-        self.assertEqual(selection.segments_for_test_file("posthog/dags/test_e.py"), frozenset())
-        # Product/turbo tests are not part of any draft-narrowable Django matrix.
-        self.assertEqual(selection.segments_for_test_file("products/warehouse_sources/backend/test_d.py"), frozenset())
+        result = selection.ast_select_tests([path], {})
+
+        self.assertTrue(result.full_run_reasons, f"{path} selected nothing and forced no full run")
+
+    @parameterized.expand(
+        [
+            ("core", "posthog/models/test_a.py", {"core"}),
+            # POE patterns run in both the Core matrix and the person-on-events matrix.
+            ("poe_runs_in_core_too", "posthog/clickhouse/test_b.py", {"core", "poe"}),
+            ("temporal", "posthog/temporal/tests/test_c.py", {"temporal"}),
+            # The Temporal invocation runs the product suites alongside posthog/temporal.
+            ("temporal_signals_emission", "products/signals/backend/emission/test_c.py", {"temporal"}),
+            # Explicitly ignored by the Core invocation, and not a draft-narrowable matrix.
+            ("core_ignored_dags", "posthog/dags/test_e.py", set()),
+            ("core_ignored_repo_invariants", "posthog/test/repo_invariants/test_f.py", set()),
+            # Product/turbo tests are not part of any draft-narrowable Django matrix.
+            ("turbo_product", "products/warehouse_sources/backend/test_d.py", set()),
+        ]
+    )
+    def test_segments_for_test_file_mirrors_matrix_partition(self, _name: str, path: str, expected: set[str]) -> None:
+        selection = _load_selection_module()
+
+        self.assertEqual(selection.segments_for_test_file(path), frozenset(expected))
+
+    @parameterized.expand(
+        [
+            (
+                "compat_targets_set",
+                "posthog/clickhouse ee/clickhouse",
+                ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py"],
+            ),
+            ("no_compat_targets", "", []),
+        ]
+    )
+    def test_selected_files_by_segment_reads_compat_targets_from_the_env(
+        self, _name: str, targets: str, expected_compat: list[str]
+    ) -> None:
+        selection = _load_selection_module()
+
+        selected = [
+            "ee/clickhouse/test_g.py",
+            "posthog/clickhouse/test_b.py",
+            "posthog/dags/test_e.py",
+            "posthog/models/test_a.py",
+            "posthog/temporal/tests/test_c.py",
+            "products/warehouse_sources/backend/test_d.py",
+        ]
+
+        with mock.patch.dict(os.environ, {"CLICKHOUSE_COMPAT_PYTEST_TARGETS": targets}):
+            by_segment = selection.selected_files_by_segment(selected)
+
+        self.assertEqual(
+            by_segment,
+            {
+                "core": ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py", "posthog/models/test_a.py"],
+                "poe": ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py"],
+                "temporal": ["posthog/temporal/tests/test_c.py"],
+                "compat": expected_compat,
+            },
+        )
 
     def test_narrowable_baseline_excludes_turbo_product_tests(self) -> None:
         selection = _load_selection_module()
@@ -287,6 +361,33 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         # Only the Core/POE/Temporal universe counts; the huge product test and the ignored
         # path are excluded, so a draft can never be credited with skipping them.
         self.assertEqual(selection.narrowable_baseline_seconds(durations), 380.0)
+
+    def test_selected_seconds_by_segment_splits_the_matrix_legs(self) -> None:
+        selection = _load_selection_module()
+
+        durations = {
+            "posthog/models/test_a.py::t1": 100.0,
+            "posthog/clickhouse/test_b.py::t2": 70.0,
+            "posthog/temporal/tests/test_c.py::t3": 210.0,
+            "posthog/models/test_unselected.py::t4": 5_000.0,
+            "products/warehouse_sources/backend/test_d.py::t5": 100_000.0,
+            "posthog/dags/test_e.py::t6": 42.0,
+        }
+        selected = [
+            "posthog/models/test_a.py",
+            "posthog/clickhouse/test_b.py",
+            "posthog/temporal/tests/test_c.py",
+            "products/warehouse_sources/backend/test_d.py",
+            "posthog/dags/test_e.py",
+        ]
+
+        # The clickhouse file runs in both the Core and the person-on-events leg, so its
+        # seconds count once per leg. Turbo product tests and ignored paths size no Django
+        # shard, and an unselected file never contributes.
+        self.assertEqual(
+            selection.selected_seconds_by_segment(selected, durations),
+            {"core": 170, "poe": 70, "temporal": 210},
+        )
 
 
 if __name__ == "__main__":

@@ -8,6 +8,12 @@ vi.mock("expo-constants", () => ({
   },
 }));
 
+// expo/fetch and expo-application ship as source that vitest's node environment
+// cannot load (Flow syntax, a missing __DEV__ global), wedging any module — e.g.
+// the PostHog API client — that imports them transitively.
+vi.mock("expo/fetch", () => ({ fetch: vi.fn() }));
+vi.mock("expo-application", () => ({ nativeApplicationVersion: "0.0.0-test" }));
+
 vi.mock("@react-native-async-storage/async-storage", () => {
   const store = new Map<string, string>();
   return {
@@ -59,6 +65,17 @@ vi.mock("phosphor-react-native", async () => {
     Bug: icon("Bug"),
     Camera: icon("Camera"),
     Cards: icon("Cards"),
+    ChartLine: icon("ChartLine"),
+    ChatCircleText: icon("ChatCircleText"),
+    ClipboardText: icon("ClipboardText"),
+    CursorClick: icon("CursorClick"),
+    Database: icon("Database"),
+    Flag: icon("Flag"),
+    Flask: icon("Flask"),
+    PlayCircle: icon("PlayCircle"),
+    Pulse: icon("Pulse"),
+    SquaresFour: icon("SquaresFour"),
+    User: icon("User"),
     CaretDown: icon("CaretDown"),
     CaretLeft: icon("CaretLeft"),
     CaretRight: icon("CaretRight"),

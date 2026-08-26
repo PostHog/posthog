@@ -120,6 +120,26 @@ def increment_research_run_collapsed() -> None:
     ).add(1)
 
 
+def increment_report_fetch_recovered(attempt: int) -> None:
+    """Count a research run whose signals only became readable in ClickHouse on a retried fetch."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"attempt": str(attempt)}).create_counter(
+        "signals_report_fetch_recovered_total",
+        "Report signal fetches that succeeded only after retrying an empty read",
+    ).add(1)
+
+
+def increment_report_run_deferred(reason: str) -> None:
+    """Count a research run that exited without researching or failing, leaving the report to re-promote."""
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"reason": reason}).create_counter(
+        "signals_report_runs_deferred_total",
+        "Report research runs deferred to a later promotion by reason",
+    ).add(1)
+
+
 def increment_scout_run(status: str) -> None:
     """Count a scout run by terminal status."""
     if not _in_temporal_context():

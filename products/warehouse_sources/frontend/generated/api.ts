@@ -14,6 +14,7 @@ import type {
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataSchemaApi,
+    ExternalDataSchemasCancelCreate200,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
     ExternalDataSourceConnectionOptionApi,
@@ -165,8 +166,8 @@ export const externalDataSchemasCancelCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
+): Promise<ExternalDataSchemasCancelCreate200> => {
+    return apiMutator<ExternalDataSchemasCancelCreate200>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -244,14 +245,11 @@ export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: str
 export const externalDataSchemasReloadCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -262,14 +260,11 @@ export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: str
 export const externalDataSchemasResyncCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasResyncCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 

@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 import products.data_warehouse.backend.presentation.views.fix_hogql as fix_hogql
+from products.data_quality.backend.presentation import views as data_quality_views
 from products.data_warehouse.backend.presentation.views import (
     column_annotation,
     data_modeling_job,
@@ -18,18 +19,47 @@ from products.data_warehouse.backend.presentation.views import (
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.projects.register(r"warehouse_tables", table.TableViewSet, "project_warehouse_tables", ["team_id"])
+    tables_router = routers.projects.register(
+        r"warehouse_tables", table.TableViewSet, "project_warehouse_tables", ["team_id"]
+    )
     routers.projects.register(
         r"warehouse_saved_query_folders",
         saved_query.DataWarehouseSavedQueryFolderViewSet,
         "project_warehouse_saved_query_folders",
         ["team_id"],
     )
-    routers.projects.register(
+    saved_queries_router = routers.projects.register(
         r"warehouse_saved_queries",
         saved_query.DataWarehouseSavedQueryViewSet,
         "project_warehouse_saved_queries",
         ["team_id"],
+    )
+    # Data quality checks hang off the subjects they audit, the way run/materialize/resume do.
+    # The viewsets are owned by the data_quality product; this product owns the sub-route
+    # (dashboards -> sharing precedent).
+    saved_queries_router.register(
+        r"checks",
+        data_quality_views.SavedQueryCheckViewSet,
+        "project_warehouse_saved_query_checks",
+        ["team_id", "saved_query_id"],
+    )
+    saved_queries_router.register(
+        r"check_suite_runs",
+        data_quality_views.SavedQuerySuiteRunViewSet,
+        "project_warehouse_saved_query_check_suite_runs",
+        ["team_id", "saved_query_id"],
+    )
+    tables_router.register(
+        r"checks",
+        data_quality_views.TableCheckViewSet,
+        "project_warehouse_table_checks",
+        ["team_id", "table_id"],
+    )
+    tables_router.register(
+        r"check_suite_runs",
+        data_quality_views.TableSuiteRunViewSet,
+        "project_warehouse_table_check_suite_runs",
+        ["team_id", "table_id"],
     )
     routers.projects.register(
         r"warehouse_view_links", view_link.ViewLinkViewSet, "project_warehouse_view_links", ["team_id"]

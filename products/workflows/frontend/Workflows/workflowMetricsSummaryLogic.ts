@@ -116,7 +116,6 @@ export type EmailMetric =
     | 'email_bounced'
     | 'email_bounce_prevented'
     | 'email_blocked'
-    | 'email_spam'
     | 'email_untracked'
     | 'email_suspended'
 
@@ -140,7 +139,9 @@ export type EmailMetricRow = {
     linkClicked: number
     bounced: number
     bouncePrevented: number
-    blocked: number
+    // Spam complaints. Stored under the email_blocked metric name for continuity with
+    // historical data (see the SES webhook handler's Complaint mapping).
+    markedAsSpam: number
     // Sends without open/click tracking (step toggle off or no recipient consent). These can never
     // record opens/clicks, so engagement reads against trackedSends rather than sent.
     untracked: number
@@ -180,7 +181,6 @@ export const METRIC_COLORS: Record<string, string> = {
     'Link clicked': getColorVar('data-color-5'),
     Bounced: getColorVar('data-color-6'),
     'Bounce prevented': getColorVar('data-color-7'),
-    Blocked: getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
     Untracked: getColorVar('data-color-10'),
     Suspended: getColorVar('data-color-11'),
@@ -287,16 +287,11 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         metricNames: ['email_bounce_prevented'],
     },
     email_blocked: {
-        name: 'Blocked',
-        description: 'Total number of emails that were blocked by the recipient server',
-        color: METRIC_COLORS['Blocked'],
-        metricNames: ['email_blocked'],
-    },
-    email_spam: {
         name: 'Marked as spam',
-        description: 'Total number of emails that were marked as spam by recipient server or recipient email client',
+        description:
+            'Total number of emails recipients reported as spam, counted from mailbox provider feedback reports. Gmail does not send these reports, so a Gmail user marking an email as spam is not counted here, and no metric shows whether a message landed in the spam folder.',
         color: METRIC_COLORS['Marked as spam'],
-        metricNames: ['email_spam'],
+        metricNames: ['email_blocked'],
     },
     email_untracked: {
         name: 'Untracked',
@@ -402,7 +397,6 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_bounced',
     'email_bounce_prevented',
     'email_blocked',
-    'email_spam',
     'email_untracked',
     'email_suspended',
 ]
@@ -1465,19 +1459,20 @@ export function buildEmailMetricRows(
         const totals = emailTotalsByActionId[action.id] || {}
         const sent = totals.email_sent ?? 0
         const bounced = totals.email_bounced ?? 0
-        const blocked = totals.email_blocked ?? 0
+        const markedAsSpam = totals.email_blocked ?? 0
         const untracked = totals.email_untracked ?? 0
         return {
             id: action.id,
             email: action.name,
-            // Fallback to calculating delivered as sent - bounced - blocked if email_delivered metric is not available, since we were not always collecting this metric
-            delivered: totals.email_delivered ?? Math.max(0, sent - bounced - blocked),
+            // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
+            // feedback-loop reports recipients send after delivery, so they are not subtracted here.
+            delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
             sent,
             opened: totals.email_opened ?? 0,
             linkClicked: totals.email_link_clicked ?? 0,
             bounced,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
-            blocked,
+            markedAsSpam,
             untracked,
             trackedSends: Math.max(0, sent - untracked),
         }

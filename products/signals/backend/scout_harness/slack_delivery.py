@@ -9,13 +9,17 @@ from django.conf import settings
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.slack_formatting import (
+    SLACK_SECTION_TEXT_MAX_LEN,
+    chunk_slack_mrkdwn,
     escape_slack_mrkdwn,
     markdown_to_slack_mrkdwn,
     slack_channel_id_from_target,
+    split_markdown_by_headings,
     strip_chart_references,
     truncate_slack_section,
 )
@@ -63,6 +67,7 @@ class ScoutSlackDestination:
     # or one or more members to DM individually (`U…|@name`) — Slack's chat.postMessage accepts
     # either id as its `channel` argument, opening the DM for a member id.
     targets: tuple[str, ...]
+    thread_reports: bool = False
 
 
 class ScoutSlackPermanentDeliveryError(RuntimeError):
@@ -81,16 +86,23 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
     integration_id = slack.get("integration_id")
     if not isinstance(integration_id, int) or isinstance(integration_id, bool) or integration_id < 1:
         return None
+    thread_reports = slack.get("thread_reports") is True
     channel = slack.get("channel")
     if isinstance(channel, str) and channel.strip():
-        return ScoutSlackDestination(integration_id=integration_id, targets=(channel.strip(),))
+        return ScoutSlackDestination(
+            integration_id=integration_id, targets=(channel.strip(),), thread_reports=thread_reports
+        )
     users = slack.get("users")
     if not isinstance(users, list):
         return None
     targets = tuple(dict.fromkeys(user.strip() for user in users if isinstance(user, str) and user.strip()))
     if not targets:
         return None
-    return ScoutSlackDestination(integration_id=integration_id, targets=targets[:MAX_SCOUT_SLACK_DM_TARGETS])
+    return ScoutSlackDestination(
+        integration_id=integration_id,
+        targets=targets[:MAX_SCOUT_SLACK_DM_TARGETS],
+        thread_reports=thread_reports,
+    )
 
 
 def slack_api_error_code(exc: SlackApiError) -> str | None:
@@ -315,6 +327,75 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
     return blocks, fallback
 
 
+def _report_summary_chunks(report: SignalReport) -> list[str]:
+    """Convert the report summary to mrkdwn, splitting into thread chunks only when it is too long.
+
+    A summary that fits one Slack section stays a single chunk, so a short report posts as one message
+    however many headings it has. A longer one splits at its own Markdown headings, packing adjacent
+    sections into as few chunks as each fits in one Slack section, so the reply count tracks content
+    size rather than heading count and the thread keeps its full tail. The split runs after
+    `strip_chart_references` so a chart link never straddles two messages."""
+    summary_text = strip_chart_references((report.summary or "").strip())
+    rendered = markdown_to_slack_mrkdwn(summary_text)
+    if len(rendered) <= SLACK_SECTION_TEXT_MAX_LEN:
+        return [rendered] if rendered else []
+    chunks: list[str] = []
+    current = ""
+    for segment in split_markdown_by_headings(summary_text):
+        rendered_segment = markdown_to_slack_mrkdwn(segment.strip())
+        if not rendered_segment:
+            continue
+        candidate = f"{current}\n\n{rendered_segment}" if current else rendered_segment
+        if len(candidate) <= SLACK_SECTION_TEXT_MAX_LEN:
+            current = candidate
+            continue
+        # The running block is full: flush it, then hard-chunk the oversized segment on its line ends.
+        # Keep the last piece open so a following short section packs onto it instead of opening a new reply.
+        if current:
+            chunks.append(current)
+        segment_chunks = chunk_slack_mrkdwn(rendered_segment)
+        chunks.extend(segment_chunks[:-1])
+        current = segment_chunks[-1] if segment_chunks else ""
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+@frozen
+class ScoutReportThreadMessages:
+    """A threaded report delivery: the channel lead message plus its ordered thread replies."""
+
+    lead_blocks: list[dict]
+    fallback: str
+    reply_blocks: list[list[dict]]
+
+
+def build_scout_report_thread_slack_messages(report: SignalReport, run: SignalScoutRun) -> ScoutReportThreadMessages:
+    """Render a report as a channel lead plus one reply per remaining summary chunk.
+
+    The lead carries the scout name, the report title, the first summary chunk, and the report link.
+    Every later chunk becomes a threaded reply, so a long summary keeps its full tail in the channel
+    instead of being clipped at the section cap."""
+    scout_name = _prettify_scout_name(run.skill_name)
+    header = _report_header(report)
+    lead_blocks: list[dict] = [
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"*Scout · {escape_slack_mrkdwn(scout_name)}*"}],
+        },
+        {"type": "header", "text": {"type": "plain_text", "text": header}},
+    ]
+
+    chunks = _report_summary_chunks(report)
+    if chunks:
+        lead_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}})
+    lead_blocks.append(_report_link_block(report))
+
+    reply_blocks = [[{"type": "section", "text": {"type": "mrkdwn", "text": chunk}}] for chunk in chunks[1:]]
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(header[:200])}"
+    return ScoutReportThreadMessages(lead_blocks=lead_blocks, fallback=fallback, reply_blocks=reply_blocks)
+
+
 def build_scout_report_note_slack_message(
     report: SignalReport, run: SignalScoutRun, note: str
 ) -> tuple[list[dict], str]:
@@ -348,6 +429,42 @@ def build_scout_report_note_slack_message(
     return blocks, fallback
 
 
+def _post_scout_report_thread_replies(
+    client: object,
+    *,
+    channel_id: str,
+    thread_ts: object,
+    delivery_id: str,
+    reply_blocks: list[list[dict]],
+    fallback: str,
+) -> None:
+    """Post the remaining summary chunks as threaded replies under an already-delivered lead.
+
+    Best-effort per reply: the lead already carries the report link, so a failed chunk logs and the
+    delivery still succeeds rather than re-posting the lead on retry."""
+    if not isinstance(thread_ts, str) or not thread_ts:
+        return
+    for index, blocks in enumerate(reply_blocks):
+        try:
+            client.chat_postMessage(  # type: ignore[attr-defined]
+                channel=channel_id,
+                thread_ts=thread_ts,
+                blocks=blocks,
+                text=fallback,
+                client_msg_id=f"{delivery_id}:{index}",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+        except Exception:
+            logger.warning(
+                "scout_slack_report_thread_reply_failed",
+                channel=channel_id,
+                delivery_id=delivery_id,
+                chunk_index=index,
+                exc_info=True,
+            )
+
+
 def post_scout_report_to_slack(
     report: SignalReport,
     run: SignalScoutRun,
@@ -356,6 +473,7 @@ def post_scout_report_to_slack(
     integration_id: int,
     channel: str,
     edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     if report.team_id != run.team_id:
         raise ScoutSlackPermanentDeliveryError(
@@ -368,11 +486,20 @@ def post_scout_report_to_slack(
         project_id=report.team.project_id,
     )
     channel_id = _slack_channel_id(channel)
-    blocks, fallback = (
-        build_scout_report_note_slack_message(report, run, edit_note)
-        if edit_note is not None
-        else build_scout_report_slack_message(report, run)
-    )
+    # Threading applies to a full report only: a note edit is short and posts as a single update.
+    threaded = thread_reports and edit_note is None
+    reply_blocks: list[list[dict]] = []
+    if edit_note is not None:
+        blocks, fallback = build_scout_report_note_slack_message(report, run, edit_note)
+    elif threaded:
+        thread_messages = build_scout_report_thread_slack_messages(report, run)
+        blocks, fallback, reply_blocks = (
+            thread_messages.lead_blocks,
+            thread_messages.fallback,
+            thread_messages.reply_blocks,
+        )
+    else:
+        blocks, fallback = build_scout_report_slack_message(report, run)
     slack = SlackIntegration(integration)
     client = slack.client
     try:
@@ -394,10 +521,21 @@ def post_scout_report_to_slack(
             ) from exc
         raise
 
+    thread_ts = response.get("ts")
+    if threaded:
+        _post_scout_report_thread_replies(
+            client,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            delivery_id=delivery_id,
+            reply_blocks=reply_blocks,
+            fallback=fallback,
+        )
+
     _post_scout_slack_reply(
         client,
         channel_id=channel_id,
-        thread_ts=response.get("ts"),
+        thread_ts=thread_ts,
         scout_team_id=run.team_id,
         integration_team_id=integration.team_id,
     )

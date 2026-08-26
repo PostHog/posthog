@@ -16,7 +16,7 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
+from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewTrigger, ReviewVerdict
 
 
 @dataclass(frozen=True)
@@ -61,29 +61,15 @@ class PullRequestDTO:
 
 
 @dataclass(frozen=True)
-class DigestChannelDTO:
-    """A Slack destination for one digest audience."""
+class DigestRunDTO:
+    """One posted (or attempted) daily digest: one audience, one destination, one day."""
 
     id: UUID
     team_id: int
     audience_key: str
-    slack_integration_id: int
     slack_channel_id: str
     slack_channel_name: str
-    enabled: bool
-    resolution_source: ChannelResolutionSource = ChannelResolutionSource.MANUAL
-    last_digest_at: datetime | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-
-
-@dataclass(frozen=True)
-class DigestRunDTO:
-    """One posted (or attempted) daily digest for a channel."""
-
-    id: UUID
-    team_id: int
-    digest_channel_id: UUID
+    resolution_source: ChannelResolutionSource
     status: DigestRunStatus
     pr_count: int
     summary: dict = Field(default_factory=dict)
@@ -108,10 +94,18 @@ class ReviewRunDTO:
     head_sha: str
     status: ReviewRunStatus
     verdict: ReviewVerdict
+    # Why stamphog looked at this PR at all. Derived rather than stored — see the facade's
+    # trigger helpers, which own both the derivation and the matching filter.
+    trigger: ReviewTrigger
+    title: str = ""
+    author_login: str = ""
     delivery_id: str | None = None
     gate_result: dict | None = None
     output: dict = Field(default_factory=dict)
     error: str = ""
+    posted_review_id: int | None = None
+    verdict_posted_at: datetime | None = None
+    approval_dismissed_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
@@ -119,10 +113,6 @@ class ReviewRunDTO:
 
 class RepoAlreadyClaimedError(Exception):
     """Another team already owns this repository under this GitHub installation."""
-
-
-class DuplicateAudienceError(Exception):
-    """A digest channel for this audience already exists on the team."""
 
 
 class StamphogGitHubError(Exception):

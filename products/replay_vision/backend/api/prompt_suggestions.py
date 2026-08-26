@@ -50,6 +50,7 @@ from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
     build_evaluate_prompt_suggestion_workflow_id,
+    on_demand_priority,
 )
 from products.replay_vision.backend.temporal.evaluation_types import EvaluatePromptSuggestionInputs
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
@@ -452,7 +453,7 @@ class ReplayScannerPromptSuggestionViewSet(
                         detail=(
                             f"This test would use {planned_credits:,} credits but this scanner has "
                             f"{scanner_budget.remaining or 0:,} left of its {scanner_budget.credit_limit or 0:,} credit "
-                            f"limit for this period. Lower the test session count or raise the scanner's limit."
+                            f"limit for this billing period. Lower the test session count or raise the scanner's limit."
                         ),
                         code="scanner_credit_limit_exceeded",
                     )
@@ -478,6 +479,8 @@ class ReplayScannerPromptSuggestionViewSet(
                 id=build_evaluate_prompt_suggestion_workflow_id(suggestion.id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 execution_timeout=EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
+                # A user waiting on "test this prompt" ranks with the other user-initiated starts.
+                priority=on_demand_priority(scanner.team_id),
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=scanner.team_id)]
                 ),

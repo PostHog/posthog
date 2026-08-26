@@ -168,7 +168,9 @@ def _sampling_rule_summary(rule: LogsExclusionRule) -> str:
 # user-controlled service_name cardinality (a misconfigured SDK can emit a
 # unique name per pod or instance). Names beyond the cap stay reachable via
 # serviceNameSearch, which filters before aggregation.
-SERVICES_LIMIT = 1000
+# The LIMIT applies after the GROUP BY, so raising it costs response bytes rather
+# than query time. The aggregation reads the same window either way.
+SERVICES_LIMIT = 10000
 # Sparklines are fetched per displayed page: the bucket grid is
 # time × service and the sparkline query's row LIMIT would silently drop the
 # most recent buckets if scoped to all SERVICES_LIMIT names at once.

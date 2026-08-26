@@ -814,6 +814,11 @@ def _setup_django() -> None:
     — it only needs the Django ORM metadata and model imports to work.
     """
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+    # A build must not depend on reaching the flags endpoint. Rendering a HogQL example walks
+    # `Database.create_for`, which asks posthoganalytics whether a flag is on; that call has no
+    # timeout, so on a machine without egress the build sits in connect() forever with no output
+    # and no error. Opting out makes `feature_enabled` answer locally instead.
+    os.environ.setdefault("OPT_OUT_CAPTURE", "1")
     try:
         import django
 

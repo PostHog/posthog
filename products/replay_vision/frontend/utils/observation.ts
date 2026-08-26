@@ -30,6 +30,32 @@ export function readReasoning(obs: ReplayObservationApi): string | null {
     return typeof raw === 'string' && raw ? raw : null
 }
 
+/** Summarizer output, which is the dock's primary content. */
+export function isSummaryObservation(obs: ReplayObservationApi): boolean {
+    return obs.scanner_snapshot?.scanner_type === 'summarizer'
+}
+
+/** A scan that settled without a result: the scanner failed, or the recording did not qualify. */
+export function isUnsuccessfulScan(obs: ReplayObservationApi): boolean {
+    return obs.status === 'failed' || obs.status === 'ineligible'
+}
+
+/**
+ * What the dock shows below the player: every summary, plus any other scanner that left no result.
+ *
+ * A succeeded scanner observation stays in the sidebar tab, which is where the team reads its own
+ * scanners. One that failed or was ineligible is different: nothing below the player would otherwise
+ * say why no result arrived, so the run is only discoverable by opening the sidebar and looking.
+ */
+export function dockObservations(observations: ReplayObservationApi[]): ReplayObservationApi[] {
+    // A summarizer that failed is already carried by the first filter, so the second skips summaries
+    // rather than listing them twice.
+    return [
+        ...observations.filter(isSummaryObservation),
+        ...observations.filter((obs) => !isSummaryObservation(obs) && isUnsuccessfulScan(obs)),
+    ]
+}
+
 /** Summarizer output: the one-line headline. */
 export function readTitle(obs: ReplayObservationApi): string | null {
     const raw = readModelOutput(obs)?.title

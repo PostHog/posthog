@@ -1,7 +1,7 @@
 /**
  * Canonical channel sub-sections shown in the channel header nav
  * ({@link ChannelTabs}) and surfaced as browser-tab names. The `key` is both the
- * route segment (`/website/$channelId/<key>`) and the value persisted on a tab's
+ * route segment (`/spaces/$channelId/<key>`) and the value persisted on a tab's
  * `channelSection`; `label` is the tab + nav text.
  */
 export interface ChannelSection {

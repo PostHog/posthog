@@ -64,6 +64,7 @@ def queue_configured_scout_slack_delivery(
                     integration_id=destination.integration_id,
                     channel=target,
                     edit_note=note_snapshot,
+                    thread_reports=destination.thread_reports,
                 ),
                 robust=True,
             )

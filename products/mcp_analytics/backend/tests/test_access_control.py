@@ -7,15 +7,11 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.mcp_analytics.backend.hogql_queries.base import validate_mcp_analytics_access
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 # Guards that "mcp_analytics" being registered in ACCESS_CONTROL_RESOURCES is actually enforced

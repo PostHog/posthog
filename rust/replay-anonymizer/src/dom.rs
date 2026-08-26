@@ -5,9 +5,10 @@
 use simd_json::borrowed::{Object, Value};
 
 use crate::assets::{
-    apply_blur, blur_inline_image_attr, has_media_src_attr, is_media_src_attr, is_media_tag,
-    INLINE_IMAGE_ATTR,
+    apply_blur, blur_inline_image_attr, has_media_src_attr, is_image_ref_attr, is_media_src_attr,
+    is_media_tag, INLINE_IMAGE_ATTR,
 };
+use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
 use crate::css::{scrub_css_images, INLINED_STYLESHEET_ATTR};
 use crate::json::{
@@ -215,9 +216,17 @@ fn scrub_attrs(
     // attr names, which most elements don't have. Each attr is scrubbed independently, so running
     // the deferred ones after the loop produces the same result as the original in-order pass.
     let mut deferred: Vec<String> = Vec::new();
+    let mut rejected_image_refs: Vec<String> = Vec::new();
 
     for (name, value) in attrs.iter_mut() {
         let name: &str = name.as_ref();
+        if is_image_ref_attr(name) {
+            let keep = ctx.keeps_image_refs() && as_str(value).is_some_and(is_image_ref_strict);
+            if !keep {
+                rejected_image_refs.push(name.to_string());
+            }
+            continue;
+        }
         if kind == TagKind::Media && is_media_src_attr(name) {
             continue;
         }
@@ -247,6 +256,11 @@ fn scrub_attrs(
             *value = string_value(v);
             changed = true;
         }
+    }
+
+    for name in rejected_image_refs {
+        attrs.remove(name.as_str());
+        changed = true;
     }
 
     for name in deferred {
@@ -282,7 +296,9 @@ pub(crate) fn is_user_text_attr(name: &str) -> bool {
 }
 
 pub(crate) fn is_data_attr(name: &str) -> bool {
-    name.starts_with("data-") && !name.starts_with("data-anon-original-")
+    name.starts_with("data-")
+        && !name.starts_with("data-anon-original-")
+        && !is_image_ref_attr(name)
 }
 
 pub(crate) fn data_attr_looks_sensitive(value: &str) -> bool {

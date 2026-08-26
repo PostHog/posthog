@@ -17,6 +17,10 @@ vi.mock("../sessions/components/ThreadView", async () => {
   };
 });
 
+vi.mock("../billing/useSpendStop", () => ({
+  useSpendStop: () => null,
+  spendStopMessage: () => "",
+}));
 vi.mock("../sessions/hooks/useSessionEventsResidency", () => ({
   useSessionEventsResidency: vi.fn(),
 }));

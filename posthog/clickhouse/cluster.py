@@ -71,6 +71,9 @@ _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-ops": ("localhost", 9300),
     "clickhouse-sessions": ("localhost", 9400),
     "clickhouse-logs": ("localhost", 9500),
+    "clickhouse-ingestion-events": ("localhost", 9600),
+    "clickhouse-ingestion-small": ("localhost", 9700),
+    "clickhouse-ingestion-medium": ("localhost", 9800),
 }
 
 
@@ -169,6 +172,10 @@ class ClickhouseCluster:
         self.__extra_hosts: set[HostInfo] = set()
 
         migrations_cluster = cluster or settings.CLICKHOUSE_CLUSTER
+        # The cluster whose DATA nodes back `shards`, which is what every sharded mutation
+        # dispatches over. Callers holding a table that lives elsewhere have no way to reach it
+        # through this instance, so they need to be able to ask.
+        self.__data_cluster_name = data_cluster or migrations_cluster
         cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, retry_policy)
 
         for row in cluster_hosts:
@@ -339,6 +346,10 @@ class ClickhouseCluster:
         for shard_hosts in self.__shards.values():
             hosts.update(shard_hosts)
         return hosts
+
+    @property
+    def data_cluster_name(self) -> str:
+        return self.__data_cluster_name
 
     @property
     def shards(self) -> list[int]:

@@ -1249,6 +1249,11 @@ export interface FeatureFlagTestEvaluationResponseApi {
     /** The reason for the evaluation result */
     reason: string
     /**
+     * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or realtime cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
+     * @nullable
+     */
+    reason_description?: string | null
+    /**
      * The index of the condition that matched, if applicable
      * @nullable
      */
@@ -1952,6 +1957,10 @@ export type FeatureFlagsEvaluationReasonsRetrieveParams = {
 }
 
 export type FeatureFlagsMyFlagsRetrieveParams = {
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, every flag in the project is returned with its evaluated value, which can be a very large payload on projects with many flags. Pass the specific flag(s) you want to check to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[]
     /**
      * Groups for feature flag evaluation (JSON object string)
      */

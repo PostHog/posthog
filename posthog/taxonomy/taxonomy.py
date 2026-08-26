@@ -484,6 +484,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
         },
+        "$slack_message_received": {
+            "label": "Slack message received",
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+        },
     },
     "elements": {
         "tag_name": {
@@ -688,16 +692,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "initialization time",
             "description": "The iso formatted timestamp of SDK initialization.",
             "type": "String",
-            "used_for_debug": True,
-        },
-        "$transformations_skipped": {
-            "label": "Transformations skipped",
-            "description": "Array of transformations skipped during ingestion.",
-            "used_for_debug": True,
-        },
-        "$transformations_succeeded": {
-            "label": "Transformations succeeded",
-            "description": "Array of transformations that succeeded during ingestion.",
             "used_for_debug": True,
         },
         "$config_defaults": {
@@ -2870,7 +2864,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_consumer": {
             "label": "MCP consumer",
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": ["posthog-code", "slack"],
         },
         "$mcp_mode": {
@@ -2986,8 +2980,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server "
                 "instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop "
                 "request can still show as 'mcp' on those. "
-                "'posthog_code' covers the headless coding agents: the cloud agent, the local agent, and "
-                "signals scouts. 'wizard' is the setup agent and 'terraform' is the Terraform provider. "
+                "'posthog_code' covers the headless coding agents: the cloud agent and the local agent. "
+                "'self_driving' is Signals: scouts, report implementations, and scout chat. "
+                "'wizard' is the setup agent and 'terraform' is the Terraform provider. "
                 "Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and "
                 "'subscription'. "
                 "Two unrelated properties share this name, so filter to a specific event before breaking "
@@ -3427,12 +3422,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The revenue associated with an event, in your account's base currency.",
             "examples": [9.99],
             "type": "Numeric",
-        },
-        "$transformations_failed": {
-            "label": "Transformations failed",
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "type": "String",
-            "ignored_in_assistant": True,
         },
         "$override_feature_flag_payloads": {
             "label": "Override feature flag payloads",

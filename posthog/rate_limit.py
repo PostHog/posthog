@@ -551,6 +551,22 @@ class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+# The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
+# worker for the whole transfer, so like the heatmap pre-flight its budget is about worker occupancy.
+# It is not covered by the project-global Burst/Sustained pair, which only ever throttles personal
+# API key traffic and lets the session-authenticated UI through untouched. A legitimate caller needs
+# one fetch per coverage analysis, so these rates clear a team's worth of concurrent viewers while
+# capping a scripted loop.
+class LlmsTxtFetchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "llms_txt_fetch_burst"
+    rate = "20/minute"
+
+
+class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "llms_txt_fetch_sustained"
+    rate = "200/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the
@@ -569,6 +585,19 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
+# Query endpoint defaults only cover personal API keys, so use a team-wide bucket to include
+# session callers and prevent forced refreshes from consuming application workers without bound.
+class ErrorTrackingFingerprintProjectionBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_sustained"
+    rate = "100/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or
@@ -582,6 +611,19 @@ class LogsAnomalyScanBurstRateThrottle(_TeamBucketRateThrottle):
 class LogsAnomalyScanSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "logs_anomaly_scan_sustained"
     rate = "60/hour"
+
+
+# Series band charts read a 6-week window of the logs_volume_buckets rollup — a few orders of
+# magnitude cheaper than the anomaly scan above, but still a browse surface that fires on every
+# service pick, so a team bucket keeps a click-happy session from stacking ClickHouse reads.
+class LogsSeriesBandsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_series_bands_burst"
+    rate = "30/minute"
+
+
+class LogsSeriesBandsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_series_bands_sustained"
+    rate = "600/hour"
 
 
 # The experiment session-bucket endpoint scans every session in an experiment's recent run
