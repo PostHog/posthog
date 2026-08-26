@@ -53,7 +53,13 @@ export function ReportSummaryBody({ summary, chartPlacements, createPrAction }: 
     const parsed = useMemo(() => parseReportSummary(summary), [summary])
 
     if (parsed.sections.length === 0) {
-        return <SummaryMarkdown markdown={parsed.lead} sourceOffset={0} chartPlacements={chartPlacements} />
+        return (
+            <SummaryMarkdown
+                markdown={parsed.lead}
+                sourceOffset={parsed.leadOffset}
+                chartPlacements={chartPlacements}
+            />
+        )
     }
 
     return (
@@ -61,7 +67,7 @@ export function ReportSummaryBody({ summary, chartPlacements, createPrAction }: 
             {parsed.lead && (
                 <SummaryMarkdown
                     markdown={parsed.lead}
-                    sourceOffset={0}
+                    sourceOffset={parsed.leadOffset}
                     chartPlacements={chartPlacements}
                     className="text-base text-primary leading-relaxed break-words [&>*+*]:mt-3.5"
                 />

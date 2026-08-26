@@ -38,7 +38,20 @@ describe('parseReportSummary', () => {
         // Scout-authored and hand-edited summaries do not promise the prompt's headings.
         const summary = 'Signups fell 40%.\n\nRecommend: roll back the flag.'
 
-        expect(parseReportSummary(summary)).toEqual({ lead: summary, sections: [] })
+        expect(parseReportSummary(summary)).toEqual({ lead: summary, leadOffset: 0, sections: [] })
+    })
+
+    it('offsets the lead past leading whitespace so an inline chart still resolves', () => {
+        // A pipeline-written summary can open with a newline. The lead is trimmed for display, but its
+        // offset must point past that whitespace, or a chart placement (keyed on the untrimmed
+        // summary) misses and the chart renders nowhere.
+        const noHeadings = parseReportSummary('\n\nSignups fell. [Chart][c]\n\n[c]: chart:signups')
+        expect(noHeadings.leadOffset).toBe(2)
+        expect(noHeadings.lead).toEqual('Signups fell. [Chart][c]\n\n[c]: chart:signups')
+
+        const withSection = parseReportSummary('  Lead line.\n\n## Impact\n\nBody.')
+        expect(withSection.leadOffset).toBe(2)
+        expect(withSection.lead).toEqual('Lead line.')
     })
 
     it.each([
@@ -72,7 +85,7 @@ describe('parseReportSummary', () => {
     })
 
     it('treats an empty or missing summary as an empty lead', () => {
-        expect(parseReportSummary(null)).toEqual({ lead: '', sections: [] })
-        expect(parseReportSummary('  \n')).toEqual({ lead: '', sections: [] })
+        expect(parseReportSummary(null)).toEqual({ lead: '', leadOffset: 0, sections: [] })
+        expect(parseReportSummary('  \n')).toEqual({ lead: '', leadOffset: 0, sections: [] })
     })
 })
