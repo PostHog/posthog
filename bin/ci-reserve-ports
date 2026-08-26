@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Reserve host listen ports that fall inside the kernel's ephemeral range
+# (net.ipv4.ip_local_port_range, 32768-60999 by default) so an outbound socket
+# cannot grab them before a service binds. Without the reservation, any
+# outbound connection made earlier in the job can land on a port like 50052
+# and Docker fails with "failed to bind host port ... address already in use"
+# before a single test runs.
+#
+# Usage: bin/ci-reserve-ports <port> [<port>...]
+# Ports outside the ephemeral range are ignored — callers can pass every port
+# they bind and only the at-risk ones get reserved.
+#
+# Reservation only stops NEW ephemeral allocations; a socket already holding a
+# port keeps it until it closes, so after reserving we wait briefly for any
+# current holder (e.g. a long-lived download connection) to clear.
+#
+# Fails open everywhere it cannot act (macOS, no passwordless sudo): the
+# reservation is belt-and-braces, and the bind still fails loudly without it.
+
+RANGE_FILE=/proc/sys/net/ipv4/ip_local_port_range
+RESERVED_FILE=/proc/sys/net/ipv4/ip_local_reserved_ports
+
+if [ "$#" -eq 0 ]; then
+    echo "Usage: $0 <port> [<port>...]" >&2
+    exit 2
+fi
+
+if [ ! -r "$RANGE_FILE" ]; then
+    echo "ci-reserve-ports: no $RANGE_FILE (not Linux?), skipping"
+    exit 0
+fi
+
+read -r range_lo range_hi < "$RANGE_FILE"
+
+in_range=()
+for port in "$@"; do
+    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        echo "ci-reserve-ports: ignoring non-numeric port '$port'" >&2
+        continue
+    fi
+    if [ "$port" -ge "$range_lo" ] && [ "$port" -le "$range_hi" ]; then
+        in_range+=("$port")
+    fi
+done
+
+if [ "${#in_range[@]}" -eq 0 ]; then
+    exit 0
+fi
+
+current="$(cat "$RESERVED_FILE" 2>/dev/null || true)"
+merged="$current"
+for port in "${in_range[@]}"; do
+    case ",$merged," in
+        *",$port,"*) ;;
+        *) merged="${merged:+$merged,}$port" ;;
+    esac
+done
+
+if [ "$merged" != "$current" ]; then
+    sudo_cmd=()
+    if [ "$(id -u)" -ne 0 ]; then
+        sudo_cmd=(sudo -n)
+    fi
+    if ! "${sudo_cmd[@]}" sysctl -q -w "net.ipv4.ip_local_reserved_ports=$merged" 2>/dev/null; then
+        echo "ci-reserve-ports: cannot write net.ipv4.ip_local_reserved_ports (no root?), skipping" >&2
+        exit 0
+    fi
+    echo "ci-reserve-ports: reserved ephemeral-range ports: ${in_range[*]}"
+fi
+
+if ! command -v ss >/dev/null 2>&1; then
+    exit 0
+fi
+
+for port in "${in_range[@]}"; do
+    for attempt in {1..15}; do
+        # TIME_WAIT does not block a fresh bind, so only live states count.
+        holders="$(ss -Htan "sport = :$port" 2>/dev/null | grep -cv TIME-WAIT || true)"
+        if [ "${holders:-0}" -eq 0 ]; then
+            break
+        fi
+        if [ "$attempt" -eq 1 ]; then
+            echo "ci-reserve-ports: port $port is currently in use, waiting for it to free..."
+        fi
+        if [ "$attempt" -eq 15 ]; then
+            echo "ci-reserve-ports: port $port still in use after 30s; the bind may fail" >&2
+            ss -Htan "sport = :$port" 2>/dev/null || true
+        fi
+        sleep 2
+    done
+done

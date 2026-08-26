@@ -252,6 +252,11 @@ jobs:
               run: |
                   ./bin/download-mmdb
 
+            # The personhog gRPC ports sit in the kernel's ephemeral range, so an
+            # outbound socket can grab one before the service binds it.
+            - name: Reserve personhog service ports
+              run: bin/ci-reserve-ports 50051 50052
+
             - name: Start Rust flags service
               working-directory: rust
               run: |

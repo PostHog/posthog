@@ -1,0 +1,58 @@
+name: Retry infra failures
+
+# Retries (once, on fresh runners) CI runs that failed on retryable
+# infrastructure errors before any test ran — Docker host-port binds lost to
+# an ephemeral socket, runners that lost contact, registry timeouts. Trunk
+# quarantine cannot rescue these: no test report was uploaded, so there is no
+# test ID to match. The classification patterns and all sweep logic live in
+# bin/ci-rerun-infra-failures.
+#
+# Trigger strategy: a scheduled sweep, not a workflow_run watcher.
+# workflow_run cannot filter on conclusion, so a watcher would dispatch one
+# run per completed CI run and eat into the repo's 500-runs/10s dispatch
+# budget; the cron costs 144 dispatches a day. Latency is fine at this
+# cadence — the merge queue dequeues on failure long before any retry could
+# land, so the sweep rescues PR and master checks, not queue attempts.
+
+on:
+    schedule:
+        - cron: '*/10 * * * *'
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Classify and log without rerunning anything'
+                type: boolean
+                default: true
+
+permissions:
+    actions: write
+    contents: read
+    checks: read
+    pull-requests: read
+
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
+jobs:
+    sweep:
+        name: Sweep failed runs for retryable infra failures
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        # Never run from forks; manual dispatch is master-only so
+        # branch-controlled code can't run with actions:write.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      bin/ci-rerun-infra-failures
+                  sparse-checkout-cone-mode: false
+
+            - name: Sweep and rerun
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+              run: bin/ci-rerun-infra-failures

@@ -213,6 +213,17 @@ If multiple signals match, choose the most specific class. For example, prefer
 codegen drift over lint, migration over typecheck, and snapshot / visual over a
 generic Playwright test failure.
 
+Attempt-1 runs that fail on a known retryable infra signature (host-port bind
+lost to an ephemeral socket, runner lost contact, registry timeout) are
+retried once automatically by `.github/workflows/ci-retry-infra-failures.yml`
+(patterns live in `bin/ci-rerun-infra-failures`). A run that is red on
+attempt 2 either matched no signature or failed its retry too — treat it as a
+real signal, not as "retry not yet attempted". MCP CI additionally retries
+its integration tests in-run: when attempt 1 dies before its tests start, an
+`Integration Tests (retry)` job runs the suite again on a fresh runner and
+the `MCP Tests Pass` gate accepts the green retry, so the merge queue never
+sees the first infra failure.
+
 ## Base rate for infra and setup failures
 
 "Transient" is a claim about how often the job fails, so do not assert it from

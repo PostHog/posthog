@@ -19,7 +19,10 @@ DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 WAIT_RETRIES="${WAIT_FOR_DOCKER_RETRIES:-1}"
 WAIT_RETRY_TIMEOUT="${WAIT_FOR_DOCKER_RETRY_TIMEOUT:-120}"
 COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
-LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-1}"
+# Two attempts by default: launch failures are dominated by transient host
+# conditions (a port still held by a closing socket, a slow image pull), and a
+# second `compose up` after the backoff usually binds cleanly.
+LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-2}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
 
 usage() {
@@ -148,6 +151,25 @@ compose_up() {
     fi
 }
 
+# Ports published in the ephemeral range (e.g. personhog-router's 50052) can be
+# grabbed by an outbound socket before Docker binds them, failing the launch
+# with "address already in use". Reserve them all up front; ci-reserve-ports
+# ignores out-of-range ports and fails open where it cannot act.
+reserve_published_ports() {
+    local ports
+
+    if ! command -v jq >/dev/null 2>&1; then
+        return 0
+    fi
+
+    ports="$(compose config --format json 2>/dev/null \
+        | jq -r '[.services[].ports[]?.published // empty | tostring | select(test("^[0-9]+$"))] | unique | .[]' || true)"
+    if [ -n "$ports" ]; then
+        # shellcheck disable=SC2086
+        "$SCRIPT_DIR/ci-reserve-ports" $ports || true
+    fi
+}
+
 missing_services() {
     local services=("$@")
     local missing=()
@@ -220,6 +242,8 @@ run_launch() {
     done
 
     launch_services=("$@")
+
+    reserve_published_ports
 
     launch_runner() {
         local inner_attempt=1

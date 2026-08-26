@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Sweep recently failed workflow runs and retry (once) the ones that died on a
+# retryable infrastructure error rather than a failing test — a Docker port
+# bind lost to an ephemeral socket, a runner that lost contact with the
+# server, a registry timeout. Trunk quarantine cannot rescue these: they die
+# before any test report is uploaded, so there is no test ID to match.
+#
+# Only attempt-1 runs are retried, so a failure that survives its retry stays
+# red and is never touched again. A real failure that happens to match a
+# pattern just fails again one attempt later.
+#
+# Called by .github/workflows/ci-retry-infra-failures.yml on a schedule.
+#
+# Env:
+#   GH_TOKEN              token with actions:write (required)
+#   GITHUB_REPOSITORY     owner/repo (default PostHog/posthog)
+#   SWEEP_WINDOW_MINUTES  how far back to look for newly failed runs (default 20)
+#   MAX_RERUNS            per-sweep rerun cap, so a platform-wide outage cannot
+#                         double its own damage (default 5)
+#   DRY_RUN               "1" classifies and logs but does not rerun
+
+REPO="${GITHUB_REPOSITORY:-PostHog/posthog}"
+WINDOW_MINUTES="${SWEEP_WINDOW_MINUTES:-20}"
+MAX_RERUNS="${MAX_RERUNS:-5}"
+DRY_RUN="${DRY_RUN:-0}"
+
+# Signatures of failures a fresh runner can plausibly clear. Extend when a new
+# retryable infra signature shows up; keep it conservative — anything a test
+# could legitimately print does not belong here.
+RETRYABLE_PATTERNS='failed to bind host port
+bind: address already in use
+The runner has received a shutdown signal
+lost communication with the server
+No space left on device
+TLS handshake timeout
+Client\.Timeout exceeded while awaiting headers
+toomanyrequests: too many requests
+error pulling image configuration
+Failed to download action'
+
+iso_utc_from_epoch() {
+    local epoch=$1
+    date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+        || date -u -r "$epoch" +%Y-%m-%dT%H:%M:%SZ
+}
+
+summarize() {
+    echo "$*"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        echo "- $*" >> "$GITHUB_STEP_SUMMARY"
+    fi
+}
+
+now_epoch="$(date -u +%s)"
+window_floor="$(iso_utc_from_epoch $((now_epoch - WINDOW_MINUTES * 60)))"
+# A long run created hours ago can fail inside the window, so the created
+# filter (the only server-side one) is much wider than the sweep window.
+created_floor="$(iso_utc_from_epoch $((now_epoch - 6 * 3600)))"
+
+patterns_file="$(mktemp)"
+corpus_file="$(mktemp)"
+trap 'rm -f "$patterns_file" "$corpus_file"' EXIT
+printf '%s\n' "$RETRYABLE_PATTERNS" > "$patterns_file"
+
+reruns=0
+capped=0
+
+while IFS=$'\t' read -r run_id event head_branch head_sha updated_at name; do
+    [ -n "$run_id" ] || continue
+
+    # ISO-8601 UTC strings compare lexicographically.
+    if [[ "$updated_at" < "$window_floor" ]]; then
+        continue
+    fi
+
+    # Scheduled runs retry themselves on their next tick, and skipping them
+    # keeps this sweep from ever processing its own failures.
+    if [ "$event" = "schedule" ]; then
+        continue
+    fi
+
+    # The merge queue has already dequeued by the time a retry could land, so
+    # a rerun on its branch buys nothing.
+    case "$head_branch" in
+        trunk-merge/*) continue ;;
+    esac
+
+    # A rerun joins the run's original concurrency group, so retrying a
+    # superseded PR run could cancel the newer run for the same branch. Only
+    # retry while the failed SHA is still an open PR's head.
+    if [ "$event" = "pull_request" ] || [ "$event" = "pull_request_target" ]; then
+        if ! gh api "repos/$REPO/commits/$head_sha/pulls" \
+            --jq '.[] | select(.state == "open") | .head.sha' 2>/dev/null \
+            | grep -qx "$head_sha"; then
+            continue
+        fi
+    fi
+
+    : > "$corpus_file"
+    # Annotations catch runner-level failures that leave no step logs behind.
+    while IFS= read -r job_id; do
+        [ -n "$job_id" ] || continue
+        gh api "repos/$REPO/check-runs/$job_id/annotations" \
+            --jq '.[].message' >> "$corpus_file" 2>/dev/null || true
+    done < <(gh api --paginate -X GET "repos/$REPO/actions/runs/$run_id/jobs" \
+        -f filter=latest -F per_page=100 \
+        --jq '.jobs[] | select(.conclusion == "failure") | .id' 2>/dev/null || true)
+    gh run view "$run_id" --repo "$REPO" --log-failed 2>/dev/null \
+        | head -c 5000000 >> "$corpus_file" || true
+
+    matched="$(grep -E -m1 -f "$patterns_file" "$corpus_file" || true)"
+    if [ -z "$matched" ]; then
+        continue
+    fi
+
+    if [ "$reruns" -ge "$MAX_RERUNS" ]; then
+        capped=$((capped + 1))
+        summarize "SKIPPED (cap of $MAX_RERUNS reached): '$name' run $run_id on $head_branch matched: $matched"
+        continue
+    fi
+
+    if [ "$DRY_RUN" = "1" ]; then
+        summarize "DRY RUN: would rerun failed jobs of '$name' run $run_id on $head_branch — matched: $matched"
+    elif gh api --silent -X POST "repos/$REPO/actions/runs/$run_id/rerun-failed-jobs" 2>/dev/null; then
+        summarize "Reran failed jobs of '$name' run $run_id on $head_branch — matched: $matched"
+    else
+        summarize "FAILED to rerun '$name' run $run_id on $head_branch (already rerun, or logs expired?)"
+        continue
+    fi
+    reruns=$((reruns + 1))
+done < <(gh api --paginate -X GET "repos/$REPO/actions/runs" \
+    -f status=failure -f "created=>=$created_floor" -F per_page=100 \
+    --jq '.workflow_runs[] | select(.run_attempt == 1) | [.id, .event, .head_branch, .head_sha, .updated_at, .name] | @tsv')
+
+if [ "$reruns" -eq 0 ] && [ "$capped" -eq 0 ]; then
+    summarize "No retryable infra failures in the last ${WINDOW_MINUTES}m."
+fi

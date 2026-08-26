@@ -1222,3 +1222,11 @@ environment:
         bin_script: verify-ai-ingestion-stack
         description: 'Check the multimodal AI ingestion path at the data layer: send an $ai_generation with an inline base64 image through capture-ai and assert ingestion offloaded it to a blob pointer in ClickHouse'
         hidden: true
+    ci:rerun:infra:failures:
+        bin_script: ci-rerun-infra-failures
+        description: Sweep recently failed CI runs and retry (once) the ones that died on a retryable infrastructure error, not a failing test
+        hidden: true
+    ci:reserve:ports:
+        bin_script: ci-reserve-ports
+        description: Reserve ephemeral-range host ports on a CI runner so outbound sockets cannot steal them before a service binds
+        hidden: true
