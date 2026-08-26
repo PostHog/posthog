@@ -1,5 +1,15 @@
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context } from '@/tools/types'
 
+export const AGENT_NOTE_KEY = '_agentNote'
+
+/**
+ * Results this module attached a note to. `appendAgentNote` promotes a note into the model's
+ * instruction channel, so it must only ever promote a note a tool declared. Generated handlers
+ * spread API responses at the top level, and a server field named `_agentNote` would otherwise
+ * reach the model as a directive.
+ */
+const NOTED_RESULTS = new WeakSet<object>()
+
 /**
  * Adds a _posthogUrl field to a result. For object results it's a sibling field; for raw
  * array results the array is wrapped as `{ results, _posthogUrl }` — spreading an array into
@@ -31,16 +41,6 @@ export async function withPostHogUrl<T>(context: Context, result: T, path: strin
 export type WithAgentNote<T = unknown> = T extends readonly (infer U)[]
     ? { results: U[]; _agentNote: string }
     : T & { _agentNote: string }
-
-export const AGENT_NOTE_KEY = '_agentNote'
-
-/**
- * Results this module attached a note to. `appendAgentNote` promotes a note into the model's
- * instruction channel, so it must only ever promote a note a tool declared. Generated handlers
- * spread API responses at the top level, and a server field named `_agentNote` would otherwise
- * reach the model as a directive.
- */
-const NOTED_RESULTS = new WeakSet<object>()
 
 /**
  * Re-attaches a result's agent note to text that replaced the serialized result, such as a
