@@ -28,7 +28,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.logic.services.compute_quota import is_billable_compute
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig
+from products.tasks.backend.logic.services.sandbox import SandboxBase, SandboxConfig, get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
     ComputeRateCard,
@@ -94,7 +94,7 @@ def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[s
     measurements: dict[str, SandboxCpuAttribution] = {}
     for session in sessions:
         try:
-            sandbox = Sandbox.get_by_id(session.sandbox_id)
+            sandbox = get_sandbox_class_for_sandbox_id(session.sandbox_id).get_by_id(session.sandbox_id)
         except Exception:
             logger.exception("sandbox_usage.sandbox_get_failed", sandbox_id=session.sandbox_id)
             continue
