@@ -3085,6 +3085,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webVitalsPercentile,
                 domainFilter,
                 deviceTypeFilter,
+                countryFilter,
+                referrerFilter,
                 tileVisualizations,
                 includeHostPath,
             } = values
@@ -3144,8 +3146,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('path_cleaning', isPathCleaningEnabled.toString())
                 urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
                 urlParams.set('compare_filter', JSON.stringify(rawCompareFilter))
-                // The queries consume the merged `webAnalyticsFilters`, which folds these two in,
-                // so a shared URL must carry them to reproduce the same data.
+                // The queries consume the merged `webAnalyticsFilters`, which folds these
+                // drill-downs in, so a shared URL must carry every one to reproduce the same
+                // data. The page-performance tab has no UI to set or clear them, so an
+                // unserialized one would apply invisibly and not survive a reload.
                 if (domainFilter) {
                     urlParams.set('domain', domainFilter)
                 } else {
@@ -3155,6 +3159,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     urlParams.set('device_type', deviceTypeFilter)
                 } else {
                     urlParams.delete('device_type')
+                }
+                if (countryFilter) {
+                    urlParams.set('country', countryFilter)
+                } else {
+                    urlParams.delete('country')
+                }
+                if (referrerFilter) {
+                    urlParams.set('referrer', referrerFilter)
+                } else {
+                    urlParams.delete('referrer')
                 }
                 return `/web/page-performance${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
@@ -3275,6 +3289,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setShouldFilterTestAccounts: stateToUrl,
             setDomainFilter: stateToUrl,
             setDeviceTypeFilter: stateToUrl,
+            setCountryFilter: stateToUrl,
+            setReferrerFilter: stateToUrl,
             setTileVisualization: stateToUrl,
             setIncludeHostPath: stateToUrl,
         }
@@ -3302,6 +3318,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 percentile,
                 domain,
                 device_type,
+                country,
+                referrer,
                 tile_visualizations,
                 include_host_path,
             }: Record<string, any>,
@@ -3432,11 +3450,38 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (percentile && percentile !== values.webVitalsPercentile) {
                 actions.setWebVitalsPercentile(percentile as WebVitalsPercentile)
             }
+            // Drill-down filters fold into the query the same way `filters` does, so on a
+            // back-navigation to a URL that omits one, clear it instead of leaving the newer
+            // value applied, because otherwise the shown data can't be reproduced from the URL.
             if (domain && domain !== values.domainFilter) {
                 actions.setDomainFilter(domain === 'all' ? null : domain)
+            } else if (!domain && shouldResetAbsentFilters && tabSerializesFilters && values.domainFilter !== null) {
+                actions.setDomainFilter(null)
             }
             if (device_type && device_type !== values.deviceTypeFilter) {
                 actions.setDeviceTypeFilter(device_type)
+            } else if (
+                !device_type &&
+                shouldResetAbsentFilters &&
+                tabSerializesFilters &&
+                values.deviceTypeFilter !== null
+            ) {
+                actions.setDeviceTypeFilter(null)
+            }
+            if (country && country !== values.countryFilter) {
+                actions.setCountryFilter(country)
+            } else if (!country && shouldResetAbsentFilters && tabSerializesFilters && values.countryFilter !== null) {
+                actions.setCountryFilter(null)
+            }
+            if (referrer && referrer !== values.referrerFilter) {
+                actions.setReferrerFilter(referrer)
+            } else if (
+                !referrer &&
+                shouldResetAbsentFilters &&
+                tabSerializesFilters &&
+                values.referrerFilter !== null
+            ) {
+                actions.setReferrerFilter(null)
             }
             if (tile_visualizations && !objectsEqual(tile_visualizations, values.tileVisualizations)) {
                 for (const [tileId, visualization] of Object.entries(tile_visualizations)) {

@@ -501,6 +501,10 @@ describe('webAnalyticsLogic URL restoration', () => {
         logic.actions.setShouldFilterTestAccounts(true)
         logic.actions.setWebAnalyticsFilters([FILTER_A])
         logic.actions.setDomainFilter('https://hedgebox.net')
+        // country and referrer fold into the page-performance queries too, so they must round-trip
+        // through the URL or a shared link shows different numbers than the sender saw.
+        logic.actions.setCountryFilter('US')
+        logic.actions.setReferrerFilter('google.com')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.location.pathname.endsWith('/web/page-performance')).toBe(true)
@@ -513,6 +517,8 @@ describe('webAnalyticsLogic URL restoration', () => {
             filter_test_accounts: true,
             filters: [FILTER_A],
             domain: 'https://hedgebox.net',
+            country: 'US',
+            referrer: 'google.com',
         })
     })
 
@@ -557,6 +563,34 @@ describe('webAnalyticsLogic URL restoration', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
     })
+
+    it.each<[string, string, () => unknown]>([
+        ['domain', 'example.com', () => logic.values.domainFilter],
+        ['device_type', 'Desktop', () => logic.values.deviceTypeFilter],
+        ['country', 'US', () => logic.values.countryFilter],
+        ['referrer', 'google.com', () => logic.values.referrerFilter],
+    ])(
+        'clears a drilled-in %s filter when navigating back to a URL without it (flag on)',
+        async (param, value, read) => {
+            // These drill-downs fold into the query like `filters` do, so a back-navigation that
+            // omits the param must clear the value — otherwise the shown data no longer matches the URL.
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
+                {
+                    [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
+                    [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+                }
+            )
+
+            router.actions.push('/web/page-performance', { [param]: value })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(read()).toBe(value)
+
+            router.actions.push('/web/page-performance')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(read()).toBeNull()
+        }
+    )
 
     it('leaves a drilled-in filter in place on back-navigation when the flag is off', async () => {
         router.actions.push('/web', { filters: [FILTER_A] })
