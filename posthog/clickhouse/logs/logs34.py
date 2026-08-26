@@ -421,7 +421,7 @@ FROM {db}.{KAFKA_TABLE_NAME}"""
 def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # `to_table` defaults to `logs34` so the historical migration 0280 (which creates this MV on the
-    # logs nodes, where `logs34` is local) keeps working when replayed. Migration 0304 passes
+    # logs nodes, where `logs34` is local) keeps working when replayed. Migration 0305 passes
     # `writable_logs34` — the Distributed(logs, posthog, logs34) table on the ingestion-events nodes —
     # because `logs34` itself is not local there.
     return f"""
