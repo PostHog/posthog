@@ -4,7 +4,6 @@ import {
   closeTabs as closeTabsLocal,
   decideTabNavigation,
   openTab as openTabLocal,
-  PROJECT_BLUEBIRD_FLAG,
   primaryWindow,
   setTabOrder,
   setTabTarget as setTabTargetLocal,
@@ -29,12 +28,11 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
@@ -82,6 +80,7 @@ import { useOpenBrowserTab } from "./useOpenBrowserTab";
  */
 const canvasInfo = new Map<string, { name: string; templateId: string }>();
 const taskInfo = new Map<string, string>();
+const BLANK_TAB_HREF = "/activity";
 
 /** Bounded insert (most-recent kept) so the caches don't grow unbounded over a
  * long session. */
@@ -160,10 +159,6 @@ export function BrowserTabStrip() {
   // Which session the content pane is about, wherever it came from: a path
   // param, Activity's picked item, or a feed's.
   const activeSession = useActiveSession();
-  // Tabs work in both spaces: space-scoped tabs live under /spaces, while a
-  // plain task tab (no space) is unscoped. The space decides where a task or
-  // blank tab navigates.
-  const inChannels = pathname.startsWith("/spaces");
   // Top-level app pages are tab targets too. Their typed metadata keeps route
   // classification, persisted labels, and rendered labels in one vocabulary.
   const view = useAppView();
@@ -171,17 +166,16 @@ export function BrowserTabStrip() {
     ? view.type
     : null;
 
-  const { channels } = useChannels();
-  // Whether the channels surface is live — the same gate the sidebar uses. This
-  // (not the current route) decides a new tab's default: with channels on a
-  // fresh tab opens #me, otherwise the Code new-task screen. Keying off the
-  // route would leave the behaviour stale right after the toggle flips.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const channelsEnabled =
-    useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
+  const { channels, isLoading: channelsLoading } = useChannels();
+  // The scoped space is null until the channel list has loaded and the route
+  // sync has picked one. Writing that null into a tab's memory would clear the
+  // space it was on, so the next switch to it opens on the list instead of the
+  // session. Leave the field absent until there is a real answer.
+  const stampedSpaceId =
+    scopedSpaceId === null && channelsLoading ? undefined : scopedSpaceId;
+  // With channel reports on, a restored inbox tab lands on the spaces index
+  // (the inbox is gone as a destination).
+  const channelReportsEnabled = useChannelReportsEnabled();
 
   // The active channel sub-section (artifacts/history/context) is the
   // route segment after the channelId. Null when on the channel home or a
@@ -361,14 +355,14 @@ export function BrowserTabStrip() {
     // not make (hotkeys, deep links, links in the content).
     const visit = {
       href: locationHref,
-      ...(railPane === "spaces" ? { listOpen, spaceId: scopedSpaceId } : {}),
+      ...(railPane === "spaces" ? { listOpen, spaceId: stampedSpaceId } : {}),
     };
     const viewState: TabViewState = {
       // Keep the stored name when nothing has resolved yet, so a loading frame
       // does not blank a background tab's label.
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
-      spaceId: scopedSpaceId,
+      spaceId: stampedSpaceId,
       lastByPane: {
         ...(mirrorActive?.viewState?.lastByPane ?? {}),
         [railPane]: visit,
@@ -477,7 +471,7 @@ export function BrowserTabStrip() {
     routeTitle,
     railPane,
     listOpen,
-    scopedSpaceId,
+    stampedSpaceId,
     client,
     router,
   ]);
@@ -681,7 +675,10 @@ export function BrowserTabStrip() {
             navigate({ to: "/", state });
             break;
           case "inbox":
-            navigate({ to: "/inbox", state });
+            navigate({
+              to: channelReportsEnabled ? "/spaces" : "/inbox",
+              state,
+            });
             break;
           case "agents":
             navigate({ to: "/agents", state });
@@ -716,12 +713,10 @@ export function BrowserTabStrip() {
           }
         }
       } else {
-        // Blank / landing tab: park on the space's home — the channels index, or
-        // the Code new-task screen.
-        navigate({ to: inChannels ? "/spaces" : "/new", state });
+        navigate({ to: BLANK_TAB_HREF, state });
       }
     },
-    [inChannels, navigate, router.history],
+    [channelReportsEnabled, navigate, router.history],
   );
 
   const handleSelect = useCallback(
@@ -820,37 +815,12 @@ export function BrowserTabStrip() {
     );
   };
 
-  // Where closing the last tab lands, keyed off the channels toggle (not the
-  // current route, which lags a toggle flip): #me when channels are on, the
-  // Code new-task screen otherwise. The navigation opens a fresh tab, since by
-  // then the window has none.
-  const landOnDefault = (tabId?: string) => {
+  const landOnDefault = (tabId?: string): void => {
     const state = tabId ? (prev: object) => ({ ...prev, tabId }) : undefined;
-    if (!channelsEnabled) {
-      navigate({ to: "/new", state });
-      return;
-    }
-    // Startup provisions #me, so its absence here means the list has not loaded rather
-    // than that there is nothing to open.
-    const personal = channels.find((c) => c.channelType === "personal");
-    if (personal) {
-      navigate({
-        to: "/spaces/$channelId",
-        params: { channelId: personal.id },
-        state,
-      });
-    } else {
-      navigate({ to: "/new", state });
-    }
+    navigate({ to: BLANK_TAB_HREF, state });
   };
 
-  // Where `+` lands. The space index is the app's "pick something" screen, so
-  // a new tab shows the spaces rather than an empty placeholder. Without the
-  // spaces layout that page does not exist, so the Code new-task screen stands
-  // in. Keyed off the channels toggle, not the current route, which lags a flip.
-  const newTabHref = channelsEnabled ? "/spaces" : "/new";
-
-  const handleNewTab = () => openBrowserTab(newTabHref);
+  const handleNewTab = (): void => openBrowserTab(BLANK_TAB_HREF);
 
   // Cmd/Ctrl+T opens a new browser tab. Bound here (not globally) so it only
   // fires where the strip is mounted; the new-task shortcut owns Cmd/Ctrl+N.

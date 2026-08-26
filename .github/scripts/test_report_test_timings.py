@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 import sys
 import json
 import textwrap
+import subprocess
 import importlib.util
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -14,12 +16,50 @@ import pytest
 from defusedxml import ElementTree
 
 SCRIPT_PATH = Path(__file__).with_name("report_test_timings.py")
+REPO_ROOT = SCRIPT_PATH.parents[2]
 SPEC = importlib.util.spec_from_file_location("report_test_timings", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 report_test_timings = importlib.util.module_from_spec(SPEC)
 # Register before exec so @dataclass can resolve the module via sys.modules.
 sys.modules["report_test_timings"] = report_test_timings
 SPEC.loader.exec_module(report_test_timings)
+
+
+def test_jest_timing_markdown_matches_checked_in_example() -> None:
+    fixture = SCRIPT_PATH.parent / "fixtures/jest-timings-example.json"
+    expected = fixture.with_suffix(".md").read_text()
+
+    result = subprocess.run(
+        [REPO_ROOT / "bin/render-jest-timings-example"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stderr == ""
+    assert result.stdout == expected
+
+
+def test_full_jest_fixture_renders_single_browser_report(tmp_path: Path) -> None:
+    fixture = SCRIPT_PATH.parent / "fixtures/jest-timings-real-run"
+    output = tmp_path / "jest-test-speed-report.html"
+
+    subprocess.run(
+        [REPO_ROOT / "bin/report-jest-timings", "--artifacts", fixture, "--html", output],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    html = output.read_text()
+    match = re.search(r"const tests=(.*), summary=", html)
+    assert match is not None
+    tests = json.loads(match.group(1))
+
+    assert "<title>Jest test-speed report</title>" in html
+    assert len(tests) == 11_446
+    assert tests == sorted(tests, key=lambda test: test[0], reverse=True)
+    assert output.stat().st_size < 3 * 1024 * 1024
 
 
 def _testcase(
@@ -330,6 +370,7 @@ def test_collect_jest_shard_marks_tolerated_failures_as_quarantined(tmp_path: Pa
         # download-artifact extracts a single matching artifact flat into the download root, so
         # identity must come from the filename and current workflow attempt.
         ("jest", "junit-EE-1.xml", 2, ("frontend", "EE", 1), 2),
+        ("jest", "junit-nodejs-postgres-parity.xml", 2, ("nodejs", "postgres-parity", None), 2),
         # A filename without a `-<chunk>` suffix and non-jest runners keep the directory-derived
         # fallback identity.
         ("jest", "junit-report.xml", 2, None, 1),
@@ -340,7 +381,7 @@ def test_flat_download_shard_identity(
     runner: str,
     filename: str,
     run_attempt: int,
-    recovered: tuple[str, str, int] | None,
+    recovered: tuple[str, str, int | None] | None,
     expected_attempt: int,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -360,7 +401,7 @@ def test_flat_download_shard_identity(
     assert (shard.info.suite, shard.info.segment, shard.info.group) == expected
     assert shard.info.attempt == expected_attempt
     if recovered:
-        assert report_test_timings.job_trace_key(shard.info) == "frontend:EE:1"
+        assert report_test_timings.job_trace_key(shard.info) == ":".join(map(str, recovered))
 
 
 def test_load_jest_quarantine_signals_rejects_oversized_artifacts(
@@ -557,7 +598,9 @@ def test_signals_only_threshold_keeps_failures_and_same_job_recovery() -> None:
 # ---------- re-run attempts ----------
 
 
-def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes(tmp_path: Path) -> None:
+def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _write_shard_xml(
         tmp_path / "junit-results-backend-core-1",
         filename="junit-core.xml",
@@ -607,6 +650,11 @@ def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes
     # failed and the cross-leg pass are dropped.
     assert [test.name for test in filtered[0].tests] == ["test_flaky"]
     assert filtered[1].tests == []
+
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    timings = tmp_path / "timings.json"
+    assert report_test_timings.main(["--runner", "jest", "--timings", str(timings), str(tmp_path)]) == 0
+    assert [shard["group"] for shard in json.loads(timings.read_text())["shards"]] == [1, 3]
 
 
 class _FakeSpan:
@@ -893,3 +941,105 @@ def test_job_trace_key_distinguishes_jobs() -> None:
 )
 def test_emission_tokens(env: dict[str, str], expected: list[str]) -> None:
     assert report_test_timings.emission_tokens(env) == expected
+
+
+# ---------- jest timings: per-file launch + teardown ----------
+
+
+def _write_nodejs_serial_xml(artifact_dir: Path) -> None:
+    """One serial-nodejs-shaped jest XML: per-file staggered timestamps + per-file times.
+
+    Real jest-junit emits per-file durations (perfStats.runtime) with staggered start
+    timestamps in both serial and parallel layouts; the in-band shape this fixture used
+    to model (uniform timestamps + cumulative times) does not occur in practice. The
+    launch+teardown signal is `suite_time - sum(test durations)` regardless of layout.
+    """
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "junit-nodejs-2.xml").write_text(
+        textwrap.dedent(
+            """\
+            <?xml version="1.0"?>
+            <testsuites name="jest tests" tests="4" failures="0" time="12">
+              <testsuite name="a" timestamp="2026-05-04T10:00:00" time="5.0">
+                <testcase classname="a one" name="a one" time="1.0" file="src/worker/a.test.ts"/>
+                <testcase classname="a two" name="a two" time="1.0" file="src/worker/a.test.ts"/>
+              </testsuite>
+              <testsuite name="b" timestamp="2026-05-04T10:00:05" time="3.0">
+                <testcase classname="b one" name="b one" time="2.0" file="src/worker/b.test.ts"/>
+              </testsuite>
+              <testsuite name="c" timestamp="2026-05-04T10:00:08" time="4.0">
+                <testcase classname="c one" name="c one" time="3.0" file="src/worker/c.test.ts"/>
+              </testsuite>
+            </testsuites>
+            """
+        )
+    )
+
+
+def test_collect_jest_shard_wall_bounds_and_file_launch(tmp_path: Path) -> None:
+    (tmp_path / "junit-results-nodejs-2").mkdir()
+    _write_nodejs_serial_xml(tmp_path / "junit-results-nodejs-2")
+
+    shard = report_test_timings.collect_shards(tmp_path, "jest")[0]
+
+    assert (shard.info.suite, shard.info.segment, shard.info.group) == ("nodejs", "nodejs", 2)
+    assert shard.start == datetime(2026, 5, 4, 10, 0, tzinfo=UTC)
+    # Wall = union of per-suite spans: [10:00:00, 10:00:12). Testcase bodies sum to 7s;
+    # the 5s of launch+teardown overhead spread across the files is what the timings
+    # layer reports.
+    assert (shard.end - shard.start).total_seconds() == pytest.approx(12.0)
+    assert shard.testcase_seconds == pytest.approx(7.0)
+    # Per-suite: a=5-2=3s, b=3-2=1s, c=4-3=1s.
+    assert shard.file_launch_seconds == [3.0, 1.0, 1.0]
+    # Each test starts at its suite's real timestamp, laid contiguously within the suite.
+    assert shard.tests[2].start == datetime(2026, 5, 4, 10, 0, 5, tzinfo=UTC)
+
+
+def test_build_timings_report_quantifies_per_file_launch(tmp_path: Path) -> None:
+    (tmp_path / "junit-results-nodejs-2").mkdir()
+    _write_nodejs_serial_xml(tmp_path / "junit-results-nodejs-2")
+
+    payload = report_test_timings.build_timings_report(
+        report_test_timings.collect_shards(tmp_path, "jest"), tmp_path, "jest"
+    )
+
+    shard = payload["shards"][0]
+    assert shard["wall_seconds"] == pytest.approx(12.0)
+    assert shard["launch_seconds"] == pytest.approx(5.0)
+    assert shard["per_file_launch_overhead_seconds"]["nodejs/src/worker/a.test.ts"] == pytest.approx(3.0)
+    assert shard["per_file_launch_overhead_seconds"]["nodejs/src/worker/b.test.ts"] == pytest.approx(1.0)
+    assert shard["per_file_launch_overhead_seconds"]["nodejs/src/worker/c.test.ts"] == pytest.approx(1.0)
+    assert payload["suites"] == ["nodejs"]
+    assert [t["name"] for t in shard["slowest_tests"][:2]] == ["c one", "b one"]
+
+
+def test_build_timings_report_covers_parallel_frontend_layout(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "junit-results-frontend-EE-1"
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "junit-EE-1.xml").write_text(
+        textwrap.dedent(
+            """\
+            <?xml version="1.0"?>
+            <testsuites name="jest tests" tests="2" failures="0" time="9">
+              <testsuite name="x" timestamp="2026-05-04T10:00:02" time="4.0">
+                <testcase classname="x" name="renders" time="2.5" file="src/scenes/x.test.ts"/>
+              </testsuite>
+              <testsuite name="y" timestamp="2026-05-04T10:00:05" time="5.0">
+                <testcase classname="y" name="computes" time="3.0" file="src/lib/y.test.ts"/>
+              </testsuite>
+            </testsuites>
+            """
+        )
+    )
+
+    payload = report_test_timings.build_timings_report(
+        report_test_timings.collect_shards(tmp_path, "jest"), tmp_path, "jest"
+    )
+
+    shard = payload["shards"][0]
+    # Overlapping parallel suites: wall is the union extrema (10:00:02 -> 10:00:10).
+    assert shard["wall_seconds"] == pytest.approx(8.0)
+    # x = 4-2.5 = 1.5s launch, y = 5-3 = 2s launch.
+    assert shard["launch_seconds"] == pytest.approx(3.5)
+    assert shard["per_file_launch_overhead_seconds"]["frontend/src/scenes/x.test.ts"] == pytest.approx(1.5)
+    assert shard["per_file_launch_overhead_seconds"]["frontend/src/lib/y.test.ts"] == pytest.approx(2.0)

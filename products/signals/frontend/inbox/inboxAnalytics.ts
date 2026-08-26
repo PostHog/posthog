@@ -13,10 +13,13 @@ import { SignalReport, SignalReportActionability, SignalReportPriority, SignalRu
  */
 export const INBOX_CLIENT = 'cloud' as const
 
+// pinned: analytics event names - dashboards, funnels, and alerts read these strings, and the
+// desktop app sends the same ones, so renaming one splits its series in two.
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',
     WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
+    WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -78,6 +81,29 @@ export type InboxReportActionType =
     | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+
+/**
+ * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
+ * written, `edited_suggestion` one the reader changed first, and `typed` one written from scratch.
+ */
+export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed'
+
+/**
+ * Extra properties the `discuss` {@link captureInboxReportAction} carries. Without them the event
+ * records that a question was asked and nothing about where it came from, so there is no way to tell
+ * whether the suggestions are worth offering. `suggestion_count` is what makes `question_source`
+ * readable: a `typed` question on a report that offered none is not evidence against suggestions.
+ *
+ * The question text itself is deliberately absent, like the list's search term: it is incidental
+ * typing that can name a customer's own entities.
+ */
+// pinned: analytics property names — renaming breaks dashboards
+export function discussQuestionProperties(params: {
+    source: InboxQuestionSource
+    suggestionCount: number
+}): Record<string, unknown> {
+    return { question_source: params.source, suggestion_count: params.suggestionCount }
+}
 
 /**
  * Whether a task-kickoff action (`discuss` / `create_pr`) actually produced a task. The press itself
@@ -225,6 +251,19 @@ export function captureInboxWelcomeCommandCopied(params: {
     captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
         variant: params.variant,
         surface: params.surface,
+    })
+}
+
+/**
+ * The takeover's "Set up manually" escape hatch was pressed. Sits next to
+ * {@link captureInboxWelcomeCommandCopied} as the other exit from the welcome page, so the two
+ * together say how a team chose to set self-driving up. Without it a manual setup is invisible:
+ * the wizard copy never fires, and the sources and scouts that follow look like they came from
+ * nowhere. `variant` mirrors the welcome experiment arm, so the split is readable per arm.
+ */
+export function captureInboxWelcomeManualSetupClicked(params: { variant: InboxWelcomeVariant }): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {
+        variant: params.variant,
     })
 }
 

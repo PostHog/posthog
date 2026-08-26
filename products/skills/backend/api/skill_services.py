@@ -753,6 +753,20 @@ def resolve_skill_owners_for_names(team: Team, skill_names: list[str]) -> dict[s
     return owners_by_name
 
 
+def skill_names_owned_by(team: Team, user_id: int) -> "QuerySet[LLMSkillOwner, str]":
+    """Names of the logical skills one user owns — backs the list endpoint's owner filter.
+
+    Returns a lazy values queryset so the caller can use it as a subquery instead of pulling every
+    name into memory. Same current-access filter as `resolve_skill_owners`: filtering by a user who
+    lost access matches nothing, rather than surfacing skills through a stale owner row.
+    """
+    return (
+        _owner_qs(team)
+        .filter(user_id=user_id, user__in=team.all_users_with_access())
+        .values_list("skill_name", flat=True)
+    )
+
+
 def clear_skill_owners(team: Team, skill_name: str) -> None:
     """Drop every owner row for a logical skill — called on archive so a later skill that reuses the
     name (recreate / import / duplicate) doesn't inherit the archived skill's owners."""

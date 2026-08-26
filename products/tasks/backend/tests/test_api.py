@@ -1504,6 +1504,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_find_warm_run.assert_called_once_with(
             self.team.id,
             self.user.id,
+            origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
             repositories=["posthog/posthog", "posthog/code"],
             github_integration_id=integration.id,
@@ -1513,6 +1514,7 @@ class TestTaskAPI(BaseTaskAPITest):
             reasoning_effort=None,
             sandbox_environment_id=None,
             custom_image_id=None,
+            initial_permission_mode=None,
         )
 
         update = self.client.patch(
@@ -1993,8 +1995,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_discussion_note_skipped_when_user_lacks_skill_editor_access(self):
         # A caller who couldn't write a scout note by hand (no llm_skill editor access) can't plant one
         # via a discussion, even though creating the task needs only task:write.
-        from posthog.rbac.user_access_control import UserAccessControl
-
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
@@ -5371,6 +5372,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "model": "claude-sonnet-5",
                 "reasoning_effort": "low",
                 "loop_terminal_bookkeeping_complete": True,
+                "analysis_target_repository": "posthog/posthog",
+                "analysis_target_custom_image_id": "img-real",
+                "analysis_target_custom_image_name": "real-image",
             },
         )
 
@@ -5425,6 +5429,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "model": "claude-opus-4-8",
                     "reasoning_effort": "high",
                     "loop_terminal_bookkeeping_complete": False,
+                    # server-stamped analysis insight attribution; a forged value would
+                    # misattribute the captured insight event to another repository / image
+                    "analysis_target_repository": "attacker/attacker",
+                    "analysis_target_custom_image_id": "img-attacker",
+                    "analysis_target_custom_image_name": "attacker-image",
                     "scratch": "ok",
                 }
             },
@@ -5461,6 +5470,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["reasoning_effort"] == "low"
         assert run.state["loop_terminal_bookkeeping_complete"] is True
+        assert run.state["analysis_target_repository"] == "posthog/posthog"  # cannot forge attribution
+        assert run.state["analysis_target_custom_image_id"] == "img-real"
+        assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -5487,6 +5499,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "model",
                     "reasoning_effort",
                     "loop_terminal_bookkeeping_complete",
+                    "analysis_target_repository",
+                    "analysis_target_custom_image_id",
+                    "analysis_target_custom_image_name",
                     "scratch",
                 ],
             },
@@ -5515,6 +5530,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["model"] == "claude-sonnet-5"  # protected key survives removal
         assert run.state["reasoning_effort"] == "low"  # protected key survives removal
         assert run.state["loop_terminal_bookkeeping_complete"] is True
+        assert run.state["analysis_target_repository"] == "posthog/posthog"  # protected key survives removal
+        assert run.state["analysis_target_custom_image_id"] == "img-real"
+        assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -8108,8 +8126,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
@@ -8147,8 +8165,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
@@ -8181,8 +8199,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
@@ -10034,7 +10052,9 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource")
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
+    )
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_session_auth_without_query_access_is_rejected(self, mock_render, mock_check):
         mock_check.side_effect = lambda resource, required_level: resource != "query"
@@ -10493,6 +10513,42 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_signal_followup.side_effect = RuntimeError("temporal unavailable")
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_returns_409_when_user_message_workflow_has_ended(self, mock_signal_followup):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["error"], "Task run workflow has ended")
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_returns_502_while_warm_workflow_is_registering(self, mock_signal_followup):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "await_user_message": True}
+        run.save(update_fields=["state", "updated_at"])
 
         response = self.client.post(
             self._command_url(task, run),
@@ -13642,6 +13698,38 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertTrue(response.json()["created"])
         self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
 
+    def test_analyze_copies_target_repository_and_image_into_run_state(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="PostHog Stack")
+        self.target_task.repository = "posthog/posthog"
+        self.target_task.save(update_fields=["repository"])
+        self.target_run.state = {"custom_image_id": str(image.id)}
+        self.target_run.save(update_fields=["state"])
+
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            response = self._analyze()
+
+        run = Task.objects.get(id=response.json()["analysis_task_id"]).latest_run
+        assert run is not None
+        self.assertEqual(run.state["analysis_target_repository"], "posthog/posthog")
+        self.assertEqual(run.state["analysis_target_custom_image_id"], str(image.id))
+        self.assertEqual(run.state["analysis_target_custom_image_name"], "PostHog Stack")
+
+    def test_analyze_does_not_copy_name_of_another_users_private_image(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        private_image = _make_custom_image(team=self.team, user=other_user, name="their-private", private=True)
+        self.target_run.state = {"custom_image_id": str(private_image.id)}
+        self.target_run.save(update_fields=["state"])
+
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            response = self._analyze()
+
+        run = Task.objects.get(id=response.json()["analysis_task_id"]).latest_run
+        assert run is not None
+        self.assertEqual(run.state["analysis_target_custom_image_id"], str(private_image.id))
+        self.assertNotIn("analysis_target_custom_image_name", run.state)
+
     def test_analyze_is_idempotent_per_run(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
         with read_p, write_p, tag_p, dispatch_p:
@@ -13924,7 +14012,11 @@ class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
             task=self.analysis_task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"analysis_target_run_id": str(uuid.uuid4())},
+            state={
+                "analysis_target_run_id": str(uuid.uuid4()),
+                "analysis_target_repository": "posthog/posthog",
+                "analysis_target_custom_image_name": "PostHog Stack",
+            },
         )
         self.agent_client = self._sandbox_oauth_client(self.analysis_task.id)
         self.sandbox_application = OAuthApplication.objects.get(client_id=ARRAY_APP_CLIENT_ID_DEV)
@@ -13959,7 +14051,7 @@ class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
                 {"quote": "docker compose up -d postgres", "evidence_type": "command_output"},
             ],
             "category": "environment_failure",
-            "wasted_effort": {"tool_calls": 3, "seconds": 45},
+            "wasted_effort": {"tool_calls": 3, "seconds": 45, "output_bytes": 54000},
             "recurrence": "every_run_in_this_repo",
             "confidence_basis": "directly_observed",
             "suggested_fix": {
@@ -13987,7 +14079,11 @@ class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
         props = events[0]["properties"]
         self.assertEqual(props["category"], "environment_failure")
         self.assertEqual(props["wasted_tool_calls"], 3)
+        self.assertEqual(props["wasted_output_bytes"], 54000)
         self.assertEqual(props["insight_index"], 0)
+        self.assertEqual(props["repository"], "posthog/posthog")
+        self.assertEqual(props["analysis_target_repository"], "posthog/posthog")
+        self.assertEqual(props["analysis_target_custom_image_name"], "PostHog Stack")
 
     def test_run_patch_cannot_write_insights_or_the_target_linkage(self):
         original_target = self.analysis_run.state["analysis_target_run_id"]

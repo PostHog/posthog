@@ -31,6 +31,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { Params } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -59,6 +60,8 @@ import {
     triggerFilterActions,
     updateFilterSearchParams,
 } from '../../components/IssueFilters/issueFiltersLogic'
+import { errorTrackingExternalReferencesLinkIssueCreate } from '../../generated/api'
+import { ErrorTrackingExternalReferenceLinkApiExternalContext } from '../../generated/api.schemas'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
@@ -216,6 +219,53 @@ export interface errorTrackingIssueSceneLogicActions {
         } | null
         payload?: {
             config: Record<string, string>
+            integrationId: number
+        }
+    }
+    linkExternalReference: (
+        integrationId: IntegrationType['id'],
+        externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
+    ) => {
+        externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
+        integrationId: number
+    }
+    linkExternalReferenceFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    linkExternalReferenceSuccess: (
+        issue: {
+            assignee: ErrorTrackingIssueAssignee | null
+            cohort?: ErrorTrackingIssueCohort | undefined
+            description: string | null
+            external_issues: ErrorTrackingExternalReference[]
+            first_seen: string
+            id: string
+            name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
+            status: ErrorTrackingIssueStatus
+        } | null,
+        payload?: {
+            externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
+            integrationId: number
+        }
+    ) => {
+        issue: {
+            assignee: ErrorTrackingIssueAssignee | null
+            cohort?: ErrorTrackingIssueCohort | undefined
+            description: string | null
+            external_issues: ErrorTrackingExternalReference[]
+            first_seen: string
+            id: string
+            name: string | null
+            severity?: ErrorTrackingQueryIssueSeverity | null | undefined
+            status: ErrorTrackingIssueStatus
+        } | null
+        payload?: {
+            externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
             integrationId: number
         }
     }
@@ -641,6 +691,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             integrationId,
             config,
         }),
+        linkExternalReference: (
+            integrationId: IntegrationType['id'],
+            externalContext: ErrorTrackingExternalReferenceLinkApiExternalContext
+        ) => ({
+            integrationId,
+            externalContext,
+        }),
         updateAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateSeverity: (severity: ErrorTrackingQueryIssueSeverity | null) => ({ severity }),
@@ -708,6 +765,28 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         destination: response.integration.kind,
                     })
                     const externalIssues = values.issue.external_issues ?? []
+                    return { ...values.issue, external_issues: [...externalIssues, response] }
+                }
+                return null
+            },
+            linkExternalReference: async ({ integrationId, externalContext }) => {
+                if (values.issue) {
+                    // The generated client types integration.kind as a plain string; the
+                    // canonical schema type narrows it to IntegrationKind.
+                    const response = (await errorTrackingExternalReferencesLinkIssueCreate(
+                        String(teamLogic.values.currentTeamId),
+                        { integration_id: integrationId, issue: props.id, external_context: externalContext }
+                    )) as ErrorTrackingExternalReference
+                    posthog.capture('error_tracking_issue_pushed', {
+                        issue_id: props.id,
+                        destination: response.integration.kind,
+                        linked_existing: true,
+                    })
+                    // Linking is idempotent server-side: re-linking returns the existing
+                    // reference, which must not be appended twice.
+                    const externalIssues = (values.issue.external_issues ?? []).filter(
+                        (reference) => reference.id !== response.id
+                    )
                     return { ...values.issue, external_issues: [...externalIssues, response] }
                 }
                 return null

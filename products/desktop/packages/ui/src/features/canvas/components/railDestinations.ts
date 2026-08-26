@@ -83,7 +83,7 @@ export function showSpaces(): void {
     navigateToSpaces();
     return;
   }
-  showChannelList(channelId);
+  showChannelList({ keepForRoute: channelId });
   navigateToChannel(channelId);
 }
 
@@ -173,7 +173,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "inbox",
     customizableId: "inbox",
-    label: "Inbox",
+    label: "Self-driving",
     analyticsId: "inbox",
     Icon: EnvelopeSimple,
     href: "/inbox",

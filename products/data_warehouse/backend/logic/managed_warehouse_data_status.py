@@ -18,7 +18,7 @@ from products.managed_warehouse.backend.facade.team_state import team_backfill_m
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 ReadinessState = Literal[
     "not_configured",

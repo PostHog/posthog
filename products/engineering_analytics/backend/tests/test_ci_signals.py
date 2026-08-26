@@ -13,8 +13,7 @@ import pandas as pd
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.rbac.user_access_control import UserAccessControl
-
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import CISignalsSyncStatus
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
