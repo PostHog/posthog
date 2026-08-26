@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1319_team_posthog_team_widget_token_idx"),
+        ("posthog", "1320_remove_oauth_scope_trgm"),
     ]
 
     operations = [
