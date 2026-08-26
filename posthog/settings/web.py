@@ -627,6 +627,8 @@ SPECTACULAR_SETTINGS = {
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         "BillingAlertMetricEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.Metric",
         "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+        # Shared by ChangeRequest.state and ChangeRequestSummary.state (same choice set).
+        "ChangeRequestStateEnum": "products.approvals.backend.models.ChangeRequestState",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
