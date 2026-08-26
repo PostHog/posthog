@@ -38,7 +38,7 @@ export const SHORTCUTS = {
   // wherever it is shown; those two are disabled there so the keys have one
   // owner at a time.
   SWITCH_BROWSER_TAB: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
-  FOCUS_SPACE_SEARCH: "mod+shift+s",
+  FOCUS_SIDEBAR_SEARCH: "mod+shift+s",
   TOGGLE_FOCUS: "mod+r",
   PASTE_AS_FILE: "mod+shift+v",
   INBOX: "mod+i",
@@ -159,11 +159,11 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     availability: "channels-layout",
   },
   {
-    id: "focus-space-search",
-    keys: SHORTCUTS.FOCUS_SPACE_SEARCH,
-    description: "Search spaces",
+    id: "focus-sidebar-search",
+    keys: SHORTCUTS.FOCUS_SIDEBAR_SEARCH,
+    description: "Search sidebar",
     category: "navigation",
-    context: "Spaces",
+    context: "Sidebar",
     availability: "channels-layout",
   },
   {
