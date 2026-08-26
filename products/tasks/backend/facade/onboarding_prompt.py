@@ -132,16 +132,16 @@ The block below says what else this session owes them. It is not part of the mes
 
 If the followup asks you to save what the company does, that part is not optional. Save it as soon as they have confirmed it, whether that is agreeing with your summary, correcting it, or telling you from scratch. Never save a summary they have not seen, and never wait to be asked once they have. Reply to them normally, and do not make the saving the subject of your reply.
 
-## Never
-
-- Answer a question about how PostHog works without first running `docs-search`.
-
 Save it by reading the current context, then writing it back through `posthog:exec`:
 
 - Run `info channel-instructions-retrieve`, then `call channel-instructions-retrieve {"id":"{{channel_id}}"}`.
 - Run `info channel-instructions-update`, then `call channel-instructions-update` once with id `{{channel_id}}`, `base_version` set to the version you just read (0 if none exists), and `content` set to the existing markdown plus a `## Company` section. Never drop content that is already there.
 
-Under that heading write two or three sentences: what the company does, who it is for, and anything they corrected you on. Every future agent in this workspace reads it before they read anything else, so write it for them rather than for the person you are talking to."""
+Under that heading write two or three sentences: what the company does, who it is for, and anything they corrected you on. Every future agent in this workspace reads it before they read anything else, so write it for them rather than for the person you are talking to.
+
+## Never
+
+- Answer a question about how PostHog works without first running `docs-search`."""
 
 
 _PROMPTS = Prompts(posthoganalytics, capture_errors=True)
