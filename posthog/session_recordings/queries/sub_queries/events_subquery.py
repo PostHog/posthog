@@ -21,6 +21,7 @@ from posthog.hogql.query import execute_hogql_query, tracer
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
@@ -765,21 +766,25 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _is_negated_entity(raw_entity: dict[str, Any]) -> bool:
         return bool(raw_entity.get("negation"))
 
+    @staticmethod
+    def _entity_node(raw_entity: dict[str, Any], default_type: str):
+        # RecordingsQuery accepts untyped entity dicts, so default the type the source list implies.
+        # Without this a missing type makes Entity raise a bare ValueError that escapes as a 500.
+        entity = raw_entity if raw_entity.get("type") else {**raw_entity, "type": default_type}
+        return legacy_entity_to_node(Entity(entity), True, MathAvailability.Unavailable)
+
     @property
     def action_entities(self):
-        # TODO what do we send to the API instead to avoid needing to do this
         return [
-            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
+            self._entity_node(e, TREND_FILTER_TYPE_ACTIONS)
             for e in self._query.actions or []
             if not self._is_negated_entity(e)
         ]
 
     @property
     def event_entities(self):
-        # TODO what do we send to the API instead to avoid needing to do this
-        # TODO is this overkill since it feels like we only need a few things off the entity
         return [
-            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
+            self._entity_node(e, TREND_FILTER_TYPE_EVENTS)
             for e in self._query.events or []
             if not self._is_negated_entity(e)
         ]
@@ -792,8 +797,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def negated_entities(self) -> list[EventsNode | ActionsNode | DataWarehouseNode | str]:
         # the legacy Entity class drops unknown keys, so negation is read off the raw dicts
         return [
-            legacy_entity_to_node(Entity(e), True, MathAvailability.Unavailable)
-            for e in (self._query.actions or []) + (self._query.events or [])
+            self._entity_node(e, TREND_FILTER_TYPE_ACTIONS)
+            for e in self._query.actions or []
+            if self._is_negated_entity(e)
+        ] + [
+            self._entity_node(e, TREND_FILTER_TYPE_EVENTS)
+            for e in self._query.events or []
             if self._is_negated_entity(e)
         ]
 

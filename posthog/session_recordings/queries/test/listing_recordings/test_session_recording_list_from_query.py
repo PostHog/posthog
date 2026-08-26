@@ -26,7 +26,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized, parameterized_class
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from posthog.schema import PersonsOnEventsMode, RecordingsQuery
+from posthog.schema import ActionsNode, EventsNode, PersonsOnEventsMode, RecordingsQuery
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
@@ -792,6 +792,21 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
             [],
         )
+
+    def test_untyped_entity_dicts_default_their_type(self) -> None:
+        # API callers can send entity dicts without "type"; a missing type used to escape as a 500.
+        action = Action.objects.create(team=self.team, name="untyped action")
+        query = RecordingsQuery(
+            events=[{"id": "$pageview"}],
+            actions=[{"id": action.id}],
+        )
+        sub_query = ReplayFiltersEventsSubQuery(team=self.team, query=query)
+        assert isinstance(sub_query.event_entities[0], EventsNode)
+        assert isinstance(sub_query.action_entities[0], ActionsNode)
+
+        negated = RecordingsQuery(events=[{"id": "$pageview", "negation": True}])
+        negated_node = ReplayFiltersEventsSubQuery(team=self.team, query=negated).negated_entities[0]
+        assert isinstance(negated_node, EventsNode)
 
     @parameterized.expand([("AND",), ("OR",)])
     def test_negated_event_filter_excludes_sessions_containing_event(self, operand: str) -> None:
