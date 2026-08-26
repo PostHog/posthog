@@ -98,6 +98,48 @@ describe('matchFilterGroup', () => {
             expect(matchFilterGroup(g, baseRecord({ resource_attributes: { 'service.name': 'api' } }))).toBe(true)
             expect(matchFilterGroup(g, baseRecord({ resource_attributes: { service_name: 'api' } }))).toBe(false)
         })
+        describe('a key that names both a column and a real attribute', () => {
+            // Envoy access logs carry a log attribute literally called `service_name`, holding
+            // `namespace/container`. That is its own data, not a denormalised copy of the column,
+            // and the filter editor offers its values from the attribute map. Resolving the filter
+            // to the column compares `contour/envoy` against `contour`, so the rule matches nothing.
+            const collidingRecord = () =>
+                baseRecord({
+                    service_name: 'contour',
+                    attributes: { service_name: '"contour/envoy"' },
+                })
+
+            it.each<[string, string, boolean]>([
+                ['log_attribute', 'contour/envoy', true],
+                ['log_attribute', 'contour', false],
+                ['log', 'contour', true],
+                ['log', 'contour/envoy', false],
+            ])('a %s filter for %j matches → %s', (type, value, expected) => {
+                const g = group({
+                    values: [{ key: 'service_name', type, operator: 'exact', value: [value] }],
+                })
+                expect(matchFilterGroup(g, collidingRecord())).toBe(expected)
+            })
+
+            it('log_resource_attribute reads the resource map', () => {
+                const g = group({
+                    values: [
+                        {
+                            key: 'service.name',
+                            type: 'log_resource_attribute',
+                            operator: 'exact',
+                            value: ['contour-canary'],
+                        },
+                    ],
+                })
+                const record = baseRecord({
+                    service_name: 'contour',
+                    resource_attributes: { 'service.name': '"contour-canary"' },
+                })
+                expect(matchFilterGroup(g, record)).toBe(true)
+            })
+        })
+
         it('severity_text resolves to LogRecord.severity_text (first-class column)', () => {
             const g = group({ values: [{ key: 'severity_text', operator: 'in', value: ['error', 'fatal'] }] })
             expect(matchFilterGroup(g, baseRecord({ severity_text: 'error' }))).toBe(true)

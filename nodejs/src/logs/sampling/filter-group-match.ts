@@ -71,6 +71,18 @@ function isGroupNode(node: PropertyFilterLeaf | FilterGroupNode): node is Filter
 function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): string | null | undefined {
     const key = filter.key
 
+    // A filter that declares an attribute type names a map entry, and wins over the column
+    // aliases below whenever that entry exists. An attribute may share a column's name and hold
+    // different data — envoy access logs write a `service_name` attribute holding
+    // `namespace/container`, next to a column holding the resource service name — and the filter
+    // editor offers the map's values, so matching against the column can never succeed.
+    // Falling through when the entry is absent keeps the aliases working, so a `level` or
+    // `service.name` filter still reads the denormalised column.
+    const declaredAttribute = declaredAttributeValue(filter, record)
+    if (declaredAttribute !== undefined) {
+        return declaredAttribute
+    }
+
     // First-class columns win when populated; otherwise fall back to the
     // matching attribute map. Ingestion denormalises service.name + severity_text
     // onto first-class fields, but partial decodes / older records may have only
@@ -109,6 +121,17 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         return decodedAttr(record.attributes, key)
     }
     return decodedAttr(record.attributes, key) ?? decodedAttr(record.resource_attributes, key)
+}
+
+/** The value of the map entry a filter's declared attribute type names, if that entry exists. */
+function declaredAttributeValue(filter: PropertyFilterLeaf, record: LogRecord): string | undefined {
+    if (filter.type === PROPERTY_FILTER_TYPE_LOG_ATTRIBUTE) {
+        return decodedAttr(record.attributes, filter.key)
+    }
+    if (filter.type === PROPERTY_FILTER_TYPE_LOG_RESOURCE_ATTRIBUTE) {
+        return decodedAttr(record.resource_attributes, filter.key)
+    }
+    return undefined
 }
 
 /**
