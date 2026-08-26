@@ -290,16 +290,17 @@ export const SubscriptionsTabbed: Story = {
         },
     },
     args: {
+        subscriptionId: null,
         dashboard: DASHBOARD,
     },
 }
 
 export const DashboardWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
-    args: { dashboard: DASHBOARD },
+    args: { subscriptionId: null, dashboard: DASHBOARD },
 }
 
 export const InsightWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
-    args: { insightShortId: 'ins11' as InsightShortId },
+    args: { subscriptionId: null, insightShortId: 'ins11' as InsightShortId },
 }
