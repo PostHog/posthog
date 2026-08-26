@@ -189,14 +189,14 @@ class TestMergeBaseBaselineHealing:
         assert merged == expected_baseline
         assert healed == 0
 
-    def test_non_default_branch_ignores_commit_sha(self, repo, mocker):
-        """On non-default branches, commit_sha is ignored — branch name is used."""
-        branch_baseline = {"A": "h1"}
-        commit_baseline = {"X": "hx"}  # Should NOT be used
+    def test_non_default_branch_pins_to_commit_sha(self, repo, mocker):
+        """A branch deleted mid-run still resolves, because the ref is the commit."""
+        branch_tip_baseline = {"A": "h1", "stale": "h9"}
+        commit_baseline = {"A": "h1"}
         merge_base_baseline = {"A": "h1", "C": "h3"}
         self._mock_github(
             mocker,
-            branch_baseline=branch_baseline,
+            branch_baseline=branch_tip_baseline,
             merge_base_baseline=merge_base_baseline,
             commit_sha_baselines={"deadbeef": commit_baseline},
         )
@@ -233,6 +233,31 @@ class TestMergeBaseBaselineHealing:
 
         assert merged == {"kept": "h1", "lost-to-rebase": "h2"}
         assert healed == 1
+
+    def test_deleted_branch_still_resolves_via_commit_sha(self, repo, mocker):
+        """A merge-queue branch is deleted once its batch resolves.
+
+        Fetching by branch name then 404s, which is indistinguishable from
+        "no baseline file yet" and reports the whole suite as new. The commit
+        outlives the ref, so pinning to it keeps the baseline readable.
+        """
+        self._mock_github(
+            mocker,
+            branch_baseline={},
+            merge_base_sha=None,
+            commit_sha_baselines={"batch-sha": {"A": "h1", "B": "h2"}},
+        )
+
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo,
+            "storybook",
+            "trunk-merge/pr-4242/0c2f75d8",
+            rendered_identifiers={"A", "B"},
+            commit_sha="batch-sha",
+        )
+
+        assert merged == {"A": "h1", "B": "h2"}
+        assert healed == 0
 
     def test_falls_back_on_merge_base_failure(self, repo, mocker):
         branch_baseline = {"A": "h1"}
@@ -303,6 +328,7 @@ class TestMergeBaseBaselineHealing:
             mocker,
             branch_baseline=branch_baseline,
             merge_base_baseline=merge_base_baseline,
+            commit_sha_baselines={"abc": branch_baseline},
         )
 
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")

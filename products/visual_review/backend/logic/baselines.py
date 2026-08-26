@@ -147,10 +147,11 @@ def _resolve_baselines_with_merge_base(
     tombstoned — healing would otherwise resurrect them from master
     and re-flag them as removed on every subsequent run.
 
-    When *commit_sha* is provided and the run is on the default branch,
-    the baseline is fetched at that exact commit instead of the branch
-    tip.  This prevents a race where a newer commit updates the
-    baseline file before an older commit's VR run completes.
+    When *commit_sha* is provided the baseline is fetched at that exact
+    commit rather than the branch tip. The tip moves under a concurrent
+    push, and an ephemeral merge-queue branch is deleted once its batch
+    resolves — a fetch by branch name then 404s, which is indistinguishable
+    from "no baseline file" and reports the whole suite as new.
 
     Returns (merged_baseline, healed_count).
     """
@@ -162,9 +163,9 @@ def _resolve_baselines_with_merge_base(
 
     default_branch = github_api._get_default_branch(github, repo.repo_full_name)
 
-    # On the default branch, pin the baseline to the exact commit so
-    # that back-to-back pushes don't race against each other.
-    baseline_ref = commit_sha if (commit_sha and branch == default_branch) else branch
+    # Pin the baseline to the exact commit under test so back-to-back pushes
+    # don't race, and so a branch deleted mid-run still resolves.
+    baseline_ref = commit_sha or branch
     branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, baseline_ref)
 
     if branch == default_branch:
