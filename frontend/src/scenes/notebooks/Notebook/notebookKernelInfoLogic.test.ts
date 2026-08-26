@@ -62,7 +62,7 @@ describe('notebookKernelInfoLogic', () => {
         // from the store without unmounting it. A tick that reads `values` after that throws
         // "[KEA] Can not find path", and in a story that surfaces as an unhandled error.
         initKeaTests()
-        // The reset already dropped the logic, so leave the afterEach unmount nothing to do.
+        // The reset already dropped the logic, so the afterEach unmount has nothing to do.
         logic = undefined
 
         await jest.advanceTimersByTimeAsync(30_000)
