@@ -20,7 +20,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 from ...api.skill_serializers import validate_skill_file_path
 from ...api.skill_services import archive_skill
