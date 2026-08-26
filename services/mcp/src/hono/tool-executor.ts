@@ -105,7 +105,7 @@ export class ToolExecutor {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
                 }
             }
             return entry
@@ -159,13 +159,13 @@ export class ToolExecutor {
     }
 
     // execute-sql is the one tool whose advertised description is formatted per
-    // request (the schema-discovery splice varies by feature flag) instead of served
+    // request (the schema-discovery splice is assembled at render time) instead of served
     // from the catalog, on both the native tools/list path and exec's `info` output.
     // trackToolCall stamps the catalog text by default, so it needs the served text
     // for this tool or $mcp_tool_description records words the agent never saw.
-    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
+    private servedToolDescription(toolName: string): string | undefined {
         if (toolName === EXECUTE_SQL_TOOL_NAME) {
-            return this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags)
+            return this.instructionsBuilder.formatExecuteSqlDescription()
         }
         return undefined
     }
@@ -218,7 +218,7 @@ export class ToolExecutor {
                 state,
                 errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 intentMeta,
-                this.servedToolDescription(tool.name, state)
+                this.servedToolDescription(tool.name)
             )
             return {
                 content: [{ type: 'text', text: message }],
@@ -274,7 +274,7 @@ export class ToolExecutor {
                     output_tokens: estimateResponseTokens(response),
                 },
                 intentMeta,
-                this.servedToolDescription(tool.name, state)
+                this.servedToolDescription(tool.name)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -307,7 +307,7 @@ export class ToolExecutor {
                 state,
                 errorAnalyticsProperties(classification, error),
                 intentMeta,
-                this.servedToolDescription(tool.name, state)
+                this.servedToolDescription(tool.name)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -399,7 +399,7 @@ export class ToolExecutor {
                     ...execMetrics.commandMeta,
                 },
                 intentMeta,
-                this.servedToolDescription(execToolName(), state)
+                this.servedToolDescription(execToolName())
             )
 
             return response
@@ -419,7 +419,7 @@ export class ToolExecutor {
                 state,
                 { ...execShape, ...errorAnalyticsProperties(classification, error), ...execMetrics.commandMeta },
                 intentMeta,
-                this.servedToolDescription(metricTool, state)
+                this.servedToolDescription(metricTool)
             )
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -501,7 +501,7 @@ export class ToolExecutor {
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
                   }
                 : tool
         )
