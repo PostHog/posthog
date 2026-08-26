@@ -28,10 +28,47 @@ const MACHO_MAGICS: [[u8; 4]; 4] = [
     [0xbe, 0xba, 0xfe, 0xca],
 ];
 
+/// The result of a `inject_release_id` walk.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct InjectionOutcome {
+    /// Binaries whose marker was overwritten with the release id.
+    pub patched: usize,
+    /// Binaries left untouched because they carry a real code signature the CLI cannot reproduce.
+    pub skipped_signed: usize,
+}
+
+/// How injection treats a Mach-O code signature.
+#[derive(Clone, Copy, Debug)]
+pub struct SigningPolicy {
+    /// Re-sign the Mach-O ad-hoc after injecting, so macOS runs it. `false` (`--no-resign`) leaves
+    /// it unsigned for a later signing step.
+    pub resign: bool,
+    /// Inject even a binary that carries a real signature the CLI cannot reproduce. The CLI does not
+    /// re-sign it (an ad-hoc re-sign would make it non-distributable), so it is left with an invalid
+    /// signature for you to re-sign with your own identity. `false` (default) leaves such a binary
+    /// untouched and skips it. Only meaningful when `resign` is `true`; `--no-resign` already
+    /// injects every binary without re-signing.
+    pub inject_over_real_signature: bool,
+}
+
 /// Overwrite the marker slot with `release_id` in every native binary under `directory` that
-/// carries it; returns how many were patched. The overwrite is fixed-width and leaves the build id
-/// (Mach-O `LC_UUID`, ELF `.note.gnu.build-id`) untouched, so the uploaded symbols still match.
-pub fn inject_release_id(directory: &Path, release_id: &str, resign: bool) -> Result<usize> {
+/// carries it. The overwrite is fixed-width and leaves the build id (Mach-O `LC_UUID`, ELF
+/// `.note.gnu.build-id`) untouched, so the uploaded symbols still match. By default a Mach-O that
+/// carries a real (non-ad-hoc) signing identity is left untouched instead: injecting would
+/// invalidate a signature the CLI cannot reproduce, and it re-signs only ad-hoc, which is not
+/// distributable — so it keeps the binary shippable and skips it (reported in `skipped_signed`).
+/// `policy.inject_over_real_signature` injects those anyway but does not re-sign them, leaving the
+/// invalid signature for the caller to re-sign; `--no-resign` (`policy.resign == false`) injects
+/// every binary without re-signing.
+pub fn inject_release_id(
+    directory: &Path,
+    release_id: &str,
+    policy: SigningPolicy,
+) -> Result<InjectionOutcome> {
+    let SigningPolicy {
+        resign,
+        inject_over_real_signature,
+    } = policy;
     let id = release_id.as_bytes();
     if id.len() != SLOT_LEN {
         bail!(
@@ -40,7 +77,7 @@ pub fn inject_release_id(directory: &Path, release_id: &str, resign: bool) -> Re
         );
     }
 
-    let mut patched = 0usize;
+    let mut outcome = InjectionOutcome::default();
     for entry in WalkDir::new(directory).follow_links(true) {
         let entry = match entry {
             Ok(entry) => entry,
@@ -57,47 +94,67 @@ pub fn inject_release_id(directory: &Path, release_id: &str, resign: bool) -> Re
         let Ok(mut data) = fs::read(path) else {
             continue;
         };
+        // Not one of ours: no marker slot, so leave it alone silently.
+        if slot_offsets(&data).is_empty() {
+            continue;
+        }
+        let macho = is_macho(&data);
+        // A real (non-ad-hoc) signature is one the CLI cannot reproduce. This only matters when we
+        // would re-sign (the default); with `--no-resign` the caller signs the binary themselves.
+        let real_signed = macho && resign && macho_has_real_signature(path);
+        // By default, rather than break a signed, shippable binary, leave it untouched and skip it.
+        // `inject_over_real_signature` opts in to injecting anyway; even then we do not ad-hoc
+        // re-sign it, because that would replace the real identity with a non-distributable one.
+        if real_signed && !inject_over_real_signature {
+            warn!(
+                "Not injecting a release id into {}: it has a real code signature the CLI cannot \
+                 reproduce. Injecting would invalidate it, and an ad-hoc re-sign would make it \
+                 non-distributable, so it keeps its signature and reports no release. Run the \
+                 upload before your signing step, pass --no-resign and sign after, or pass \
+                 --inject-signed to inject anyway and re-sign it yourself.",
+                path.display()
+            );
+            outcome.skipped_signed += 1;
+            continue;
+        }
+        // Do not ad-hoc re-sign a real-signed binary we force-injected: the caller re-signs it.
+        let resign_this = resign && !real_signed;
         // A slot that already holds `id` is still written and re-signed below. Cargo hardlinks
         // `target/<profile>/<bin>` to `deps/<bin>-<hash>`, and `codesign` re-signs into a new
         // inode, which splits that link: after the first path is re-signed, its twin still holds
         // the injected bytes with the now-invalid signature. Only a second write and re-sign of
         // the twin — which the walk reaches as a path of its own — makes it runnable again, so
         // "already injected" must never short-circuit into a skip.
-        if patch_all_slots(&mut data, id) {
-            let macho = is_macho(&data);
-            // Check the signature before overwriting the file, so we can tell whether re-signing
-            // ad-hoc would strip a real identity.
-            let had_real_signature = macho && resign && macho_has_real_signature(path);
-            match fs::write(path, &data) {
-                Ok(()) => {
-                    // Editing a Mach-O invalidates its code signature and macOS won't run it.
-                    if macho && resign {
-                        if had_real_signature {
-                            warn!(
-                                "{} was signed with a real identity, which injecting invalidated; \
-                                 it was re-signed ad-hoc and is no longer distributable. Inject \
-                                 before your signing step, or pass --no-resign and sign after.",
-                                path.display()
-                            );
-                        }
-                        resign_macho(path)?;
-                    } else if macho {
-                        info!(
-                            "Skipped re-signing {} (--no-resign); sign it before running on macOS",
-                            path.display()
-                        );
-                    }
-                    info!("Injected release id into {}", path.display());
-                    patched += 1;
+        patch_all_slots(&mut data, id);
+        match fs::write(path, &data) {
+            Ok(()) => {
+                // Editing a Mach-O invalidates its code signature and macOS won't run it.
+                if macho && resign_this {
+                    resign_macho(path)?;
+                } else if real_signed {
+                    warn!(
+                        "Injected a release id into {}, but its real code signature is now invalid \
+                         and the CLI did not re-sign it (an ad-hoc re-sign would make it \
+                         non-distributable). Re-sign it with your own identity before you run or \
+                         distribute it.",
+                        path.display()
+                    );
+                } else if macho {
+                    info!(
+                        "Skipped re-signing {} (--no-resign); sign it before running on macOS",
+                        path.display()
+                    );
                 }
-                Err(e) => warn!(
-                    "Found the release marker in {} but could not write it back: {e}",
-                    path.display()
-                ),
+                info!("Injected release id into {}", path.display());
+                outcome.patched += 1;
             }
+            Err(e) => warn!(
+                "Found the release marker in {} but could not write it back: {e}",
+                path.display()
+            ),
         }
     }
-    Ok(patched)
+    Ok(outcome)
 }
 
 /// Native binaries under `directory` whose marker slot holds an injected (non-placeholder) release
@@ -381,7 +438,11 @@ mod tests {
     fn rejects_a_release_id_that_is_not_a_36_byte_uuid() {
         // An empty directory, so nothing is scanned even if the check ever moved after the walk.
         let dir = tempfile::tempdir().unwrap();
-        let err = inject_release_id(dir.path(), "too-short", true).unwrap_err();
+        let policy = SigningPolicy {
+            resign: true,
+            inject_over_real_signature: false,
+        };
+        let err = inject_release_id(dir.path(), "too-short", policy).unwrap_err();
         assert!(err.to_string().contains("expected 36"));
     }
 }

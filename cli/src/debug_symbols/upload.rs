@@ -10,7 +10,7 @@ use crate::{
         symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload, MAX_FILE_SIZE},
     },
     debug_symbols::{discover, package_dsym_bundles, report_problems},
-    release_injection::{inject_release_id, injected_binaries},
+    release_injection::{inject_release_id, injected_binaries, SigningPolicy},
     sourcemaps::args::{pack_version, ReleaseArgs, ReleaseMode, UploadConflictArgs},
     utils::git::get_git_info,
 };
@@ -57,6 +57,14 @@ pub struct Args {
     /// binary itself after upload (e.g. a notarized build), so its real signature is not replaced.
     #[arg(long, default_value_t = false)]
     pub no_resign: bool,
+
+    /// With `--release-mode=event`, inject the release id even into a binary that already carries a
+    /// real code signature the CLI cannot reproduce. By default such a binary is left untouched
+    /// (it stays distributable but reports no release). With this flag it is injected, which
+    /// invalidates its signature; the CLI does not re-sign it, so re-sign it with your own identity
+    /// before you run or distribute it.
+    #[arg(long, default_value_t = false)]
+    pub inject_signed: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -67,6 +75,7 @@ pub fn upload(args: &Args) -> Result<()> {
         include_source,
         release_mode,
         no_resign,
+        inject_signed,
     } = args;
     let release_args = release.resolve_info_plist()?;
 
@@ -168,18 +177,32 @@ pub fn upload(args: &Args) -> Result<()> {
         ReleaseMode::Event => match created_release {
             Some(release) => {
                 let release_id = release.id.to_string();
-                let patched = inject_release_id(&directory, &release_id, !*no_resign)?;
-                if patched == 0 {
+                let policy = SigningPolicy {
+                    resign: !*no_resign,
+                    inject_over_real_signature: *inject_signed,
+                };
+                let outcome = inject_release_id(&directory, &release_id, policy)?;
+                if outcome.patched > 0 {
+                    info!(
+                        "Injected release {release_id} into {} binary/binaries; symbol sets upload release-independent",
+                        outcome.patched
+                    );
+                }
+                if outcome.skipped_signed > 0 {
+                    warn!(
+                        "Left {} signed binary/binaries untouched (see warnings above): they keep \
+                         their real signature and stay distributable, but report no release. Run \
+                         the upload before your signing step, or pass --no-resign and sign after.",
+                        outcome.skipped_signed
+                    );
+                }
+                if outcome.patched == 0 && outcome.skipped_signed == 0 {
                     warn!(
                         "--release-mode=event created release {release_id}, but found no PostHog \
                          release marker under {} to inject it into, so exceptions will report no \
                          release. Link an SDK that supports release injection (posthog-rs 0.26+) \
                          and point --directory at that build's output.",
                         directory.display()
-                    );
-                } else {
-                    info!(
-                        "Injected release {release_id} into {patched} binary/binaries; symbol sets upload release-independent"
                     );
                 }
             }
@@ -269,6 +292,12 @@ mod tests {
     fn resigns_by_default_and_no_resign_opts_out() {
         assert!(!parse_upload(&[]).no_resign);
         assert!(parse_upload(&["--no-resign"]).no_resign);
+    }
+
+    #[test]
+    fn skips_signed_binaries_by_default_and_inject_signed_opts_in() {
+        assert!(!parse_upload(&[]).inject_signed);
+        assert!(parse_upload(&["--inject-signed"]).inject_signed);
     }
 
     #[test]
