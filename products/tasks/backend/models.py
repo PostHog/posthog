@@ -100,6 +100,10 @@ class TaskOwnershipChangedError(RuntimeError):
     pass
 
 
+class InvalidTaskOriginError(ValueError):
+    pass
+
+
 class Channel(TeamScopedRootMixin):
     """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
@@ -579,6 +583,15 @@ class Task(DeletedMetaFields, models.Model):
             )
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
+
+            effective_environment = environment or TaskRun.Environment.CLOUD
+            if (
+                effective_environment == TaskRun.Environment.CLOUD
+                and task.origin_product not in Task.OriginProduct.values
+            ):
+                raise InvalidTaskOriginError(
+                    "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud."
+                )
 
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
