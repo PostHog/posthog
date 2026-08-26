@@ -20,6 +20,7 @@ from posthog.clickhouse.query_tagging import (
     Feature,
     HogQLFeatures,
     Product,
+    ProductKey,
     QueryTags,
     TemporalTags,
     add_fallback_query_tags,
@@ -30,6 +31,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tags,
     is_api_key_access_method,
     reset_query_tags,
+    resolve_product,
     tag_contains_user_hogql,
     tag_queries,
     tags_context,
@@ -110,16 +112,24 @@ def test_failure_on_incorrect_type(field, value):
 
 @parameterized.expand(
     [
-        # (input, expected stored value) — the client `productKey` is a free-form string.
-        ("api", "api"),  # a Product member
-        ("actions", "actions"),  # a ProductKey member, not a Product
-        ("athena", None),  # unknown product — dropped, not raised
+        # The client `productKey` is a free-form string, so it can name a product we do not enumerate.
+        ("api", Product.API),  # a Product member
+        ("actions", ProductKey.ACTIONS),  # a ProductKey member, not a Product
+        ("athena", None),  # unknown product — resolves to None so the caller skips tagging
     ]
 )
-def test_unknown_product_is_dropped_not_raised(product, expected):
+def test_resolve_product_maps_known_and_drops_unknown(value, expected):
+    assert resolve_product(value) == expected
+
+
+def test_unknown_product_does_not_erase_existing_tag():
+    # An unknown `productKey` must not overwrite a product tag already set upstream (e.g. ENDPOINTS).
     reset_query_tags()
-    tag_queries(product=product)
-    assert get_query_tag_value("product") == expected
+    tag_queries(product=Product.ENDPOINTS)
+    resolved = resolve_product("athena")
+    if resolved is not None:
+        tag_queries(product=resolved)
+    assert get_query_tag_value("product") == "endpoints"
 
 
 def test_session_id_accepts_non_uuid_strings():

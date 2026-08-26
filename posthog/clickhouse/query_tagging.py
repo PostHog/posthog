@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 # from posthog.schema_enums import PersonsOnEventsMode
 import structlog
 from cachetools import cached
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 from posthog.schema_enums import NodeKind, ProductKey
 
@@ -93,6 +93,22 @@ class Product(StrEnum):
 
     BILLING = "billing"
     INTERNAL = "internal"  # for internal use only
+
+
+def resolve_product(value: str | Product | ProductKey | None) -> Product | ProductKey | None:
+    # The client `productKey` is an open string, so it can name a product we do not
+    # enumerate. Callers use this to skip tagging an unknown value — the strict `product`
+    # field would raise on it, and a cosmetic tag must never fail the query.
+    if value is None or isinstance(value, (Product, ProductKey)):
+        return value
+    try:
+        return Product(value)
+    except ValueError:
+        pass
+    try:
+        return ProductKey(value)
+    except ValueError:
+        return None
 
 
 class Feature(StrEnum):
@@ -545,27 +561,6 @@ class QueryTags(BaseModel):
     service_name: Optional[str] = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
-
-    @field_validator("product", mode="before")
-    @classmethod
-    def _drop_unknown_product(cls, value: Any) -> Any:
-        # A client sends `productKey` as a free-form string, so it can name a product we
-        # do not enumerate. Drop the unknown value instead of raising — a cosmetic query
-        # tag must never fail the request.
-        if value is None or isinstance(value, (Product, ProductKey)):
-            return value
-        # Only a string is a valid client value. A non-string is an internal caller bug, so
-        # let pydantic reject it like every other tag field instead of silently dropping it.
-        if not isinstance(value, str):
-            return value
-        try:
-            return Product(value)
-        except ValueError:
-            pass
-        try:
-            return ProductKey(value)
-        except ValueError:
-            return None
 
     def update(self, **kwargs):
         for field, value in kwargs.items():

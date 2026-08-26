@@ -122,7 +122,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, resolve_product, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
@@ -2115,7 +2115,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.productKey:
                     product_key = tags.productKey
                     posthoganalytics.tag("product_key", product_key)
-                    tag_queries(product=tags.productKey)
+                    # `productKey` is an open string, so skip an unrecognized value instead of
+                    # tagging it — the strict `product` field would raise and 500 the query.
+                    resolved_product = resolve_product(tags.productKey)
+                    if resolved_product is not None:
+                        tag_queries(product=resolved_product)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
