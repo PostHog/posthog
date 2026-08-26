@@ -66,6 +66,9 @@ export function openResolveReportDialog({
                     info="Optional. A link to the fix helps anyone who reads this report later."
                 >
                     <LemonTextArea
+                        // stopPropagation keeps Enter in this multi-line note from reaching the dialog
+                        // form and resolving the report (and closing its PR) mid-sentence.
+                        stopPropagation
                         placeholder="Link to the pull request or commit, or what fixed it."
                         maxLength={4000}
                         minRows={3}
