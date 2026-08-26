@@ -40,18 +40,28 @@ describe('ReportCard', () => {
     })
     afterEach(cleanup)
 
-    // The redesign gives a row one action; the legacy list keeps Archive and the "Review" label.
+    // The redesign gives a row one action and leaves the status / actionability chips to the section
+    // headers; the legacy list keeps Archive, the "Review" label, and the chips.
     it.each([
         [true, 'View report', false],
         [false, 'Review', true],
-    ])('with the redesign flag %p shows %p and archive=%p on a report without a PR', (redesign, label, archive) => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
-        })
-        const { getByText, queryByText } = render(<ReportCard report={makeReport()} />)
-        expect(getByText(label)).toBeInTheDocument()
-        expect(queryByText('Archive') !== null).toBe(archive)
-    })
+    ])(
+        'with the redesign flag %p shows %p and archive=chips=%p on a report without a PR',
+        (redesign, label, legacyChrome) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+                [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
+            })
+            const report = makeReport({
+                status: SignalReportStatus.CANDIDATE,
+                actionability: 'immediately_actionable',
+            })
+            const { getByText, queryByText } = render(<ReportCard report={report} />)
+            expect(getByText(label)).toBeInTheDocument()
+            expect(queryByText('Archive') !== null).toBe(legacyChrome)
+            expect(queryByText('Queued') !== null).toBe(legacyChrome)
+            expect(queryByText('Actionable') !== null).toBe(legacyChrome)
+        }
+    )
 
     it('links the card to the report detail by default', () => {
         const { container } = render(<ReportCard report={makeReport()} />)

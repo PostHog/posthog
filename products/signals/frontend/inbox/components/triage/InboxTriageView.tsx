@@ -20,9 +20,7 @@ import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
 } from '../../utils/reportPresentation'
-import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
-import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag, InboxCardSourceMeta } from '../cards/ReportCard'
 
 /**
@@ -81,7 +79,6 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const title = displayConventionalCommitTitle(report.title, 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const showStatus = !isStatusRedundantWithActionability(report.status, report.actionability)
 
     return (
         <article
@@ -89,11 +86,8 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
             className="flex max-h-full w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary shadow-sm"
             data-attr="inbox-triage-card"
         >
-            <div className="flex flex-none flex-wrap items-center gap-2 px-6 pt-4">
+            <div className="flex flex-none items-center px-6 pt-4">
                 <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
-                <div className="flex-1" />
-                {showStatus && <SignalReportStatusBadge status={report.status} />}
-                {report.actionability && <SignalReportActionabilityBadge actionability={report.actionability} />}
             </div>
 
             <div className="flex flex-none items-center gap-3 px-6 pt-3">

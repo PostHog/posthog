@@ -104,7 +104,9 @@ export function InboxCardSourceMeta({
  * Under the redesign the inbox list gives a row one action, the one that moves the report forward;
  * archiving lives in the report detail pane and the bulk selection bar, where what is being
  * dismissed is in full view. Other surfaces that embed this card can still opt into a row-level
- * Archive via `onArchive`. With the flag off every row keeps its Archive button and "Review" label.
+ * Archive via `onArchive`. The redesign also drops the status and actionability chips: the section a
+ * row sits in (Needs a PR, Not actionable, ...) already says what they said. With the flag off every
+ * row keeps its chips, its Archive button, and the "Review" label.
  */
 export function ReportCard({
     report,
@@ -216,10 +218,12 @@ export function ReportCard({
                 <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none">
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
-                    {!hasPr && !isStatusRedundantWithActionability(report.status, report.actionability) && (
-                        <SignalReportStatusBadge status={report.status} />
-                    )}
-                    {!hasPr && report.actionability && (
+                    {!hasPr &&
+                        !redesign &&
+                        !isStatusRedundantWithActionability(report.status, report.actionability) && (
+                            <SignalReportStatusBadge status={report.status} />
+                        )}
+                    {!hasPr && !redesign && report.actionability && (
                         <SignalReportActionabilityBadge actionability={report.actionability} />
                     )}
                     {dismissalLabel && (
