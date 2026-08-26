@@ -611,8 +611,9 @@ class PostHogPreviewStack:
             f"cd {self.repo_dir} && "
             "rm -rf frontend/dist && mkdir -p frontend/dist staticfiles && "
             "tar xzf frontend/dist.tgz -C frontend/dist --strip-components=1 && "
-            f"{compose} run --rm -T -e STATIC_COLLECTION=1 -e STATIC_PRECOMPRESS=0 "
-            "-e SKIP_SERVICE_VERSION_REQUIREMENTS=1 web python manage.py collectstatic --noinput"
+            f"{compose} run --rm -T "
+            "-e STATIC_COLLECTION=1 -e STATIC_PRECOMPRESS=0 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
+            "web python manage.py collectstatic --noinput"
         )
         self.backend.run_long(script, name="frontend", timeout=900)
         timing.stage("frontend swap done (collectstatic done)")
