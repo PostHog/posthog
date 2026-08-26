@@ -89,6 +89,26 @@ describe('organizationLogic', () => {
         })
     })
 
+    describe('pending deletion takes priority over inactive lockout', () => {
+        beforeEach(async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: { id: 'WXYZ', is_pending_deletion: true, is_active: false } },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+        })
+
+        it('does not redirect to deactivated when already on the prefixed pending path', async () => {
+            // With both flags set the inactive guard must not fire on the pending path, or the two guards loop.
+            const prefixedPath = `/project/121874${urls.organizationPendingDeletion()}`
+            router.actions.push(prefixedPath)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.location.pathname).toEqual(prefixedPath)
+        })
+    })
+
     describe('if organization not in POSTHOG_APP_CONTEXT', () => {
         // In production POSTHOG_APP_CONTEXT is always present (server-rendered in posthog/templates/head.html),
         // but current_user is null for unauthenticated requests such as shared dashboards (see posthog/utils.py).
