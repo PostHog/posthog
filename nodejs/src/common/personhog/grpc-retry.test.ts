@@ -99,12 +99,12 @@ describe('withRetry', () => {
             withRetry(
                 () => {
                     callCount++
-                    throw new ConnectError('unavailable', Code.Unavailable)
+                    throw new ConnectError('internal', Code.Internal)
                 },
                 'test-client',
                 'test-method'
             )
-        ).rejects.toMatchObject({ code: Code.Unavailable, isRetriable: true })
+        ).rejects.toMatchObject({ code: Code.Internal, isRetriable: true })
         // 1 initial + 2 retries = 3 total (default maxRetries=2)
         expect(callCount).toBe(3)
     })
@@ -115,7 +115,7 @@ describe('withRetry', () => {
             withRetry(
                 () => {
                     callCount++
-                    throw new ConnectError('unavailable', Code.Unavailable)
+                    throw new ConnectError('internal', Code.Internal)
                 },
                 'test-client',
                 'test-method',
@@ -124,5 +124,33 @@ describe('withRetry', () => {
         ).rejects.toThrow(ConnectError)
         // 1 initial + 4 retries = 5 total
         expect(callCount).toBe(5)
+    })
+
+    // A rolling restart of the proxy in front of personhog returns Unavailable or
+    // Unknown for several seconds; the wider transport budget rides it out so the
+    // blip does not surface as an unhandled exception.
+    it.each([
+        ['Unavailable', Code.Unavailable],
+        ['Unknown', Code.Unknown],
+    ])('retries %s with the wider transport budget', async (_name, code) => {
+        jest.useFakeTimers()
+        try {
+            let callCount = 0
+            const settled = withRetry(
+                () => {
+                    callCount++
+                    throw new ConnectError('transport blip', code)
+                },
+                'test-client',
+                'test-method'
+            ).catch((e: unknown) => e)
+            await jest.runAllTimersAsync()
+            const error = await settled
+            expect(error).toMatchObject({ code, isRetriable: true })
+            // 1 initial + 7 transport retries = 8 total (transportMaxRetries=7)
+            expect(callCount).toBe(8)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

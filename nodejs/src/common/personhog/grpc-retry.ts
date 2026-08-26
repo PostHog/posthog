@@ -13,8 +13,20 @@ const RETRYABLE_CODES = new Set([
     Code.Unknown,
 ])
 
+// Transport-level failures come from the proxy or load balancer in front of
+// personhog, not from personhog itself. A rolling restart makes them last
+// several seconds: a terminating backend maps to Unavailable, and a response
+// with no content-type header (what a proxy returns mid-restart) maps to
+// Unknown. These need a wider retry budget than an application-level error, so
+// a normal rollout does not surface as an unhandled exception.
+const TRANSPORT_LEVEL_CODES = new Set([Code.Unavailable, Code.Unknown])
+
 function isRetryable(error: unknown): error is ConnectError {
     return error instanceof ConnectError && RETRYABLE_CODES.has(error.code)
+}
+
+function isTransportLevel(error: unknown): error is ConnectError {
+    return error instanceof ConnectError && TRANSPORT_LEVEL_CODES.has(error.code)
 }
 
 /**
@@ -32,8 +44,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Retry a function with exponential backoff on transient gRPC errors.
- * Non-transient errors are thrown immediately.
+ * Retry a function with capped exponential backoff on transient gRPC errors.
+ * Non-transient errors are thrown immediately. Transport-level failures get a
+ * wider budget (`transportMaxRetries`) so a normal rollout is absorbed here
+ * instead of surfacing to the caller.
  *
  * Emits `personhog_retries_total` on each retried attempt and
  * `personhog_terminal_errors_total` when retries are exhausted or the
@@ -45,15 +59,16 @@ export async function withRetry<T>(
     client: string,
     method: string,
     maxRetries: number = 2,
-    initialDelayMs: number = 50
+    initialDelayMs: number = 50,
+    transportMaxRetries: number = 7,
+    maxDelayMs: number = 1000
 ): Promise<T> {
-    let lastError: unknown
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    for (let attempt = 0; ; attempt++) {
         try {
             return await fn()
         } catch (error) {
-            lastError = error
-            if (!isRetryable(error) || attempt === maxRetries) {
+            const limit = isTransportLevel(error) ? transportMaxRetries : maxRetries
+            if (!isRetryable(error) || attempt >= limit) {
                 personhogTerminalErrorsTotal.inc({ method, client, error_type: grpcErrorType(error) })
                 logger.error(`[${client}/${method}] gRPC call failed`, {
                     error: String(error),
@@ -63,11 +78,10 @@ export async function withRetry<T>(
             personhogRetriesTotal.inc({ method, client, error_type: grpcErrorType(error) })
             logger.warn(`[${client}/${method}] Retryable gRPC error, retrying`, {
                 attempt: attempt + 1,
-                maxRetries,
+                maxRetries: limit,
                 error: String(error),
             })
-            await sleep(initialDelayMs * Math.pow(2, attempt))
+            await sleep(Math.min(initialDelayMs * Math.pow(2, attempt), maxDelayMs))
         }
     }
-    throw lastError
 }
