@@ -178,18 +178,17 @@ export class HogTransformerService implements HogTransformer {
 
         // A transformation ran but returned a malformed event. Its changes are discarded and the
         // event keeps its previous values. Record a signal so this silent loss is detectable.
-        const recordInvalidResult = (hogFunction: HogFunctionType, reason: string): void => {
+        const recordInvalidResult = (
+            hogFunction: HogFunctionType,
+            result: CyclotronJobInvocationResult,
+            reason: string
+        ): void => {
             hogTransformationInvalidResults.inc({ reason })
-            this.hogFunctionMonitoringService.queueAppMetric(
-                {
-                    team_id: event.team_id,
-                    app_source_id: hogFunction.id,
-                    metric_kind: 'failure',
-                    metric_name: 'failed',
-                    count: 1,
-                },
-                'hog_function'
-            )
+            // Mark the buffered invocation as failed rather than queueing a 'failed' app metric here.
+            // The batch flush derives one terminal metric per invocation, treating a finished result
+            // with no error as 'succeeded'. Queueing 'failed' here as well would count the same
+            // invocation twice with opposite outcomes, so its success rate would not move.
+            result.error = `Invalid transformation result: ${reason}`
             invalidTransformations.push({ id: hogFunction.id, name: hogFunction.name, reason })
         }
 
@@ -284,7 +283,7 @@ export class HogTransformerService implements HogTransformer {
                 logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                     function_id: hogFunction.id,
                 })
-                recordInvalidResult(hogFunction, 'missing_properties')
+                recordInvalidResult(hogFunction, result, 'missing_properties')
                 continue
             }
 
@@ -297,7 +296,7 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         event: transformedEvent.event,
                     })
-                    recordInvalidResult(hogFunction, 'invalid_event_name')
+                    recordInvalidResult(hogFunction, result, 'invalid_event_name')
                     continue
                 }
                 event.event = transformedEvent.event
@@ -309,7 +308,7 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         distinct_id: transformedEvent.distinct_id,
                     })
-                    recordInvalidResult(hogFunction, 'invalid_distinct_id')
+                    recordInvalidResult(hogFunction, result, 'invalid_distinct_id')
                     continue
                 }
                 event.distinct_id = transformedEvent.distinct_id
