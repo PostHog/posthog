@@ -7,7 +7,6 @@ rules:
       owners: team-web-analytics
     - match: ['/common/symbol_data/', '/cymbal-proto/', '/cymbal/']
       owners: team-error-tracking
-    # No team owns this crate yet, so reviews route to an individual until a team takes it on.
     - match: '/embedding-worker/'
       owners: '@oliverb123'
     - match: ['/feature-flags/', '/flags-consumer/', '/flags_read_store_migrations/']
