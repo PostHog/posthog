@@ -8,6 +8,10 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "type": {
+            "description": "Only return templates of this kind: 'email' (messages) or 'function' (saved webhook/destination steps). Omit to return all.",
+            "type": "string"
         }
     },
     "type": "object"

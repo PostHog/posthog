@@ -83,9 +83,33 @@
                     ],
                     "description": "Email message content. Replaced as a whole on update — send the complete object."
                 },
+                "function": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "inputs": {
+                                    "description": "Input values keyed by the template's inputs_schema keys, e.g. {\"url\": {\"value\": \"https://...\"}}. Inputs marked secret in the template schema are never stored — they are stripped on save and must be re-entered after inserting the template into a workflow."
+                                },
+                                "mappings": {
+                                    "description": "Optional per-event mappings copied into the workflow step along with the inputs."
+                                },
+                                "template_id": {
+                                    "description": "Hog function template the saved step is based on, e.g. 'template-webhook' or 'template-slack'. Must be an existing destination-type template.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["template_id"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Saved webhook/destination step content. Present for 'function'-type templates. Replaced as a whole on update — send the complete object."
+                },
                 "templating": {
                     "default": "liquid",
-                    "description": "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n* `liquid` - liquid",
+                    "description": "Templating language for the template content. Always 'liquid' — Liquid tags pass through verbatim.\n\n* `liquid` - liquid",
                     "enum": ["liquid"],
                     "type": "string"
                 }
@@ -121,7 +145,7 @@
             "type": "string"
         },
         "type": {
-            "description": "Message channel of the template. Currently 'email'.",
+            "description": "Kind of template: 'email' (a message) or 'function' (a saved webhook/destination step).",
             "maxLength": 24,
             "type": "string"
         }
