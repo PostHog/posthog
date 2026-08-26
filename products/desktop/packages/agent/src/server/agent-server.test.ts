@@ -2844,48 +2844,6 @@ describe("AgentServer HTTP Mode", () => {
       expect(resetTurnMessages).not.toHaveBeenCalled();
     }, 20000);
 
-    it("declines steering while a compaction is in flight", async () => {
-      const s = createServer();
-      await s.start();
-      const prompt = vi.fn();
-      const serverInternals = s as unknown as {
-        activeOwnedTurnCount: number;
-        session: { clientConnection: { prompt: typeof prompt } };
-        createCloudClient(payload: unknown): {
-          extNotification(
-            method: string,
-            params: Record<string, unknown>,
-          ): Promise<void>;
-        };
-      };
-      serverInternals.activeOwnedTurnCount = 1;
-      serverInternals.session.clientConnection.prompt = prompt;
-      await serverInternals
-        .createCloudClient({})
-        .extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
-          status: "compacting",
-        });
-
-      const response = await fetch(`http://localhost:${port}/command`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${createToken()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "steer-during-compaction",
-          method: "user_message",
-          params: { content: "change direction", steer: true },
-        }),
-      });
-
-      await expect(response.json()).resolves.toMatchObject({
-        result: { stopReason: "steer_declined", steered: false },
-      });
-      expect(prompt).not.toHaveBeenCalled();
-    }, 20000);
-
     it("declines steering while an initial or resume turn is starting", async () => {
       const s = createServer();
       await s.start();

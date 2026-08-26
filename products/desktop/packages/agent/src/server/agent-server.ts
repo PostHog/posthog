@@ -558,7 +558,6 @@ export class AgentServer {
   private preSessionEvents: Record<string, unknown>[] = [];
   private deliveredMessageIds = new Set<string>();
   private pendingCompactContinuationMessageIds = new Set<string>();
-  private compactionInFlight = false;
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
   private activeStartupTurnCount = 0;
@@ -1315,7 +1314,6 @@ export class AgentServer {
 
           if (params.steer === true) {
             if (
-              !this.compactionInFlight &&
               this.activeOwnedTurnCount > 0 &&
               this.activeStartupTurnCount === 0
             ) {
@@ -2240,9 +2238,6 @@ export class AgentServer {
       return await operation();
     } finally {
       this.activeOwnedTurnCount -= 1;
-      if (this.activeOwnedTurnCount === 0) {
-        this.compactionInFlight = false;
-      }
     }
   }
 
@@ -4894,7 +4889,6 @@ ${commonInstructions}
         method: string,
         params: Record<string, unknown>,
       ) => {
-        this.trackCompactionState(method, params);
         this.logger.debug("Extension notification", { method, params });
       },
       sessionUpdate: async (params: {
@@ -5475,22 +5469,6 @@ ${commonInstructions}
       return;
     }
     this.broadcastEvent(event);
-  }
-
-  private trackCompactionState(
-    method: string,
-    params: Record<string, unknown>,
-  ): void {
-    if (method === POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY) {
-      this.compactionInFlight = false;
-      return;
-    }
-    if (method !== POSTHOG_NOTIFICATIONS.STATUS) return;
-    if (params.status === "compacting") {
-      this.compactionInFlight = params.isComplete !== true;
-    } else if (params.status === "compacting_failed") {
-      this.compactionInFlight = false;
-    }
   }
 
   private broadcastTurnComplete(stopReason: string): void {
