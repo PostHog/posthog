@@ -161,7 +161,7 @@ export function SQLEditor({
     }, [mode, tabId, queryPaneDefaultHeight])
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
-        null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
+        null as [Monaco, importedEditor.IStandaloneCodeEditor | null] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
 
@@ -173,12 +173,16 @@ export function SQLEditor({
 
     // The SQL/BI view toggle and the sidebar "Query" action tear the editor widget down and
     // rebuild it while this scene stays mounted. Nothing else clears the cached reference, so the
-    // logic keeps a disposed editor as a prop. Drop it the instant Monaco disposes it.
+    // logic keeps a disposed editor as a prop. Drop only the editor the instant Monaco disposes it,
+    // and keep the Monaco namespace: `Uri` and `editor.createModel`/`getModel` stay valid after the
+    // widget is gone, so createTab can still prepare a tab before the next editor mounts.
     useEffect(() => {
         if (!editor) {
             return
         }
-        const disposable = editor.onDidDispose(() => setMonacoAndEditor(null))
+        const disposable = editor.onDidDispose(() =>
+            setMonacoAndEditor((current) => (current ? [current[0], null] : null))
+        )
         return () => disposable.dispose()
     }, [editor])
 
