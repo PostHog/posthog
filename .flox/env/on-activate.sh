@@ -386,9 +386,11 @@ fi
 # ~/.npm cache) gives a concurrently sandboxed dependency a window to swap the
 # binary before it is published. Every input this npm run reads is pinned away
 # from sandboxed writers: the cache lives inside the write-denied store, the
-# user config is disabled (and the sandbox write-denies ~/.npmrc anyway), and
-# cwd plus a fresh package.json keep the project-config lookup inside the
-# store instead of walking up to $HOME.
+# user config is disabled (and the sandbox write-denies ~/.npmrc anyway), cwd
+# plus a fresh package.json keep the project-config lookup inside the store
+# instead of walking up to $HOME, and npm and flock themselves are resolved
+# into the immutable Nix store rather than taken from a PATH that contains
+# sandbox-writable dirs.
 _GREPTILE_VERSION="3.4.1"
 _GREPTILE_STORE="$HOME/.config/posthog/tools/greptile/$_GREPTILE_VERSION"
 _GREPTILE_BIN="$_GREPTILE_STORE/node_modules/.bin/greptile"
@@ -398,11 +400,24 @@ _GREPTILE_CACHE="$_GREPTILE_STORE/.npm-cache"
 _install_greptile() {
   # Explicit `|| return`/`|| exit`: callers suppress errexit, so a failed
   # install would otherwise fall through and stamp the broken state.
+  #
+  # PATH here contains sandbox-writable dirs: the venv bin prepended above, and
+  # $FLOX_ENV/bin, which the repo's .flox/run symlink can be repointed at. A
+  # planted npm or flock shim there would run outside the sandbox. Resolve both
+  # through /usr/bin/readlink (a system binary, not PATH-resolved) and refuse
+  # anything that lands outside the immutable Nix store. The resolved npm's
+  # shebang is Nix-patched to the store node, so it does not look up node via
+  # PATH; the coreutils below come from the pinned system dirs.
+  local npm_bin flock_bin
+  npm_bin="$(/usr/bin/readlink -f "$(command -v npm)" 2>/dev/null)" || return 1
+  flock_bin="$(/usr/bin/readlink -f "$(command -v flock)" 2>/dev/null)" || return 1
+  [[ "$npm_bin" == /nix/store/* && "$flock_bin" == /nix/store/* ]] || return 1
+  local PATH="/usr/bin:/bin"
   mkdir -p "$_GREPTILE_STORE" || return 1
   (
     # The store is shared across checkouts, so serialize concurrent
     # activations (fresh worktrees) installing the same version.
-    flock 9 || exit 1
+    "$flock_bin" 9 || exit 1
     if [[ ! -x "$_GREPTILE_BIN" || ! -f "$_GREPTILE_STAMP" ]]; then
       cd "$_GREPTILE_STORE" || exit 1
       # Rebuild from a clean slate: npm trusts an existing node_modules tree,
@@ -410,7 +425,7 @@ _install_greptile() {
       # write-denied) must not survive into the published result.
       rm -rf node_modules package-lock.json "$_GREPTILE_CACHE" || exit 1
       echo '{}' > package.json || exit 1
-      NPM_CONFIG_USERCONFIG=/dev/null npm install --cache "$_GREPTILE_CACHE" \
+      NPM_CONFIG_USERCONFIG=/dev/null "$npm_bin" install --cache "$_GREPTILE_CACHE" \
         --ignore-scripts --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1
       rm -rf "$_GREPTILE_CACHE"
       [[ -x "$_GREPTILE_BIN" ]] || exit 1
