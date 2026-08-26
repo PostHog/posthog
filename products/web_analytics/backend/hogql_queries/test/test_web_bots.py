@@ -20,7 +20,9 @@ from products.web_analytics.backend.hogql_queries.web_bots import WebBotsTableQu
 GOOGLEBOT_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 HUMAN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-_STRING = re.compile(r"'(?:[^']|'')*'")
+# ClickHouse string literals escape with backslashes, so an apostrophe in a bot pattern
+# or label arrives as \' rather than ''. See posthog/hogql/escape_sql.py.
+_STRING = re.compile(r"'(?:[^'\\]|\\.)*'")
 _LITERAL_ARRAY = re.compile(rf"\[{_STRING.pattern}(?:, {_STRING.pattern}){{19,}}\]")
 _IP_GROUP_MATCH = re.compile(r"\bin\(tupleElement\(IPv6CIDRToRange\(")
 _ADJACENT_IP_GROUPS = re.compile(r"/\* bot ip range \*/(?:, /\* bot ip range \*/)+")
