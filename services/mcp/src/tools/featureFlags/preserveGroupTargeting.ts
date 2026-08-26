@@ -115,6 +115,18 @@ function pickMatchingExisting(
     return candidates.find((c) => c.type === 'group') ?? candidates[0]
 }
 
+/** The group index a set or flag effectively targets: its own explicit index, else the inherited fallback. */
+function resolveGroupIndex(
+    pinnedToPerson: boolean,
+    explicitIndex: unknown,
+    fallbackIndex: number | undefined
+): number | undefined {
+    if (pinnedToPerson) {
+        return undefined
+    }
+    return isPresentGroupIndex(explicitIndex) ? explicitIndex : fallbackIndex
+}
+
 function mergeProperty(
     incoming: FlagProperty,
     existingProp: FlagProperty | undefined,
@@ -172,13 +184,13 @@ function mergeConditionGroup(
     const hasExplicitNonGroupProperty =
         Array.isArray(incoming.properties) &&
         incoming.properties.some((p) => isPresentType(p?.type) && p.type !== 'group')
-    if (hasExplicitNonGroupProperty && !isPresentGroupIndex(out.aggregation_group_type_index)) {
+    const propertiesPinSetToPerson =
+        hasExplicitNonGroupProperty && !isPresentGroupIndex(out.aggregation_group_type_index)
+    if (propertiesPinSetToPerson) {
         out.aggregation_group_type_index = null
     }
 
-    const pinnedToPerson =
-        options.incomingClearsAggregation ||
-        (hasExplicitNonGroupProperty && !isPresentGroupIndex(out.aggregation_group_type_index))
+    const pinnedToPerson = options.incomingClearsAggregation || propertiesPinSetToPerson
 
     // Prefer explicit incoming aggregation; only fill when the key is absent
     // (not when it is explicitly null = person aggregation).
@@ -192,11 +204,7 @@ function mergeConditionGroup(
         out.aggregation_group_type_index = propertySourceGroup.aggregation_group_type_index
     }
 
-    const effectiveGroupIndex = pinnedToPerson
-        ? undefined
-        : isPresentGroupIndex(out.aggregation_group_type_index)
-          ? out.aggregation_group_type_index
-          : flagLevelGroupIndex
+    const effectiveGroupIndex = resolveGroupIndex(pinnedToPerson, out.aggregation_group_type_index, flagLevelGroupIndex)
 
     if (Array.isArray(out.properties)) {
         const sameGroupByKey = new Map<string, FlagProperty[]>()
@@ -262,15 +270,14 @@ export function preserveGroupTargetingFilters(
         result.aggregation_group_type_index = existingFlagGroupIndex
     }
 
-    const effectiveFlagGroupIndex = incomingClearsAggregation
-        ? undefined
-        : isPresentGroupIndex(result.aggregation_group_type_index)
-          ? result.aggregation_group_type_index!
-          : existingFlagGroupIndex
-
-    const crossGroupPropsByKey = indexExistingProperties(existing)
+    const effectiveFlagGroupIndex = resolveGroupIndex(
+        incomingClearsAggregation,
+        result.aggregation_group_type_index,
+        existingFlagGroupIndex
+    )
 
     if (Array.isArray(result.groups)) {
+        const crossGroupPropsByKey = indexExistingProperties(existing)
         const existingGroups = Array.isArray(existing?.groups) ? existing!.groups! : []
         result.groups = result.groups.map((group, index) => {
             if (!group || typeof group !== 'object') {

@@ -34,9 +34,9 @@ export default function updateFeatureFlagPreservingGroups(): ToolBase<ZodObjectA
     const generated = GENERATED_TOOLS['update-feature-flag']!()
 
     return {
-        name: 'update-feature-flag',
-        // Keep generated schema so tool-schema snapshots and OpenAPI regen stay aligned.
-        schema: generated.schema,
+        // Spread the generated tool so its name, schema and any field codegen adds later
+        // carry over untouched; only the handler is replaced.
+        ...generated,
         handler: async (context: Context, params: UpdateParams) => {
             if (params.filters === undefined) {
                 return generated.handler(context, params as never)

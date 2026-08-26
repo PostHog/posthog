@@ -62,13 +62,18 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[0]?.aggregation_group_type_index).toBeNull()
     })
 
-    it('honors explicit null aggregation_group_type_index (person targeting)', () => {
+    // A person-aggregated set cannot hold a group property. A key that matches an existing
+    // group property must not resurrect one, or the API error names a field the agent never sent.
+    it.each([
+        { name: 'a key with no existing match', key: 'email', operator: 'icontains', value: '@acme.com' },
+        { name: 'a key matching an existing group property', key: 'plan', operator: 'exact', value: 'pro' },
+    ])('honors explicit null aggregation_group_type_index for $name', ({ key, operator, value }) => {
         const incoming = {
             aggregation_group_type_index: null,
             groups: [
                 {
                     aggregation_group_type_index: null,
-                    properties: [{ key: 'email', operator: 'icontains', value: '@acme.com' }],
+                    properties: [{ key, operator, value }],
                     rollout_percentage: 100,
                 },
             ],
@@ -77,29 +82,6 @@ describe('preserveGroupTargetingFilters', () => {
         const merged = preserveGroupTargetingFilters(existingGroupFlag, incoming)
 
         expect(merged?.aggregation_group_type_index).toBeNull()
-        expect(merged?.groups?.[0]?.aggregation_group_type_index).toBeNull()
-        // Must not group-infer property types when aggregation was cleared.
-        expect(merged?.groups?.[0]?.properties?.[0]?.type).toBeUndefined()
-        expect(merged?.groups?.[0]?.properties?.[0]?.group_type_index).toBeUndefined()
-    })
-
-    it('does not restore group type onto an untyped property when aggregation is cleared to person', () => {
-        const incoming = {
-            aggregation_group_type_index: null,
-            groups: [
-                {
-                    aggregation_group_type_index: null,
-                    properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
-                    rollout_percentage: 100,
-                },
-            ],
-        }
-
-        const merged = preserveGroupTargetingFilters(existingGroupFlag, incoming)
-
-        // 'plan' key-matches the existing group property, but a person-aggregated set
-        // cannot hold a group property, so leaving the type unset keeps the API error
-        // pointed at the property the agent actually sent.
         expect(merged?.groups?.[0]?.aggregation_group_type_index).toBeNull()
         expect(merged?.groups?.[0]?.properties?.[0]?.type).toBeUndefined()
         expect(merged?.groups?.[0]?.properties?.[0]?.group_type_index).toBeUndefined()
@@ -253,7 +235,10 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[0]?.properties?.[0]?.value).toBe('pro')
     })
 
-    it('prefers operator match then group-typed candidate for duplicate keys', () => {
+    it.each([
+        { name: 'the operator matches the group-typed candidate', operator: 'exact', value: 'New Name' },
+        { name: 'the operator matches neither candidate', operator: 'regex', value: '.*' },
+    ])('restores group type and index for a duplicate key when $name', ({ operator, value }) => {
         const existing = {
             aggregation_group_type_index: 0,
             groups: [
@@ -275,7 +260,7 @@ describe('preserveGroupTargetingFilters', () => {
         const incoming = {
             groups: [
                 {
-                    properties: [{ key: 'name', operator: 'exact', value: 'New Name' }],
+                    properties: [{ key: 'name', operator, value }],
                     rollout_percentage: 100,
                 },
             ],
@@ -285,41 +270,7 @@ describe('preserveGroupTargetingFilters', () => {
 
         expect(merged?.groups?.[0]?.properties?.[0]?.type).toBe('group')
         expect(merged?.groups?.[0]?.properties?.[0]?.group_type_index).toBe(0)
-        expect(merged?.groups?.[0]?.properties?.[0]?.value).toBe('New Name')
-    })
-
-    it('prefers group-typed candidate when operator matches neither duplicate key', () => {
-        const existing = {
-            aggregation_group_type_index: 0,
-            groups: [
-                {
-                    properties: [
-                        { key: 'name', type: 'person', operator: 'icontains', value: 'acme' },
-                        {
-                            key: 'name',
-                            type: 'group',
-                            group_type_index: 0,
-                            operator: 'exact',
-                            value: 'Acme Corp',
-                        },
-                    ],
-                    rollout_percentage: 100,
-                },
-            ],
-        }
-        const incoming = {
-            groups: [
-                {
-                    properties: [{ key: 'name', operator: 'regex', value: '.*' }],
-                    rollout_percentage: 100,
-                },
-            ],
-        }
-
-        const merged = preserveGroupTargetingFilters(existing, incoming)
-
-        expect(merged?.groups?.[0]?.properties?.[0]?.type).toBe('group')
-        expect(merged?.groups?.[0]?.properties?.[0]?.group_type_index).toBe(0)
+        expect(merged?.groups?.[0]?.properties?.[0]?.value).toBe(value)
     })
 
     it('does not copy set-level aggregation onto a newly appended condition set', () => {
