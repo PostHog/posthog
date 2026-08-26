@@ -27,6 +27,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_CHART_CATEGORIES,
+    MAX_CHARTS_PER_REPORT,
     EnrichedPromptSpec,
     QueryPlan,
     RelevantEvents,
@@ -87,7 +89,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 4
+AI_QUERY_PLAN_VERSION = 5
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -551,7 +553,12 @@ def generate_query_plan(
 
     rendered_prompt = render_prompt(
         resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT),
-        {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt},
+        {
+            "context_blob": context_blob,
+            "cleaned_prompt": cleaned_prompt,
+            "max_charts": str(MAX_CHARTS_PER_REPORT),
+            "max_categories": str(MAX_CHART_CATEGORIES),
+        },
     )
 
     result = llm.invoke([("system", rendered_prompt)])

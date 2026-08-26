@@ -402,6 +402,21 @@ class TestFetchTableStats:
         cursor.execute.side_effect = RuntimeError("boom")
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
 
+    def test_transient_connection_death_skips_retry_and_capture(self, impl, cursor, logger, mocker):
+        # A dead connection (DB-Lib 20047) must not retry sp_spaceused on the same dead cursor
+        # (which raises a confusing secondary InterfaceError) or get captured as tracked noise —
+        # it's the same self-recovering error `retry_on_transient_connection_error` already
+        # handles at the schema-discovery layer.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.execute.side_effect = pymssql.OperationalError(
+            20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
+        assert cursor.execute.call_count == 1
+        capture.assert_not_called()
+
 
 class TestFetchAverageRowSize:
     """MSSQL's `fetch_average_row_size` samples a separate `TOP 100` query
