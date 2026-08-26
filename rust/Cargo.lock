@@ -4423,13 +4423,16 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-retry",
+ "tokio-stream",
  "tokio-util",
+ "tonic 0.12.3",
  "tower 0.4.13",
  "tower-http 0.5.2",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
  "url",
+ "usage-ingestion-proto",
  "uuid",
 ]
 

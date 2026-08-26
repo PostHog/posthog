@@ -100,6 +100,10 @@ class TaskOwnershipChangedError(RuntimeError):
     pass
 
 
+class InvalidTaskOriginError(ValueError):
+    pass
+
+
 class Channel(TeamScopedRootMixin):
     """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
@@ -577,6 +581,15 @@ class Task(DeletedMetaFields, models.Model):
             )
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
+
+            effective_environment = environment or TaskRun.Environment.CLOUD
+            if (
+                effective_environment == TaskRun.Environment.CLOUD
+                and task.origin_product not in Task.OriginProduct.values
+            ):
+                raise InvalidTaskOriginError(
+                    "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud."
+                )
 
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
@@ -3004,6 +3017,12 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
     vm_runtime = models.BooleanField(
         default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
+    )
+    sandbox_backend = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Provider backend (e.g. hogland); NULL for Modal. Hogland's TTL is idle, not absolute",
     )
 
     # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
