@@ -198,6 +198,32 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
+
+- **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
+  unified GitHub App fan-out (`posthog/urls.py:GITHUB_WEBHOOK_HANDLERS`), alongside the tasks backstop
+  and Loops. The handler reuses the trigger endpoint's gates (allowlist → team → run user → busy-guard)
+  through a shared plain function, plus two webhook-only gates: the payload's `installation.id` must map
+  to the configured team's GitHub integration, and the sender must be a human or the Stamphog App bot (the
+  Action's allowed-labeler policy; other bots are ignored and logged, the Action's comment-and-strip is
+  not ported). Same `start_review_pr_workflow(trigger_source="label")`.
+- **Why now.** Stage 5 rejected "Path B" (webhook) because it diverged from Stamphog's CI model; Stamphog
+  is hosted and webhook-driven since #70407, so that reason is gone. The Action costs a CI run per
+  label, carries a secret in Actions, and only works in repos that ship the workflow file. ReviewHog
+  already publishes through the PostHog GitHub App installation token, so that App's inlet is the
+  right one — **not** a standalone endpoint like Stamphog's (a different App, hence a different secret).
+- **Constraints.** Core's dispatcher owns verification, parsing, and per-handler delivery dedup — the
+  handler does none of that. It has no retry either, and GitHub does not redeliver on its own, so the
+  handler hands off to a retried Celery task that starts the workflow (Stamphog's shape) rather than
+  starting it in-request; until that hand-off is in, the Action's curl retries are the only durability.
+  `USE_EXISTING` on the deterministic workflow id makes Action + webhook firing together harmless, so
+  the Action stays during rollout and is removed in a follow-up.
+- **Scope fence.** `synchronize` / comment signals, when they come, **extend this handler module**:
+  `synchronize` in the same `pull_request` bucket, comments registered under their own event types
+  (`issue_comment`, `pull_request_review_comment` — the dispatcher routes strictly by `X-GitHub-Event`),
+  all sharing the gates. They do not open a second inlet, and `signal-with-start` / per-PR Schedules
+  wait for the loop workflow itself (nest-then-promote, see "Triggers — GitHub events → turns").
+
 ### ✅ BUILT 2026-08-19 — "Use an existing skill": adopt a team skill as a review skill by copy (grilled 2026-08-19; ADR `adr/0002`)
 
 Users with an existing team skill had no path into ReviewHog short of running the "Create your own" authoring
@@ -2093,6 +2119,8 @@ is unrouted — `webhooks.py:78-143`): **label add → start the loop**; **`sync
 `start_workflow`; in A each is a `signal-with-start`. Two non-negotiables from the existing handler: **dedupe on
 `X-GitHub-Delivery`** + **hand off fast (200/202) to Temporal**, and the **fork guard** (`head.repo == base repo`,
 `webhooks.py:127-133`) before reviewing — and certainly before _implementing_ — on an attacker-influenced head ref.
+_(2026-08-21: the label-add signal lands as a handler in the unified dispatcher; the other two signals extend that
+handler when the loop exists, per the scope fence in the "✅ DECIDED 2026-08-21" entry.)_
 Publish/fetch move off the static `GITHUB_TOKEN` onto the team's installation token (`first_for_team_repository` +
 `get_access_token`, `posthog/models/integration.py:2504-2519`, `github_integration_base.py:1433`) — or the
 maintainer's service-user + project key — when multi-tenant identity is needed; a PR-_review_ POST helper
@@ -2319,7 +2347,8 @@ Modal sandbox + Postgres + DB-synced LLMA skills) — it **cannot** run on a Git
 does. So the label trigger is a **thin GitHub Action** that calls a **PostHog endpoint**, which starts the Temporal
 workflow; the workflow fetches + publishes **server-side** via the GitHub App installation token. Rejected:
 **Path B** (label → the existing `webhooks/github/pr` dispatcher → Temporal, no CI — diverges from the team's
-Stamphog model) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
+Stamphog model; _superseded 2026-08-21, Stamphog is hosted now — see "✅ DECIDED 2026-08-21 — label trigger moves
+onto the GitHub App webhook"_) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
 pipeline just built + hardened).
 
 ```text
@@ -3134,9 +3163,13 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    ReviewHog sandbox session (perspectives, validation, resolution) ran with the context default of **full**
    PostHog MCP access — execute-sql and every write tool — while reading untrusted PR-comment text; no prompt
    ever uses more than `skill-get`/`skill-file-get`. The executor now pins `posthog_mcp_scopes` to
-   `REVIEW_MCP_SCOPES = ["llm_skill:read"]` at both context constructions (internal sandbox-plumbing scopes
-   are re-added by the resolver). A future skill that legitimately needs product data adds its specific read
-   scope with that feature.
+   `REVIEW_MCP_SCOPES = ["llm_skill:read", "user:read"]` at both context constructions (internal sandbox-plumbing
+   scopes are re-added by the resolver). `user:read` is the MCP handshake, not a data grant: the MCP server
+   resolves the calling user (`/api/users/@me/`) when a session opens and refuses the connection without it.
+   The pin shipped on 2026-08-13 with only `llm_skill:read`, so until 2026-08-25 every ReviewHog session
+   (perspectives, blind-spot, validation, resolution) had its MCP connection refused and reviewed without its
+   skill — the agents carry on without MCP instead of failing, so nothing flagged it. A future skill that
+   legitimately needs product data adds its specific read scope with that feature.
    _Same date (fix-commit provenance gate, maintainer decision):_ `commit_on_branch`'s "reachable from the
    branch tip" necessarily accepts every ancestor (later turns and the author push on top mid-run), so a
    steered turn could echo someone's old clean commit and have every check inspect the wrong one. The
@@ -3875,3 +3908,18 @@ resolution died silently at sandbox checkout. Decisions, in one PR:
 Vocabulary added to CONTEXT.md: **Review cycle**, **Busy-guard**. ADR: `adr/0001-resolution-is-a-separate-workflow.md`
 (kept resolution a separate workflow after challenging it — standalone mode, failure isolation, independent
 versioning outweigh the manual seam).
+
+## Sandbox checkout ref: head branch by name (2026-08-25, maintainer decision)
+
+Review sandboxes check out the PR's **head branch by name** again. The 2026-07-15 switch to `pull/N/head` (meant to
+survive a mid-review merge, which deletes the head branch) never worked: the Tasks checkout resolves only
+`refs/heads/<name>`, so the pull ref fell through to a fresh local branch on the base tip and every review
+sandbox investigated the base branch instead of the PR. Invisible while base ≈ PR; loud once the base carried
+later fixes — validators dismissed real findings as "already fixed" because the tree they examined was master.
+The reviewer's findings still came from the diff pasted into its prompt, so review volume never dropped.
+Residual gap (not a loud failure): if a mid-review merge deletes the head branch, the Tasks checkout does not
+raise — `git ls-remote --exit-code --heads origin refs/heads/<name>` returns exit 2 and `checkout_branch_in_sandbox`
+falls back to a fresh branch on the base tip. A later checkout can then still land on the base tree, but only for
+checkouts after the branch is gone, not the whole review as the 2026-07-15 regression did. Closing that window —
+a strict checkout that fails on a missing head branch, or a proper `refs/pull/N/head` fetch — belongs in the Tasks
+checkout, out of scope here.

@@ -52,6 +52,14 @@ The one thing the text does not carry is binary content, which git renders as `B
 There is deliberately no "this file is harmless" rule, and adding one back needs a very good argument.
 Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
 
+The digest carries the one narrow exception, and it is not a gate.
+`detect_ownership` counts each team's files under `products/<name>/frontend/generated/`, and a team whose changed files are all in there is not a digest audience (`backend/logic/audiences.py`).
+`hogli build:openapi` rewrites those types whenever any shared serializer changes anywhere in the repo, so a team owning nothing else in a PR was not touched by it: that is how an error-tracking change reached the product analytics channel.
+Three things keep it from being the harmless-file rule above.
+It decides who hears about a merge, never whether code is safe to approve.
+The root `CLAUDE.md` forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
+And it names one exact directory shape rather than any `generated/` directory, which is the match that would catch hand-editable code elsewhere.
+
 Both sides are read with `compare_diff`, from the base and head shas the run and the payload already fixed.
 That is load-bearing rather than incidental: `get_pr_files` answers for whichever head is live when the request runs, so a contributor could push the approved content, let the comparison run, and push the unreviewed head back.
 Retention must never consult that endpoint.
@@ -151,6 +159,12 @@ narrow:
 - These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
+- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `reviewhog`
+  label) **only** for these runs. A human author reads their own refusal and decides what comes next.
+  A self-driving PR has no such author, and its refusal otherwise sits unread until Inbox triage.
+  In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.
+  The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
+  what the reviewer prompt was told about its own invocation.
 
 ## Trust boundaries
 
@@ -160,13 +174,15 @@ narrow:
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
   it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
   settings — those were configured under a verified binding.
-- Auto-provisioned digest channels arrive **enabled**, a bare Slack name match included. Only
-  workspace members can create a channel, and a digest carries merged PR titles and summaries those
-  same people can read on the PRs, so gating a name match behind a human enable bought a silent
-  no-op — a channel row, no run row, no post, and an info log in a worker pod — rather than
-  protection. The exclusion that stays is the shared-channel one, the only path where a digest
-  leaves the workspace: only the repo's own `digest:` channel skips it, because the `owners.yaml`
-  registry can name a channel for a team the declaring repo does not own.
+- Digest routing is derived every run from the repositories and never stored, so nothing here can
+  go stale silently — and nothing degrades either. A registry that cannot be read stops the whole
+  team's run (`RoutingUnavailable`) rather than falling through to derived channel names: the
+  unreadable repo could be the one every other repo inherits from. A repo that is permanently
+  broken gets switched off, which drops it from the candidate list.
+- A name match binds an audience to a Slack channel nobody chose for it, so the shared-channel
+  guard stays on for it and for registry entries alike — that is the only path where a digest
+  leaves the workspace. Only the repo's own `digest:` channel skips the guard, because the
+  `owners.yaml` registry can name a channel for a team the declaring repo does not own.
 - The app is not a member of a channel it only matched by name, so `post_digest` joins on
   `not_in_channel` and retries the post once. The join is attempted, never gated on the scope:
   `conversations.join` needs `channels:join`, and whether an install granted it is invisible to the
@@ -195,10 +211,10 @@ tells the reviewer that every author owns the code they touched. `pr_provenance`
 is computed in the sandbox from the checkout.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
-refusal costs a ReviewHog handoff and a trigger-label strip over what is a race with CI. It can't
-reuse `Pipeline._only_pending_migration_check`: that method disqualifies on any failing gate other
-than the deny-list, and a migrations deny always drags the tier gate to T2-never with it, so it
-answers False for every PR it exists to catch.
+refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a
+race with CI. It can't reuse `Pipeline._only_pending_migration_check`: that method disqualifies on
+any failing gate other than the deny-list, and a migrations deny always drags the tier gate to
+T2-never with it, so it answers False for every PR it exists to catch.
 
 ## Temporal specifics
 

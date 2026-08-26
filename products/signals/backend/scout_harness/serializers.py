@@ -31,6 +31,7 @@ from posthog.permissions import get_authenticator_scopes
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -623,6 +624,11 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-write timestamp.")
+    expires_at = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.",
+    )
     created_by_run_id = serializers.CharField(
         allow_null=True,
         help_text="Run that wrote this entry, or null if human-authored.",
@@ -665,6 +671,14 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
             "ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result "
             "cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry "
             "from the prior page)."
+        ),
+    )
+    include_expired = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include entries whose `expires_at` has passed. Off by default so a time-boxed memory "
+            "retires itself; turn it on to audit what the fleet remembered and when it lapsed."
         ),
     )
     keys_only = serializers.BooleanField(
@@ -716,6 +730,21 @@ class RememberRequestSerializer(serializers.Serializer):
             "null), not rejected, so the memory write is never lost."
         ),
     )
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a "
+            "window you're watching). After this time the entry drops out of searches, so you "
+            "don't have to come back and forget it. Omit for a durable memory — every write sets "
+            "the whole entry, so omitting it on a later write clears an expiry set earlier."
+        ),
+    )
+
+    def validate_expires_at(self, value: datetime | None) -> datetime | None:
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("expires_at must be in the future")
+        return value
 
 
 class ForgetRequestSerializer(serializers.Serializer):
@@ -1117,6 +1146,16 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "the finding rests on a trend, a spike, or a comparison you already queried."
         ),
     )
+    suggested_prompts = serializers.ListField(
+        required=False,
+        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
+        max_length=MAX_SUGGESTED_PROMPTS,
+        help_text=(
+            "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks "
+            "one to fill the box with it, then sends or edits it. Write the questions your own research "
+            "left open, phrased as the reader would ask them."
+        ),
+    )
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -1199,6 +1238,19 @@ class EditReportRequestSerializer(serializers.Serializer):
             "send an empty list to take them all down."
         ),
     )
+    suggested_prompts = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=serializers.CharField(max_length=MAX_SUGGESTED_PROMPT_LENGTH),
+        max_length=MAX_SUGGESTED_PROMPTS,
+        help_text=(
+            "The full set of follow-up questions the report should offer above its `Ask AI` box. "
+            "Replaces the report's questions rather than adding to them, so send every one you want "
+            "kept. Omit the field (or send null) to leave them untouched, and send an empty list to "
+            "take them down, which is what you want once a rewrite has left them answering the old "
+            "report."
+        ),
+    )
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -1215,6 +1267,14 @@ class EditReportResponseSerializer(serializers.Serializer):
             "How many charts the report now shows, or null if the edit left its charts as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's charts down."
+        ),
+    )
+    suggested_prompts_set = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many questions the report now suggests, or null if the edit left them as they were "
+            "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
+            "report's suggested prompts down."
         ),
     )
 
@@ -1974,18 +2034,39 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
     )
 
 
+class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
+    hog_function_id = serializers.CharField(
+        help_text=(
+            "Id of the CDP destination delivering this scout's reports. Set by the product that "
+            "provisioned it, so it can find that destination again to update or remove it."
+        )
+    )
+
+
 class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
     slack = SignalScoutSlackDestinationSerializer(
         required=False,
         allow_null=True,
         help_text="Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
     )
+    webhook = SignalScoutWebhookDestinationSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The CDP destination another product provisioned for this scout's reports. Null or "
+            "omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the "
+            "reference lives here so the owning product can manage the destination's lifecycle."
+        ),
+    )
 
 
 def _validate_output_destinations(value: dict, context: dict) -> dict:
+    # The webhook reference is a pointer the owning product manages, not a channel Signals delivers
+    # to, so it carries none of the Slack checks below and survives a write that clears Slack.
+    webhook = value.get("webhook") or None
     slack = value.get("slack")
     if slack is None:
-        return {}
+        return {"webhook": webhook} if webhook else {}
 
     project_id = context.get("project_id")
     if not isinstance(project_id, int):
@@ -2016,7 +2097,7 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         if not any(scope in key_scopes for scope in ("task:read", "task:write")):
             raise PermissionDenied("API key missing required scope 'task:read'")
 
-    return {"slack": slack}
+    return {"slack": slack, **({"webhook": webhook} if webhook else {})}
 
 
 _SCOUT_TAGS_HELP_TEXT = (
@@ -2253,6 +2334,16 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule."
         ),
     )
+    source_product = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The product that stood this scout up for one of its own objects. Null when a person created it.",
+    )
+    source_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the owning object in `source_product`, e.g. a Replay Vision scanner id.",
+    )
     output_destinations = SignalScoutOutputDestinationsSerializer(
         read_only=True,
         help_text="Destinations that receive each finding or report this scout emits. Empty when none is configured.",
@@ -2362,6 +2453,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "status_changed_at",
             "auto_pause_exempt",
             "tags",
+            "source_product",
+            "source_id",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use tracing::warn;
 
@@ -29,6 +31,10 @@ pub struct ResolveArgs {
     #[arg(long)]
     pub build: Option<String>,
 
+    /// Read missing release fields from an iOS Info.plist file.
+    #[arg(long, value_name = "PATH")]
+    pub info_plist: Option<PathBuf>,
+
     /// Print the whole release as JSON instead of only its id
     #[arg(long, default_value_t = false)]
     pub json: bool,
@@ -40,6 +46,7 @@ impl From<&ResolveArgs> for ReleaseArgs {
             name: args.name.clone(),
             version: args.version.clone(),
             build: args.build.clone(),
+            info_plist: args.info_plist.clone(),
             // Only consulted when a symbol set upload is rejected over its release, and this
             // command uploads nothing.
             skip_release_on_fail: true,
@@ -60,12 +67,12 @@ pub fn resolve(args: &ResolveArgs) -> Result<()> {
         );
         if args.json {
             // Empty stdout is not valid JSON, so emit `null` for a --json consumer to parse.
-            println!("null");
+            crate::safe_println!("null");
         }
         return Ok(());
     };
 
-    println!("{}", render_release(&release, args.json)?);
+    crate::safe_println!("{}", render_release(&release, args.json)?);
     Ok(())
 }
 

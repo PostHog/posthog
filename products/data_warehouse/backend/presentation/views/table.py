@@ -21,9 +21,11 @@ from posthog.event_usage import EventSource, get_event_source, is_wizard_self_dr
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
@@ -131,7 +133,17 @@ class CredentialSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
         ]
-        extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
+        extra_kwargs = {
+            "access_key": {
+                "write_only": "True",
+                "help_text": "Access key ID for the bucket the files live in (an AWS access key ID, "
+                "a Google Cloud HMAC key, or the equivalent for another S3-compatible store).",
+            },
+            "access_secret": {
+                "write_only": "True",
+                "help_text": "Secret for the access key. Stored encrypted and never returned by the API.",
+            },
+        }
 
 
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -145,7 +157,12 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
-    options = serializers.DictField(required=False, default=dict)
+    options = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Per-format read options. The only one read today is `csv_allow_double_quotes` "
+        "(boolean), for CSV files that quote fields with doubled quotes.",
+    )
     created_via = serializers.ChoiceField(
         choices=DataWarehouseTable.CreatedVia.choices,
         read_only=True,
@@ -190,6 +207,24 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "external_schema",
             "user_access_level",
         ]
+        extra_kwargs = {
+            "name": {
+                "help_text": "Name the table is queried by in HogQL. Must be unique within the project, "
+                "and must start with a letter or underscore and contain only letters, numbers, and "
+                "underscores.",
+            },
+            "format": {
+                "help_text": "File format of the objects the pattern matches. Every matched file must "
+                "share this format.",
+            },
+            "url_pattern": {
+                "help_text": "HTTPS URL of the files to read, with `*` matching any part of a path "
+                "segment (e.g. `https://your-bucket.s3.amazonaws.com/orders/*.parquet`). All matched "
+                "files are read as one table. Must point at a bucket you control, not at PostHog's "
+                "own storage.",
+            },
+            "deleted": {"help_text": "Whether the table is soft-deleted and hidden from queries."},
+        }
 
     @extend_schema_field(serializers.CharField())
     def get_hogql_name(self, table: DataWarehouseTable) -> str:
@@ -318,7 +353,9 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
             # Otherwise a user with denied table could create another one with colliding name.
             if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
-                raise serializers.ValidationError("A table with this name already exists.")
+                raise serializers.ValidationError(
+                    "A table or view with this name already exists. Choose a different name."
+                )
 
         return name
 
@@ -705,7 +742,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         database = Database.create_for(team_id=self.team_id, user=cast(User, request.user))
         if database.has_table(table_name) or get_view_or_table_by_name(self.team_id, table_name):
             return response.Response(
-                status=status.HTTP_400_BAD_REQUEST, data={"message": "A table with this name already exists."}
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "A table or view with this name already exists. Choose a different name."},
             )
 
         # Confirm the object is actually there before creating a table that would fail every query.

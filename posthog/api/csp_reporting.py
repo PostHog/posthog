@@ -53,7 +53,7 @@ class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response.Response({"error": "properties is required"}, status=400)
 
         user = cast(User, request.user)
-        llm_response = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(  # type: ignore[call-overload]
+        llm_response = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(
             model="gpt-4.1-2025-04-14",
             temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
             messages=[{"role": "system", "content": prompt}, {"role": "user", "content": properties}],

@@ -75,6 +75,7 @@ export interface IDashboardsService {
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord>;
   // File a rendering error against the build that threw it (best-effort).
   reportError(input: {
     id: string;

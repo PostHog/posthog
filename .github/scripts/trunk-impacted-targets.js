@@ -300,8 +300,6 @@ const TRIPWIRE_RULES = [
     // product's own owners.yaml is not here: it keeps its product lane.
     ['tools/owners/**', UNIVERSAL],
     ['owners.yaml', UNIVERSAL],
-    // pytest-split timing data, and nothing else reads it.
-    ['.test_durations', PYTHON],
     // Left universal: the quarantine list covers all three suites at once, and
     // playwright.quarantine.ts and replay-shared's jest.config.js read it
     // alongside pytest, so an entry for a flaky frontend test moves a
@@ -601,15 +599,17 @@ function listProducts(repoRoot) {
         .sort()
 }
 
-// A product is isolated when it declares a backend:contract-check script, the
-// same signal turbo-discover uses to decide a product can be tested alone.
-// Non-isolated products have no narrowed contract, so a change in one is
-// treated as a core change.
-function listIsolatedProducts(repoRoot, products) {
+// A product is isolated when it declares a backend:contract-check script *and*
+// narrows that task's inputs in its own turbo.json, the same pair turbo-discover
+// uses to decide a product can be tested alone. The script alone leaves the task
+// on the root definition, whose inputs are the product's whole backend, so the
+// product claims a contract surface it never narrowed. Non-isolated products
+// have no narrowed contract, so a change in one is treated as a core change.
+function listIsolatedProducts(repoRoot, products, contractSurfaces) {
     const isolated = new Set()
     for (const product of products) {
         const manifest = path.join(repoRoot, 'products', product, 'package.json')
-        if (!fs.existsSync(manifest)) {
+        if (!fs.existsSync(manifest) || !contractSurfaces.has(product)) {
             continue
         }
         const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'))
@@ -1339,10 +1339,16 @@ function addNodeLanes(targets) {
 // package imports them. The python half cannot narrow below every python lane:
 // the stubs are checked into posthog/, which is py:core, and py:core covers
 // every product lane by construction.
+// stubDir names the checked-in stub directory when it differs from the tree
+// name; the consistency test reads it. ingestion's node stubs land in
+// nodejs/src/common/generated/ingestion-worker, not .../ingestion.
 const PROTO_TREES = new Map([
     ['cymbal', { crates: ['cymbal-proto'], domains: [] }],
+    ['ingestion', { crates: ['ingestion-worker-proto'], domains: [NODE], stubDir: 'ingestion-worker' }],
     ['kafka_assigner', { crates: ['kafka-assigner-proto'], domains: [] }],
     ['personhog', { crates: ['personhog-proto'], domains: [PYTHON, NODE] }],
+    ['prometheus', { crates: ['prometheus-rw-proto'], domains: [] }],
+    ['usage_ingestion', { crates: ['usage-ingestion-proto'], domains: [NODE], stubDir: 'usage-ingestion' }],
 ])
 
 // A file directly under proto/ is treated as impacting all trees, since it's not
@@ -1840,12 +1846,13 @@ function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
     const rustGraph = loadRustGraph(repoRoot)
+    const contractSurfaces = loadContractSurfaces(repoRoot, products)
     return {
         products,
         cargoLockCrates: parseCargoLockCrates(process.env[CARGO_LOCK_CRATES_ENV], rustGraph),
         services: listServices(repoRoot),
-        isolatedProducts: listIsolatedProducts(repoRoot, products),
-        contractSurfaces: loadContractSurfaces(repoRoot, products),
+        isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
+        contractSurfaces,
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
@@ -1864,6 +1871,8 @@ module.exports = {
     globToRegExp,
     isProductDirectory,
     isTripwire,
+    listIsolatedProducts,
+    loadContractSurfaces,
     parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,

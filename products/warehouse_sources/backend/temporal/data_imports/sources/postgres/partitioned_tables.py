@@ -13,6 +13,7 @@ from psycopg import sql
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    BinaryColumnReporter,
     QueryTimeoutException,
     restrict_schema_to_columns,
     table_from_iterator,
@@ -378,6 +379,8 @@ def iterate_date_windows(
     is_connection_dropped: Callable[[BaseException], bool] = lambda _e: False,
     clock: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
+    primary_keys: Optional[list[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
 ) -> Iterator[pa.Table]:
     """Walk the incremental field in adaptive bounded windows.
 
@@ -447,7 +450,12 @@ def iterate_date_windows(
                         if not rows:
                             break
                         rows_this_window += len(rows)
-                        yield table_from_iterator((dict(zip(columns, r)) for r in rows), window_schema)
+                        yield table_from_iterator(
+                            (dict(zip(columns, r)) for r in rows),
+                            window_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
         except psycopg.errors.QueryCanceled:
             qc_retries += 1
             if qc_retries > WINDOW_MAX_QUERY_CANCELED_RETRIES or window <= min_window:
@@ -598,6 +606,8 @@ def iterate_partitions(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     db_incremental_field_last_value: Any = None,
     clock: Callable[[], float] = time.monotonic,
+    primary_keys: Optional[list[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
 ) -> Iterator[pa.Table]:
     """One query per child partition. Used when partition key is not the incremental
     field or when the field isn't ordered (string/uuid)."""
@@ -637,7 +647,12 @@ def iterate_partitions(
                     if not rows:
                         break
                     rows_this_partition += len(rows)
-                    yield table_from_iterator((dict(zip(columns, r)) for r in rows), partition_schema)
+                    yield table_from_iterator(
+                        (dict(zip(columns, r)) for r in rows),
+                        partition_schema,
+                        primary_keys=primary_keys,
+                        binary_reporter=binary_reporter,
+                    )
 
         elapsed = clock() - p_start
         total_rows += rows_this_partition

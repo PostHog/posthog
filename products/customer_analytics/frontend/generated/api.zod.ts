@@ -85,6 +85,103 @@ export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ z
     })
     .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
 
+export const accountTrackRulesUpdateBodyVersionMin = 0
+
+export const AccountTrackRulesUpdateBody = /* @__PURE__ */ zod.object({
+    schema_version: zod.number(),
+    version: zod.number().min(accountTrackRulesUpdateBodyVersionMin),
+    enabled: zod.boolean(),
+    groups: zod.array(
+        zod.object({
+            conditions: zod.array(
+                zod.object({
+                    field: zod.object({
+                        kind: zod
+                            .enum(['account_field', 'custom_property'])
+                            .describe('\* `account_field` - account_field\n\* `custom_property` - custom_property'),
+                        field: zod
+                            .union([
+                                zod
+                                    .enum([
+                                        'name',
+                                        'external_id',
+                                        'created_at',
+                                        'updated_at',
+                                        'churned_at',
+                                        'ignored_at',
+                                        'stripe_customer_id',
+                                        'hubspot_deal_id',
+                                        'billing_id',
+                                        'sfdc_id',
+                                        'zendesk_id',
+                                    ])
+                                    .describe(
+                                        '\* `name` - name\n\* `external_id` - external_id\n\* `created_at` - created_at\n\* `updated_at` - updated_at\n\* `churned_at` - churned_at\n\* `ignored_at` - ignored_at\n\* `stripe_customer_id` - stripe_customer_id\n\* `hubspot_deal_id` - hubspot_deal_id\n\* `billing_id` - billing_id\n\* `sfdc_id` - sfdc_id\n\* `zendesk_id` - zendesk_id'
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        definition_id: zod.uuid().nullish(),
+                    }),
+                    operator: zod.string(),
+                    values: zod.array(zod.unknown()).optional(),
+                })
+            ),
+        })
+    ),
+})
+
+export const accountTrackRulesPreviewCreateBodyVersionMin = 0
+
+export const AccountTrackRulesPreviewCreateBody = /* @__PURE__ */ zod.object({
+    schema_version: zod.number(),
+    version: zod.number().min(accountTrackRulesPreviewCreateBodyVersionMin),
+    enabled: zod.boolean(),
+    groups: zod.array(
+        zod.object({
+            conditions: zod.array(
+                zod.object({
+                    field: zod.object({
+                        kind: zod
+                            .enum(['account_field', 'custom_property'])
+                            .describe('\* `account_field` - account_field\n\* `custom_property` - custom_property'),
+                        field: zod
+                            .union([
+                                zod
+                                    .enum([
+                                        'name',
+                                        'external_id',
+                                        'created_at',
+                                        'updated_at',
+                                        'churned_at',
+                                        'ignored_at',
+                                        'stripe_customer_id',
+                                        'hubspot_deal_id',
+                                        'billing_id',
+                                        'sfdc_id',
+                                        'zendesk_id',
+                                    ])
+                                    .describe(
+                                        '\* `name` - name\n\* `external_id` - external_id\n\* `created_at` - created_at\n\* `updated_at` - updated_at\n\* `churned_at` - churned_at\n\* `ignored_at` - ignored_at\n\* `stripe_customer_id` - stripe_customer_id\n\* `hubspot_deal_id` - hubspot_deal_id\n\* `billing_id` - billing_id\n\* `sfdc_id` - sfdc_id\n\* `zendesk_id` - zendesk_id'
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        definition_id: zod.uuid().nullish(),
+                    }),
+                    operator: zod.string(),
+                    values: zod.array(zod.unknown()).optional(),
+                })
+            ),
+        })
+    ),
+})
+
+export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
+    idempotency_key: zod.uuid(),
+    confirmed: zod.boolean(),
+})
+
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
@@ -101,6 +198,10 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                website_domain: zod
+                    .string()
+                    .nullish()
+                    .describe('Primary company website hostname used for account identity and logo lookup.'),
                 email_domains: zod
                     .array(zod.string())
                     .optional()
@@ -122,7 +223,7 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
+                "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -190,6 +291,10 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                website_domain: zod
+                    .string()
+                    .nullish()
+                    .describe('Primary company website hostname used for account identity and logo lookup.'),
                 email_domains: zod
                     .array(zod.string())
                     .optional()
@@ -211,7 +316,7 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
+                "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -255,6 +360,10 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                website_domain: zod
+                    .string()
+                    .nullish()
+                    .describe('Primary company website hostname used for account identity and logo lookup.'),
                 email_domains: zod
                     .array(zod.string())
                     .optional()
@@ -276,7 +385,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
+                "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -981,6 +1090,12 @@ export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.o
 export const featureRequestsCreateBodyTitleMax = 400
 
 export const featureRequestsCreateBodyDescriptionDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSummaryDefault = ``
+export const featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault = ``
+export const featureRequestsCreateBodyEvidenceOneEvidenceSourceMax = 200
+
+export const featureRequestsCreateBodyEvidenceOneSourceUrlDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSourceUrlMax = 2000
 
 export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
@@ -995,6 +1110,39 @@ export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Client-generated key that makes retries return the original request instead of creating a duplicate.'
         ),
+    evidence: zod
+        .union([
+            zod.object({
+                summary: zod
+                    .string()
+                    .default(featureRequestsCreateBodyEvidenceOneSummaryDefault)
+                    .describe("Internal summary of this account's request evidence."),
+                customer_quote: zod
+                    .string()
+                    .default(featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault)
+                    .describe('Customer quote kept with this evidence item.'),
+                evidence_source: zod
+                    .string()
+                    .max(featureRequestsCreateBodyEvidenceOneEvidenceSourceMax)
+                    .describe('Free-form name of the source where this evidence was recorded.'),
+                source_url: zod
+                    .url()
+                    .max(featureRequestsCreateBodyEvidenceOneSourceUrlMax)
+                    .default(featureRequestsCreateBodyEvidenceOneSourceUrlDefault)
+                    .describe('Optional HTTP or HTTPS link to the source.'),
+                requested_on: zod.iso
+                    .date()
+                    .nullish()
+                    .describe('Date the account made the request, or null when unknown.'),
+                image_ids: zod
+                    .array(zod.uuid())
+                    .optional()
+                    .describe('Uploaded image IDs from this project to attach in display order.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional first evidence item to create for the selected account.'),
 })
 
 export const featureRequestsUpdateBodyTitleMax = 400

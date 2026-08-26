@@ -9,11 +9,12 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.db.utils import OperationalError
+from django.db.utils import InternalError, OperationalError
 from django.test import override_settings
 
 import requests
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
 
@@ -31,26 +32,76 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 
 
 class TestRowTrackingRedisUnavailable(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                redis_exceptions.ConnectionError(
+                    "Error connecting to redis:6379. Temporary failure in name resolution."
+                ),
+            ),
+            (
+                "misconf_error",
+                redis_exceptions.ResponseError(
+                    "MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist to "
+                    "disk. Commands that may modify the data set are disabled, because this instance is configured "
+                    "to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). "
+                    "Please check the Redis logs for details about the RDB error."
+                ),
+            ),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_setup_row_tracking_does_not_raise_when_redis_is_unreachable(self):
+    async def test_setup_row_tracking_does_not_raise_when_redis_is_unreachable(self, _name, exception):
         # get_async_client only builds a lazy client - the ping is the first real
         # connection attempt. If it fails, the client must not be used again, or the
         # next command (hset) raises the same connection error, this time uncaught.
+        # Row tracking already fails open when redis is unavailable, so a Redis-side
+        # error (unreachable, or refusing writes because RDB snapshotting failed) is a
+        # transient infra blip, not a bug, and must not be reported to error tracking.
         unreachable_client = mock.AsyncMock()
-        unreachable_client.ping.side_effect = redis_exceptions.ConnectionError(
-            "Error connecting to redis:6379. Temporary failure in name resolution."
-        )
+        unreachable_client.ping.side_effect = exception
 
         with (
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
                 return_value=unreachable_client,
             ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture_exception,
             override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
         ):
             await setup_row_tracking(self.team.pk, str(uuid.uuid4()))
 
         unreachable_client.hset.assert_not_called()
+        mock_capture_exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_setup_row_tracking_does_not_raise_when_redis_rejects_writes(self):
+        # A successful ping doesn't guarantee the following command succeeds - e.g. Redis
+        # can refuse writes (MISCONF) if it can't persist an RDB snapshot to disk. That
+        # must fail open like the unreachable-at-ping case above, not crash the sync.
+        read_only_client = mock.AsyncMock()
+        read_only_client.ping.return_value = True
+        read_only_client.hset.side_effect = redis_exceptions.ResponseError(
+            "MISCONF Redis is configured to save RDB snapshots, but it's currently "
+            "unable to persist to disk. Commands that may modify the data set are "
+            "disabled, because this instance is configured to report errors during "
+            "writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). "
+            "Please check the Redis logs for details about the RDB error."
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+                return_value=read_only_client,
+            ),
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        ):
+            await setup_row_tracking(self.team.pk, str(uuid.uuid4()))
+
+        read_only_client.expire.assert_not_called()
 
 
 @pytest.mark.timeout(600)
@@ -244,11 +295,27 @@ class TestRowTracking(BaseTest):
 
         mock_capture_exception.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "operational_error",
+                OperationalError(
+                    'connection failed: connection to server at "127.0.0.1", port 5432 failed: '
+                    "server closed the connection unexpectedly"
+                ),
+            ),
+            (
+                "internal_error",
+                InternalError("cannot execute UPDATE in a read-only transaction"),
+            ),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_row_tracking_fails_open_on_operational_error_without_capturing_exception(self):
-        # A dropped Postgres connection while fetching billing data is a transient infra
-        # blip, not a bug, and must fail open like any other billing-check error without
-        # being reported to error tracking.
+    async def test_row_tracking_fails_open_on_database_error_without_capturing_exception(self, _name, exception):
+        # A dropped Postgres connection, or hitting a read-only replica/failover blip,
+        # while fetching billing data is a transient infra issue, not a bug, and must
+        # fail open like any other billing-check error without being reported to error
+        # tracking.
         source = await self._create_source()
 
         with (
@@ -257,10 +324,7 @@ class TestRowTracking(BaseTest):
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture_exception,
         ):
-            mock_get_billing.side_effect = OperationalError(
-                'connection failed: connection to server at "127.0.0.1", port 5432 failed: '
-                "server closed the connection unexpectedly"
-            )
+            mock_get_billing.side_effect = exception
 
             assert await self._run(source, 10) is False
 

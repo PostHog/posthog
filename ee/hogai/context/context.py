@@ -30,6 +30,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from products.notebooks.backend.facade import api as notebooks_facade
+
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT, cell_guidance_prompt
@@ -368,13 +370,16 @@ class AssistantContextManager(AssistantContextMixin):
         # Format notebooks context
         notebooks_context = ""
         if ui_context.notebooks:
-            from products.notebooks.backend.facade import api as notebooks_facade
-
             from ee.hogai.context.notebook.context import NotebookContext
 
-            # Read once per turn rather than per notebook. The lookup reads `user.organization`,
-            # so it needs a thread with a database connection rather than this coroutine.
-            sql_v2_enabled = await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
+            # Only the inline-AI branch below renders cell guidance, and the lookup costs a thread
+            # handoff and a read of `user.organization`. Skip it when no notebook needs it, and read
+            # it once for the ones that do.
+            sql_v2_enabled = (
+                await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
+                if any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks)
+                else False
+            )
             notebook_texts = []
             for nb in ui_context.notebooks:
                 if nb.markdown_with_insertion_placeholder:

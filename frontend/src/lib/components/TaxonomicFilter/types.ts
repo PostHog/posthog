@@ -296,6 +296,9 @@ export enum TaxonomicFilterGroupType {
     // Like DataWarehouse but restricted to external-source tables (no views/saved queries or self-managed
     // tables) — used by CDP destination/workflow warehouse-row triggers.
     DataWarehouseSourceTables = 'data_warehouse_source_tables',
+    // Materialized views (saved queries with a backing table) — used by CDP destination/workflow
+    // materialized-view triggers, which fire on the rows a view's run writes.
+    DataWarehouseMaterializedViews = 'data_warehouse_materialized_views',
     DataWarehouseProperties = 'data_warehouse_properties',
     DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
@@ -375,6 +378,7 @@ export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
     TaxonomicFilterGroupType.DataWarehouseProperties,
 ])
 

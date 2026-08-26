@@ -1,516 +1,641 @@
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
-import { delay } from '~/common/utils/utils'
 
-import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
-import { FrontierPublisher } from './frontier-publisher'
+import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'
+import {
+    ConfigurationPolicyPass,
+    ConfigurationPolicyService,
+    explicitFreshnessLifetimeMs,
+} from './configuration-policy'
+import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
+import { FetchCandidateLease, FetchCandidateQueue } from './fetch-candidate-queue'
+import { FrontierPublisher, RepublishBatch, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
-import { FetchOutcome, ImageFetchResult, ImageFetcher, RedirectDecision } from './image-fetcher'
+import {
+    FetchOutcome,
+    FetchRefusalReason,
+    ImageFetcher,
+    RequestScheduleBlockReason,
+    TransientFetchOutcome,
+} from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
-import { politenessKey } from './politeness-key'
+import { OriginRequestScheduler } from './origin-request-scheduler'
+import { canonicalizeUrl } from './politeness-key'
 
-/** Why a URL never reached a request. It shares `rate_limited` with the response of the same name, because both mean the site asked us to wait. */
-export type ShedReason = 'breaker_open' | 'rate_limited' | 'deadline' | 'connection_limit'
-
-/** A URL that ran out of hops. The lane records it so it stops coming back. Requirement 12. */
+export type ShedReason =
+    | 'breaker_open'
+    | 'backoff'
+    | 'deadline'
+    | 'connection_limit'
+    | 'origin_map_full'
+    | 'registrable_domain_map_full'
+    | 'low_origin_diversity'
 export const HOPS_EXHAUSTED = 'hops_exhausted'
-
-export type AttemptOutcome = FetchOutcome | ShedReason | typeof HOPS_EXHAUSTED
+export const DELAY_TOO_LONG = 'delay_too_long'
+export type AttemptOutcome =
+    | FetchOutcome
+    | FetchRefusalReason
+    | ShedReason
+    | 'publish_failed'
+    | typeof HOPS_EXHAUSTED
+    | typeof DELAY_TOO_LONG
 
 export interface FetchAttempt {
     candidate: FetchCandidate
     outcome: AttemptOutcome
-    /**
-     * True when the lane is done with this URL and must write it to the crawl history.
-     *
-     * False means the URL comes back, from a republish to the frontier or to a delay topic, or from
-     * a failed republish. A crawl history entry for one of those stops it ever being fetched.
-     * Requirements 12 and 24.
-     */
     finished: boolean
-    /**
-     * True when the URL was meant to go back to Kafka and did not.
-     *
-     * Nothing else holds it, so its offset must not commit. The URL is otherwise gone until a
-     * session refers to the same image again. Requirement 21.
-     */
     lost: boolean
+    history?: UrlCrawlHistoryItem
+    configurationUpdates: ConfigurationCacheItem[]
 }
 
 export interface FetchRunnerOptions {
-    /** Workers per domain. The limit itself lives in the budget, because a redirect reaches a domain without passing through this pool. */
-    maxConcurrentPerDomain: number
-    /**
-     * Requests open across every domain at once. This bounds the pod rather than politeness.
-     *
-     * The lane reads a body into a buffer, so the peak memory is about this number times the byte
-     * limit. The sockets and the DNS lookups come with it.
-     */
+    maxConcurrentPerRegistrableDomain: number
     maxInFlightRequests: number
-    /** Wall time the whole pass may take. The lane sheds a URL it does not reach, and fetches it again when a session next refers to it. */
+    lowOriginDiversityMinimumRequestSlots: number
+    lowOriginDiversityRepublishThreshold: number
+    lowOriginDiversityProgress: number
     batchBudgetMs: number
     maxBytes: number
     requestTimeoutMs: number
     maxRedirects: number
-    /** Used for a 429 or a 503 that named no period, so a site that only says "slow down" still gets a pause. */
-    defaultRetryAfterMs: number
+    seenTtlSeconds: number
 }
 
-/**
- * Outcomes that will not change if the lane tries the same URL again.
- *
- * Only these write a crawl history entry. The lane leaves a URL shed by the budget, or lost to a
- * timeout, unrecorded, because it goes back to a delay topic and comes round again. An entry for one
- * of those would suppress the URL for the whole crawl history TTL because a site was busy for a
- * moment.
- */
-const TERMINAL_OUTCOMES: ReadonlySet<AttemptOutcome> = new Set<AttemptOutcome>([
-    'ok',
-    'not_found',
-    'forbidden',
-    'too_large',
-    'not_image',
-    'blocked',
-    'bad_redirect',
-    'too_many_redirects',
-    'unexpected_status',
-    // A property of the origin rather than of the moment, so a retry meets the same response and
-    // spends a hop for nothing.
-    'unsupported_encoding',
-])
+const TRANSIENT_OUTCOMES = new Set<TransientFetchOutcome>(['timeout', 'error', 'rate_limited', 'server_error'])
+const ONE_MINUTE_MS = 60_000
+const CONFIGURATION_RETRY_MS = 60 * 60 * 1000
 
-/**
- * URLs one pass puts back after a shed, across every domain in it.
- *
- * A shed happens under overload, and one back queue can hold every URL of a batch. Republishing all
- * of them answers overload with more Kafka traffic, and the same URLs arrive again a minute later
- * having each spent a hop. Past this the rest are left unrecorded, so the mirror offers them again.
- *
- * One allowance for the pass rather than one for each domain, because domains run at the same time.
- * A per-domain cap multiplies by however many domains a batch touches, and a batch that offers
- * URLs across hundreds of them would open that many times this number of produces at once.
- */
-const MAX_SHED_REPUBLISHED_PER_PASS = 1000
-
-/** What is left of the pass allowance. Read and written between awaits, so a domain never sees a torn value. */
-interface ShedAllowance {
-    remaining: number
-}
-
-/** Hosts named in one batch-level log line, bounded so one bad batch cannot log a host list of its own size. */
-const MAX_LOGGED_HOSTS = 5
-
-/** These values come from the environment, where a typo parses to NaN and switches a politeness control off. */
-function requirePositive(name: string, value: number): number {
+function requirePositive(name: string, value: number): void {
     if (!Number.isFinite(value) || value <= 0) {
         throw new Error(`${name} must be a positive number, got ${value}`)
     }
-    return value
 }
 
-export function isTerminal(outcome: AttemptOutcome): boolean {
-    return TERMINAL_OUTCOMES.has(outcome)
+function requirePositiveSafeInteger(name: string, value: number): void {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error(`${name} must be a positive safe integer, got ${value}`)
+    }
 }
 
-/** What the consumer needs of the fetch pass, so its tests use the real contract rather than a cast. */
+export function isTransientOutcome(outcome: AttemptOutcome): outcome is TransientFetchOutcome {
+    return TRANSIENT_OUTCOMES.has(outcome as TransientFetchOutcome)
+}
+
+function isRequestStateFull(
+    reason: string | undefined
+): reason is Extract<RequestScheduleBlockReason, 'origin_map_full' | 'registrable_domain_map_full'> {
+    return reason === 'origin_map_full' || reason === 'registrable_domain_map_full'
+}
+
 export interface FetchPass {
-    run(candidates: FetchCandidate[]): Promise<FetchAttempt[]>
+    run(
+        candidates: FetchCandidate[],
+        stored: Map<string, CrawlHistoryItem>,
+        republishBatch?: RepublishBatch
+    ): Promise<FetchAttempt[]>
 }
 
-/**
- * Runs the fetches of one poll batch inside the per-domain budget.
- *
- * Domains run in parallel, so one slow site delays only its own URLs. Inside a domain the worker
- * count is the connection limit and the token bucket is the rate, so a domain receives from this
- * pod exactly what an operator configured for it.
- *
- * Wall time bounds the pass rather than work. A batch can hold more URLs for one domain than a
- * polite rate carries in the time a Kafka batch may take, and the lane then fetches fewer of them.
- */
+interface FetchPassState {
+    failure?: { error: unknown }
+}
+
 export class FetchRunner implements FetchPass {
-    private readonly inFlight: ConcurrencyController
+    private readonly candidateWork: ConcurrencyController
 
     constructor(
         private readonly fetcher: ImageFetcher,
         private readonly budget: HostBudget,
+        private readonly scheduler: OriginRequestScheduler,
+        private readonly configurationPolicy: ConfigurationPolicyService,
         private readonly options: FetchRunnerOptions,
-        /** Required, because without it every transient outcome becomes a loss rather than a retry. */
         private readonly publisher: FrontierPublisher
     ) {
-        requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN', options.maxConcurrentPerDomain)
-        requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS', options.maxInFlightRequests)
-        this.inFlight = new ConcurrencyController(options.maxInFlightRequests)
-        ImageFetchRequestMetrics.trackBudget(budget, this.inFlight)
+        requirePositiveSafeInteger(
+            'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN',
+            options.maxConcurrentPerRegistrableDomain
+        )
+        requirePositiveSafeInteger(
+            'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS',
+            options.maxInFlightRequests
+        )
+        requirePositiveSafeInteger(
+            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS',
+            options.lowOriginDiversityMinimumRequestSlots
+        )
+        requirePositiveSafeInteger(
+            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD',
+            options.lowOriginDiversityRepublishThreshold
+        )
+        requirePositiveSafeInteger(
+            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS',
+            options.lowOriginDiversityProgress
+        )
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
-        requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS', options.defaultRetryAfterMs)
-        // Zero is meaningful for both, and means no fetch at all and no redirect at all.
+        requirePositive('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS', options.seenTtlSeconds)
         if (!Number.isFinite(options.batchBudgetMs) || !Number.isFinite(options.maxRedirects)) {
-            throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS and MAX_REDIRECTS must be numbers')
+            throw new Error('image fetch pass limits must be finite numbers')
         }
+        this.candidateWork = new ConcurrencyController(options.maxInFlightRequests)
+        ImageFetchRequestMetrics.trackBudget(budget, scheduler)
     }
 
-    public async run(candidates: FetchCandidate[]): Promise<FetchAttempt[]> {
-        if (candidates.length === 0) {
-            return []
-        }
+    public async run(
+        candidates: FetchCandidate[],
+        stored: Map<string, CrawlHistoryItem>,
+        republishBatch?: RepublishBatch
+    ): Promise<FetchAttempt[]> {
+        const activeRepublishBatch = republishBatch ?? this.publisher.createRepublishBatch()
         const deadlineMs = Date.now() + this.options.batchBudgetMs
-        const byDomain = new Map<string, FetchCandidate[]>()
-        for (const candidate of candidates) {
-            const backQueue = byDomain.get(candidate.domain)
-            if (backQueue) {
-                backQueue.push(candidate)
-            } else {
-                byDomain.set(candidate.domain, [candidate])
+        const configurationPolicy = this.configurationPolicy.createPass()
+        const passState: FetchPassState = {}
+        const configurationItems = new Map<string, ConfigurationCacheItem>()
+        for (const [key, item] of stored) {
+            if (item.kind === 'robots' || item.kind === 'tdmrep') {
+                configurationItems.set(key, item)
             }
         }
-
-        const attempts = await this.runDomains([...byDomain], deadlineMs, { remaining: MAX_SHED_REPUBLISHED_PER_PASS })
+        const queue = new FetchCandidateQueue(candidates, this.options)
+        const podRequestSlots = Math.max(0, this.options.maxInFlightRequests - this.candidateWork.running)
+        ImageFetchRequestMetrics.observeBatchSchedulableCapacity(
+            Math.min(
+                podRequestSlots,
+                queue.availableRequestSlotsAtStart((registrableDomain) =>
+                    this.budget.availableConnections(registrableDomain)
+                )
+            ),
+            this.options.maxInFlightRequests
+        )
+        const attempts: FetchAttempt[] = []
+        const workers = Array.from(
+            { length: Math.min(this.options.maxInFlightRequests, queue.schedulableSlotsAtStart) },
+            () =>
+                this.runQueueWorker(
+                    queue,
+                    stored,
+                    configurationItems,
+                    configurationPolicy,
+                    deadlineMs,
+                    attempts,
+                    activeRepublishBatch,
+                    passState
+                )
+        )
+        const settledWorkers = await Promise.allSettled(workers)
+        if (passState.failure) {
+            throw passState.failure.error
+        }
+        const failedWorker = settledWorkers.find(
+            (settled): settled is PromiseRejectedResult => settled.status === 'rejected'
+        )
+        if (failedWorker) {
+            throw failedWorker.reason
+        }
+        if (!republishBatch) {
+            const result = await activeRepublishBatch.flush()
+            if (result.failedUrls > 0) {
+                throw new Error(`the image fetch lane could not account for ${result.failedUrls} URLs`)
+            }
+        }
         this.logFailures(attempts)
         return attempts
     }
 
-    /**
-     * One line for each outcome of the whole pass, because a site that is down turns every URL of a
-     * batch into a log line. The counts answer the same question, and the hosts say where to look.
-     *
-     * A URL is page content, so it appears in no log.
-     */
-    private logFailures(attempts: FetchAttempt[]): void {
-        const byOutcome = new Map<AttemptOutcome, { count: number; hosts: Set<string> }>()
-        for (const attempt of attempts) {
-            if (attempt.outcome === 'ok') {
-                continue
-            }
-            const seen = byOutcome.get(attempt.outcome) ?? { count: 0, hosts: new Set<string>() }
-            seen.count++
-            if (seen.hosts.size < MAX_LOGGED_HOSTS) {
-                seen.hosts.add(attempt.candidate.host)
-            }
-            byOutcome.set(attempt.outcome, seen)
-        }
-        for (const [outcome, seen] of byOutcome) {
-            logger.warn('🌐', 'ml_image_fetch_batch_failures', {
-                outcome,
-                count: seen.count,
-                hosts: [...seen.hosts],
-            })
-        }
-    }
-
-    /**
-     * Every domain runs at once. A domain spends nearly all of its time waiting on its own rate
-     * limit, so thousands of them cost a queue and a closure each, and a cap on domains would make
-     * unrelated sites wait for each other for no reason of politeness.
-     *
-     * `maxInFlightRequests` bounds the requests underneath them.
-     */
-    private async runDomains(
-        entries: [string, FetchCandidate[]][],
-        deadlineMs: number,
-        allowance: ShedAllowance
-    ): Promise<FetchAttempt[]> {
-        // Every domain writes into this array rather than concatenating afterwards. One batch can
-        // offer hundreds of thousands of URLs to a single domain, and both `push(...array)` and
-        // `concat` of that size exceed the argument limit of `Function.apply`.
-        const attempts: FetchAttempt[] = []
-        await Promise.all(
-            entries.map(([domain, backQueue]) => this.runBackQueue(domain, backQueue, deadlineMs, attempts, allowance))
-        )
-        return attempts
-    }
-
-    /** A back queue is the crawler term for the queue of one registrable domain, which a politeness limit applies to. */
-    private async runBackQueue(
-        domain: string,
-        backQueue: FetchCandidate[],
+    private async runQueueWorker(
+        queue: FetchCandidateQueue,
+        stored: Map<string, CrawlHistoryItem>,
+        configurationItems: Map<string, ConfigurationCacheItem>,
+        configurationPolicy: ConfigurationPolicyPass,
         deadlineMs: number,
         attempts: FetchAttempt[],
-        allowance: ShedAllowance
+        republishBatch: RepublishBatch,
+        passState: FetchPassState
     ): Promise<void> {
-        let next = 0
-        // A refusal is a property of the domain, so it applies to every URL still queued for it.
-        const shedRemaining = async (reason: ShedReason, first?: FetchCandidate): Promise<void> => {
-            const shed = first ? [first, ...backQueue.slice(next)] : backQueue.slice(next)
-            next = backQueue.length
-            if (shed.length === 0) {
+        for (;;) {
+            const lease = queue.take()
+            if (!lease) {
                 return
             }
-            ImageFetchRequestMetrics.incOutcome(reason, shed.length)
-            const waitMs = this.budget.blockedForMs(domain, Date.now())
-            // Taken before the first await, so two domains shedding at once cannot both read the
-            // same remainder and spend it twice.
-            const takes = Math.min(shed.length, allowance.remaining)
-            allowance.remaining -= takes
-            // Together rather than one after another. A shed runs once the pass deadline has passed,
-            // and one awaited produce for each of tens of thousands of URLs would run past
-            // `max.poll.interval.ms` and lose the partition in the middle of the batch.
-            const republished = await Promise.all(
-                shed.slice(0, takes).map((candidate) => this.reschedule(candidate, reason, waitMs))
-            )
-            for (const attempt of republished) {
-                attempts.push(attempt)
-            }
-            for (const candidate of shed.slice(takes)) {
-                attempts.push({ candidate, outcome: reason, finished: false, lost: false })
-            }
-            if (shed.length > takes) {
-                ImageFetchRequestMetrics.incShedDropped(shed.length - takes)
+            try {
+                if (lease.lowOriginDiversityStarted) {
+                    ImageFetchRequestMetrics.observeLowOriginDiversity(
+                        lease.lowOriginDiversityStarted.origins,
+                        lease.lowOriginDiversityStarted.candidates,
+                        lease.lowOriginDiversityStarted.requestSlots
+                    )
+                }
+                attempts.push(
+                    await this.processLease(
+                        lease,
+                        stored,
+                        configurationItems,
+                        configurationPolicy,
+                        deadlineMs,
+                        republishBatch,
+                        passState
+                    )
+                )
+            } catch (error) {
+                passState.failure ??= { error }
+                queue.abort()
+                throw error
+            } finally {
+                lease.release()
             }
         }
-
-        const worker = async (): Promise<void> => {
-            while (next < backQueue.length) {
-                const grant = this.budget.take(domain, Date.now(), deadlineMs)
-                if (!grant.granted) {
-                    await shedRemaining(grant.reason)
-                    return
-                }
-                const candidate = backQueue[next++]
-                ImageFetchRequestMetrics.observeBudgetWait(grant.waitMs / 1000)
-                if (grant.waitMs > 0) {
-                    await delay(grant.waitMs)
-                    // The budget granted this before the wait. A `Retry-After` or an open breaker
-                    // can arrive during the wait, and the deadline can pass. Requirement 5.
-                    const stale = this.staleAfterWait(domain, deadlineMs)
-                    if (stale) {
-                        this.budget.returnGrant(domain, Date.now())
-                        // The whole back queue, not this URL alone. Whatever went stale during the
-                        // wait is a property of the domain, so it holds for every URL still queued
-                        // for it. Requirement 16.
-                        await shedRemaining(stale, candidate)
-                        return
-                    }
-                }
-                attempts.push(await this.fetchOne(candidate, deadlineMs))
-            }
-        }
-
-        const workers = Math.min(this.options.maxConcurrentPerDomain, backQueue.length)
-        await Promise.all(Array.from({ length: workers }, () => worker()))
     }
 
-    /** Why a granted request must not go out after its wait, or null when it may still go out. Requirement 5. */
-    private staleAfterWait(domain: string, deadlineMs: number): ShedReason | null {
-        const nowMs = Date.now()
-        const blocked = this.budget.blockedReason(domain, nowMs)
-        if (blocked) {
-            return blocked
+    private async processLease(
+        lease: FetchCandidateLease,
+        stored: Map<string, CrawlHistoryItem>,
+        configurationItems: Map<string, ConfigurationCacheItem>,
+        configurationPolicy: ConfigurationPolicyPass,
+        deadlineMs: number,
+        republishBatch: RepublishBatch,
+        passState: FetchPassState
+    ): Promise<FetchAttempt> {
+        const candidate = lease.candidate
+        if (candidate.remainingHops === 0) {
+            return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
         }
-        return nowMs > deadlineMs ? 'deadline' : null
-    }
-
-    /**
-     * The request keeps its whole configured timeout even when the pass deadline is closer.
-     *
-     * A request that the batch clock cut short would time out through no fault of the site, and the
-     * budget would read that as the site failing. So the deadline decides whether a request starts,
-     * and never how long it may take. One pass can therefore run to `batchBudgetMs` plus one
-     * request timeout, which is still far inside Kafka's max.poll.interval.ms.
-     */
-    private async fetchOne(candidate: FetchCandidate, deadlineMs: number): Promise<FetchAttempt> {
-        // One slot, held until the chain ends. A chain reaches only its own domain, because
-        // `isOffsite` refuses every other target, and the set makes a second take of the same
-        // domain free so a redirect back to it cannot deadlock against itself.
-        const held = new Set<string>()
-        const acquire = (domain: string): boolean => {
-            if (held.has(domain)) {
-                return true
-            }
-            if (!this.budget.acquireConnection(domain, Date.now())) {
-                return false
-            }
-            held.add(domain)
-            return true
-        }
-        const releaseAll = (): void => {
-            for (const domain of held) {
-                this.budget.releaseConnection(domain)
-            }
-        }
-
-        if (!acquire(candidate.domain)) {
-            // One setting feeds both the worker count and this limit, so the pool already holds a
-            // domain to the same number and nothing gets here today. The budget is where the limit
-            // belongs, so the check stays. A refusal means the domain is busy now, which is not a
-            // fact about the URL, so the lane writes no crawl history entry for it.
-            this.budget.returnGrant(candidate.domain, Date.now())
-            ImageFetchRequestMetrics.incOutcome('connection_limit')
-            return await this.reschedule(candidate, 'connection_limit', 0)
-        }
-
-        const startedAt = process.hrtime.bigint()
-        let outcome: ImageFetchResult | { shed: ShedReason }
-        try {
-            outcome = await this.inFlight.run<ImageFetchResult | { shed: ShedReason }>({
-                debugTag: candidate.domain,
-                fn: () => {
-                    // The pod queue is the third place a request waits, after the token bucket and
-                    // the connection limit, and it can hold a request longest because its slots
-                    // serve every domain this pod owns. A sibling request can meet a `Retry-After`
-                    // while this one queues. Requirement 5.
-                    const stale = this.staleAfterWait(candidate.domain, deadlineMs)
-                    if (stale) {
-                        return Promise.resolve({ shed: stale })
-                    }
-                    return this.fetcher.fetch(candidate.url, {
-                        maxBytes: this.options.maxBytes,
-                        timeoutMs: this.options.requestTimeoutMs,
-                        maxRedirects: this.options.maxRedirects,
-                        isOffsite: (url) => politenessKey(url.hostname) !== candidate.domain,
-                        // The earlier of the two clocks, because a wait that outlives the request
-                        // reports the site as timing out.
-                        authorizeRedirect: (url, remainingMs) =>
-                            this.authorizeRedirect(
-                                Math.min(deadlineMs, Date.now() + remainingMs),
-                                acquire,
-                                candidate.domain
-                            ),
-                    })
-                },
-            })
-        } catch (error) {
-            // The fetcher answers with an outcome rather than a throw, so a throw here means a
-            // defect. The catch stays because a throw would leave the other domains of this batch
-            // running while the partition replays them.
-            logger.error('🌐', 'ml_image_fetch_unhandled_error', {
-                host: candidate.host,
-                // The name only. An error message from the request layer can carry the URL, and a
-                // URL is page content.
-                error: error instanceof Error ? error.name : 'unknown',
-            })
-            ImageFetchRequestMetrics.incOutcome('error')
-            return await this.reschedule(candidate, 'error', 0)
-        } finally {
-            releaseAll()
-        }
-        if ('shed' in outcome) {
-            this.budget.returnGrant(candidate.domain, Date.now())
-            ImageFetchRequestMetrics.incOutcome(outcome.shed)
-            return await this.reschedule(
+        if (lease.action === 'republish_low_origin_diversity') {
+            return await this.republish(
+                republishBatch,
                 candidate,
-                outcome.shed,
-                this.budget.blockedForMs(candidate.domain, Date.now())
+                'low_origin_diversity',
+                'low_origin_diversity',
+                0,
+                []
             )
         }
-        const result = outcome
-        const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9
+        if (Date.now() > deadlineMs) {
+            return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [])
+        }
+        return await this.candidateWork.run({
+            debugTag: candidate.registrableDomain,
+            fn: async () => {
+                if (passState.failure) {
+                    throw passState.failure.error
+                }
+                try {
+                    if (Date.now() > deadlineMs) {
+                        return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [])
+                    }
+                    return await this.fetchOne(
+                        candidate,
+                        stored,
+                        configurationItems,
+                        configurationPolicy,
+                        deadlineMs,
+                        republishBatch
+                    )
+                } catch (error) {
+                    passState.failure ??= { error }
+                    throw error
+                }
+            },
+        })
+    }
 
-        this.applyToBudget(candidate.domain, result.outcome, result.retryAfterMs)
-        ImageFetchRequestMetrics.observeRequest(result.outcome, durationSeconds, result.redirects)
+    private async fetchOne(
+        candidate: FetchCandidate,
+        stored: Map<string, CrawlHistoryItem>,
+        configurationItems: Map<string, ConfigurationCacheItem>,
+        configurationPolicy: ConfigurationPolicyPass,
+        deadlineMs: number,
+        republishBatch: RepublishBatch
+    ): Promise<FetchAttempt> {
+        if (candidate.remainingHops === 0) {
+            return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
+        }
+        const policy = await configurationPolicy.check(candidate.currentUrl, configurationItems, Date.now())
+        const configurationUpdates = [...policy.updates]
+        for (const update of policy.updates) {
+            configurationItems.set(update.key, update)
+        }
+        if (!policy.allowed) {
+            ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, policy.reason ?? 'configuration_refused')
+            if (policy.transient) {
+                if (isRequestStateFull(policy.reason)) {
+                    return await this.republish(
+                        republishBatch,
+                        candidate,
+                        policy.reason,
+                        policy.reason,
+                        ONE_MINUTE_MS,
+                        configurationUpdates
+                    )
+                }
+                const waitMs = policy.reason === 'configuration_unreachable' ? CONFIGURATION_RETRY_MS : ONE_MINUTE_MS
+                return await this.republish(
+                    republishBatch,
+                    candidate,
+                    'backoff',
+                    'not_ready',
+                    waitMs,
+                    configurationUpdates
+                )
+            }
+            return this.terminal(
+                candidate,
+                policy.reason ?? 'configuration_refused',
+                undefined,
+                configurationUpdates,
+                policy.reason ?? 'configuration_refused'
+            )
+        }
+        if (!this.budget.setCrawlDelay(candidate.origin, policy.crawlDelayMs, Date.now())) {
+            ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, 'origin_map_full')
+            return await this.republish(
+                republishBatch,
+                candidate,
+                'origin_map_full',
+                'origin_map_full',
+                ONE_MINUTE_MS,
+                configurationUpdates
+            )
+        }
+
+        const previous = stored.get(candidate.originalRef)
+        const previousUrl = previous?.kind === 'url' ? previous : undefined
+        const result = await this.fetcher.fetch(candidate.currentUrl, {
+            maxBytes: this.options.maxBytes,
+            timeoutMs: this.options.requestTimeoutMs,
+            maxRedirects: Math.min(this.options.maxRedirects, candidate.remainingHops),
+            cache: previousUrl?.cache,
+            tdmrepReservation: policy.tdmrepReservation,
+            onRedirectResponse: () => this.budget.recordCompletedResponse(candidate.registrableDomain, Date.now()),
+            isDifferentOrigin: (url) => url.origin !== candidate.origin,
+            scheduleRequest: (url, requestDeadlineMs, request) =>
+                this.scheduler.runImage(url, Math.min(deadlineMs, requestDeadlineMs), request),
+            checkRedirectPolicy: async (url) => {
+                const redirectPolicy = await configurationPolicy.check(url, configurationItems, Date.now())
+                for (const update of redirectPolicy.updates) {
+                    configurationItems.set(update.key, update)
+                    configurationUpdates.push(update)
+                }
+                if (!redirectPolicy.allowed) {
+                    return {
+                        allowed: false,
+                        transient: redirectPolicy.transient,
+                        reason: redirectPolicy.reason ?? 'configuration_refused',
+                    }
+                }
+                const origin = new URL(url).origin
+                if (!this.budget.setCrawlDelay(origin, redirectPolicy.crawlDelayMs, Date.now())) {
+                    return { allowed: false, transient: true, reason: 'origin_map_full' }
+                }
+                return { allowed: true, tdmrepReservation: redirectPolicy.tdmrepReservation }
+            },
+        })
+        ImageFetchRequestMetrics.observeRedirectCount(result.redirects)
         if (result.bytes) {
             ImageFetchRequestMetrics.observeBytes(result.bytes.length)
         }
-        if (result.outcome === 'redirect_offsite' && result.redirectTarget) {
-            return await this.handOff(candidate, result.redirectTarget)
+
+        const effectiveUrl = canonicalizeUrl(result.currentUrl)
+        if (!effectiveUrl) {
+            return this.terminal(candidate, 'bad_redirect', result.cache, configurationUpdates)
         }
-        if (isTerminal(result.outcome)) {
-            ImageFetchRequestMetrics.observeHops(MAX_HOPS - candidate.hopsRemaining)
-            return { candidate, outcome: result.outcome, finished: true, lost: false }
+        const attemptedCandidate: FetchCandidate = {
+            ...candidate,
+            currentUrl: effectiveUrl.fetch,
+            host: effectiveUrl.host,
+            origin: new URL(effectiveUrl.fetch).origin,
+            registrableDomain: effectiveUrl.domain,
+            remainingHops: candidate.remainingHops - result.redirects,
+            fetchCount:
+                candidate.fetchCount +
+                result.redirects +
+                (result.outcome === 'request_deferred' || result.outcome === 'redirect_policy_refused' ? 0 : 1),
         }
-        return await this.reschedule(
-            candidate,
+
+        if (result.outcome === 'redirect_policy_refused') {
+            const reason = result.refusalReason ?? 'configuration_refused'
+            ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, reason)
+            if (result.policyTransient) {
+                const stateFull = isRequestStateFull(reason)
+                const republishReason: RepublishReason = stateFull ? reason : 'not_ready'
+                const waitMs = reason === 'configuration_unreachable' ? CONFIGURATION_RETRY_MS : ONE_MINUTE_MS
+                return await this.republish(
+                    republishBatch,
+                    attemptedCandidate,
+                    reason,
+                    republishReason,
+                    waitMs,
+                    configurationUpdates
+                )
+            }
+            return this.terminal(attemptedCandidate, reason, undefined, configurationUpdates, reason)
+        }
+
+        if (result.outcome === 'request_deferred') {
+            const reason = result.schedulingReason ?? 'deadline'
+            ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, reason)
+            const republishReason: RepublishReason = isRequestStateFull(reason)
+                ? reason
+                : reason === 'deadline' && Date.now() >= deadlineMs
+                  ? 'pass_deadline'
+                  : 'not_ready'
+            const waitMs =
+                republishReason === 'pass_deadline'
+                    ? 0
+                    : Math.max(
+                          ONE_MINUTE_MS,
+                          result.schedulingWaitMs ??
+                              this.budget.blockedForMs(attemptedCandidate.registrableDomain, Date.now())
+                      )
+            return await this.republish(
+                republishBatch,
+                attemptedCandidate,
+                reason,
+                republishReason,
+                waitMs,
+                configurationUpdates
+            )
+        }
+
+        ImageFetchRequestMetrics.observePolicyAndBudgetDecision(false)
+
+        if (isTransientOutcome(result.outcome)) {
+            const delayMs = this.budget.recordTransientFailure(
+                candidate.registrableDomain,
+                Date.now(),
+                result.retryAfterMs
+            )
+            const attempt = await this.republish(
+                republishBatch,
+                attemptedCandidate,
+                result.outcome,
+                'retry',
+                delayMs,
+                configurationUpdates
+            )
+            return attempt
+        }
+
+        this.budget.recordCompletedResponse(candidate.registrableDomain, Date.now())
+        if (
+            (result.outcome === 'redirect_offsite' || result.outcome === 'redirect_continuation') &&
+            result.redirectTarget
+        ) {
+            const canonical = canonicalizeUrl(result.redirectTarget.url)
+            if (!canonical) {
+                return this.terminal(attemptedCandidate, 'bad_redirect', result.cache, configurationUpdates)
+            }
+            return await this.republishToTarget(
+                republishBatch,
+                attemptedCandidate,
+                result.outcome,
+                {
+                    currentUrl: canonical.fetch,
+                    host: canonical.host,
+                    origin: new URL(canonical.fetch).origin,
+                    registrableDomain: canonical.domain,
+                },
+                'redirect',
+                0,
+                configurationUpdates
+            )
+        }
+        if (result.outcome === 'ok') {
+            try {
+                await this.publisher.publishImage(attemptedCandidate, result)
+            } catch {
+                return {
+                    candidate: attemptedCandidate,
+                    outcome: 'publish_failed',
+                    finished: false,
+                    lost: true,
+                    configurationUpdates,
+                }
+            }
+        }
+        const responseCache = result.redirects > 0 ? withoutValidators(result.cache) : result.cache
+        const mergedCache =
+            result.outcome === 'not_modified' ? mergeCache(previousUrl?.cache, responseCache) : responseCache
+        return this.terminal(
+            attemptedCandidate,
             result.outcome,
-            result.retryAfterMs ?? this.budget.blockedForMs(candidate.domain, Date.now())
+            mergedCache,
+            configurationUpdates,
+            result.refusalReason
         )
     }
 
-    private applyToBudget(domain: string, outcome: FetchOutcome, retryAfterMs: number | undefined): void {
-        const nowMs = Date.now()
-        if (outcome === 'ok') {
-            this.budget.recordSuccess(domain, nowMs)
-            return
-        }
-        if (outcome === 'rate_limited' || outcome === 'server_error') {
-            // The lane holds the whole domain when the site asked to be left alone, which means a
-            // 429 or any response that named a period. A one-off 500 gets the rate cut and the
-            // breaker count instead, because it says this request failed and nothing more.
-            if (outcome === 'rate_limited' || retryAfterMs !== undefined) {
-                this.budget.recordRetryAfter(domain, nowMs, retryAfterMs ?? this.options.defaultRetryAfterMs)
-            }
-            this.budget.recordBackoff(domain, nowMs)
-            return
-        }
-        if (outcome === 'timeout' || outcome === 'error') {
-            this.budget.recordBackoff(domain, nowMs)
-            return
-        }
-        if (outcome === 'redirect_deferred' || outcome === 'unsupported_encoding') {
-            // Neither says anything about the load this domain is under.
-            return
-        }
-        if (outcome === 'forbidden') {
-            // One 403 is a missing image, which is no reason to slow down. A run of them is an
-            // anti-bot rule, which the breaker must catch.
-            this.budget.recordRefusal(domain, nowMs)
-        }
-    }
-
-    /**
-     * Put a URL back for another try, or give up on it.
-     *
-     * The lane records a URL with no hops left, so it stops coming back and stops costing requests.
-     * Requirement 12. Everything else goes to the delay topic whose period covers the wait, and the
-     * lane records nothing, because the URL has no answer yet. Requirements 13 to 15.
-     */
-    private async reschedule(
+    private async republish(
+        republishBatch: RepublishBatch,
         candidate: FetchCandidate,
         outcome: AttemptOutcome,
-        waitMs: number
+        reason: RepublishReason,
+        waitMs: number,
+        configurationUpdates: ConfigurationCacheItem[]
     ): Promise<FetchAttempt> {
-        if (candidate.hopsRemaining <= 1) {
-            ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
-            ImageFetchRequestMetrics.observeHops(MAX_HOPS)
-            return { candidate, outcome: HOPS_EXHAUSTED, finished: true, lost: false }
-        }
-        const target = { url: candidate.url, host: candidate.host, domain: candidate.domain }
-        const republished = await this.publisher.republish(candidate, target, 'retry', waitMs)
-        return { candidate, outcome, finished: false, lost: !republished }
+        return await this.republishToTarget(
+            republishBatch,
+            candidate,
+            outcome,
+            {
+                currentUrl: candidate.currentUrl,
+                host: candidate.host,
+                origin: candidate.origin,
+                registrableDomain: candidate.registrableDomain,
+            },
+            reason,
+            waitMs,
+            configurationUpdates
+        )
     }
 
-    /**
-     * Send a redirect target to the consumer that owns its domain.
-     *
-     * This pod does not follow the hop. That domain's rate, breaker, and connection count live in
-     * the pod holding its partition, and a hop followed from this pod spends none of them.
-     * Requirement 7.
-     */
-    private async handOff(candidate: FetchCandidate, target: { url: string; host: string }): Promise<FetchAttempt> {
-        if (candidate.hopsRemaining <= 1) {
-            ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
-            ImageFetchRequestMetrics.observeHops(MAX_HOPS)
-            return { candidate, outcome: HOPS_EXHAUSTED, finished: true, lost: false }
+    private async republishToTarget(
+        republishBatch: RepublishBatch,
+        candidate: FetchCandidate,
+        outcome: AttemptOutcome,
+        target: Pick<FetchCandidate, 'currentUrl' | 'host' | 'origin' | 'registrableDomain'>,
+        reason: RepublishReason,
+        waitMs: number,
+        configurationUpdates: ConfigurationCacheItem[]
+    ): Promise<FetchAttempt> {
+        if ((reason === 'redirect' || reason === 'retry') && candidate.remainingHops <= 1) {
+            return this.terminal(candidate, HOPS_EXHAUSTED, undefined, configurationUpdates)
         }
-        const domain = politenessKey(target.host)
-        const republished = await this.publisher.republish(candidate, { ...target, domain }, 'redirect')
-        return { candidate, outcome: 'redirect_offsite', finished: false, lost: !republished }
+        const result: RepublishResult = await republishBatch.republish(candidate, target, reason, waitMs)
+        if (result === 'refused_delay') {
+            return this.terminal(candidate, DELAY_TOO_LONG, undefined, configurationUpdates)
+        }
+        return {
+            candidate,
+            outcome,
+            finished: false,
+            lost: false,
+            configurationUpdates,
+        }
     }
 
-    /** The target belongs to `domain`, because `isOffsite` already refused every other one. A hop spends a token like a first request. */
-    private async authorizeRedirect(
-        deadlineMs: number,
-        acquire: (domain: string) => boolean,
-        domain: string
-    ): Promise<RedirectDecision> {
-        if (!acquire(domain)) {
-            return 'defer'
+    private terminal(
+        candidate: FetchCandidate,
+        outcome: AttemptOutcome,
+        cache: HttpCacheMetadata | undefined,
+        configurationUpdates: ConfigurationCacheItem[],
+        refusalReason: FetchRefusalReason | 'none' = 'none'
+    ): FetchAttempt {
+        const nowMs = Date.now()
+        const minimumNextFetchAtMs = nowMs + this.options.seenTtlSeconds * 1000
+        const explicitNextFetchAtMs = cache ? nowMs + explicitFreshnessLifetimeMs(cache, nowMs) : 0
+        const nextFetchAtMs = Math.max(minimumNextFetchAtMs, explicitNextFetchAtMs)
+        ImageFetchRequestMetrics.observeCompletedUrl(
+            outcome,
+            refusalReason,
+            Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000,
+            candidate.fetchCount,
+            candidate.republishCount
+        )
+        ImageFetchRequestMetrics.observeHops(MAX_HOPS - candidate.remainingHops)
+        return {
+            candidate,
+            outcome,
+            finished: true,
+            lost: false,
+            history: {
+                kind: 'url',
+                key: candidate.originalRef,
+                nextFetchAtMs,
+                storageExpiresAtMs: nextFetchAtMs,
+                outcome: String(outcome),
+                cache,
+            },
+            configurationUpdates,
         }
-        const grant = this.budget.take(domain, Date.now(), deadlineMs)
-        if (!grant.granted) {
-            // Deferred rather than refused, so the lane writes no crawl history entry. Every
-            // refusal reason here is about this moment rather than about the URL.
-            return 'defer'
-        }
-        ImageFetchRequestMetrics.observeBudgetWait(grant.waitMs / 1000)
-        if (grant.waitMs > 0) {
-            await delay(grant.waitMs)
-            // A `Retry-After` or an open breaker can arrive while a redirect waits, exactly as it
-            // can while a first request waits. Requirement 5.
-            if (this.staleAfterWait(domain, deadlineMs)) {
-                this.budget.returnGrant(domain, Date.now())
-                return 'defer'
-            }
-        }
-        return 'allow'
     }
+
+    private logFailures(attempts: FetchAttempt[]): void {
+        const failures = attempts.filter((attempt) => attempt.outcome !== 'ok' && attempt.outcome !== 'not_modified')
+        if (failures.length === 0) {
+            return
+        }
+        logger.warn('🌐', 'ml_image_fetch_batch_failures', {
+            count: failures.length,
+            outcomes: [...new Set(failures.map((attempt) => String(attempt.outcome)))].slice(0, 10),
+            hosts: [...new Set(failures.map((attempt) => attempt.candidate.host))].slice(0, 5),
+        })
+    }
+}
+
+function mergeCache(
+    previous: HttpCacheMetadata | undefined,
+    update: HttpCacheMetadata | undefined
+): HttpCacheMetadata | undefined {
+    if (!previous) {
+        return update
+    }
+    if (!update) {
+        return previous
+    }
+    const definedUpdate = Object.fromEntries(Object.entries(update).filter(([, value]) => value !== undefined))
+    return { ...previous, ...definedUpdate }
+}
+
+function withoutValidators(cache: HttpCacheMetadata | undefined): HttpCacheMetadata | undefined {
+    return cache ? { ...cache, etag: undefined, lastModified: undefined } : undefined
 }

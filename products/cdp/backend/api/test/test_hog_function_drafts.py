@@ -6,10 +6,10 @@ from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.cdp.backend.api.hog_function import HogFunctionViewSet
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
-FLAG_PATH = "products.cdp.backend.api.hog_function.use_destinations_revisions"
 RELOAD_PATH = "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"
 
 LIVE_HOG = "fetch(inputs.url);"
@@ -29,12 +29,6 @@ BASE_FUNCTION = {
 
 
 class DraftTestCase(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        flag = patch(FLAG_PATH, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
-
     def _url(self, function_id: str = "", suffix: str = "") -> str:
         base = f"/api/projects/{self.team.id}/hog_functions/"
         return f"{base}{function_id}{suffix}" if function_id else base
@@ -112,23 +106,20 @@ class TestHogFunctionDrafts(DraftTestCase):
         [
             # An agent can't stage a draft on a function that isn't running, and the web builder
             # saves what the person just reviewed, so neither routes to a draft.
-            ("disabled_function", True, {"enabled": False}, True),
-            ("web_caller", False, {}, True),
+            ("disabled_function", True, {"enabled": False}),
+            ("web_caller", False, {}),
             # Only destinations are in the cycle for now. A transformation edit still applies live.
-            ("transformation", True, {"type": "transformation", "hog": "return event"}, True),
-            # The flag is the kill switch: off means the pre-draft behavior, edits apply live.
-            ("flag_off", True, {}, False),
+            ("transformation", True, {"type": "transformation", "hog": "return event"}),
         ]
     )
-    def test_config_edit_applies_live(self, _name: str, from_agent: bool, overrides: dict, flag_on: bool):
+    def test_config_edit_applies_live(self, _name: str, from_agent: bool, overrides: dict):
         function_id = self._create(**overrides)
 
-        with patch(FLAG_PATH, return_value=flag_on):
-            response = (
-                self._agent_patch(function_id, {"hog": EDITED_HOG})
-                if from_agent
-                else self.client.patch(self._url(function_id), {"hog": EDITED_HOG})
-            )
+        response = (
+            self._agent_patch(function_id, {"hog": EDITED_HOG})
+            if from_agent
+            else self.client.patch(self._url(function_id), {"hog": EDITED_HOG})
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["draft"] is None
@@ -148,14 +139,15 @@ class TestHogFunctionDrafts(DraftTestCase):
     def test_metadata_in_a_draft_edit_does_not_revert_a_concurrent_live_edit(self):
         function_id = self._create()
         concurrent_hog = "fetch(inputs.url, {'method': 'DELETE'});"
+        real_should_route_to_draft = HogFunctionViewSet._should_route_to_draft
 
-        def live_edit_lands_after_initial_fetch(_team):
+        def live_edit_lands_after_initial_fetch(viewset, serializer):
             # Stand in for a builder edit committing between the request's initial unlocked fetch
-            # and its write: the flag check runs after get_object() and before the transaction.
+            # and its write: draft routing resolves after get_object() and before the transaction.
             HogFunction.objects.filter(id=function_id).update(hog=concurrent_hog)
-            return True
+            return real_should_route_to_draft(viewset, serializer)
 
-        with patch(FLAG_PATH, side_effect=live_edit_lands_after_initial_fetch):
+        with patch.object(HogFunctionViewSet, "_should_route_to_draft", live_edit_lands_after_initial_fetch):
             response = self._agent_patch(function_id, {"name": "Renamed", "hog": EDITED_HOG})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -450,16 +442,14 @@ class TestHogFunctionRevisions(DraftTestCase):
         [
             # `to_internal_value` re-injects inputs/filters and the serializer recompiles bytecode on
             # every save, so an unchanged config must still compare equal and stay unversioned.
-            ("metadata_only", {"name": "Renamed"}, True),
-            ("config_resent_unchanged", {"hog": LIVE_HOG, "name": "Renamed"}, True),
-            ("flag_off", {"hog": EDITED_HOG}, False),
+            ("metadata_only", {"name": "Renamed"}),
+            ("config_resent_unchanged", {"hog": LIVE_HOG, "name": "Renamed"}),
         ]
     )
-    def test_no_revision_is_written(self, _name: str, payload: dict, flag_on: bool):
+    def test_no_revision_is_written(self, _name: str, payload: dict):
         function_id = self._create()
 
-        with patch(FLAG_PATH, return_value=flag_on):
-            self._live_edit(function_id, payload)
+        self._live_edit(function_id, payload)
 
         assert not self._revisions(function_id).exists()
         assert HogFunction.objects.get(id=function_id).version == 1
@@ -529,20 +519,3 @@ class TestHogFunctionRevisions(DraftTestCase):
         restored_draft = HogFunction.objects.get(id=function_id).draft
         assert restored_draft is not None
         assert restored_draft["hog"] == LIVE_HOG
-
-    @parameterized.expand(
-        [
-            ("publish", "post", "/publish"),
-            ("discard_draft", "post", "/discard_draft"),
-            ("revisions", "get", "/revisions"),
-            ("revision_detail", "get", "/revisions/1"),
-            ("restore_revision", "post", "/revisions/1/restore"),
-        ]
-    )
-    def test_endpoints_are_rejected_when_the_flag_is_off(self, _name: str, method: str, suffix: str):
-        function_id = self._create()
-
-        with patch(FLAG_PATH, return_value=False):
-            response = getattr(self.client, method)(self._url(function_id, suffix))
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

@@ -592,37 +592,6 @@ describe('experimentWizardLogic', () => {
             })
         })
 
-        it('feature flag key is re-validated on remount', async () => {
-            // Set up: trigger a duplicate-key validation error
-            const vpLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
-            createLogic.actions.setExperimentValue('feature_flag_key', 'existing-flag')
-            vpLogic.actions.validateFeatureFlagKeySuccess({
-                valid: false,
-                error: 'A feature flag with this key already exists.',
-                key: 'existing-flag',
-            })
-
-            await expectLogic(logic).toMatchValues({
-                featureFlagKeyValidation: partial({
-                    valid: false,
-                    error: 'A feature flag with this key already exists.',
-                }),
-            })
-
-            // Unmount and remount
-            logic.unmount()
-            vpLogic.unmount()
-            createLogic.unmount()
-
-            createLogic = createExperimentLogic()
-            createLogic.mount()
-            logic = experimentWizardLogic()
-            logic.mount()
-
-            // afterMount should re-validate since feature_flag_key is set
-            await expectLogic(logic).toDispatchActions(['validateFeatureFlagKey'])
-        })
-
         it('saveExperiment marks all steps as departed, revealing all errors', async () => {
             // Experiment has empty name and key — errors hidden until departure
             expect(logic.values.stepValidationErrors.about).toEqual([])

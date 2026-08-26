@@ -29,8 +29,7 @@ export const billingAlertsCreateBodyEvaluationDelayHoursMax = 72
 export const billingAlertsCreateBodyCooldownHoursMin = 0
 export const billingAlertsCreateBodyCooldownHoursMax = 720
 
-export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMin = 4
-export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 4
+export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 100
 
 export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsCreateBodyNameMax).describe('Display name for this billing alert.'),
@@ -89,12 +88,7 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     destination_changes: zod
         .object({
             delete: zod
-                .array(
-                    zod
-                        .array(zod.string())
-                        .min(billingAlertsCreateBodyDestinationChangesOneDeleteItemMin)
-                        .max(billingAlertsCreateBodyDestinationChangesOneDeleteItemMax)
-                )
+                .array(zod.array(zod.string()).min(1).max(billingAlertsCreateBodyDestinationChangesOneDeleteItemMax))
                 .optional(),
             create: zod
                 .array(
@@ -148,8 +142,7 @@ export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMax = 72
 export const billingAlertsPartialUpdateBodyCooldownHoursMin = 0
 export const billingAlertsPartialUpdateBodyCooldownHoursMax = 720
 
-export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMin = 4
-export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 4
+export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 100
 
 export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -213,10 +206,7 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .object({
             delete: zod
                 .array(
-                    zod
-                        .array(zod.string())
-                        .min(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMin)
-                        .max(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax)
+                    zod.array(zod.string()).min(1).max(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax)
                 )
                 .optional(),
             create: zod

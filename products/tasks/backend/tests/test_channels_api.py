@@ -502,6 +502,22 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertFalse(Channel.objects.unscoped().get(id=channel_id).deleted)
 
+    def test_space_holding_only_archived_tasks_can_be_deleted(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "wrapped-up"}).json()["id"]
+        task_id = self.client.post(
+            self._tasks_url(),
+            {"title": "Done with this", "description": "d", "channel": channel_id},
+        ).json()["id"]
+        self.client.patch(f"{self._tasks_url()}{task_id}/", {"archived": True}, format="json")
+
+        response = self.client.delete(f"{self._channels_url()}{channel_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertTrue(Channel.objects.unscoped().get(id=channel_id).deleted)
+        self.assertIsNone(Task.objects.get(id=task_id).channel_id)
+        listed = self.client.get(f"{self._tasks_url()}?archived=true").json()["results"]
+        self.assertEqual([task["id"] for task in listed], [task_id])
+
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
         self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)

@@ -25,6 +25,7 @@ import type {
     EvaluatePromptSuggestionRequestApi,
     InlineScanRequestApi,
     InlineScanResponseApi,
+    ObservationSearchResponseApi,
     ObservationStatsApi,
     ObserveAlreadyScannedApi,
     ObserveRequestApi,
@@ -46,8 +47,11 @@ import type {
     RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
+    ScannerScoutCreateApi,
+    ScannerScoutCreateResponseApi,
     ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
+    ScoutReportApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionActionApi,
@@ -56,6 +60,7 @@ import type {
     VisionActionsRunsListParams,
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
+    VisionObservationsSearchRetrieveParams,
     VisionQuotaApi,
     VisionScannersBackfillsListParams,
     VisionScannersImpactRetrieveParams,
@@ -280,7 +285,8 @@ export const getVisionObservationsListUrl = (projectId: string, params: VisionOb
 }
 
 /**
- * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ * A session's observations across every scanner the caller can read, plus the team-level semantic
+ * `search` action, which resolves its own scanner scope instead of this queryset.
  */
 export const visionObservationsList = async (
     projectId: string,
@@ -400,6 +406,40 @@ export const visionObservationsRetryCreate = async (
     return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionObservationsSearchRetrieveUrl = (
+    projectId: string,
+    params: VisionObservationsSearchRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/observations/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/search/`
+}
+
+/**
+ * Rank observations by semantic similarity to the search text, optionally filtered by exact outcome
+ * (verdict, score, tags).
+ */
+export const visionObservationsSearchRetrieve = async (
+    projectId: string,
+    params: VisionObservationsSearchRetrieveParams,
+    options?: RequestInit
+): Promise<ObservationSearchResponseApi> => {
+    return apiMutator<ObservationSearchResponseApi>(getVisionObservationsSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1143,6 +1183,64 @@ export const visionScannersPromptSuggestionsGenerateCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getVisionScannersScoutReportsListUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scout_reports/`
+}
+
+/**
+ * Reports filed by this scanner's scouts, newest first.
+ */
+export const visionScannersScoutReportsList = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ScoutReportApi[]> => {
+    return apiMutator<ScoutReportApi[]>(getVisionScannersScoutReportsListUrl(projectId, scannerId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersScoutReportsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scout_reports/${id}/`
+}
+
+/**
+ * One report filed by this scanner's scouts.
+ */
+export const visionScannersScoutReportsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoutReportApi> => {
+    return apiMutator<ScoutReportApi>(getVisionScannersScoutReportsRetrieveUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersScoutsCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scouts/`
+}
+
+/**
+ * Create a scout that watches this scanner, recorded as belonging to it.
+ */
+export const visionScannersScoutsCreate = async (
+    projectId: string,
+    scannerId: string,
+    scannerScoutCreateApi: ScannerScoutCreateApi,
+    options?: RequestInit
+): Promise<ScannerScoutCreateResponseApi> => {
+    return apiMutator<ScannerScoutCreateResponseApi>(getVisionScannersScoutsCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scannerScoutCreateApi),
+    })
 }
 
 export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {
