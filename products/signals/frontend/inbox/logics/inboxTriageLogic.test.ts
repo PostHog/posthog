@@ -156,6 +156,22 @@ describe('inboxTriageLogic', () => {
         expect(logic.values.currentReport?.id).toBe(`r-${PAGE_SIZE - 1}`)
     })
 
+    // A failed first load leaves the response null, so `isLoaded` never flips; the view keys the
+    // retry off `reportsLoadFailed` instead of skeletoning forever.
+    it('flags a failed initial load instead of loading forever', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                [REPORTS_URL]: () => [500, {}],
+            },
+        })
+
+        await mountAt({})
+
+        expect(logic.values.isLoaded).toBe(false)
+        expect(logic.values.reportsLoadFailed).toBe(true)
+    })
+
     it('keeps the URL on the current spot and hands it to the report page as the way back', async () => {
         await mountAt({})
         logic.actions.navigate(1)

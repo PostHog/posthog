@@ -38,6 +38,7 @@ export interface inboxTriageLogicValues {
     hasMore: boolean // reportListLogic
     isLoaded: boolean // reportListLogic
     reports: SignalReport[] // reportListLogic
+    reportsLoadFailed: boolean // reportListLogic
     reportsResponseLoading: boolean // reportListLogic
     canCreatePr: boolean
     counter: string
@@ -188,7 +189,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
     connect(() => ({
         values: [
             reportListLogic(TRIAGE_LIST_PROPS),
-            ['reports', 'hasMore', 'isLoaded', 'reportsResponseLoading'],
+            ['reports', 'hasMore', 'isLoaded', 'reportsResponseLoading', 'reportsLoadFailed'],
             inboxTaskKickoffLogic,
             ['isCreatingPr', 'aiConsentDisabledReason'],
         ],

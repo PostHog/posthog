@@ -241,9 +241,18 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
  * bottom lists them.
  */
 export function InboxTriageView(): JSX.Element {
-    const { reports, isLoaded, isRestoringPosition, currentReport, previousReport, nextReport, expanded, counter } =
-        useValues(inboxTriageLogic)
-    const { navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent } =
+    const {
+        reports,
+        isLoaded,
+        isRestoringPosition,
+        reportsLoadFailed,
+        currentReport,
+        previousReport,
+        nextReport,
+        expanded,
+        counter,
+    } = useValues(inboxTriageLogic)
+    const { navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent, ensureLoaded } =
         useActions(inboxTriageLogic)
 
     useKeyboardHotkeys(
@@ -317,7 +326,21 @@ export function InboxTriageView(): JSX.Element {
             </div>
 
             <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-4">
-                {!isLoaded || isRestoringPosition ? (
+                {!isLoaded && reportsLoadFailed ? (
+                    // The first load failed: kea loaders keep the response null, so `isLoaded` never
+                    // flips and the skeleton would otherwise spin forever. Offer a retry instead.
+                    <div className="flex flex-col items-center gap-2 text-center">
+                        <h3 className="m-0 text-base font-semibold">Couldn't load your reports.</h3>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => ensureLoaded()}
+                            data-attr="inbox-triage-retry"
+                        >
+                            Retry
+                        </LemonButton>
+                    </div>
+                ) : !isLoaded || isRestoringPosition ? (
                     <div className="flex w-full max-w-3xl flex-col gap-3" aria-hidden>
                         <LemonSkeleton className="h-8 w-full max-w-2xl self-center rounded" />
                         <LemonSkeleton className="h-48 w-full rounded-lg" />
