@@ -590,10 +590,14 @@ SPECTACULAR_SETTINGS = {
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
+            "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
+            "RoleEnum": ["primary", "supporting"],
             # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
