@@ -83,12 +83,6 @@ role "sessions" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/sessions/shared", "roles/sessions/prod-eu"] }
 }
 
-# SESSIONSV3 satellite: US-only node hosting the v3 session tables (events replica,
-# raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
-role "sessionsv3" {
-  env "prod-us" { layers = ["roles/shared", "roles/sessionsv3/prod-us"] }
-}
-
 # BATCH_EXPORTS satellite: hosts the sharded_events_recent data table (the recent-events
 # store the export workers read; data/ops reach it via Distributed proxies) plus the
 # query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
