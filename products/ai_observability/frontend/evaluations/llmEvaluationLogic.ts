@@ -111,9 +111,6 @@ return result`,
 
 const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
 const DEFAULT_SENTIMENT_RUNS_FILTER = 'negative' as const
-// Bounds the runs and stats scans so they prune partitions instead of scanning the team's whole
-// $ai_evaluation history. Generously past ai_events retention, so it hides no real runs.
-const EVALUATION_RUNS_LOOKBACK_DAYS = 90
 const DEFAULT_CONDITION_ROLLOUT_PERCENTAGE = 100
 
 function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation {
@@ -232,7 +229,7 @@ export interface llmEvaluationLogicValues {
     evaluationLoading: boolean
     evaluationProviderKeyIssue: LLMProviderKey | null
     evaluationRuns: EvaluationRun[]
-    evaluationRunsError: string | null
+    evaluationRunsError: boolean
     evaluationRunsFilter: EvaluationRunsFilter
     evaluationRunsLoading: boolean
     filteredEvaluationRuns: EvaluationRun[]
@@ -585,7 +582,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                     return await queryEvaluationRuns({
                         evaluationId: props.evaluationId,
-                        lookbackDays: EVALUATION_RUNS_LOOKBACK_DAYS,
                         forceRefresh: values.isForceRefresh,
                     })
                 },
@@ -601,7 +597,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                     return await queryEvaluationRunsStats({
                         evaluationId: props.evaluationId,
-                        lookbackDays: EVALUATION_RUNS_LOOKBACK_DAYS,
                         forceRefresh: values.isForceRefresh,
                     })
                 },
@@ -741,11 +736,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // The runs loader keeps its default empty list when the query fails. Track the failure so
         // the table can show a real error state with retry instead of the "no runs yet" empty state.
         evaluationRunsError: [
-            null as string | null,
+            false as boolean,
             {
-                loadEvaluationRuns: () => null,
-                loadEvaluationRunsSuccess: () => null,
-                loadEvaluationRunsFailure: () => 'Failed to load evaluation runs',
+                loadEvaluationRuns: () => false,
+                loadEvaluationRunsSuccess: () => false,
+                loadEvaluationRunsFailure: () => true,
             },
         ],
         evaluationLoading: [

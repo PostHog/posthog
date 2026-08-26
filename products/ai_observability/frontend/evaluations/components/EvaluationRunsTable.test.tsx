@@ -68,6 +68,18 @@ describe('EvaluationRunsTable', () => {
         expect(screen.queryByText('No evaluation runs yet')).not.toBeInTheDocument()
     })
 
+    it('warns that rows are stale when a refresh fails with runs already on screen', () => {
+        logic.actions.loadEvaluationRunsSuccess([passingRun])
+        logic.actions.loadEvaluationRunsFailure('boom')
+        renderTable()
+
+        expect(
+            screen.getByText("We couldn't refresh the evaluation runs. The runs below may be out of date.")
+        ).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="llma-evaluation-runs-stale-retry"]')).toBeInTheDocument()
+        expect(screen.getByText('Good')).toBeInTheDocument()
+    })
+
     it('says a filter is hiding rows when the evaluation has runs but none match', () => {
         logic.actions.loadEvaluationRunsSuccess([passingRun])
         logic.actions.setEvaluationRunsFilter('fail', 'all')

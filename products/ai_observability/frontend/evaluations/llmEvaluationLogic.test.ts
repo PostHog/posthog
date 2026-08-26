@@ -1088,7 +1088,7 @@ return result`,
                 logic.actions.loadEvaluationRunsFailure('boom')
 
                 await expectLogic(logic).toMatchValues({
-                    evaluationRunsError: 'Failed to load evaluation runs',
+                    evaluationRunsError: true,
                 })
             })
 
@@ -1097,7 +1097,7 @@ return result`,
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
 
                 await expectLogic(logic).toMatchValues({
-                    evaluationRunsError: null,
+                    evaluationRunsError: false,
                 })
             })
         })
