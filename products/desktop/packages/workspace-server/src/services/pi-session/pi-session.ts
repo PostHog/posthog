@@ -260,32 +260,34 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   async start(
     input: StartPiSessionInput,
   ): Promise<{ sessionFile: string | null; sessionId: string }> {
-    return this.runExclusive(input.taskId, () => this.startLocked(input));
+    return this.runExclusive(input.taskContext.taskId, () =>
+      this.startLocked(input),
+    );
   }
 
   private async startLocked(
     input: StartPiSessionInput,
   ): Promise<{ sessionFile: string | null; sessionId: string }> {
-    await this.stopLocked(input.taskId);
+    const { taskId, cwd } = input.taskContext;
+    await this.stopLocked(taskId);
 
-    const projectTrustPath = input.projectTrustPath ?? input.cwd;
-    await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
-    const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
+    const projectTrustPath = input.projectTrustPath ?? cwd;
+    await assertProjectTrustAppliesToCwd(projectTrustPath, cwd);
+    const projectTrust = readPiProjectTrust(projectTrustPath, cwd);
     const runtime = await this.runtimeFactory.create({
-      taskId: input.taskId,
-      cwd: input.cwd,
+      taskContext: input.taskContext,
       model: input.model,
       projectTrusted: projectTrust.trusted,
     });
     const client = runtime.client;
     const session = this.registerSession(
-      input.taskId,
+      taskId,
       runtime,
-      input.cwd,
+      cwd,
       projectTrustPath,
     );
 
-    return this.startSession(input.taskId, client, session, async () => {
+    return this.startSession(taskId, client, session, async () => {
       if (input.thinkingLevel) {
         await client.setThinkingLevel(input.thinkingLevel);
       }
@@ -297,7 +299,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         );
       }
 
-      this.taskMetadataRepository.upsert(input.taskId, {
+      this.taskMetadataRepository.upsert(taskId, {
         piSessionFile: state.sessionFile,
       });
 
@@ -311,50 +313,50 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   }
 
   async resume(input: ResumePiSessionInput): Promise<void> {
-    await this.runExclusive(input.taskId, () => this.resumeLocked(input));
+    await this.runExclusive(input.taskContext.taskId, () =>
+      this.resumeLocked(input),
+    );
   }
 
   private async resumeLocked(input: ResumePiSessionInput): Promise<void> {
-    const existingSession = this.sessions.get(input.taskId);
-    const projectTrustPath = input.projectTrustPath ?? input.cwd;
+    const { taskId, cwd } = input.taskContext;
+    const existingSession = this.sessions.get(taskId);
+    const projectTrustPath = input.projectTrustPath ?? cwd;
     if (
       existingSession &&
       !existingSession.stopFailed &&
-      existingSession.cwd === input.cwd &&
+      existingSession.cwd === cwd &&
       existingSession.projectTrustPath === projectTrustPath
     ) {
       this.touchSession(existingSession);
       return;
     }
 
-    const metadata = this.taskMetadataRepository.findByTaskId(input.taskId);
+    const metadata = this.taskMetadataRepository.findByTaskId(taskId);
     const sessionFile = metadata?.piSessionFile;
 
     if (!sessionFile) {
-      throw new Error(
-        `Pi session metadata is missing for task ${input.taskId}`,
-      );
+      throw new Error(`Pi session metadata is missing for task ${taskId}`);
     }
 
-    await this.stopLocked(input.taskId);
+    await this.stopLocked(taskId);
 
-    await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
-    const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
+    await assertProjectTrustAppliesToCwd(projectTrustPath, cwd);
+    const projectTrust = readPiProjectTrust(projectTrustPath, cwd);
     const runtime = await this.runtimeFactory.create({
-      taskId: input.taskId,
-      cwd: input.cwd,
+      taskContext: input.taskContext,
       sessionFile,
       projectTrusted: projectTrust.trusted,
     });
     const client = runtime.client;
     const session = this.registerSession(
-      input.taskId,
+      taskId,
       runtime,
-      input.cwd,
+      cwd,
       projectTrustPath,
     );
 
-    await this.startSession(input.taskId, client, session, async () => {});
+    await this.startSession(taskId, client, session, async () => {});
   }
 
   request(taskId: string, command: RpcCommand): Promise<RpcResponse> {
