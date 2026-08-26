@@ -193,6 +193,17 @@ describe("buildInboxViewedProperties", () => {
 
     expect(props.has_active_filters).toBe(false);
   });
+
+  it("omits legacy tab counts for the sectioned reports inbox", () => {
+    const props = buildInboxViewedProperties({
+      visibleReports: [fakeReport()],
+      totalCount: 1,
+      filters: NO_FILTERS,
+    });
+
+    expect(props.pulls_tab_count).toBeUndefined();
+    expect(props.reports_tab_count).toBeUndefined();
+  });
 });
 
 describe("inboxDetailTabReports", () => {
