@@ -906,7 +906,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
             scopes=["customer_analytics:write"],
         )
         self.client.logout()
-        auth = {"HTTP_AUTHORIZATION": f"Bearer {key_value}"}
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
 
         added = self.client.post(
             f"{self.requests_url}{created['id']}/add_evidence/",
@@ -921,9 +921,8 @@ class TestFeatureRequestsAPI(APIBaseTest):
                 "image_ids": [],
             },
             format="json",
-            **auth,
         )
-        history = self.client.get(f"{self.requests_url}{created['id']}/history/", **auth)
+        history = self.client.get(f"{self.requests_url}{created['id']}/history/")
 
         self.assertEqual(added.status_code, status.HTTP_200_OK)
         self.assertEqual(added.json()["account_links"][0]["evidence_count"], 1)
