@@ -49,7 +49,7 @@ describe('heatmapsBrowserLogic', () => {
             expect(message).toContain(expected)
         })
 
-        it('attributes a non-2xx to the customer host and quotes what it returned', () => {
+        it('reports a non-2xx and points to the header a WAF can allow', () => {
             const message = preflightBannerMessage({
                 ...base,
                 framing: 'unknown',
@@ -59,7 +59,9 @@ describe('heatmapsBrowserLogic', () => {
 
             expect(message).toContain('429')
             expect(message).toContain('local_rate_limited')
-            expect(message).toContain('host or CDN')
+            // The published fix is the header, not an IP allowlist that cannot match the render service.
+            expect(message).toContain('X-PostHog-Heatmap-Screenshot: 1')
+            expect(message).not.toContain('firewall rules')
             expect(message).not.toContain('embedding')
         })
 

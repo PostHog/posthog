@@ -79,8 +79,9 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
         const said = preflight.body_excerpt ? ` It said: "${preflight.body_excerpt}".` : ''
         return (
             `${host} returned ${preflight.http_status} when we tried to load this page.${said} ` +
-            `This came from your site's host or CDN, not from PostHog. ` +
-            `Check its rate limits and firewall rules, then try again.`
+            `Bot protection often blocks automated loads like this. Our screenshots come from a render ` +
+            `service, not from PostHog's IPs, so allow requests that carry the ` +
+            `"X-PostHog-Heatmap-Screenshot: 1" header, then try again.`
         )
     }
 
