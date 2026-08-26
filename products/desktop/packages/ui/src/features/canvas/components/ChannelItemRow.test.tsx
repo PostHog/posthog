@@ -132,6 +132,11 @@ describe("ChannelItemRow", () => {
   // rather than the status: starting, live but stalled, or something to read.
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
+    [
+      "an agent session being created",
+      { isAgentSessionStarting: true },
+      "Starting",
+    ],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
       // A background run is one-shot and unattended, so its in_progress really

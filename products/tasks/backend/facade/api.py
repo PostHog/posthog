@@ -108,6 +108,7 @@ from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
     DesktopBetaTermsAcceptance,
+    InvalidTaskOriginError,
     MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
@@ -4555,6 +4556,12 @@ def bootstrap_task_run(
     )
     try:
         run = task.create_run(environment=environment, mode=mode, branch=branch, extra_state=extra_state)
+    except InvalidTaskOriginError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
 
@@ -4721,7 +4728,7 @@ def resume_task_run_in_cloud(
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
-    ``"already_active"`` (400), ``"ownership_changed"`` (400), ``"auth_error:<detail>"``
+    ``"already_active"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400), ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -4774,6 +4781,9 @@ def resume_task_run_in_cloud(
         )
         if not run.matches_task_ownership(task):
             return "ownership_changed", None, None
+
+        if task.origin_product not in Task.OriginProduct.values:
+            return "invalid_origin", None, None
 
         is_cloud_active = run.environment == TaskRun.Environment.CLOUD and run.status in (
             TaskRun.Status.QUEUED,
@@ -6958,6 +6968,12 @@ def run_task(
                 enforce_report_implementation_rerun_cap(
                     team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
                 )
+    except InvalidTaskOriginError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
     if is_pi_task and resume_from_run_id:
