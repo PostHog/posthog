@@ -92,6 +92,31 @@ class TestTimestampVisitorSelectSetQuery(unittest.TestCase):
         self.assertFalse(helper_fn(node))
 
 
+class TestTimestampVisitorUnknownNode(unittest.TestCase):
+    """Regression tests for unlisted AST nodes reaching the predicate visitors.
+
+    A user WHERE clause can contain a tuple access, an array access, or a window function.
+    These nodes have no dedicated visit method, so before visit_unknown existed the visitors
+    raised NotImplementedError and crashed the query. Every predicate must instead fail safe
+    and return False.
+    """
+
+    @parameterized.expand(
+        [
+            ("tuple_access", ast.TupleAccess(tuple=ast.Field(chain=["x"]), index=1)),
+            ("array_access", ast.ArrayAccess(array=ast.Field(chain=["x"]), property=ast.Constant(value=1))),
+            ("window_function", ast.WindowFunction(name="row_number", args=[])),
+        ]
+    )
+    def test_unknown_node_returns_false_for_all_helpers(self, _name: str, node: ast.Expr) -> None:
+        self.assertFalse(is_simple_timestamp_field_expression(node, _make_hogql_context()))
+        self.assertFalse(is_time_or_interval_constant(node))
+        self.assertFalse(is_start_of_day_constant(node))
+        self.assertFalse(is_start_of_hour_constant(node))
+        self.assertFalse(is_end_of_day_constant(node))
+        self.assertFalse(is_end_of_hour_constant(node))
+
+
 class TestTimestampVisitorTypeCast(unittest.TestCase):
     """Regression tests for visit_type_cast / visit_try_cast methods.
 
