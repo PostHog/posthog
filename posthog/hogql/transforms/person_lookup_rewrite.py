@@ -19,18 +19,11 @@ Exports:
 
 from typing import Optional, TypeVar
 
-from prometheus_client import Counter
-
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.visitor import CloningVisitor
 
 _T_AST = TypeVar("_T_AST", bound=AST)
-
-PERSON_LOOKUP_REWRITE_COUNTER = Counter(
-    "posthog_hogql_person_lookup_rewrites_total",
-    "Single-person lookups on events rewritten to read the persons table.",
-)
 
 # Person-sourced fields that exist on the persons table under the same name.
 _PERSON_FIELDS = {"properties", "id", "created_at"}
@@ -186,7 +179,6 @@ class _PersonLookupRewriter(CloningVisitor):
     def visit_select_query(self, node: ast.SelectQuery):
         rewritten = _try_rewrite(node)
         if rewritten is not None:
-            PERSON_LOOKUP_REWRITE_COUNTER.inc()
             return rewritten
         return super().visit_select_query(node)
 
