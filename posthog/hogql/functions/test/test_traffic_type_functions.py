@@ -5,6 +5,8 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.schema import CustomBotDefinition, CustomBotMatcher, HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
@@ -637,3 +639,50 @@ class TestMacroExpansionGuard(BaseTest):
         )
         printed = self._print(f"SELECT matchesAction({action.pk}) FROM events")
         assert "multiMatchAnyIndex" in printed
+
+
+class TestCustomBotDefinitions(BaseTest):
+    def _print(self, select: str, definitions: list[CustomBotDefinition]) -> str:
+        return prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(customBotDefinitions=definitions),
+            ),
+            "clickhouse",
+        )[0]
+
+    @parameterized.expand(
+        [
+            ("isLikelyBot", "isLikelyBot(properties.$raw_user_agent)"),
+            ("getBotName", "getBotName(properties.$raw_user_agent)"),
+            ("getTrafficCategory", "getTrafficCategory(properties.$raw_user_agent)"),
+        ]
+    )
+    def test_project_definitions_reach_the_query(self, _name: str, call: str):
+        # The definitions live on the query modifiers, so the resolver has to thread them into the
+        # macro expansion. Without that the setting saves fine and silently does nothing.
+        printed = self._print(
+            f"SELECT {call} FROM events",
+            [
+                CustomBotDefinition(
+                    id="1",
+                    name="Acme scraper",
+                    pattern="AcmeBot",
+                    matcher=CustomBotMatcher.CONTAINS,
+                    category="ai_crawler",
+                )
+            ],
+        )
+
+        assert "(?i)AcmeBot" in printed
+
+    def test_built_in_definitions_still_apply(self):
+        printed = self._print(
+            "SELECT getBotName(properties.$raw_user_agent) FROM events",
+            [CustomBotDefinition(id="1", name="Acme scraper", pattern="AcmeBot", matcher=CustomBotMatcher.CONTAINS)],
+        )
+
+        assert "GPTBot" in printed
+        assert "Acme scraper" in printed

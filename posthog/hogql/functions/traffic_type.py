@@ -16,18 +16,31 @@ The legacy __preview_* names still resolve as deprecated aliases.
 Bot definitions (patterns, categories, names, IP ranges) live in
 products.web_analytics.backend.hogql_queries so that changes to bot data do not require
 a HogQL review.
+
+A project can extend the built-in list with its own patterns. Those arrive as query modifiers and
+are appended after the built-ins, so a built-in definition still wins when both match.
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
 
-from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS, BotDefinition
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import (
     BOT_IP_DEFINITIONS,
     bot_ip_prefix_groups_by_definition,
     merged_bot_ip_prefix_groups,
 )
+from products.web_analytics.backend.hogql_queries.custom_bot_definitions import to_bot_definitions
+
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
+
+def _custom_definitions(modifiers: Optional["HogQLQueryModifiers"]) -> list[tuple[str, BotDefinition]]:
+    if modifiers is None:
+        return []
+    return to_bot_definitions(modifiers.customBotDefinitions)
 
 
 def _safe_ip_expr(ip_expr: ast.Expr) -> ast.Expr:
@@ -101,6 +114,7 @@ def _build_bot_array_lookup(
     default: str = "",
     empty_ua_value: str = "",
     ip_expr: Optional[ast.Expr] = None,
+    custom_definitions: Optional[list[tuple[str, BotDefinition]]] = None,
 ) -> ast.Expr:
     """Build a multiMatchAnyIndex + array lookup expression for efficient bot detection.
 
@@ -116,12 +130,14 @@ def _build_bot_array_lookup(
     # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    # Build patterns array (all bot patterns + empty UA pattern)
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
+    # Build patterns array (all bot patterns + project patterns + empty UA pattern)
+    custom = custom_definitions or []
+    patterns = [*BOT_DEFINITIONS.keys(), *(pattern for pattern, _ in custom), "^$"]
     patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
     # Build labels array (corresponding labels + empty UA label)
     labels = [getattr(bot_def, attr) for bot_def in BOT_DEFINITIONS.values()]
+    labels.extend(getattr(bot_def, attr) for _, bot_def in custom)
     labels.append(empty_ua_value)
     labels_array = ast.Array(exprs=[ast.Constant(value=label) for label in labels])
 
@@ -150,36 +166,61 @@ def _optional_ip_arg(args: list[ast.Expr]) -> Optional[ast.Expr]:
     return args[1] if len(args) > 1 else None
 
 
-def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_bot_name(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None) -> ast.Expr:
     """
     HogQL function: getBotName(user_agent[, ip])
 
     Returns bot name: "Googlebot", "ChatGPT", etc. Empty string for regular traffic.
     """
-    return _build_bot_array_lookup(args[0], "name", default="", empty_ua_value="", ip_expr=_optional_ip_arg(args))
+    return _build_bot_array_lookup(
+        args[0],
+        "name",
+        default="",
+        empty_ua_value="",
+        ip_expr=_optional_ip_arg(args),
+        custom_definitions=_custom_definitions(modifiers),
+    )
 
 
-def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_bot_operator(
+    node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None
+) -> ast.Expr:
     """
     HogQL function: getBotOperator(user_agent[, ip])
 
     Returns operator/company name: "Google", "OpenAI", "Anthropic", etc. Empty string for regular traffic.
     """
-    return _build_bot_array_lookup(args[0], "operator", default="", empty_ua_value="", ip_expr=_optional_ip_arg(args))
+    return _build_bot_array_lookup(
+        args[0],
+        "operator",
+        default="",
+        empty_ua_value="",
+        ip_expr=_optional_ip_arg(args),
+        custom_definitions=_custom_definitions(modifiers),
+    )
 
 
-def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_traffic_type(
+    node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None
+) -> ast.Expr:
     """
     HogQL function: getTrafficType(user_agent[, ip])
 
     Returns one of: 'AI Agent', 'Bot', 'Automation', 'Regular'
     """
     return _build_bot_array_lookup(
-        args[0], "traffic_type", default="Regular", empty_ua_value="Automation", ip_expr=_optional_ip_arg(args)
+        args[0],
+        "traffic_type",
+        default="Regular",
+        empty_ua_value="Automation",
+        ip_expr=_optional_ip_arg(args),
+        custom_definitions=_custom_definitions(modifiers),
     )
 
 
-def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_traffic_category(
+    node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None
+) -> ast.Expr:
     """
     HogQL function: getTrafficCategory(user_agent[, ip])
 
@@ -187,11 +228,16 @@ def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     For regular traffic, returns 'regular'.
     """
     return _build_bot_array_lookup(
-        args[0], "category", default="regular", empty_ua_value="no_user_agent", ip_expr=_optional_ip_arg(args)
+        args[0],
+        "category",
+        default="regular",
+        empty_ua_value="no_user_agent",
+        ip_expr=_optional_ip_arg(args),
+        custom_definitions=_custom_definitions(modifiers),
     )
 
 
-def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None) -> ast.Expr:
     """
     HogQL function: isLikelyBot(user_agent[, ip])
 
@@ -207,7 +253,8 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
+    custom = _custom_definitions(modifiers)
+    patterns = [*BOT_DEFINITIONS.keys(), *(pattern for pattern, _ in custom), "^$"]
     patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
@@ -225,14 +272,20 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     return ast.Call(name="toBool", args=[matched])
 
 
-def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_bot_type(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None) -> ast.Expr:
     """
     HogQL function: getBotType(user_agent[, ip])
 
     Returns the bot category or empty string for regular traffic.
     Categories: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler',
-                'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
+                'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent',
+                a project's own category, or ''
     """
     return _build_bot_array_lookup(
-        args[0], "category", default="", empty_ua_value="no_user_agent", ip_expr=_optional_ip_arg(args)
+        args[0],
+        "category",
+        default="",
+        empty_ua_value="no_user_agent",
+        ip_expr=_optional_ip_arg(args),
+        custom_definitions=_custom_definitions(modifiers),
     )

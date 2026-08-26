@@ -334,6 +334,24 @@ export const BounceRatePageViewModeApi = {
     UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
 } as const
 
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+} as const
+
+export interface CustomBotDefinitionApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    id: string
+    matcher: CustomBotMatcherApi
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the pattern matches. */
+    name: string
+    /** Matched against the event's `$raw_user_agent`. */
+    pattern: string
+}
+
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
 export const FilterLogicalOperatorApi = {
@@ -485,6 +503,7 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    customBotDefinitions?: CustomBotDefinitionApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
     debug?: boolean | null

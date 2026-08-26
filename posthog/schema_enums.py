@@ -865,6 +865,11 @@ class CurrencyCode(StrEnum):
     ZMW = "ZMW"
 
 
+class CustomBotMatcher(StrEnum):
+    CONTAINS = "contains"
+    REGEX = "regex"
+
+
 class CustomChannelField(StrEnum):
     UTM_SOURCE = "utm_source"
     UTM_MEDIUM = "utm_medium"

@@ -115,6 +115,12 @@ from products.access_control.backend.presentation.access_control_settings import
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
+from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
+    MAX_CUSTOM_BOT_DEFINITIONS,
+    assert_patterns_compile as assert_custom_bot_patterns_compile,
+    compile_pattern as compile_custom_bot_pattern,
+    validate_definition as validate_custom_bot_definition,
+)
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
@@ -1741,9 +1747,29 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     )
 
         try:
-            HogQLQueryModifiers(**value)
+            modifiers = HogQLQueryModifiers(**value)
         except Exception:
             raise exceptions.ValidationError(f"Invalid modifier key.")
+
+        if "customBotDefinitions" in value:
+            definitions = modifiers.customBotDefinitions or []
+            if len(definitions) > MAX_CUSTOM_BOT_DEFINITIONS:
+                raise exceptions.ValidationError(
+                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
+                )
+            for definition in definitions:
+                # An unusable pattern would break every query that reads $virt_is_bot for this
+                # project, so it is rejected here rather than dropped silently at query time.
+                try:
+                    validate_custom_bot_definition(definition)
+                except ValueError as error:
+                    raise exceptions.ValidationError({"customBotDefinitions": f"{definition.name}: {error}"})
+            try:
+                assert_custom_bot_patterns_compile(
+                    [compile_custom_bot_pattern(d.pattern, d.matcher.value) for d in definitions]
+                )
+            except ValueError as error:
+                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
 
         return value
 

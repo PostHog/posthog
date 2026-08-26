@@ -16607,6 +16607,36 @@
             ],
             "type": "string"
         },
+        "CustomBotDefinition": {
+            "additionalProperties": false,
+            "description": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "properties": {
+                "category": {
+                    "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "matcher": {
+                    "$ref": "#/definitions/CustomBotMatcher"
+                },
+                "name": {
+                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the pattern matches.",
+                    "type": "string"
+                },
+                "pattern": {
+                    "description": "Matched against the event's `$raw_user_agent`.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "pattern", "matcher", "id"],
+            "type": "object"
+        },
+        "CustomBotMatcher": {
+            "enum": ["contains", "regex"],
+            "type": "string"
+        },
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
@@ -28795,6 +28825,12 @@
                 },
                 "convertToProjectTimezone": {
                     "type": "boolean"
+                },
+                "customBotDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/CustomBotDefinition"
+                    },
+                    "type": "array"
                 },
                 "customChannelTypeRules": {
                     "items": {
