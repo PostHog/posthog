@@ -327,8 +327,9 @@ tools:
             this for "is CI getting faster or slower", "which GitHub Actions workflow is the slow or flaky long pole",
             and CI duration trends. Success rate covers conclusive runs only (success, failure, or timed out), excluding
             skipped, cancelled, and action-required runs. p50/p95 are over successful runs only, so superseded cancels
-            and failed runs never bias the duration percentile. For PR-branch CI health, pass run_scope=pull_request (same-repo PRs only —
-            fork PRs carry no PR attribution). To get a trend, call this over two adjacent windows and compare.
+            and failed runs never bias the duration percentile. For PR-branch CI health, pass run_scope=pull_request
+            (same-repo PRs only — fork PRs carry no PR attribution). To get a trend, call this over two adjacent windows
+            and compare.
         param_overrides:
             date_from:
                 description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
