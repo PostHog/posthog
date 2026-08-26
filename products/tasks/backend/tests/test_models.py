@@ -378,6 +378,39 @@ class TestTask(TestCase):
         self.assertEqual(task.github_user_integration, user_integration)
         mock_execute_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SIGNALS_CHAT,),
+            (Task.OriginProduct.SIGNAL_REPORT,),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_repoless_inbox_task_takes_no_user_integration(self, origin_product, mock_execute_workflow):
+        user = User.objects.create(email=f"repoless-{origin_product}@test.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="install-1",
+            config={"installation_id": "install-1"},
+            sensitive_config={"access_token": "ghs_user_install"},
+            repository_cache=[{"full_name": "posthog/posthog", "id": 1}],
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Inbox chat",
+                description="Chat",
+                origin_product=origin_product,
+                user_id=user.id,
+                repository=None,
+            )
+
+        self.assertIsNone(task.github_user_integration)
+        self.assertIsNone(task.github_integration)
+        self.assertEqual(task.repositories, [])
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_raises_when_no_integration_anywhere(self, mock_execute_workflow):
         user = User.objects.create(email="signal-no-int@test.com")
