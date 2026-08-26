@@ -552,7 +552,7 @@ export function useTaskCreation({
               input,
               selectedDirectory,
               hostClient,
-              input.adapter === "codex"
+              input.runtime !== "pi" && input.adapter === "codex"
                 ? effectiveCodexModelAccess({
                     flagEnabled: codexSubscription.flagEnabled,
                     subscriptionOn: codexSubscription.subscriptionOn,

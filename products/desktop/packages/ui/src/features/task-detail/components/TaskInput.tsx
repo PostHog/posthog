@@ -475,6 +475,7 @@ export function TaskInput({
     });
 
   const showCodexNotConnectedNotice =
+    runtime !== "pi" &&
     adapter === "codex" &&
     workspaceMode !== "cloud" &&
     codexSubscription.needsConnection;
@@ -1277,7 +1278,7 @@ export function TaskInput({
                 <WorkspaceModeSelect
                   value={workspaceMode}
                   onChange={setWorkspaceMode}
-                  adapter={adapter}
+                  adapter={runtime === "pi" ? undefined : adapter}
                   selectedCloudEnvironmentId={selectedCloudEnvId}
                   onCloudEnvironmentChange={setSelectedCloudEnvId}
                   selectedCustomImageId={selectedCustomImageId}
