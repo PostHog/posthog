@@ -106,6 +106,55 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Inject a free-text hypothesis or direction into a running pipeline. The sandbox agent reads queued suggestions at the start of each iteration batch and decides: translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), or reject with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before autonomous iterations; 'consider' is advisory. Check 'agent_response' after the next training run to see how the suggestion was interpreted.
+ * @summary Submit a suggestion
+ */
+export const autoresearchSuggestionsCreateBodyPromptMax = 2000
+
+export const autoresearchSuggestionsCreateBodyPriorityDefault = `consider`
+
+export const AutoresearchSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    prompt: zod
+        .string()
+        .max(autoresearchSuggestionsCreateBodyPromptMax)
+        .describe(
+            "Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'."
+        ),
+    priority: zod
+        .enum(['try_next', 'consider'])
+        .describe('\* `try_next` - try_next\n\* `consider` - consider')
+        .default(autoresearchSuggestionsCreateBodyPriorityDefault)
+        .describe(
+            "'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.\n\n\* `try_next` - try_next\n\* `consider` - consider"
+        ),
+})
+
+/**
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration.
+ * @summary Respond to a suggestion
+ */
+export const autoresearchSuggestionsRespondCreateBodyAgentResponseDefault = ``
+export const autoresearchSuggestionsRespondCreateBodyAgentResponseMax = 2000
+
+export const AutoresearchSuggestionsRespondCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['picked_up', 'acted_on', 'dismissed'])
+            .describe('\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed')
+            .describe(
+                "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed"
+            ),
+        agent_response: zod
+            .string()
+            .max(autoresearchSuggestionsRespondCreateBodyAgentResponseMax)
+            .default(autoresearchSuggestionsRespondCreateBodyAgentResponseDefault)
+            .describe(
+                'Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).'
+            ),
+    })
+    .describe('Input for the agent to record how it interpreted a steering suggestion.')
+
+/**
  * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
  * @summary Open a training run
  */

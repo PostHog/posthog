@@ -56,6 +56,8 @@ from .contracts import (
     ResolvedTemplate,
     Run,
     StoredArtifact,
+    Suggestion,
+    SuggestionNotFound as SuggestionNotFound,
     TemplateInfo,
     TrainingRun,
     TrainingRunHistory,
@@ -200,6 +202,22 @@ def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
         agent_confidence=row.agent_confidence,
         parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
+    )
+
+
+def _suggestion_to_contract(row: AutoresearchSuggestion) -> Suggestion:
+    return Suggestion(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        prompt=row.prompt,
+        priority=row.priority,
+        status=row.status,
+        source=row.source,
+        agent_response=row.agent_response,
+        created_by=row.created_by,
+        linked_iteration_ids=list(row.iterations.values_list("id", flat=True)),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -787,6 +805,71 @@ def delete_artifact(team_id: int, training_run_id: str | UUID, *, path: str) -> 
     return ArtifactDeleteResult(path=normalized, deleted=deleted)
 
 
+# ── Suggestions ────────────────────────────────────────────────────────────
+
+
+def list_suggestions(
+    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
+) -> tuple[list[Suggestion], int]:
+    qs = (
+        AutoresearchSuggestion.objects.for_team(team_id)
+        .select_related("pipeline", "created_by")
+        .order_by("-created_at")
+    )
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    count = qs.count()
+    return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def get_suggestion(
+    team_id: int, suggestion_id: str | UUID, *, pipeline_id: str | UUID | None = None
+) -> Suggestion | None:
+    qs = AutoresearchSuggestion.objects.for_team(team_id).filter(pk=str(suggestion_id))
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    row = qs.first()
+    return _suggestion_to_contract(row) if row else None
+
+
+def create_suggestion(
+    team_id: int, pipeline_id: str | UUID, *, prompt: str, priority: str, created_by: Any
+) -> Suggestion:
+    pipeline = _pipeline_row(team_id, pipeline_id)
+    if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+        raise AutoresearchConflict("Cannot submit suggestions to an archived pipeline.")
+    row = AutoresearchSuggestion.objects.create(
+        pipeline=pipeline,
+        created_by=created_by,
+        prompt=prompt,
+        priority=priority,
+        source=AutoresearchSuggestion.Source.USER,
+    )
+    return _suggestion_to_contract(row)
+
+
+def respond_to_suggestion(
+    team_id: int,
+    suggestion_id: str | UUID,
+    *,
+    status: str,
+    agent_response: str | None = None,
+    pipeline_id: str | UUID | None = None,
+) -> Suggestion:
+    """Record how the agent handled a suggestion."""
+    qs = AutoresearchSuggestion.objects.for_team(team_id).filter(pk=str(suggestion_id))
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    row = qs.first()
+    if row is None:
+        raise SuggestionNotFound("Suggestion not found.")
+    row.status = status
+    if agent_response:
+        row.agent_response = agent_response
+    row.save(update_fields=["status", "agent_response", "updated_at"])
+    return _suggestion_to_contract(row)
+
+
 # ── Recipe validation surface for the presentation layer ───────────────────
 
 # The semantic population kinds the labeler can compile. Presentation validates a submitted
@@ -812,5 +895,8 @@ PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
 MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
 TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
 ITERATION_STATUS_CHOICES = AutoresearchIteration.Status.choices
+SUGGESTION_PRIORITY_CHOICES = AutoresearchSuggestion.Priority.choices
+SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
+SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
 RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices

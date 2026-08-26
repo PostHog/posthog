@@ -5,15 +5,16 @@ The HTTP surface — and, because of how PostHog's codegen works, considerably m
 These serializers are the source of truth for three downstream artifacts: the REST API itself, the generated frontend TypeScript types, and the 29 `autoresearch-*` MCP tools that the sandbox agent uses to drive its own training run.
 A vague `help_text` here becomes a vague tool description that a model has to guess at. Treat serializer annotations as agent-facing documentation, because they are.
 
-This package lands one endpoint group at a time. Pipeline CRUD, the pre-create helpers, the read-only model and run viewsets, and the whole training-run agent surface are here; the lifecycle actions and suggestions arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464). The MCP tools arrive at the end of it.
+The pipeline lifecycle actions (`train`, `score`, `validate-online`, `archive`, `pause`, `resume`) arrive with the last API piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), and the MCP tools at its end.
 
 ## What lives here
 
 - `views/views.py`
-  Four viewsets, registered in `../routes.py` under `project_autoresearch_*` basenames and nested pipeline-first.
+  Five viewsets, registered in `../routes.py` under `project_autoresearch_*` basenames and nested pipeline-first.
   - `AutoresearchPipelineViewSet` — full CRUD plus the pre-create helpers `templates`, `resolve-template`, `validate`.
   - `AutoresearchTrainingRunViewSet` — read plus create, and **the agent's entire write surface**: `iterations`, `materialize-features`, `complete`, `artifacts`, `artifacts/upload`, `artifacts/get`, `artifacts/delete`, plus `history`.
   - `AutoresearchModelViewSet`, `AutoresearchRunViewSet` — read-only.
+  - `AutoresearchSuggestionViewSet` — human or agent hypotheses, plus `respond`.
 - `views/serializers.py`
   Request and response shapes, plus `resolve_target()`, which turns a pipeline's `target_event` or `target_definition` (an action reference) into the resolved target the rest of the product uses.
 
@@ -46,7 +47,7 @@ Consequences worth internalizing:
 
 ## Where the rest of the system meets this package
 
-- **Routing** — `../routes.py` (`register_routes`), nested pipeline → models / runs / training_runs.
+- **Routing** — `../routes.py` (`register_routes`), nested pipeline → models / runs / training_runs / suggestions.
 - **Frontend types** — generated into `../../frontend/generated/` via drf-spectacular + Orval. Never hand-edit those; change the serializer and regenerate with `hogli build:openapi`.
 - **Calls into** — `../training/` (complete), `../dataset/` (validate, templates, `resolve_target`).
 
