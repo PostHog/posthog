@@ -3,6 +3,8 @@ import {
     filterSpendUsageTypes,
     getSpendTypeOptions,
     getUsageTypeOptions,
+    sanitizeTeamIds,
+    teamIdsForUrl,
 } from './billing-utils'
 
 describe('getUsageTypeOptions', () => {
@@ -43,5 +45,20 @@ describe('getUsageTypeOptions', () => {
             ])
         ).toEqual(['event_count_in_period'])
         expect(filterSpendUsageTypes(['sandbox_compute_cpu_millicore_seconds_in_period'])).toEqual([])
+    })
+
+    it.each([
+        ['a valid array', [1, 2, 3], [1, 2, 3]],
+        ['a string from an unparsed URL value', '1,2,3', []],
+        ['non-numeric members', [1, 'x', 3], [1, 3]],
+        ['undefined', undefined, []],
+    ])('sanitizeTeamIds accepts %s', (_label, input, expected) => {
+        expect(sanitizeTeamIds(input)).toEqual(expected)
+    })
+
+    it('drops team_ids from the URL when every project is selected', () => {
+        const options = [{ key: '1' }, { key: '2' }, { key: '3' }]
+        expect(teamIdsForUrl([1, 2, 3], options)).toEqual([])
+        expect(teamIdsForUrl([1, 2], options)).toEqual([1, 2])
     })
 })
