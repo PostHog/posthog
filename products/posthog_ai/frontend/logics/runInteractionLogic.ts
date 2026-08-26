@@ -202,15 +202,15 @@ export interface runInteractionLogicActions {
     consumeWarm: () => {
         value: true
     } // taskWarmLogic
-    releaseWarm: () => {
-        value: true
-    } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
         request: import('./taskWarmLogic').TaskWarmRequest
     ) => {
         hasText: boolean
         request: import('./taskWarmLogic').TaskWarmRequest
+    } // taskWarmLogic
+    releaseWarm: () => {
+        value: true
     } // taskWarmLogic
     claimApplyBackTargets: (streamKey: string) => {
         streamKey: string
