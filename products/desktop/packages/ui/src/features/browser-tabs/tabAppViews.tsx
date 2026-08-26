@@ -3,6 +3,7 @@ import {
   BellIcon,
   BookOpenTextIcon,
   BrainIcon,
+  EnvelopeSimple,
   GearIcon,
   PlugsConnectedIcon,
   RepeatIcon,
@@ -56,4 +57,21 @@ export const TAB_APP_VIEW_META: Record<
 
 export function isTabAppView(value: string): value is TabAppView {
   return Object.hasOwn(TAB_APP_VIEW_META, value);
+}
+
+interface ActivityReportTabContext {
+  title: string | null | undefined;
+}
+
+export function resolveTabAppViewDisplay(
+  appView: TabAppView,
+  activityReport: ActivityReportTabContext | null,
+): { label: string; icon: ReactNode } {
+  if (appView === "activity" && activityReport) {
+    return {
+      label: activityReport.title?.trim() || TAB_APP_VIEW_META.activity.label,
+      icon: <EnvelopeSimple size={14} />,
+    };
+  }
+  return TAB_APP_VIEW_META[appView];
 }
