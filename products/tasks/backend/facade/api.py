@@ -6306,7 +6306,7 @@ def warm_task_sandbox(
         team=team,
         title="",
         description="",
-        origin_product=origin_product,
+        origin_product=Task.OriginProduct(origin_product),
         user_id=user_id,
         repository=repository,
         client_provenance=client_provenance,
