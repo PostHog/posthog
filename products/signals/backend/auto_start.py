@@ -573,6 +573,7 @@ async def maybe_autostart_implementation_task(
     priority: PriorityAssessment | None,
     triggering_user_id: int | None = None,
     billing_exempt_reason: str | None = None,
+    repository_autostart_eligible: bool = True,
 ) -> None:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
@@ -603,6 +604,13 @@ async def maybe_autostart_implementation_task(
     threshold or no such member exists. The user-triggered path (a reviewer edit) still runs
     strictly as the editing user and never falls back, so it can't act under another member's
     identity.
+
+    ``repository_autostart_eligible`` is false when *repository* was inferred from the report's own
+    text rather than chosen for a caller who asked to open a PR (see `RepoSelectionResult`). Such a
+    repo is a target for whoever clicks Create PR, so it may not reach the reviewer-less fallback —
+    that is the one path where nobody named the report's destination *or* its runner. A reviewer who
+    resolves and clears their autonomy threshold, or a user whose own reviewer edit triggered this,
+    is a person authorizing the run, so the inference stops mattering and this no longer applies.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
@@ -672,7 +680,11 @@ async def maybe_autostart_implementation_task(
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
             team_id, priority.priority, reviewers_content, team_default_priority
         )
-        if task_user is None and _report_meets_team_autostart_threshold(priority.priority, team_default_priority):
+        if (
+            task_user is None
+            and repository_autostart_eligible
+            and _report_meets_team_autostart_threshold(priority.priority, team_default_priority)
+        ):
             # No suggested reviewer resolved to a connected-GitHub member, but the report meets the
             # team's default autostart priority, so run it under the member who enabled signals for
             # the team rather than dropping the PR.
@@ -804,8 +816,8 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     repo_selection = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION, RepoSelectionResult
     )
-    repository = repo_selection.repository if repo_selection else None
-    if not repository:
+    repository = repo_selection.repository if repo_selection is not None else None
+    if repo_selection is None or not repository:
         logger.info(
             "signals auto-start re-eval skipped",
             report_id=report_id,
@@ -834,4 +846,5 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
         # If a user edited the reviewers, run the task as that user — never as a named colleague,
         # which would let one user act under another's PostHog identity (reviewer impersonation).
         triggering_user_id=editor_user_id,
+        repository_autostart_eligible=repo_selection.autostart_eligible,
     )

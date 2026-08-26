@@ -1,4 +1,4 @@
-import { AnyPropertyFilter, UserBasicType } from '~/types'
+import { AccessControlLevel, AnyPropertyFilter, UserBasicType } from '~/types'
 
 import type {
     EvaluationReportCitationApi,
@@ -86,6 +86,7 @@ export interface BaseEvaluationConfig {
     updated_at: string
     created_by?: UserBasicType | null
     deleted?: boolean
+    user_access_level?: AccessControlLevel | null
 }
 
 export interface LLMJudgeEvaluation extends BaseEvaluationConfig {

@@ -18,6 +18,12 @@ const UNKNOWN_KEY = 'unknown'
 export interface WireSecret {
     state: string
     value?: string
+    /**
+     * The staged value, still named `previous` on the wire. The name is wrong — it is the
+     * incoming value, not the outgoing one — but renaming a field both sides read needs a
+     * release where each accepts either, so the internal model is accurate and this boundary
+     * lags deliberately.
+     */
     previous?: string
     version_id: string
     fetched_at: string
@@ -50,8 +56,8 @@ export function resolveKeys(identity: CallerIdentity, mounted: MountedSecrets): 
         if (secret.value !== undefined) {
             wire.value = secret.value
         }
-        if (secret.previous !== undefined) {
-            wire.previous = secret.previous
+        if (secret.incoming !== undefined) {
+            wire.previous = secret.incoming
             previousVersionServedTotal.labels({ key }).inc()
         }
         secrets[key] = wire

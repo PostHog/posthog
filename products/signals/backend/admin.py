@@ -2,8 +2,6 @@ import re
 
 from django import forms
 from django.contrib import admin
-from django.db.models import QuerySet
-from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -12,7 +10,6 @@ from products.skills.backend.models.skills import LLMSkill
 from .models import (
     SignalReport,
     SignalReportArtefact,
-    SignalReportCanvasGeneration,
     SignalScoutConfig,
     SignalScoutNote,
     SignalScoutRun,
@@ -85,52 +82,6 @@ class SignalReportAdmin(admin.ModelAdmin):
     )
 
     inlines = [SignalReportArtefactInline]
-
-
-@admin.register(SignalReportCanvasGeneration)
-class SignalReportCanvasGenerationAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "report_id",
-        "team_id",
-        "status",
-        "validation_status",
-        "review_status",
-        "duration_ms",
-        "created_at",
-    )
-    list_filter = ("status", "validation_status", "review_status", "prompt_version")
-    search_fields = ("id", "report_id", "team_id", "generation_task_id", "generation_run_id")
-    ordering = ("-created_at",)
-    show_full_result_count = False
-    readonly_fields = (
-        "id",
-        "team",
-        "report",
-        "status",
-        "validation_status",
-        "trigger",
-        "prompt_version",
-        "input_fingerprint",
-        "output_source",
-        "output_storage_key",
-        "model_metadata",
-        "error_category",
-        "failure_reason",
-        "duration_ms",
-        "generation_task_id",
-        "generation_run_id",
-        "canvas_id",
-        "started_at",
-        "completed_at",
-        "created_at",
-        "updated_at",
-    )
-
-    def get_queryset(self, request: HttpRequest) -> QuerySet[SignalReportCanvasGeneration]:
-        queryset = super().get_queryset(request)
-        url_name = getattr(request.resolver_match, "url_name", "")
-        return queryset if url_name.endswith("_change") else queryset.defer("output_source")
 
 
 @admin.register(SignalScoutConfig)

@@ -7,10 +7,28 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LegacyDesktopAccessResponseApi {
+    /** Whether the user has legacy PostHog Desktop access. */
+    has_access: boolean
+    /** Whether the independent Loops feature is enabled. */
+    has_loops_access: boolean
+}
+
 export interface CodeInviteRedeemRequestApi {
     /** @maxLength 50 */
     code: string
 }
+
+/**
+ * * `startup_plan` - startup_plan
+ * * `prepaid_credits` - prepaid_credits
+ */
+export type DesktopAccessReasonEnumApi = (typeof DesktopAccessReasonEnumApi)[keyof typeof DesktopAccessReasonEnumApi]
+
+export const DesktopAccessReasonEnumApi = {
+    StartupPlan: 'startup_plan',
+    PrepaidCredits: 'prepaid_credits',
+} as const
 
 /**
  * * `burst` - burst
@@ -32,6 +50,11 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
+    /** Why PostHog Desktop access was denied, when applicable.
+     *
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits */
+    reason?: DesktopAccessReasonEnumApi
     /** Request field associated with the error */
     attr?: string
     /** Artifact ids that could not be resolved for the run */
@@ -68,6 +91,21 @@ export interface SandboxComputePricingApi {
     current: ComputeRateCardApi | null
     /** Expired sandbox compute rate cards, newest first. */
     history: ComputeRateCardApi[]
+}
+
+export interface DesktopBetaTermsAcceptanceDTOApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
+}
+
+export interface DesktopAccessResponseApi {
+    /** Whether the selected project can use PostHog Desktop. */
+    allowed: boolean
+    /** Why Desktop access is blocked, or null when access is allowed.
+     *
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits */
+    reason: DesktopAccessReasonEnumApi | null
 }
 
 export interface LoopRepositoryEntryDTOApi {
@@ -956,15 +994,6 @@ export const ActivityKindEnumApi = {
 } as const
 
 /**
- * * `desktop_canvas` - desktop_canvas
- */
-export type TargetScopeEnumApi = (typeof TargetScopeEnumApi)[keyof typeof TargetScopeEnumApi]
-
-export const TargetScopeEnumApi = {
-    DesktopCanvas: 'desktop_canvas',
-} as const
-
-/**
  * Response shape for one task in the requester's activity feed (one row per task).
  */
 export interface TaskActivityDTOApi {
@@ -998,15 +1027,6 @@ export interface TaskActivityDTOApi {
     latest_comment_scope?: string | null
     /** @nullable */
     latest_comment_item_id?: string | null
-    /** The non-task surface this activity opens, when the task backs another shared artifact.
-     *
-     * * `desktop_canvas` - desktop_canvas */
-    target_scope?: TargetScopeEnumApi | null
-    /**
-     * Identifier of the activity target. Present together with target_scope.
-     * @nullable
-     */
-    target_id?: string | null
     /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
     is_unread: boolean
 }
@@ -1257,6 +1277,14 @@ export interface PaginatedChannelInstructionsDTOListApi {
  */
 export interface ChannelStarWriteApi {
     starred: boolean
+}
+
+/**
+ * The first-run session that was started for the requester.
+ */
+export interface OnboardingSessionApi {
+    /** The agent session opened in the team's #general space. */
+    task_id: string
 }
 
 /**
@@ -1667,6 +1695,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
  * * `signals_chat` - Signals Chat
+ * * `task_analysis` - Task Analysis
  * * `workflow` - Workflow
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
@@ -1690,7 +1719,30 @@ export const OriginProductEnumApi = {
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     SignalsChat: 'signals_chat',
+    TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
+} as const
+
+/**
+ * * `default` - default
+ * * `acceptEdits` - acceptEdits
+ * * `plan` - plan
+ * * `bypassPermissions` - bypassPermissions
+ * * `auto` - auto
+ * * `read-only` - read-only
+ * * `full-access` - full-access
+ */
+export type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi =
+    (typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi)[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi]
+
+export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
+    ReadOnly: 'read-only',
+    FullAccess: 'full-access',
 } as const
 
 /**
@@ -1730,6 +1782,7 @@ export interface TaskCreateApi {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
@@ -1798,6 +1851,16 @@ export interface TaskCreateApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -1818,6 +1881,8 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
+    /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
+    naming_source?: string
     /**
      * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
      * @nullable
@@ -1872,6 +1937,7 @@ export interface TaskWriteApi {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
@@ -1940,6 +2006,16 @@ export interface TaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -1999,6 +2075,7 @@ export interface PatchedTaskWriteApi {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
@@ -2067,6 +2144,16 @@ export interface PatchedTaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -2802,6 +2889,50 @@ export interface TaskUsageResponseApi {
     total_cost_usd: number
 }
 
+/**
+ * Request body for warming a successor to an existing terminal task run.
+ */
+export interface WarmTaskResumeRequestApi {
+    /** ID of the task's latest terminal run whose snapshot and conversation should be resumed. */
+    resume_from_run_id: string
+    /** Agent runtime adapter to start before the next message is submitted.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi
+    /** LLM model to start before the next message is submitted. */
+    model?: string
+    /** Reasoning effort to apply when the warmed successor receives its first message.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /** Initial permission mode for the warmed successor's agent session.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+}
+
+/**
+ * Response for a successfully warmed successor run on an existing task.
+ */
+export interface WarmTaskResumeResponseApi {
+    /** ID of the existing task being resumed. */
+    task_id: string
+    /** ID of the idling successor run that submit will activate. */
+    run_id: string
+}
+
 export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */
@@ -2821,28 +2952,6 @@ export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
 export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
-} as const
-
-/**
- * * `default` - default
- * * `acceptEdits` - acceptEdits
- * * `plan` - plan
- * * `bypassPermissions` - bypassPermissions
- * * `auto` - auto
- * * `read-only` - read-only
- * * `full-access` - full-access
- */
-export type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi =
-    (typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi)[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi]
-
-export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
-    Default: 'default',
-    AcceptEdits: 'acceptEdits',
-    Plan: 'plan',
-    BypassPermissions: 'bypassPermissions',
-    Auto: 'auto',
-    ReadOnly: 'read-only',
-    FullAccess: 'full-access',
 } as const
 
 /**
@@ -2944,6 +3053,11 @@ export interface TaskRunBootstrapCreateRequestApi {
 }
 
 /**
+ * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
+ */
+export type PatchedTaskRunUpdateApiStateAppend = { [key: string]: unknown }
+
+/**
  * * `not_started` - not_started
  * * `queued` - queued
  * * `in_progress` - in_progress
@@ -2998,6 +3112,8 @@ export interface PatchedTaskRunUpdateApi {
     state?: unknown
     /** State keys to remove atomically before applying any state updates. */
     state_remove_keys?: string[]
+    /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */
+    state_append?: PatchedTaskRunUpdateApiStateAppend
     /**
      * Error message if execution failed
      * @nullable
@@ -3007,6 +3123,223 @@ export interface PatchedTaskRunUpdateApi {
      *
      * * `local` - local */
     environment?: TaskRunUpdateEnvironmentEnumApi
+}
+
+/**
+ * * `run_was_efficient` - run_was_efficient
+ * * `too_short_to_judge` - too_short_to_judge
+ * * `insufficient_visibility` - insufficient_visibility
+ */
+export type NoFindingsReasonEnumApi = (typeof NoFindingsReasonEnumApi)[keyof typeof NoFindingsReasonEnumApi]
+
+export const NoFindingsReasonEnumApi = {
+    RunWasEfficient: 'run_was_efficient',
+    TooShortToJudge: 'too_short_to_judge',
+    InsufficientVisibility: 'insufficient_visibility',
+} as const
+
+/**
+ * * `transcript_quote` - transcript_quote
+ * * `command_output` - command_output
+ * * `measured_count` - measured_count
+ */
+export type EvidenceTypeEnumApi = (typeof EvidenceTypeEnumApi)[keyof typeof EvidenceTypeEnumApi]
+
+export const EvidenceTypeEnumApi = {
+    TranscriptQuote: 'transcript_quote',
+    CommandOutput: 'command_output',
+    MeasuredCount: 'measured_count',
+} as const
+
+export interface TaskAnalysisEvidenceApi {
+    /**
+     * Verbatim span copied from the analysed run log.
+     * @minLength 20
+     * @maxLength 300
+     */
+    quote: string
+    /** What kind of log content the quote was taken from.
+     *
+     * * `transcript_quote` - transcript_quote
+     * * `command_output` - command_output
+     * * `measured_count` - measured_count */
+    evidence_type: EvidenceTypeEnumApi
+}
+
+/**
+ * * `environment_failure` - environment_failure
+ * * `missing_tool` - missing_tool
+ * * `verbose_output` - verbose_output
+ * * `redundant_work` - redundant_work
+ * * `missing_capability` - missing_capability
+ * * `instruction_gap` - instruction_gap
+ * * `wasted_retry` - wasted_retry
+ * * `other` - other
+ */
+export type TaskRunAnalysisInsightRequestCategoryEnumApi =
+    (typeof TaskRunAnalysisInsightRequestCategoryEnumApi)[keyof typeof TaskRunAnalysisInsightRequestCategoryEnumApi]
+
+export const TaskRunAnalysisInsightRequestCategoryEnumApi = {
+    EnvironmentFailure: 'environment_failure',
+    MissingTool: 'missing_tool',
+    VerboseOutput: 'verbose_output',
+    RedundantWork: 'redundant_work',
+    MissingCapability: 'missing_capability',
+    InstructionGap: 'instruction_gap',
+    WastedRetry: 'wasted_retry',
+    Other: 'other',
+} as const
+
+export interface TaskAnalysisWastedEffortApi {
+    /**
+     * Wasted tool calls, counted from the log.
+     * @minimum 1
+     */
+    tool_calls?: number
+    /**
+     * Wall-clock seconds across the wasted span.
+     * @minimum 1
+     */
+    seconds?: number
+    /**
+     * Token delta across the wasted span.
+     * @minimum 1
+     */
+    tokens?: number
+    /**
+     * Sum of tool-output sizes across the wasted span.
+     * @minimum 1
+     */
+    output_bytes?: number
+}
+
+/**
+ * * `every_run_in_this_repo` - every_run_in_this_repo
+ * * `runs_touching_this_area` - runs_touching_this_area
+ * * `one_off` - one_off
+ */
+export type RecurrenceEnumApi = (typeof RecurrenceEnumApi)[keyof typeof RecurrenceEnumApi]
+
+export const RecurrenceEnumApi = {
+    EveryRunInThisRepo: 'every_run_in_this_repo',
+    RunsTouchingThisArea: 'runs_touching_this_area',
+    OneOff: 'one_off',
+} as const
+
+/**
+ * * `directly_observed` - directly_observed
+ * * `inferred` - inferred
+ */
+export type ConfidenceBasisEnumApi = (typeof ConfidenceBasisEnumApi)[keyof typeof ConfidenceBasisEnumApi]
+
+export const ConfidenceBasisEnumApi = {
+    DirectlyObserved: 'directly_observed',
+    Inferred: 'inferred',
+} as const
+
+export interface TaskAnalysisSuggestedFixApi {
+    /**
+     * The specific change to make.
+     * @minLength 50
+     * @maxLength 400
+     */
+    change: string
+    /**
+     * A checkable condition confirming the fix worked.
+     * @minLength 30
+     * @maxLength 200
+     */
+    done_when: string
+    /**
+     * Single-line commands only; these may become image build steps.
+     * @maxItems 10
+     * @items.minLength 1
+     * @items.maxLength 500
+     */
+    setup_commands?: string[]
+    /**
+     * Services the fix needs available.
+     * @maxItems 10
+     * @items.minLength 1
+     * @items.maxLength 100
+     */
+    required_services?: string[]
+    /**
+     * Environment variable names only, never values.
+     * @maxItems 10
+     * @items.minLength 1
+     * @items.maxLength 100
+     */
+    env_var_names?: string[]
+}
+
+/**
+ * One analysis finding. The shape the server stores, independent of what the tool sent.
+ */
+export interface TaskRunAnalysisInsightRequestApi {
+    /** Only for a run with zero findings; never combined with a finding.
+     *
+     * * `run_was_efficient` - run_was_efficient
+     * * `too_short_to_judge` - too_short_to_judge
+     * * `insufficient_visibility` - insufficient_visibility */
+    no_findings_reason?: NoFindingsReasonEnumApi
+    /**
+     * What happened, 1-3 sentences.
+     * @minLength 80
+     * @maxLength 500
+     */
+    observation?: string
+    /** Quotes from the analysed log backing the observation. */
+    evidence?: TaskAnalysisEvidenceApi[]
+    /**
+     * How often this happened.
+     * @minimum 1
+     */
+    occurrence_count?: number
+    /** The kind of inefficiency observed.
+     *
+     * * `environment_failure` - environment_failure
+     * * `missing_tool` - missing_tool
+     * * `verbose_output` - verbose_output
+     * * `redundant_work` - redundant_work
+     * * `missing_capability` - missing_capability
+     * * `instruction_gap` - instruction_gap
+     * * `wasted_retry` - wasted_retry
+     * * `other` - other */
+    category?: TaskRunAnalysisInsightRequestCategoryEnumApi
+    /**
+     * Required when category is 'other'.
+     * @minLength 50
+     * @maxLength 200
+     */
+    other_justification?: string
+    /** Effort measured from the log, never estimated. */
+    wasted_effort?: TaskAnalysisWastedEffortApi
+    /** How widely this is expected to recur.
+     *
+     * * `every_run_in_this_repo` - every_run_in_this_repo
+     * * `runs_touching_this_area` - runs_touching_this_area
+     * * `one_off` - one_off */
+    recurrence?: RecurrenceEnumApi
+    /** How the finding was established.
+     *
+     * * `directly_observed` - directly_observed
+     * * `inferred` - inferred */
+    confidence_basis?: ConfidenceBasisEnumApi
+    /** The fix the finding argues for. */
+    suggested_fix?: TaskAnalysisSuggestedFixApi
+}
+
+export interface TaskRunAnalysisInsightResponseApi {
+    /** Zero-based position of the stored finding on the run. */
+    insight_index: number
+}
+
+export interface TaskRunAnalyzeResponseApi {
+    /** Id of the analysis task to navigate to. */
+    analysis_task_id: string
+    /** True when a new analysis task was created; false when an existing analysis for this run was returned. */
+    created: boolean
 }
 
 export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }
@@ -3280,6 +3613,8 @@ export interface TaskRunCancelRequestApi {
      * @nullable
      */
     reason?: string | null
+    /** Cancel only while the run is still a warm sandbox awaiting its first message. A run that has since received one is left alone and returned unchanged. Set this when handing a warm sandbox back, so a release that races a submit cannot stop the run that submit started. */
+    only_if_awaiting_first_message?: boolean
 }
 
 /**
@@ -4265,6 +4600,18 @@ export interface PaginatedTaskSummaryDTOListApi {
 }
 
 /**
+ * * `user_created` - user_created
+ * * `posthog_ai` - posthog_ai
+ */
+export type WarmTaskRequestOriginProductEnumApi =
+    (typeof WarmTaskRequestOriginProductEnumApi)[keyof typeof WarmTaskRequestOriginProductEnumApi]
+
+export const WarmTaskRequestOriginProductEnumApi = {
+    UserCreated: 'user_created',
+    PosthogAi: 'posthog_ai',
+} as const
+
+/**
  * Request body for warming a full idling Run while composing a Code-app cloud task.
  *
  * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
@@ -4325,6 +4672,21 @@ export interface WarmTaskRequestApi {
      * @nullable
      */
     custom_image_id?: string | null
+    /** Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.
+     *
+     * * `user_created` - user_created
+     * * `posthog_ai` - posthog_ai */
+    origin_product?: WarmTaskRequestOriginProductEnumApi
+    /** Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
 }
 
 /**
@@ -4503,6 +4865,7 @@ export type TasksListParams = {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * @minLength 1
      */
@@ -4630,6 +4993,7 @@ export const TasksListExcludeOriginProduct = {
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     SignalsChat: 'signals_chat',
+    TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
 } as const
 

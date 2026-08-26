@@ -640,7 +640,7 @@ tools:
         operation: llm_analytics_evaluation_reports_create
         enabled: true
         scopes:
-            - llm_analytics:write
+            - evaluation:write
         annotations:
             readOnly: false
             destructive: false
@@ -680,7 +680,7 @@ tools:
         operation: llm_analytics_evaluation_reports_generate_create
         enabled: true
         scopes:
-            - llm_analytics:write
+            - evaluation:write
         annotations:
             readOnly: false
             destructive: false
@@ -695,7 +695,7 @@ tools:
         operation: llm_analytics_evaluation_reports_retrieve
         enabled: true
         scopes:
-            - llm_analytics:read
+            - evaluation:read
         annotations:
             readOnly: true
             destructive: false
@@ -708,7 +708,7 @@ tools:
         operation: llm_analytics_evaluation_reports_list
         enabled: true
         scopes:
-            - llm_analytics:read
+            - evaluation:read
         annotations:
             readOnly: true
             destructive: false
@@ -722,7 +722,7 @@ tools:
         operation: llm_analytics_evaluation_reports_runs_list
         enabled: true
         scopes:
-            - llm_analytics:read
+            - evaluation:read
         annotations:
             readOnly: true
             destructive: false
@@ -736,7 +736,7 @@ tools:
         operation: llm_analytics_evaluation_reports_partial_update
         enabled: true
         scopes:
-            - llm_analytics:write
+            - evaluation:write
         annotations:
             readOnly: false
             destructive: false

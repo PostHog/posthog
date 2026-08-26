@@ -26,6 +26,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
+    DesktopAccessReason,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     SlackThreadReferenceDTO,
@@ -46,6 +47,7 @@ from products.tasks.backend.facade.run_config import (
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     PUBLIC_REASONING_EFFORTS,
+    WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
     RunSource,
@@ -246,6 +248,15 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="State keys to remove atomically before applying any state updates.",
     )
+    state_append = serializers.DictField(
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "State keys whose value to append to the list stored at that key, atomically under the row "
+            "lock. Use instead of sending the whole list back through `state`, which loses concurrent "
+            "appends to a read-modify-write race."
+        ),
+    )
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )
@@ -313,6 +324,32 @@ class TaskRunPostHogReferenceMetadataSerializer(serializers.Serializer):
 )
 class TaskRunArtifactMetadataField(serializers.JSONField):
     pass
+
+
+def get_initial_permission_mode_error(initial_permission_mode: str | None, runtime_adapter: str | None) -> str | None:
+    """Error message when a permission mode does not belong to the selected runtime, else ``None``.
+
+    The field's own ``ChoiceField`` accepts the union of both runtimes' vocabularies, which share only
+    ``plan`` and ``auto``. Pairing is checked here so every entry point that takes a mode — run, warm,
+    and task create — agrees on which pairs are valid, rather than a warm booting a sandbox on a mode
+    the matching run request would reject.
+    """
+    if initial_permission_mode is None:
+        return None
+    if runtime_adapter is None:
+        return "This field requires runtime_adapter to be set."
+    allowed_permission_modes = (
+        list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+        if runtime_adapter == RuntimeAdapter.CODEX.value
+        else list(INITIAL_PERMISSION_MODE_CHOICES)
+    )
+    if initial_permission_mode in allowed_permission_modes:
+        return None
+    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+    return (
+        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+        f"'{runtime_adapter}'. Supported values: {allowed_values}."
+    )
 
 
 def validate_task_run_artifact_metadata(attrs: dict[str, Any]) -> dict[str, Any]:
@@ -653,6 +690,17 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
     )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same "
+            "mode. Omit to reuse a warm Run whatever mode it booted on."
+        ),
+    )
     pending_user_message = serializers.CharField(
         required=False,
         default=None,
@@ -747,6 +795,7 @@ class TaskWriteSerializer(serializers.Serializer):
             # Attributes the task to a workflow, which the workflow_tasks endpoint proves
             # via its service JWT. A forged origin would fake that provenance.
             tasks_facade.TaskOriginProduct.WORKFLOW,
+            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -820,6 +869,14 @@ class TaskWriteSerializer(serializers.Serializer):
         if model_access_error is not None:
             raise serializers.ValidationError({"model": model_access_error})
 
+        # Same reason: this selects the warm Run to activate, so it takes the pairing rule the run
+        # request applies rather than accepting a pair no runtime can serve.
+        permission_mode_error = get_initial_permission_mode_error(
+            attrs.get("initial_permission_mode"), attrs.get("runtime_adapter")
+        )
+        if permission_mode_error is not None:
+            raise serializers.ValidationError({"initial_permission_mode": permission_mode_error})
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):
@@ -848,6 +905,17 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    naming_source = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Text the server generates the title from instead of `description`. Lets a client whose "
+            "`description` is only an attachment summary (e.g. pasted text stored as a file) supply the "
+            "real content for naming, so `description` (the prompt passed to the agent) stays unchanged. "
+            "Not persisted."
+        ),
+    )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
@@ -887,11 +955,33 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     )
 
 
+DESKTOP_ACCESS_REASON_CHOICES = [reason.value for reason in DesktopAccessReason]
+
+
+class DesktopAccessResponseSerializer(serializers.Serializer):
+    allowed = serializers.BooleanField(help_text="Whether the selected project can use PostHog Desktop.")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        allow_null=True,
+        help_text="Why Desktop access is blocked, or null when access is allowed.",
+    )
+
+
+class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
+    has_access = serializers.BooleanField(help_text="Whether the user has legacy PostHog Desktop access.")
+    has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
+
+
 class TaskRunErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
     code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        required=False,
+        help_text="Why PostHog Desktop access was denied, when applicable.",
+    )
     attr = serializers.CharField(required=False, help_text="Request field associated with the error")
     missing_artifact_ids = serializers.ListField(
         child=serializers.CharField(),
@@ -1591,6 +1681,138 @@ class TaskRunPeerSerializer(serializers.Serializer):
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the peer run's last update.")
 
 
+class TaskRunAnalyzeResponseSerializer(serializers.Serializer):
+    analysis_task_id = serializers.UUIDField(help_text="Id of the analysis task to navigate to.")
+    created = serializers.BooleanField(
+        help_text="True when a new analysis task was created; false when an existing analysis for this run was returned."
+    )
+
+
+class TaskAnalysisEvidenceSerializer(serializers.Serializer):
+    quote = serializers.CharField(
+        min_length=20, max_length=300, help_text="Verbatim span copied from the analysed run log."
+    )
+    evidence_type = serializers.ChoiceField(
+        choices=["transcript_quote", "command_output", "measured_count"],
+        help_text="What kind of log content the quote was taken from.",
+    )
+
+
+class TaskAnalysisWastedEffortSerializer(serializers.Serializer):
+    tool_calls = serializers.IntegerField(
+        min_value=1, required=False, help_text="Wasted tool calls, counted from the log."
+    )
+    seconds = serializers.IntegerField(
+        min_value=1, required=False, help_text="Wall-clock seconds across the wasted span."
+    )
+    tokens = serializers.IntegerField(min_value=1, required=False, help_text="Token delta across the wasted span.")
+    output_bytes = serializers.IntegerField(
+        min_value=1, required=False, help_text="Sum of tool-output sizes across the wasted span."
+    )
+
+
+class TaskAnalysisSuggestedFixSerializer(serializers.Serializer):
+    change = serializers.CharField(min_length=50, max_length=400, help_text="The specific change to make.")
+    done_when = serializers.CharField(
+        min_length=30, max_length=200, help_text="A checkable condition confirming the fix worked."
+    )
+    setup_commands = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=500),
+        max_length=10,
+        required=False,
+        help_text="Single-line commands only; these may become image build steps.",
+    )
+    required_services = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=100),
+        max_length=10,
+        required=False,
+        help_text="Services the fix needs available.",
+    )
+    env_var_names = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=100),
+        max_length=10,
+        required=False,
+        help_text="Environment variable names only, never values.",
+    )
+
+
+class TaskRunAnalysisInsightRequestSerializer(serializers.Serializer):
+    """One analysis finding. The shape the server stores, independent of what the tool sent."""
+
+    no_findings_reason = serializers.ChoiceField(
+        choices=["run_was_efficient", "too_short_to_judge", "insufficient_visibility"],
+        required=False,
+        help_text="Only for a run with zero findings; never combined with a finding.",
+    )
+    observation = serializers.CharField(
+        min_length=80, max_length=500, required=False, help_text="What happened, 1-3 sentences."
+    )
+    evidence = TaskAnalysisEvidenceSerializer(
+        many=True, required=False, help_text="Quotes from the analysed log backing the observation."
+    )
+    occurrence_count = serializers.IntegerField(min_value=1, required=False, help_text="How often this happened.")
+    category = serializers.ChoiceField(
+        choices=[
+            "environment_failure",
+            "missing_tool",
+            "verbose_output",
+            "redundant_work",
+            "missing_capability",
+            "instruction_gap",
+            "wasted_retry",
+            "other",
+        ],
+        required=False,
+        help_text="The kind of inefficiency observed.",
+    )
+    other_justification = serializers.CharField(
+        min_length=50, max_length=200, required=False, help_text="Required when category is 'other'."
+    )
+    wasted_effort = TaskAnalysisWastedEffortSerializer(
+        required=False, help_text="Effort measured from the log, never estimated."
+    )
+    recurrence = serializers.ChoiceField(
+        choices=["every_run_in_this_repo", "runs_touching_this_area", "one_off"],
+        required=False,
+        help_text="How widely this is expected to recur.",
+    )
+    confidence_basis = serializers.ChoiceField(
+        choices=["directly_observed", "inferred"], required=False, help_text="How the finding was established."
+    )
+    suggested_fix = TaskAnalysisSuggestedFixSerializer(required=False, help_text="The fix the finding argues for.")
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("no_findings_reason"):
+            if len(attrs) > 1:
+                raise serializers.ValidationError("no_findings_reason cannot be combined with a finding.")
+            return attrs
+        missing = [
+            field
+            for field in ("observation", "evidence", "category", "recurrence", "confidence_basis", "suggested_fix")
+            if not attrs.get(field)
+        ]
+        if missing:
+            raise serializers.ValidationError(f"A finding requires {', '.join(missing)}.")
+        if len(attrs["evidence"]) > 3:
+            raise serializers.ValidationError("A finding carries at most 3 evidence quotes.")
+        if attrs["category"] == "other" and not attrs.get("other_justification"):
+            raise serializers.ValidationError("category 'other' requires other_justification.")
+        if attrs["category"] in _WASTED_EFFORT_REQUIRED_CATEGORIES and not attrs.get("wasted_effort"):
+            raise serializers.ValidationError(
+                f"category '{attrs['category']}' requires wasted_effort with at least one measured dimension."
+            )
+        return attrs
+
+
+_WASTED_EFFORT_REQUIRED_CATEGORIES = frozenset(
+    {"environment_failure", "missing_tool", "verbose_output", "redundant_work", "wasted_retry"}
+)
+
+
+class TaskRunAnalysisInsightResponseSerializer(serializers.Serializer):
+    insight_index = serializers.IntegerField(help_text="Zero-based position of the stored finding on the run.")
+
+
 class TaskRunPeersResponseSerializer(serializers.Serializer):
     peers = TaskRunPeerSerializer(
         many=True, help_text="Active agent runs the requesting run may message, most recently updated first."
@@ -1801,6 +2023,12 @@ class ChannelSerializer(DataclassSerializer):
             "starred",
             "system_role",
         ]
+
+
+class OnboardingSessionSerializer(serializers.Serializer):
+    """The first-run session that was started for the requester."""
+
+    task_id = serializers.UUIDField(help_text="The agent session opened in the team's #general space.")
 
 
 class ProvisionedChannelsSerializer(serializers.Serializer):
@@ -2115,17 +2343,6 @@ class TaskActivitySerializer(DataclassSerializer):
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
-    target_scope = serializers.ChoiceField(
-        choices=["desktop_canvas"],
-        allow_null=True,
-        required=False,
-        help_text="The non-task surface this activity opens, when the task backs another shared artifact.",
-    )
-    target_id = serializers.CharField(
-        allow_null=True,
-        required=False,
-        help_text="Identifier of the activity target. Present together with target_scope.",
-    )
 
     class Meta:
         dataclass = TaskActivityDTO
@@ -2143,8 +2360,6 @@ class TaskActivitySerializer(DataclassSerializer):
             "latest_comment_id",
             "latest_comment_scope",
             "latest_comment_item_id",
-            "target_scope",
-            "target_id",
             "is_unread",
         ]
 
@@ -2746,22 +2961,8 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
-        if initial_permission_mode is not None:
-            if runtime_adapter is None:
-                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
-            else:
-                allowed_permission_modes = (
-                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
-                    if runtime_adapter == RuntimeAdapter.CODEX.value
-                    else list(INITIAL_PERMISSION_MODE_CHOICES)
-                )
-
-                if initial_permission_mode not in allowed_permission_modes:
-                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
-                    errors["initial_permission_mode"] = (
-                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
-                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
-                    )
+        if permission_mode_error := get_initial_permission_mode_error(initial_permission_mode, runtime_adapter):
+            errors["initial_permission_mode"] = permission_mode_error
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
@@ -2956,22 +3157,8 @@ class TaskRunBootstrapCreateRequestSerializer(
                 raise serializers.ValidationError(errors)
             return attrs
 
-        if initial_permission_mode is not None:
-            if runtime_adapter is None:
-                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
-            else:
-                allowed_permission_modes = (
-                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
-                    if runtime_adapter == RuntimeAdapter.CODEX.value
-                    else list(INITIAL_PERMISSION_MODE_CHOICES)
-                )
-
-                if initial_permission_mode not in allowed_permission_modes:
-                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
-                    errors["initial_permission_mode"] = (
-                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
-                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
-                    )
+        if permission_mode_error := get_initial_permission_mode_error(initial_permission_mode, runtime_adapter):
+            errors["initial_permission_mode"] = permission_mode_error
 
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(
@@ -3089,6 +3276,27 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.",
     )
+    origin_product = serializers.ChoiceField(
+        choices=WARMABLE_ORIGIN_PRODUCTS,
+        required=False,
+        default=tasks_facade.TaskOriginProduct.USER_CREATED,
+        help_text=(
+            "Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the "
+            "quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born "
+            "under the same origin. Defaults to the Code app."
+        ),
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Permission mode to boot the agent session on. Read at session construction, so it cannot be "
+            "changed once the sandbox is warm — a submit selecting a different mode falls through to a "
+            "cold Run. Omit to take the runtime's default."
+        ),
+    )
 
     def validate_repository(self, value: str | None) -> str | None:
         if value is None:
@@ -3109,6 +3317,14 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         model_access_error = get_model_access_error(attrs.get("model"), distinct_id=request_distinct_id(self.context))
         if model_access_error is not None:
             raise serializers.ValidationError({"model": model_access_error})
+
+        # The agent session is built with this mode at boot and cannot be changed once warm, so a pair
+        # the run request would reject must not reach a sandbox here either.
+        permission_mode_error = get_initial_permission_mode_error(
+            attrs.get("initial_permission_mode"), attrs.get("runtime_adapter")
+        )
+        if permission_mode_error is not None:
+            raise serializers.ValidationError({"initial_permission_mode": permission_mode_error})
         return attrs
 
 
@@ -3121,6 +3337,92 @@ class WarmTaskResponseSerializer(serializers.Serializer):
     run_id = serializers.UUIDField(
         help_text="Id of the idling warm Run. The normal create+run path reuses and activates it on submit.",
     )
+
+
+class WarmTaskResumeRequestSerializer(serializers.Serializer):
+    """Request body for warming a successor to an existing terminal task run."""
+
+    resume_from_run_id = serializers.UUIDField(
+        help_text="ID of the task's latest terminal run whose snapshot and conversation should be resumed.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        required=False,
+        default=None,
+        help_text="Agent runtime adapter to start before the next message is submitted.",
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="LLM model to start before the next message is submitted.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        required=False,
+        default=None,
+        help_text="Reasoning effort to apply when the warmed successor receives its first message.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Initial permission mode for the warmed successor's agent session.",
+    )
+
+    def validate(self, attrs):
+        errors: dict[str, str] = {}
+        runtime_adapter = attrs.get("runtime_adapter")
+        model = attrs.get("model")
+        if (runtime_adapter is None) != (model is None):
+            missing_field = "runtime_adapter" if runtime_adapter is None else "model"
+            errors[missing_field] = "This field is required when selecting a cloud runtime."
+
+        initial_permission_mode = attrs.get("initial_permission_mode")
+        if initial_permission_mode is not None:
+            if runtime_adapter is None:
+                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
+            else:
+                allowed_permission_modes = (
+                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+                    if runtime_adapter == RuntimeAdapter.CODEX.value
+                    else list(INITIAL_PERMISSION_MODE_CHOICES)
+                )
+                if initial_permission_mode not in allowed_permission_modes:
+                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+                    errors["initial_permission_mode"] = (
+                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
+                    )
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=attrs.get("reasoning_effort"),
+        )
+        if reasoning_effort_error is not None:
+            errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=runtime_adapter,
+                model=model,
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
+
+        model_access_error = get_model_access_error(model, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class WarmTaskResumeResponseSerializer(serializers.Serializer):
+    """Response for a successfully warmed successor run on an existing task."""
+
+    task_id = serializers.UUIDField(help_text="ID of the existing task being resumed.")
+    run_id = serializers.UUIDField(help_text="ID of the idling successor run that submit will activate.")
 
 
 class TaskRunStartRequestSerializer(serializers.Serializer):
@@ -3154,6 +3456,15 @@ class TaskRunCancelRequestSerializer(serializers.Serializer):
         allow_null=True,
         max_length=500,
         help_text="Optional reason for the cancellation, recorded on the run and shown to run watchers.",
+    )
+    only_if_awaiting_first_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Cancel only while the run is still a warm sandbox awaiting its first message. A run that "
+            "has since received one is left alone and returned unchanged. Set this when handing a warm "
+            "sandbox back, so a release that races a submit cannot stop the run that submit started."
+        ),
     )
 
 

@@ -209,10 +209,10 @@ export function ProjectSwitcher({
         render={
           isIcon ? (
             <Button
-              variant="default"
+              variant="outline"
               size="icon"
               aria-label={projectName}
-              className="shrink-0 bg-fill-hover font-semibold text-[11px] text-muted-foreground uppercase hover:bg-fill-selected aria-expanded:bg-fill-active"
+              className="shrink-0 font-semibold text-[11px] text-muted-foreground uppercase hover:bg-fill-selected aria-expanded:bg-fill-active"
             >
               {projectInitials}
             </Button>

@@ -1110,6 +1110,12 @@ export const FeatureFlagsMyFlagsRetrieveParams = /* @__PURE__ */ zod.object({
 export const featureFlagsMyFlagsRetrieveQueryGroupsDefault = `{}`
 
 export const FeatureFlagsMyFlagsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    flag_keys: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Optional list of flag keys to scope the response to. When omitted, every flag in the project is returned with its evaluated value, which can be a very large payload on projects with many flags. Pass the specific flag(s) you want to check to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=[\"a\",\"b\"]).'
+        ),
     groups: zod
         .string()
         .default(featureFlagsMyFlagsRetrieveQueryGroupsDefault)

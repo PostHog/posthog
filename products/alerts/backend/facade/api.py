@@ -12,12 +12,12 @@ import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.destination_configs import (
-    DESTINATION_TEMPLATE_IDS,
+    DESTINATION_SPECS,
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
@@ -26,6 +26,8 @@ from products.alerts.backend.destination_configs import (
 )
 from products.alerts.backend.destinations import (
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
+    owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
@@ -202,7 +204,7 @@ def snooze_alert_from_slack(
 
 
 __all__ = [
-    "DESTINATION_TEMPLATE_IDS",
+    "DESTINATION_SPECS",
     "AlertDestinationData",
     "AlertDestinationValidationError",
     "AlertScheduleRestriction",
@@ -215,6 +217,8 @@ __all__ = [
     "get_alert_team_id",
     "insight_alerts_prefetch",
     "insight_ids_with_alerts",
+    "list_alert_destination_groups",
+    "owned_alert_destinations_qs",
     "serialize_insight_alerts",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",

@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import OrganizationMembership, TaggedItem, User
 from posthog.models.organization import AvailableFeature
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.hogql import (
     account_custom_property_values,
     account_custom_property_values_history,
@@ -46,8 +47,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductAreaLink,
 )
 from products.notebooks.backend.models import ResourceNotebook
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestFacadeHogqlSystemTables(SimpleTestCase):

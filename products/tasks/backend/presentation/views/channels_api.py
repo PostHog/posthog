@@ -14,11 +14,13 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+from products.tasks.backend.facade.onboarding import start_onboarding_session
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
     ChannelDeleteConflictSerializer,
@@ -30,6 +32,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
     ChannelWriteSerializer,
+    OnboardingSessionSerializer,
     ProvisionedChannelsSerializer,
     TaskActivityMarkReadResponseSerializer,
     TaskActivityMarkReadSerializer,
@@ -79,6 +82,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_write_actions = [
         "create",
         "provision_defaults",
+        "onboarding_session",
         "partial_update",
         "destroy",
         "publish_instructions",
@@ -132,6 +136,29 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("Provisioning default channels requires a user.")
         provisioned = tasks_facade.provision_default_channels(self.team_id, user_id)
         return Response(ProvisionedChannelsSerializer(provisioned).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(response=OnboardingSessionSerializer, description="The session that was started"),
+            409: OpenApiResponse(description="This team has no #general space to open a session in"),
+        },
+        summary="Start a first-run onboarding session",
+        description=(
+            "Open the agent session a new user lands in, in the team's #general space. Reads the "
+            "company's homepage, so it takes a few seconds and is deliberately not part of "
+            "provisioning, which blocks the app opening. Callers fire it without awaiting it when "
+            "provision_defaults reports personal_created."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="onboarding_session")
+    def onboarding_session(self, request: Request, **kwargs) -> Response:
+        if not isinstance(request.user, User):
+            raise PermissionDenied("Starting an onboarding session requires a user.")
+        task_id = start_onboarding_session(self.team, request.user)
+        if task_id is None:
+            return Response({"detail": "No #general space to open a session in."}, status=409)
+        return Response(OnboardingSessionSerializer({"task_id": task_id}).data)
 
     @extend_schema(
         request=ChannelWriteSerializer,
