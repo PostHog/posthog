@@ -75,6 +75,7 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@anthropic-ai/sdk": "^0.117.1",
         "@cloudflare/vitest-pool-workers": "^0.16.13",
         "@cloudflare/workers-types": "^4.20260603.1",
         "@modelcontextprotocol/client": "2.0.0-beta.4",
