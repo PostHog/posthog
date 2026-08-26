@@ -582,6 +582,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[dict[str, str]] = None,
     *,
+    column_types_to_remove: Optional[Sequence[str]] = None,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
     settings: Optional[dict[str, Any]] = None,
@@ -590,6 +591,8 @@ def query_with_columns(
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
+    if column_types_to_remove is None:
+        column_types_to_remove = []
     metrics, types = sync_execute(
         query,
         args,
@@ -598,14 +601,19 @@ def query_with_columns(
         workload=workload,
         team_id=team_id,
     )
-    type_names = [key for key, _type in types]
+    column_names = [key for key, _type in types]
+    # A `SELECT *` over a system table gains columns as ClickHouse versions land, so a caller
+    # that must exclude a whole class of column matches on the type instead of naming each one.
+    dropped = set(columns_to_remove) | {
+        name for name, type_name in types if any(unwanted in str(type_name) for unwanted in column_types_to_remove)
+    }
 
     rows = []
     for row in metrics:
         result = {}
-        for type_name, value in zip(type_names, row):
-            if type_name not in columns_to_remove:
-                result[columns_to_rename.get(type_name, type_name)] = value
+        for column_name, value in zip(column_names, row):
+            if column_name not in dropped:
+                result[columns_to_rename.get(column_name, column_name)] = value
 
         rows.append(result)
 
