@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.user import User
+from posthog.temporal.oauth import MCP_READ_SCOPES
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
@@ -116,6 +117,10 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
             self.assertEqual(kwargs["model"], expected_model)
             self.assertTrue(kwargs["title_manually_set"])
+            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write"})
+            self.assertFalse(
+                any(scope.endswith(":write") and scope != "task:write" for scope in kwargs["posthog_mcp_scopes"])
+            )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
         started, create_calls = self._start(create_side_effect=succeed)
