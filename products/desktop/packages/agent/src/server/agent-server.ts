@@ -543,6 +543,8 @@ export class AgentServer {
   // CLI flags can't carry the user's choice. Those settings are read from the
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
+  /** Whether the resume git checkpoint has been attempted, and what it answered. See `applyResumeGitCheckpoint`. */
+  private resumeGitCheckpointApplied: boolean | null = null;
   private prewarmedStartupTurnPending = false;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
@@ -1343,6 +1345,12 @@ export class AgentServer {
             return outcome;
           }
 
+          // Read the slash command off what the user actually typed. A deferred summary resume
+          // prepends a hidden history block, and `isManualCompactPrompt` matches on the whole
+          // prompt text, so checking afterwards would stop recognizing `/compact` as the first
+          // message of a resumed session.
+          const manualCompactPrompt = isManualCompactPrompt(prompt);
+
           const deferredResume = await this.preparePrewarmedResumePrompt(
             commandSession.payload,
             prompt,
@@ -1353,7 +1361,6 @@ export class AgentServer {
             commandSession.payload.run_id,
           );
 
-          const manualCompactPrompt = isManualCompactPrompt(prompt);
           const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
             this.promptWithUpstreamRetry({
@@ -1388,11 +1395,31 @@ export class AgentServer {
                 }
                 return promptResult;
               };
-              if (this.prewarmedStartupTurnPending) {
-                this.prewarmedStartupTurnPending = false;
-                result = await this.runStartupTurn(runPrompt);
-              } else {
-                result = await this.runOwnedTurn(runPrompt);
+              const runTurn = () => {
+                if (this.prewarmedStartupTurnPending) {
+                  this.prewarmedStartupTurnPending = false;
+                  return this.runStartupTurn(runPrompt);
+                }
+                return this.runOwnedTurn(runPrompt);
+              };
+              try {
+                result = await runTurn();
+              } catch (error) {
+                // A deferred native resume replays the whole prior transcript, which can overflow
+                // the context window. Fall back the way `sendResumeContinuation` does — a fresh
+                // session carrying summarized history — instead of failing the run.
+                const retryPrompt =
+                  deferredResume.consumed && isPromptTooLongError(error)
+                    ? await this.retryOversizedDeferredResume(
+                        commandSession.payload,
+                        builtPrompt.prompt,
+                      )
+                    : null;
+                if (!retryPrompt) {
+                  throw error;
+                }
+                prompt = retryPrompt;
+                result = await runTurn();
               }
 
               if (result.stopReason === "end_turn" && manualCompactPrompt) {
@@ -1760,6 +1787,7 @@ export class AgentServer {
 
     this.resumeState = null;
     this.nativeResume = null;
+    this.resumeGitCheckpointApplied = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
     this.prewarmedStartupTurnPending = false;
@@ -2438,7 +2466,27 @@ export class AgentServer {
         taskRunState.pending_user_message.trim().length > 0) ||
       (Array.isArray(taskRunState?.pending_user_artifact_ids) &&
         taskRunState.pending_user_artifact_ids.length > 0);
-    if (prewarmed && !hasPendingUserPrompt) {
+
+    // Load the summary fallback before deciding to idle. A prewarmed run that idles here reads
+    // this state when its first message arrives, and initialization may have failed to fetch the
+    // run that `prepareNativeResume` needed — leaving both resume fields empty and starting the
+    // resumed task with none of its prior conversation.
+    if (!this.nativeResume && !this.resumeState) {
+      const resumeRunId = this.getResumeRunId(taskRun);
+      if (resumeRunId) {
+        await this.loadResumeState(
+          payload.task_id,
+          resumeRunId,
+          payload.run_id,
+        );
+      }
+    }
+
+    // `await_user_message` is the marker the backend clears on activation. `prewarmed` is permanent
+    // provenance that outlives it, so idling on that alone would strand a run whose first message
+    // was already delivered — every later reinitialization would wait for a message nobody sends.
+    const awaitsFirstMessage = taskRunState?.await_user_message === true;
+    if (prewarmed && awaitsFirstMessage && !hasPendingUserPrompt) {
       this.prewarmedRun = true;
       this.logger.debug(
         "Prewarmed run awaits its forwarded first message, skipping initial message",
@@ -2450,17 +2498,6 @@ export class AgentServer {
       if (await this.settleIdleResume(payload, taskRun)) return;
       await this.sendResumeContinuation(payload, taskRun);
       return;
-    }
-
-    if (!this.resumeState) {
-      const resumeRunId = this.getResumeRunId(taskRun);
-      if (resumeRunId) {
-        await this.loadResumeState(
-          payload.task_id,
-          resumeRunId,
-          payload.run_id,
-        );
-      }
     }
 
     if (this.resumeState && this.resumeState.conversation.length > 0) {
@@ -2694,12 +2731,6 @@ export class AgentServer {
 
     const resumeState = this.resumeState;
     const checkpointApplied = await this.applyResumeGitCheckpoint(payload);
-    const checkpointContext = checkpointApplied
-      ? "The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint."
-      : "No additional git checkpoint was applied before resuming. Use the current workspace contents together with the preserved conversation history below.";
-    const conversationSummary = formatConversationForResume(
-      resumeState.conversation,
-    );
 
     this.logger.debug("Applying deferred summary resume to user message", {
       taskId: payload.task_id,
@@ -2709,20 +2740,102 @@ export class AgentServer {
     });
 
     return {
-      prompt: [
-        hiddenTextBlock(
-          `You are resuming a previous conversation. ${checkpointContext}\n\n` +
-            `Here is the conversation history from the previous session:\n\n` +
-            `${conversationSummary}\n\n` +
-            "The user has sent a new message:\n\n",
-        ),
-        ...prompt,
-        hiddenTextBlock(
-          "\n\nRespond to the user's new message above. You have full context from the previous session.",
-        ),
-      ],
+      prompt: this.wrapPromptWithSummaryResume(
+        resumeState,
+        checkpointApplied,
+        prompt,
+      ),
       consumed: true,
     };
+  }
+
+  /** Wrap the user's message in the previous session's conversation, hidden from the transcript. */
+  private wrapPromptWithSummaryResume(
+    resumeState: ResumeState,
+    checkpointApplied: boolean,
+    prompt: ContentBlock[],
+  ): ContentBlock[] {
+    const checkpointContext = checkpointApplied
+      ? "The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint."
+      : "No additional git checkpoint was applied before resuming. Use the current workspace contents together with the preserved conversation history below.";
+    const conversationSummary = formatConversationForResume(
+      resumeState.conversation,
+    );
+    return [
+      hiddenTextBlock(
+        `You are resuming a previous conversation. ${checkpointContext}\n\n` +
+          `Here is the conversation history from the previous session:\n\n` +
+          `${conversationSummary}\n\n` +
+          "The user has sent a new message:\n\n",
+      ),
+      ...prompt,
+      hiddenTextBlock(
+        "\n\nRespond to the user's new message above. You have full context from the previous session.",
+      ),
+    ];
+  }
+
+  /**
+   * Recover a deferred native resume whose transcript overflowed the context window: open a fresh
+   * session and rebuild the prompt around summarized history instead. Returns the replacement
+   * prompt, or null when there is nothing to fall back to.
+   *
+   * `sendResumeContinuation` gets this through `runResumeTurn`'s `retryOnOversizedPrompt`, but a
+   * prewarmed run defers its resume onto the first forwarded `user_message` and never goes through
+   * that path — without this it would fail the run instead of retrying.
+   */
+  private async retryOversizedDeferredResume(
+    payload: JwtPayload,
+    prompt: ContentBlock[],
+  ): Promise<ContentBlock[] | null> {
+    if (this.oversizedResumeRetried || !this.session) {
+      return null;
+    }
+    this.oversizedResumeRetried = true;
+
+    const taskRun = await this.refreshTaskRunForResume(payload, null);
+    const resumeRunId = this.getResumeRunId(taskRun);
+    if (!resumeRunId) return null;
+    if (!this.resumeState) {
+      try {
+        await this.loadResumeState(
+          payload.task_id,
+          resumeRunId,
+          payload.run_id,
+        );
+      } catch (error) {
+        this.logger.warn("Failed to reload resume state for retry", {
+          error: getErrorMessage(error),
+        });
+        return null;
+      }
+    }
+    const resumeState = this.resumeState;
+    if (!resumeState?.conversation.length) return null;
+
+    try {
+      const response = await this.session.clientConnection.newSession({
+        cwd: this.config.repositoryPath ?? "/tmp/workspace",
+        mcpServers: this.config.mcpServers ?? [],
+        _meta: this.session.sessionMeta,
+      });
+      this.session.acpSessionId = response.sessionId;
+    } catch (error) {
+      this.logger.warn("Failed to start fresh session for oversized resume", {
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+
+    this.logger.warn(
+      "Deferred resume prompt exceeded the context window; retrying on a fresh session with summarized history",
+      { taskId: payload.task_id, runId: payload.run_id },
+    );
+    return this.wrapPromptWithSummaryResume(
+      resumeState,
+      await this.applyResumeGitCheckpoint(payload),
+      prompt,
+    );
   }
 
   private async sendResumeContinuation(
@@ -2924,6 +3037,13 @@ export class AgentServer {
   private async applyResumeGitCheckpoint(
     payload: JwtPayload,
   ): Promise<boolean> {
+    // At most once per process, and the answer is replayed afterwards. The checkpoint resets the
+    // workspace to the resumed run's snapshot, so a second application discards everything the
+    // session has written since — including the work of a turn that failed and is being retried.
+    // A failed attempt counts as an attempt: it may have partially applied.
+    if (this.resumeGitCheckpointApplied !== null) {
+      return this.resumeGitCheckpointApplied;
+    }
     if (
       !this.resumeState?.latestGitCheckpoint ||
       !this.config.repositoryPath ||
@@ -2949,12 +3069,14 @@ export class AgentServer {
         indexBytes: metrics.indexBytes,
         totalBytes: metrics.totalBytes,
       });
+      this.resumeGitCheckpointApplied = true;
       return true;
     } catch (error) {
       this.logger.warn("Failed to apply git checkpoint", {
         error: error instanceof Error ? error.message : String(error),
         branch: this.resumeState.latestGitCheckpoint.branch,
       });
+      this.resumeGitCheckpointApplied = false;
       return false;
     }
   }
