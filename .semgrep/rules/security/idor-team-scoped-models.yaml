@@ -1160,6 +1160,7 @@ rules:
                               |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
+                              |UserFacetSettings
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
@@ -1233,6 +1234,7 @@ rules:
                         |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
+                        |UserFacetSettings
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation
