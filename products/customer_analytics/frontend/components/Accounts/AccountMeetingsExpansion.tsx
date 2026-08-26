@@ -18,6 +18,8 @@ import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import gongIcon from 'public/services/gong.png'
+
 import { MeetingApi, MeetingParticipantApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountMeetingsLogic, NOT_LOADED, PAGE_SIZE } from './accountMeetingsLogic'
@@ -179,6 +181,29 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
                     <span className="text-muted italic">Untitled meeting</span>
                 ),
         },
+        ...(meetings?.some((meeting) => meeting.gong_url)
+            ? [
+                  {
+                      title: 'Gong',
+                      key: 'gong_url',
+                      width: 150,
+                      render: (_: unknown, meeting: MeetingApi) =>
+                          meeting.gong_url ? (
+                              <LemonButton
+                                  type="secondary"
+                                  size="xsmall"
+                                  to={meeting.gong_url}
+                                  targetBlank
+                                  sideIcon={<img src={gongIcon} alt="" className="size-4 object-contain" />}
+                                  data-attr="open-meeting-in-gong"
+                                  onClick={() => posthog.capture(AccountsEvents.GongCallOpened)} // [PostHog] Event: dynamic event name
+                              >
+                                  Open in Gong
+                              </LemonButton>
+                          ) : null,
+                  },
+              ]
+            : []),
         {
             title: 'When',
             key: 'start_time',

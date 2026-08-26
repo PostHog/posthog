@@ -49717,6 +49717,11 @@ export namespace Schemas {
       readonly id: string;
       /** Meeting title; may be empty. */
       readonly title: string;
+      /**
+         * Gong call URL matched through the calendar event id; null when no Gong call is available.
+         * @nullable
+         */
+      readonly gong_url: string | null;
       /** When the meeting starts. */
       readonly start_time: string;
       /**
