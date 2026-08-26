@@ -156,6 +156,12 @@ MATCH_EVENT_KINDS: tuple[EventKind, ...] = ("match",)
 VISION_ALERT_EVENT_IDS = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 
 VISION_ALERT_SLACK_CONTEXT_ELEMENTS = (
-    "Scanner: {event.properties.scanner_name}",
+    "Scanner: {event.properties.scanner_name_mrkdwn}",
     "Project: <{project.url}|{project.name}>",
 )
+
+
+def escape_slack_mrkdwn(text: str) -> str:
+    """User-editable values interpolated into Slack mrkdwn must not carry control
+    syntax like <!channel> or <url|label>; webhooks keep the raw value."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
