@@ -549,6 +549,39 @@ test('a single-language workflow claims that language rather than everything', (
             workflow
         )
     }
+    // Service workflows take their service's lane. The base CONTEXT lists
+    // only two services, so the universe here has to know the real ones.
+    const serviceContext = {
+        ...CONTEXT,
+        products: [...CONTEXT.products, 'metrics'],
+        services: [...CONTEXT.services, 'agent-proxy', 'integration-service', 'llm-gateway'],
+    }
+    for (const [workflow, treeFile] of [
+        ['ci-llm-gateway.yml', 'services/llm-gateway/src/main.py'],
+        ['llm-gateway-cd.yml', 'services/llm-gateway/src/main.py'],
+        ['ci-agent-proxy.yml', 'services/agent-proxy/src/index.ts'],
+        ['cd-agent-proxy-image.yml', 'services/agent-proxy/src/index.ts'],
+        ['ci-integration-service.yml', 'services/integration-service/src/index.ts'],
+        ['cd-integration-service-image.yml', 'services/integration-service/src/index.ts'],
+        ['ci-oauth-proxy.yml', 'services/oauth-proxy/src/index.ts'],
+        ['ci-ml-mirror-image-scrub-container.yml', 'nodejs/src/index.ts'],
+    ]) {
+        assert.deepEqual(
+            computeTargets([`.github/workflows/${workflow}`], serviceContext),
+            computeTargets([treeFile], serviceContext),
+            workflow
+        )
+    }
+    assert.deepEqual(computeTargets(['.github/workflows/cd-metrics-agent-image.yml'], serviceContext), [
+        'fe:product:metrics',
+        'py:product:metrics',
+    ])
+    // The MCP image's readers are the product-surface set, same as the
+    // openapi-codegen workflow.
+    assert.deepEqual(
+        computeTargets(['.github/workflows/cd-mcp-image.yml'], CONTEXT),
+        computeTargets(['.github/workflows/ci-openapi-codegen.yml'], CONTEXT)
+    )
     // Cross-domain workflows take the union of the families on each side,
     // matching what the same change spelled as files would claim.
     const pythonNodeRust = computeTargets(['mypy.ini', 'rust/Cargo.toml', 'nodejs/src/index.ts'], CONTEXT)

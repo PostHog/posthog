@@ -288,6 +288,32 @@ const TRIPWIRE_RULES = [
     // cli crate plus the services/mcp API CLI bundle, the same pairing
     // ci-cli.yml carries.
     ['.github/workflows/release.yml', { lanes: ['cli', 'svc:mcp'] }],
+    // Service suites and image builds confined to one services/ tree. The
+    // two -image CDs default their Docker context to the repo root, but
+    // their Dockerfiles copy only the root lockfiles plus the service tree.
+    ['.github/workflows/ci-llm-gateway.yml', { lanes: ['svc:llm-gateway'] }],
+    ['.github/workflows/llm-gateway-cd.yml', { lanes: ['svc:llm-gateway'] }],
+    ['.github/workflows/ci-agent-proxy.yml', { lanes: ['svc:agent-proxy'] }],
+    ['.github/workflows/cd-agent-proxy-image.yml', { lanes: ['svc:agent-proxy'] }],
+    ['.github/workflows/ci-integration-service.yml', { lanes: ['svc:integration-service'] }],
+    ['.github/workflows/cd-integration-service-image.yml', { lanes: ['svc:integration-service'] }],
+    ['.github/workflows/ci-oauth-proxy.yml', { lanes: ['svc:oauth-proxy'] }],
+    // Builds the otel-collector agent image and its chart from
+    // products/metrics/agent, a self-contained product subtree. Any file
+    // there claims at least one of these two lanes, so the pair overlaps
+    // every interacting PR.
+    ['.github/workflows/cd-metrics-agent-image.yml', { lanes: ['py:product:metrics', 'fe:product:metrics'] }],
+    // Tests and builds the standalone image-scrub sidecar package under
+    // nodejs/; its repo-root Docker context copies nothing outside that tree.
+    ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', NODE],
+    // The MCP image compiles every product's mcp/apps, all of packages/, and
+    // tools/openapi-codegen, which is the product-surface reader set.
+    ['.github/workflows/cd-mcp-image.yml', PRODUCT_SURFACE],
+    // Audited and kept universal: cd-llm-analytics-image and
+    // cd-sandbox-base-image bake the whole Django app into their images (the
+    // sandbox image also builds every product's skills against the full dev
+    // stack), and ci-recording-rasterizer-container copies all of rust/ and
+    // both common/ families into its image.
     ['.github/workflows/ci-livestream.yml', { lanes: ['livestream'] }],
     ['.github/workflows/ci-livestream-tui.yml', { lanes: ['livestream'] }],
     ['.github/workflows/build-livestream-tui.yml', { lanes: ['livestream'] }],
