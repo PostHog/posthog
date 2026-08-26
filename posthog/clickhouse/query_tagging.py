@@ -554,6 +554,10 @@ class QueryTags(BaseModel):
         # tag must never fail the request.
         if value is None or isinstance(value, (Product, ProductKey)):
             return value
+        # Only a string is a valid client value. A non-string is an internal caller bug, so
+        # let pydantic reject it like every other tag field instead of silently dropping it.
+        if not isinstance(value, str):
+            return value
         try:
             return Product(value)
         except ValueError:

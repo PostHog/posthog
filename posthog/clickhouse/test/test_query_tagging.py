@@ -95,10 +95,16 @@ def test_set_get():
     assert get_query_tag_value("product") == "api"
 
 
-def test_failure_on_incorrect_type():
+@parameterized.expand(
+    [
+        ("team_id", "jeden"),  # a string where an int is expected
+        ("product", 123),  # a non-string product is an internal caller bug, not a client value
+    ]
+)
+def test_failure_on_incorrect_type(field, value):
     reset_query_tags()
     with pytest.raises(ValidationError):
-        tag_queries(team_id="jeden")
+        tag_queries(**{field: value})
     assert get_query_tags() == create_base_tags()
 
 
