@@ -48,10 +48,15 @@ export function SqlChartWithDashboardVariables({
     )
 
     if (!targetVariable) {
-        return <SqlChart {...props} />
+        return <SqlChart {...props} dashboardId={dashboardId} />
     }
 
     return (
-        <SqlChart {...props} onPointClick={onPointClick} pointClickHint={`Click to filter by ${targetVariable.name}`} />
+        <SqlChart
+            {...props}
+            dashboardId={dashboardId}
+            onPointClick={onPointClick}
+            pointClickHint={`Click to filter by ${targetVariable.name}`}
+        />
     )
 }
