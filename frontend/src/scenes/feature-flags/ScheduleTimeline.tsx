@@ -168,16 +168,35 @@ export function ScheduleTimeline({
         })
     }
 
+    // role="img" makes the chart a single leaf node, so a screen reader never descends into the
+    // marks and hears no date, level, or approval state. The label has to carry the plan itself.
+    const chartLabel = `Timeline of ${occurrences.length} upcoming scheduled changes: ${occurrences
+        .map(
+            (occurrence) =>
+                `${describeOccurrence(occurrence)} on ${formatOccurrenceTime(occurrence.timestamp, timezone)}${
+                    occurrence.needsApproval ? ' (needs approval)' : ''
+                }`
+        )
+        .join(', then ')}`
+
     return (
         // The chart scrolls horizontally rather than scale its 9-unit labels below legibility. The
         // minimum width matches WIDTH, so at the floor one viewBox unit is one pixel and the labels
         // hold at 9px. A smaller floor would scale them down by the same ratio.
-        <div className="flex flex-col gap-1 overflow-x-auto" data-attr="feature-flag-schedule-timeline">
+        // A plain div with overflow takes no focus and no arrow keys, so the scroll region needs a
+        // focus stop of its own to be reachable without a mouse.
+        <div
+            className="flex flex-col gap-1 overflow-x-auto"
+            tabIndex={0}
+            role="group"
+            aria-label="Scrollable schedule timeline"
+            data-attr="feature-flag-schedule-timeline"
+        >
             <svg
                 viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
                 className="w-full max-w-3xl min-w-150"
                 role="img"
-                aria-label="Timeline of upcoming scheduled changes"
+                aria-label={chartLabel}
             >
                 {[0, 50, 100].map((rollout) => (
                     <g key={rollout}>

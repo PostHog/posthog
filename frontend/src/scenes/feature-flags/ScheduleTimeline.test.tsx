@@ -151,4 +151,31 @@ describe('ScheduleTimeline', () => {
         expect(screen.getByText('Condition')).toBeInTheDocument()
         expect(screen.queryByText('0 variants')).not.toBeInTheDocument()
     })
+
+    it('exposes the plan and a focus stop for a user without a mouse', () => {
+        const { container } = render(
+            <ScheduleTimeline
+                occurrences={[
+                    occurrence(),
+                    occurrence({
+                        timestamp: '2099-08-28T10:22:00Z',
+                        operation: ScheduledChangeOperationType.AddReleaseCondition,
+                        addedRolloutPercentage: 75,
+                        projected: { active: true, rolloutPercentage: 75, variantCount: null },
+                        needsApproval: true,
+                    }),
+                ]}
+                currentRolloutPercentage={25}
+                timezone="UTC"
+            />
+        )
+
+        // The region scrolls below 600px, and a plain div with overflow takes no arrow keys.
+        expect(container.querySelector('[data-attr="feature-flag-schedule-timeline"]')).toHaveAttribute('tabindex', '0')
+        // role="img" hides every mark inside the chart, so this label is all a screen reader gets.
+        expect(container.querySelector('svg')).toHaveAttribute(
+            'aria-label',
+            'Timeline of 2 upcoming scheduled changes: enabled on Aug 26, 10:22 AM, then add a condition at 75% rollout on Aug 28, 10:22 AM (needs approval)'
+        )
+    })
 })
