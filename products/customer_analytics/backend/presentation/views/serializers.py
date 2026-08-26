@@ -1394,6 +1394,11 @@ class MeetingSerializer(DataclassSerializer):
 
     id = serializers.UUIDField(read_only=True, help_text="UUID of the meeting.")
     title = serializers.CharField(read_only=True, allow_blank=True, help_text="Meeting title; may be empty.")
+    gong_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="Gong call URL matched through the calendar event id; null when no Gong call is available.",
+    )
     start_time = serializers.DateTimeField(read_only=True, help_text="When the meeting starts.")
     end_time = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the meeting ends.")
     organizer_email = serializers.CharField(
@@ -1407,7 +1412,7 @@ class MeetingSerializer(DataclassSerializer):
     class Meta:
         dataclass = MeetingView
         ref_name = "Meeting"
-        fields = ["id", "title", "start_time", "end_time", "organizer_email", "status", "participants"]
+        fields = ["id", "title", "gong_url", "start_time", "end_time", "organizer_email", "status", "participants"]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):
