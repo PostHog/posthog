@@ -22,7 +22,13 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     build_task_staged_artifact_cache_key,
 )
 from products.tasks.backend.logic.services.warm import WarmResult
-from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    SandboxCustomImage,
+    SandboxEnvironment,
+    Task,
+    TaskRun,
+)
 from products.tasks.backend.redis import get_tasks_cache
 
 FACADE = "products.tasks.backend.facade.api"
@@ -1065,6 +1071,23 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         )
         terminal = self._terminal_run(task)
         self._terminal_run(task)
+
+        assert self._warm_resume(task, terminal) is None
+
+    def test_does_not_warm_a_resume_source_from_a_previous_task_owner(self):
+        # A handed-off task re-stamps its ownership version but leaves old runs on the previous one.
+        # create_run rejects that stale resume source, so this best-effort endpoint must skip warming
+        # rather than raise the ownership error on every debounced keystroke of the new owner.
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        terminal = self._terminal_run(task)
+        task.state = {**(task.state or {}), TASK_OWNERSHIP_VERSION_STATE_KEY: "handed-off"}
+        task.save(update_fields=["state"])
 
         assert self._warm_resume(task, terminal) is None
 
