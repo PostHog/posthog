@@ -501,7 +501,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$workflows_email_failed": {
             "label": "Workflow email failed",
-            "description": "Fires when a workflow email was never attempted. This usually means the PostHog email service found a virus in the message.",
+            "description": "Fires when a workflow email could not be sent. The cause is a failed call to the email provider, a template that did not render, or a message the provider rejected, most often because it contained a virus.",
         },
         "$workflows_email_opened": {
             "label": "Workflow email opened",
