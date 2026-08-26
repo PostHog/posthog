@@ -67,6 +67,10 @@ _MAX_CACHEABLE_PACKFILE_BYTES = 16_000_000
 # not by what the team owns. The count limit lives with the other bundle policy in packaging.
 MAX_BUNDLE_BYTES = 5_000_000
 
+# Skipped-skill names are unbounded for a heavy user, so the warning logs a fixed sample plus the
+# full count rather than every name (mirrors the count-only X-Skills-Skipped header).
+_SKIPPED_LOG_SAMPLE_SIZE = 20
+
 
 def skill_to_export(skill: LLMSkill, files: list[LLMSkillFile]) -> SkillExport:
     return SkillExport(
@@ -287,7 +291,13 @@ def build_skill_bundle(
     walk = _walk_stubs(candidates, limit) if content == "stub" else _walk_full(candidates, limit)
 
     if walk.skipped:
-        logger.warning("skills_bundle_skipped", team_id=team.id, user_id=user.id, skills=walk.skipped)
+        logger.warning(
+            "skills_bundle_skipped",
+            team_id=team.id,
+            user_id=user.id,
+            skipped_count=len(walk.skipped),
+            skills_sample=walk.skipped[:_SKIPPED_LOG_SAMPLE_SIZE],
+        )
     if walk.dropped_count:
         logger.warning(
             "skills_bundle_dropped_over_cap", team_id=team.id, user_id=user.id, dropped_count=walk.dropped_count
