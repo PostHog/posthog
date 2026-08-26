@@ -46,8 +46,23 @@ _ACCOUNT_TRACK_RULE_OLDEST_SUCCESS_AGE_SECONDS = Gauge(
     "customer_analytics_account_track_rule_oldest_success_age_seconds",
     "Oldest success, first-attempt, or enablement age among enabled Account Track Rule teams",
 )
+_ACCOUNT_PROPERTY_SYNC_PHASE_DURATION_SECONDS = Histogram(
+    "customer_analytics_account_property_sync_phase_duration_seconds",
+    "Account property sync operation duration by phase and segment",
+    labelnames=["phase", "segment"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 15, 30, 60, 120, 300, 600, 1_800, 3_600),
+)
 
 _otel = OtelInstrumentFactory("customer-analytics-account-track-rules")
+_account_property_sync_otel = OtelInstrumentFactory("customer-analytics-account-property-sync")
+
+
+def record_account_property_sync_phase_duration(*, phase: str, segment: str, duration_seconds: float) -> None:
+    labels = {"phase": phase, "segment": segment}
+    _ACCOUNT_PROPERTY_SYNC_PHASE_DURATION_SECONDS.labels(**labels).observe(duration_seconds)
+    _account_property_sync_otel.record_histogram_twin(
+        _ACCOUNT_PROPERTY_SYNC_PHASE_DURATION_SECONDS, duration_seconds, labels
+    )
 
 
 def record_account_track_rule_run(
