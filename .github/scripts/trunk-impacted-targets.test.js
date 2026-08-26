@@ -154,9 +154,10 @@ test('a universal tripwire claims every known target', () => {
         // Read by pytest, jest, and playwright alike, so no one domain holds it.
         '.test_quarantine.json',
         // Trees that steer what every suite runs or what it runs against: the
-        // Depot copies of the workflows, the toolchain, the service configs the
-        // stack mounts, and the markdownlint config every tree's prose obeys.
-        '.depot/workflows/ci-backend.yml',
+        // Depot shadow of an action every workflow uses, the toolchain, the
+        // service configs the stack mounts, and the markdownlint config every
+        // tree's prose obeys.
+        '.depot/actions/pnpm-install/action.yml',
         '.flox/env/manifest.toml',
         'docker/clickhouse/config.d/default.xml',
         'devenv/duckgres.yaml',
@@ -656,6 +657,26 @@ test('the schema codegen scripts claim the product-surface lanes', () => {
     )
 })
 
+// A Depot shadow is kept apples-to-apples with its canonical by the
+// shadow-drift check and posts non-blocking statuses, so it can only affect
+// what the canonical affects. The narrowing direction is the guard: a shadow
+// of something no rule has placed must stay on the .github blanket rather
+// than fall through unclaimed.
+test('a depot shadow resolves through its canonical workflow rules', () => {
+    assert.deepEqual(
+        computeTargets(['.depot/workflows/ci-backend.yml'], CONTEXT),
+        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT)
+    )
+    assert.deepEqual(
+        computeTargets(['.depot/workflows/ci-backend-update-test-timing.yml'], CONTEXT),
+        computeTargets(['mypy.ini'], CONTEXT)
+    )
+    assert.deepEqual(computeTargets(['.depot/actions/paths-filter/src/filter.ts'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['.depot/workflows/some-new-shadow.yml'], CONTEXT), EVERYTHING)
+    // Shadow markdown is prose like any other.
+    assert.deepEqual(computeTargets(['.depot/actions/paths-filter/README.md'], CONTEXT), ['prose'])
+})
+
 // The guard is the narrowing direction: a service workflow whose directory is
 // gone must widen rather than claim a lane no other PR can reach.
 test('a service suite workflow claims its service lane and widens without it', () => {
@@ -844,6 +865,7 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         'bin/mprocs.yaml',
         'bin/build-schema-python.sh',
         'bin/update-bots-list',
+        '.depot/workflows/ci-backend.yml',
     ]
     for (const file of everyRule) {
         const targets = computeTargets([file], CONTEXT)

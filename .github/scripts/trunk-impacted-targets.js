@@ -689,9 +689,6 @@ const TRIPWIRE_RULES = [
     // wait-for-docker pair run in backend, frontend, nodejs, and rust CI.
     ['bin/**', UNIVERSAL],
     ['patches/**', UNIVERSAL],
-    // Holds the Depot-runner copies of the workflows and composite actions in
-    // .github/, so it decides what runs for everyone the same way.
-    ['.depot/**', UNIVERSAL],
     // Names the Depot project every container build and runner is billed and
     // cached against. rust/depot.json is deliberately not here: it configures
     // builds of that workspace only, and the rust rules below hold it to them.
@@ -852,11 +849,24 @@ function globToRegExp(glob) {
 
 const TRIPWIRE_MATCHERS = TRIPWIRE_RULES.map(([glob, domain]) => [globToRegExp(glob), domain])
 
+// .depot/ holds Depot-runner shadows of the workflows and composite actions in
+// .github/, kept apples-to-apples with their canonicals by the shadow-drift
+// check, and their statuses are non-blocking. A shadow can only affect what
+// its canonical affects, so it resolves through the canonical's rules: the
+// ci-backend shadow takes the python lanes, and a shadow of something unplaced
+// still lands on the .github/** blanket.
+const DEPOT_MIRROR_PREFIX = '.depot/'
+
+function canonicalPath(file) {
+    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
+}
+
 // The domain of the first rule matching the file, or null when no rule claims
 // it and when a rule claims it as an explicit non-tripwire. Both mean the same
 // thing to every caller: the file falls through to the ordinary rules.
 function tripwireDomain(file) {
-    const matched = TRIPWIRE_MATCHERS.find(([re]) => re.test(file))
+    const resolved = canonicalPath(file)
+    const matched = TRIPWIRE_MATCHERS.find(([re]) => re.test(resolved))
     return matched ? matched[1] : null
 }
 
