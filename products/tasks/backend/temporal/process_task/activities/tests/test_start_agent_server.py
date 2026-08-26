@@ -479,11 +479,40 @@ def test_agent_shadow_launches_without_credentials(mocker) -> None:
     assert _launch_agent_shadow(_context(), sandbox) is True
     command = sandbox.execute.call_args.args[0]
     assert "/usr/local/bin/agent-shadow" in command
-    assert "[a]gent-shadow --boot-id run-id" in command
-    assert "/usr/bin/env -i /usr/local/bin/agent-shadow" in command
+    assert "/usr/bin/env -i /usr/bin/setsid /usr/local/bin/agent-shadow" in command
     assert "--boot-id run-id" in command
     assert "--timeout 6m" in command
     assert "POSTHOG" not in command
+
+
+def test_agent_shadow_launch_guards_on_marker_not_its_own_command_line(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=True,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = False
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    assert _launch_agent_shadow(_context(), sandbox) is True
+    command = sandbox.execute.call_args.args[0]
+    assert "pgrep" not in command
+    assert "/tmp/agent-shadow-launched" in command
+
+
+@pytest.mark.parametrize("exit_code,launched", [(0, True), (1, False)])
+def test_agent_shadow_launch_fails_closed_on_nonzero_exit(mocker, exit_code, launched) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=True,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = False
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=exit_code)
+
+    assert _launch_agent_shadow(_context(), sandbox) is launched
 
 
 def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
@@ -533,15 +562,22 @@ def test_agent_shadow_result_rejects_another_boot(mocker) -> None:
     assert _read_agent_shadow_result(sandbox, "run-id") == {"launched": True}
 
 
-def test_agent_shadow_result_reports_read_timeout(mocker) -> None:
+@pytest.mark.parametrize(
+    "stdout,expected",
+    [
+        ("run-id\ntimed_out\n", {"launched": True, "timed_out": True}),
+        ("run-id\nno_output\n", {"launched": True, "failure_class": "no_output"}),
+        (
+            "run-id\nno_output\n/usr/local/bin/agent-shadow: Exec format error\n",
+            {"launched": True, "failure_class": "no_output"},
+        ),
+    ],
+)
+def test_agent_shadow_result_reports_sentinel_outcomes(mocker, stdout, expected) -> None:
     sandbox = mocker.Mock(id="sandbox-id")
-    sandbox.execute.return_value = ExecutionResult(
-        stdout="run-id\ntimed_out\n",
-        stderr="",
-        exit_code=0,
-    )
+    sandbox.execute.return_value = ExecutionResult(stdout=stdout, stderr="", exit_code=0)
 
-    assert _read_agent_shadow_result(sandbox, "run-id") == {"launched": True, "timed_out": True}
+    assert _read_agent_shadow_result(sandbox, "run-id") == expected
 
 
 @pytest.mark.parametrize("payload", ["null", "true", "1", "[]", '"value"'])
