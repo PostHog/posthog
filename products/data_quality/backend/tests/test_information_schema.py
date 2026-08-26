@@ -214,6 +214,39 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
 
         assert rows == []
 
+    @parameterized.expand(
+        [
+            ("checks", "SELECT subject_name FROM system.information_schema.data_quality_checks"),
+            ("health", "SELECT subject_name FROM system.information_schema.data_quality_health"),
+        ]
+    )
+    def test_a_check_whose_last_run_read_a_recreated_subject_stays_hidden(self, _name: str, sql: str) -> None:
+        # A check row is not only a definition: last_status is the verdict of its last run, over
+        # whatever that run read. Once the subject it read is deleted and its name taken by something
+        # the caller may read, the definition stops naming anything denied while the verdict remains.
+        original = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders_original", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        original_id = original.id
+        original.delete()
+        reader = self._check(
+            subject_name="customers",
+            saved_query_id=self.subject_uuid,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+            last_status=CheckRunStatus.FAILED,
+        )
+        self._run_for(
+            reader,
+            check_config=reader.config,
+            referenced_subjects=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(original_id)}],
+        )
+
+        rows = self._query(sql, context=self._context(denied_tables={"secrets"}))
+
+        assert rows == []
+
     def test_a_run_whose_subject_was_recreated_under_the_same_name_stays_hidden(self) -> None:
         # Deleting a warehouse object frees its name for anyone to take. Matched by the names in its
         # definition, the run that read the original would be served here the moment something the

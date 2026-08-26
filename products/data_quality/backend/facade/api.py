@@ -8,10 +8,12 @@ data. ORM model classes never cross here either -- ``facade/models.py`` is their
 """
 
 from ..logic.checks import (
+    RunRecording,
     checks_for_subject,
     edit_check,
     empty_check_suite,
     ensure_name_available,
+    latest_run_recordings,
     soft_delete_check,
     start_check_suite,
     subject_health,
@@ -30,6 +32,7 @@ from ..logic.serialization import compute_fingerprint, from_config_entry, to_con
 from ..logic.subject_access import (
     PinnedSubject,
     ReferencedSubjects,
+    can_be_object_denied,
     check_reads_denied_subject,
     check_type_reads_beyond_subject,
     denied_subject_names,
@@ -53,11 +56,13 @@ __all__ = [
     "CompiledCheck",
     "PinnedSubject",
     "ReferencedSubjects",
+    "RunRecording",
     "SubjectKey",
     "SubjectLocation",
     "SubjectRef",
     "SubjectUnresolvableError",
     "UnknownCheckTypeError",
+    "can_be_object_denied",
     "check_reads_denied_subject",
     "check_type_reads_beyond_subject",
     "checks_for_subject",
@@ -70,6 +75,7 @@ __all__ = [
     "from_config_entry",
     "get_gate_config",
     "is_subject_denied",
+    "latest_run_recordings",
     "list_check_types",
     "notify_materialization_blocked",
     "pinned_subject_refs",

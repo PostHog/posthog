@@ -285,6 +285,40 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert listed.json()["results"] == []
         assert health.json() == []
 
+    def test_the_overview_hides_a_check_whose_last_run_read_a_recreated_subject(self) -> None:
+        # Deleting the denied "orders" empties the denial set and frees its name, so the config now
+        # names something the member may read. The status beside it is still the verdict of a run
+        # against the original, which is what the identities the run pinned still answer for.
+        reader = self._check(
+            self.customers,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+            last_status=CheckRunStatus.FAILED,
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
+            quality_check=reader,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=self.customers.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config=reader.config,
+            referenced_subjects=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(self.orders.id)}],
+            check_fingerprint=reader.fingerprint,
+            status=CheckRunStatus.FAILED,
+        )
+        self._deny_orders()
+        self.orders.delete()
+        self._make_view("orders")
+
+        listed = self.client.get(self.checks_url)
+        health = self.client.get(f"{self.checks_url}health/")
+
+        assert listed.json()["results"] == []
+        assert health.json() == []
+
     def test_the_overview_hides_a_denied_subject_renamed_since_its_last_run(self) -> None:
         # subject_name is only rewritten when the check runs, so matching denial against it serves
         # the subject's checks for the whole window between a rename and the next run.

@@ -44,6 +44,21 @@ def is_subject_denied(subject_name: str, denied: set[str]) -> bool:
     return _references_denied_table([subject_name], denied)
 
 
+def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> bool:
+    """Whether object-level warehouse denial can apply to this caller at all.
+
+    False for an org admin, or an organization without access controls: neither can be denied a
+    single table or view, so an empty denial set is proof of access rather than missing data. For
+    everyone else the set can also be empty *because* the subject they were denied was deleted, so
+    this -- never the emptiness of the set -- decides whether a gate applies.
+    """
+    return (
+        user_access_control is not None
+        and not user_access_control.is_organization_admin
+        and user_access_control.access_controls_supported
+    )
+
+
 # A check type reads beyond its declared subject only if it overrides one of these hooks: a
 # ``relationships`` check names a target subject, a ``custom_sql`` query selects arbitrary tables.
 # Derived from the specs rather than hard-coded so a new referencing type can't silently slip the net.
