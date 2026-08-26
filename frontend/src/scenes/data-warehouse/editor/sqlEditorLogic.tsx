@@ -229,6 +229,17 @@ export function renderQueryOutline(
     node.style.height = `${maxBottom - minTop + padY * 2}px`
 }
 
+// A disposed Monaco editor drops its DOM node, but the cached `props.editor` reference lingers.
+// `IStandaloneCodeEditor` has no `isDisposed()`, so a null DOM node is the reliable disposed signal.
+// Writing to a disposed editor (e.g. `setModel`) throws inside Monaco's `_attachModel` and crashes
+// the React commit, so gate every such write on this check. A live editor without a model still
+// passes — a fresh tab binds its first model here.
+export function isEditorAlive(
+    editorInstance: editor.IStandaloneCodeEditor | null | undefined
+): editorInstance is editor.IStandaloneCodeEditor {
+    return !!editorInstance && editorInstance.getDomNode() !== null
+}
+
 function clearQueryOutlineOverlay(
     cache: sqlEditorLogicType['cache'],
     fallbackEditor?: editor.IStandaloneCodeEditor | null
@@ -1904,7 +1915,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
-                        props.editor?.setModel(model)
+                        if (isEditorAlive(props.editor)) {
+                            props.editor.setModel(model)
+                        }
                         initModel(
                             model,
                             codeEditorLogic({
@@ -1946,7 +1959,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.enforceConnectionRawQueryMode()
 
                 // Focus the editor after creating a new tab
-                props.editor?.focus()
+                if (isEditorAlive(props.editor)) {
+                    props.editor.focus()
+                }
             },
             setSourceQuery: ({ sourceQuery }) => {
                 if (!values.activeTab) {
