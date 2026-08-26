@@ -201,3 +201,147 @@ class TestRenderReport:
             crossings.CrossingUse("alerts.AlertConfiguration", "posthog.api.b", "annotation", 2),
         ]
         assert "allowed: annotation 3" in crossings.render_report(uses)
+
+
+DISPATCHER = """
+def get_query_runner(query, team, kind=None):
+    if kind == "TrendsQuery":
+        from .insights.trends.trends_query_runner import TrendsQueryRunner
+
+        return TrendsQueryRunner(query=query, team=team)
+    if kind == "PathsQuery":
+        from products.product_analytics.backend.facade.queries import PathsQueryRunner
+
+        return PathsQueryRunner(query=query, team=team)
+    if kind in ("WebOverviewQuery", "WebStatsTableQuery"):
+        from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+
+        return WebOverviewQueryRunner(query=query, team=team)
+"""
+
+KINDS = {"PathsQuery": "product_analytics", "WebOverviewQuery": "web_analytics"}
+
+
+class TestGarageDrives:
+    def test_dispatch_table_maps_product_kinds_only(self) -> None:
+        assert crossings._kinds_in_dispatcher(DISPATCHER) == {
+            "PathsQuery": "product_analytics",
+            "WebOverviewQuery": "web_analytics",
+            "WebStatsTableQuery": "web_analytics",
+        }
+
+    @pytest.mark.parametrize(
+        "source, expected",
+        [
+            # a kind literal handed to the dispatcher is a drive
+            (
+                """
+                def test_paths(team):
+                    process_query_dict(team, {"kind": "PathsQuery", "pathsFilter": {}})
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
+            # the schema constructor run through the dispatcher is a drive too
+            (
+                """
+                def test_paths(team):
+                    get_query_runner(PathsQuery(pathsFilter={}), team).calculate()
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
+            # a fixture built in setUp and executed over the in-process test client, same class
+            (
+                """
+                class TestInsights(APIBaseTest):
+                    def setUp(self):
+                        self.query = {"kind": "PathsQuery"}
+
+                    def test_run(self):
+                        self.client.post("/api/projects/1/query/", {"query": self.query})
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
+            # built and never run: a schema or formatter check, not a drive
+            (
+                """
+                def test_metadata():
+                    assert extract(PathsQuery(pathsFilter={})).kind == "PathsQuery"
+                """,
+                {},
+            ),
+            # a bare string is a parametrize row or a URL segment, not a query
+            (
+                """
+                class TestTags(TestCase):
+                    @parameterized.expand([("PathsQuery",), ("TrendsQuery",)])
+                    def test_tags(self, kind):
+                        assert tag_for(kind)
+
+                    def test_other(self):
+                        self.client.get("/api/projects/1/query/PathsQuery/")
+                """,
+                {},
+            ),
+            # a test method that only builds the kind is not a drive, whatever its siblings run
+            (
+                """
+                class TestEndpoints(APIBaseTest):
+                    @parameterized.expand([("paths", {"kind": "PathsQuery"})])
+                    def test_rejects(self, _name, query):
+                        assert not can_materialize(query)
+
+                    def test_materializes(self):
+                        self.client.patch("/api/projects/1/endpoints/x/", {"is_materialized": True})
+                """,
+                {},
+            ),
+            # a test method that runs the kind through a helper of its own is a drive
+            (
+                """
+                class TestPaths(APIBaseTest):
+                    def _run(self, query):
+                        return self.client.post("/api/projects/1/query/", {"query": query})
+
+                    def test_paths(self):
+                        assert self._run({"kind": "PathsQuery"}).status_code == 200
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
+            # execution in another class does not count for this class's fixture
+            (
+                """
+                class TestBuild(TestCase):
+                    def test_build(self):
+                        assert {"kind": "PathsQuery"}["kind"]
+
+                class TestRun(APIBaseTest):
+                    def test_run(self):
+                        self.client.post("/api/projects/1/query/", {"query": {"kind": "TrendsQuery"}})
+                """,
+                {},
+            ),
+            # a core kind is never a drive, and two products are told apart
+            (
+                """
+                def test_both(team):
+                    process_query_dict(team, {"kind": "TrendsQuery"})
+                    process_query_dict(team, {"kind": "WebOverviewQuery"})
+                    process_query_dict(team, {"kind": "WebOverviewQuery"})
+                """,
+                {("web_analytics", "WebOverviewQuery"): 2},
+            ),
+        ],
+    )
+    def test_kind_drives(self, source: str, expected: dict[tuple[str, str], int]) -> None:
+        assert dict(crossings.kind_drives(ast.parse(textwrap.dedent(source)), KINDS)) == expected
+
+    def test_driven_garages_reads_the_products_lines(self, tmp_path: Path) -> None:
+        baseline = tmp_path / "baseline.txt"
+        baseline.write_text(
+            "# header\n"
+            "product_analytics:backend/hogql_queries/ posthog.api.test.test_x drives(PathsQuery) 1\n"
+            "product_analytics.Insight posthog.api.sharing instance-many(all) 1\n"
+            "web_analytics:backend/hogql_queries/ posthog.test.test_y drives(WebOverviewQueryRunner) 1\n"
+        )
+        assert crossings.driven_garages("product_analytics", baseline) == {"backend/hogql_queries/"}
+        assert crossings.driven_garages("error_tracking", baseline) == frozenset()

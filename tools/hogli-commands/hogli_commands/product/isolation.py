@@ -308,6 +308,14 @@ GARAGE_PREFIXES: tuple[str, ...] = (
     "backend/tasks/",
 )
 
+# Garages whose watch is computed rather than presence-based. Core drives a query runner by the
+# query's kind string, so `product:crossings` can read the dispatch table and find every test
+# outside the product that executes a runner (the `drives(...)` lines in the crossings baseline).
+# Such a garage must stay in the inputs only while a line exists for it. The other garages are
+# driven by channels the scan does not read yet (Celery task names, Temporal workflow names, Max
+# tool names), so they stay watched by presence until their channel is scanned too.
+COMPUTED_GARAGES: frozenset[str] = frozenset({"backend/hogql_queries/"})
+
 
 def _glob_targets(glob: str, prefixes: tuple[str, ...]) -> bool:
     """Anchored prefix test for a contract-check input glob. removeprefix (not lstrip, which strips
@@ -785,9 +793,17 @@ def _unwatched_present_locations(product_dir: Path, prefixes: tuple[str, ...]) -
     return _uncovered_locations(product_dir, {p: (p,) for p in present})
 
 
-def unwatched_garages(product_dir: Path) -> set[str]:
-    """Garage locations present in the product but missing from its (narrowed) contract-check inputs."""
-    return _unwatched_present_locations(product_dir, GARAGE_PREFIXES)
+def unwatched_garages(product_dir: Path, driven: frozenset[str] | None = None) -> set[str]:
+    """Garage locations present in the product but missing from its (narrowed) contract-check inputs.
+
+    `driven` is the set of COMPUTED_GARAGES some test outside the product executes (from the
+    crossings baseline). A computed garage nothing drives may leave the inputs. `None` means the
+    caller has no evidence, so every present garage counts as driven: the safe direction."""
+    if driven is None:
+        prefixes = GARAGE_PREFIXES
+    else:
+        prefixes = tuple(p for p in GARAGE_PREFIXES if p not in COMPUTED_GARAGES or p in driven)
+    return _unwatched_present_locations(product_dir, prefixes)
 
 
 def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[str]) -> set[str]:
@@ -865,7 +881,9 @@ class IsolationStatus:
     facade_leaks: tuple[FacadeClassImport, ...] = ()
     # Garage wiring locations present in the product but missing from a narrowed product's inputs,
     # and carve-out modules missing the same way. Both keep the skip sound and block when narrowed.
+    # A garage in COMPUTED_GARAGES is listed only while an outside test drives it (driven_garages).
     unwatched_garages: tuple[str, ...] = ()
+    driven_garages: tuple[str, ...] = ()
     uncovered_carveout_modules: tuple[str, ...] = ()
     # Model classes the facade hands out under the watched-models allowance (see
     # MODEL_CROSSINGS). uncovered_model_surface lists the model/migration locations a narrowed
@@ -911,8 +929,12 @@ def compute_isolation_status(
     tach_content: str | None = None,
     pyproject_text: str | None = None,
     repo_root: Path | None = None,
+    driven_garages: frozenset[str] | None = None,
 ) -> IsolationStatus:
-    """Compute the full isolation seal status for one product."""
+    """Compute the full isolation seal status for one product.
+
+    `driven_garages` is the evidence `unwatched_garages` reads; without it every present garage
+    must stay watched."""
     if is_isolated is None:
         is_isolated = is_isolated_product(backend_dir)
     if tach_content is None:
@@ -940,7 +962,8 @@ def compute_isolation_status(
             sorted(unqualified_permanent_modules(module_path, permanent_modules, repo_root=repo_root))
         ),
         facade_leaks=reexports.leaks,
-        unwatched_garages=tuple(sorted(unwatched_garages(product_dir))),
+        unwatched_garages=tuple(sorted(unwatched_garages(product_dir, driven_garages))),
+        driven_garages=tuple(sorted(driven_garages or ())),
         uncovered_carveout_modules=tuple(sorted(uncovered_carveout_modules(product_dir, carveout_modules))),
         model_crossings=reexports.model_crossings,
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import module_import_targets
+from .crossings import driven_garages
 from .isolation import (
     IsolationStatus,
     compute_isolation_status,
@@ -262,7 +263,11 @@ class CheckContext:
         """
         if self._isolation is None:
             self._isolation = compute_isolation_status(
-                self.name, self.product_dir, self.backend_dir, is_isolated=self.is_isolated
+                self.name,
+                self.product_dir,
+                self.backend_dir,
+                is_isolated=self.is_isolated,
+                driven_garages=driven_garages(self.name),
             )
         return self._isolation
 
@@ -883,13 +888,22 @@ class IsolationChainCheck(ProductCheck):
 
         # Watching the wiring garages: a garage the product has must stay in the contract-check
         # inputs, or a change to a query runner / Max tool / Temporal defn / Celery task the facade
-        # wires would skip the Django suite. Mirrors routes_unwatched, presence-based.
+        # wires would skip the Django suite. Presence-based, except for the computed garages, which
+        # are listed only while the crossings baseline records an outside test driving them.
         if has_narrowed and status.unwatched_garages:
             globs = ", ".join(location_input_glob(g) for g in status.unwatched_garages)
+            driven = [g for g in status.unwatched_garages if g in status.driven_garages]
+            evidence = (
+                f" Tests outside the product still execute what lives in {', '.join(driven)}: see the "
+                f"`{ctx.name}:` drives lines in products/model_crossing_uses_baseline.txt, and move those "
+                "tests into the product to drop the input."
+                if driven
+                else ""
+            )
             result.issues.append(
                 "turbo.json narrows contract-check inputs but omits the wiring location(s) "
                 f"{', '.join(status.unwatched_garages)} — implementations core registers and drives live there, "
-                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs})"
+                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs}).{evidence}"
             )
 
         # Watching the carve-out modules: a sanctioned model-registry carve-out crosses the facade by

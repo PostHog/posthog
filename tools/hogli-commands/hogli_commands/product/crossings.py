@@ -18,9 +18,17 @@ resolves through the Django app registry, leaves no import edge, and so reaches 
 from anywhere. That scan therefore runs over every model class a product registers, and each foreign
 reference is counted as the disallowed kind `get_model`.
 
-Tests are out of scope. A test reaches concrete classes through testing doors on purpose, so counting
-its fixtures would measure the fixture, not the coupling. `apps.get_model` is the escape hatch core
-test fixtures are told to use, and keeping tests out is what leaves that advice intact.
+Tests are out of scope on both model channels. A test reaches concrete classes through testing doors
+on purpose, so counting its fixtures would measure the fixture, not the coupling. That leaves
+`apps.get_model` in a test fixture uncounted; it is still a dependency with the import edge removed,
+not a sanctioned door.
+
+The third channel is the opposite: it reads tests only. Core drives a product's query runners by the
+query's kind string, so a test outside the product can execute a runner in `backend/hogql_queries/`
+with no import. The isolated-test skip is sound for that garage only while no such test exists, so
+every one is counted as the disallowed kind `drives(<Kind>)`, and `hogli product:lint` keeps the
+garage in the contract-check inputs while a line for it stands. A test that imports a runner (through
+the facade or directly) is counted the same way.
 """
 
 from __future__ import annotations
@@ -29,13 +37,15 @@ import os
 import re
 import ast
 import textwrap
+import warnings
+import functools
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 from .ast_helpers import ast_parse_safe, get_model_names
-from .isolation import MODEL_CROSSINGS, facade_model_crossings
+from .isolation import COMPUTED_GARAGES, MODEL_CROSSINGS, facade_model_crossings
 from .paths import PRODUCTS_DIR, REPO_ROOT
 
 # Where Python that can consume a product model lives. Everything else at the repo root is
@@ -231,12 +241,16 @@ def product_model_labels(products: Iterable[str] | None = None) -> dict[str, str
 # ---------------------------------------------------------------------------
 
 
+def _is_test_module(path: Path) -> bool:
+    if "test" in path.parts or "tests" in path.parts:
+        return True
+    return path.name.startswith("test_") or path.name.endswith("_test.py") or path.name == "conftest.py"
+
+
 def _is_out_of_scope_module(path: Path) -> bool:
     """Tests reach concrete classes through testing doors, so they are not consumers. A migration
     reaches a model through the historical registry, which is the only way a migration can."""
-    if "test" in path.parts or "tests" in path.parts or "migrations" in path.parts:
-        return True
-    return path.name.startswith("test_") or path.name.endswith("_test.py") or path.name == "conftest.py"
+    return _is_test_module(path) or "migrations" in path.parts
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +286,7 @@ class _Candidate:
     dotted: str
     imports: _ImportTable
     mentions_get_model: bool
+    mentions_query_kind: bool = False
 
 
 # One import statement, parenthesized or not. Imports are the only thing the first pass reads, and
@@ -325,11 +340,13 @@ def _read_imports(source: bytes, package: str) -> _ImportTable:
     return _ImportTable(tuple(edges), tuple(aliases))
 
 
-def _candidates() -> list[_Candidate]:
+def _candidates(kind_hint: _KindHint | None = None) -> list[_Candidate]:
     """Every scanned .py file, with its imports read.
 
     Reading imports only is what keeps the full AST pass — and so the repo-invariant test — small:
-    a file is parsed whole only once its imports show it can reach a crossing class."""
+    a file is parsed whole only once its imports show it can reach a crossing class. The two
+    textual hints (`get_model`, a product query kind) are read here too, while the bytes are in
+    hand, so the scan never re-reads a file just to rule it out."""
     found = []
     for root in SCANNED_ROOTS:
         for path in sorted((REPO_ROOT / root).rglob("*.py")):
@@ -338,7 +355,10 @@ def _candidates() -> list[_Candidate]:
             source = path.read_bytes()
             dotted = _dotted_module(path)
             package = dotted if path.name == "__init__.py" else dotted.rsplit(".", 1)[0]
-            found.append(_Candidate(path, dotted, _read_imports(source, package), b"get_model" in source))
+            mentions_kind = kind_hint is not None and _is_test_module(path) and kind_hint.matches(source)
+            found.append(
+                _Candidate(path, dotted, _read_imports(source, package), b"get_model" in source, mentions_kind)
+            )
     return found
 
 
@@ -356,11 +376,14 @@ class _Export:
 
 
 def _origins(candidates: list[_Candidate], classes: list[CrossingClass]) -> dict[_Export, str]:
-    """Export -> crossing label, for every path an import of the class can take.
+    """Export -> crossing label, for every path an import of the class can take."""
+    return _grow_origins(candidates, {_Export(c.defining_module, c.class_name): c.label for c in classes})
 
-    Seeded with the defining module and grown to a fixpoint over re-exports, so `facade/models.py`,
-    a package `__init__`, and a renaming alias all resolve back to the same class."""
-    origins: dict[_Export, str] = {_Export(c.defining_module, c.class_name): c.label for c in classes}
+
+def _grow_origins(candidates: list[_Candidate], seeds: dict[_Export, str]) -> dict[_Export, str]:
+    """Seeded with the defining module and grown to a fixpoint over re-exports, so `facade/models.py`,
+    a package `__init__`, and a renaming alias all resolve back to the same label."""
+    origins = dict(seeds)
     while True:
         grew = False
         for candidate in candidates:
@@ -392,6 +415,15 @@ def _dotted_of(node: ast.expr) -> str | None:
     if isinstance(node, ast.Attribute):
         base = _dotted_of(node.value)
         return f"{base}.{node.attr}" if base else None
+    return None
+
+
+def _callee_name(node: ast.Call) -> str | None:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
     return None
 
 
@@ -445,10 +477,9 @@ def _enclosing_call_name(node: ast.AST, parents: dict[int, ast.AST]) -> str | No
     current = parents.get(id(node))
     while current is not None:
         if isinstance(current, ast.Call):
-            func = current.func
-            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            name = _callee_name(current)
             if name:
-                return str(name)
+                return name
         if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             return None
         current = parents.get(id(current))
@@ -565,65 +596,334 @@ def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], label_by
 
 
 # ---------------------------------------------------------------------------
+# Garages driven from outside the product
+# ---------------------------------------------------------------------------
+
+
+# Core's query dispatch table: `if kind == "X": from products.<p>... import XRunner`, and the
+# garage the runners it dispatches to live in. The kind channel is what makes that garage
+# computable, so it must be one of the computed set.
+QUERY_DISPATCHER = REPO_ROOT / "posthog" / "hogql_queries" / "query_runner.py"
+QUERY_GARAGE = "backend/hogql_queries/"
+assert QUERY_GARAGE in COMPUTED_GARAGES
+
+# The calls that hand a query to core's dispatcher, and so execute whichever runner owns its kind.
+DISPATCH_CALLS: frozenset[str] = frozenset(
+    {"process_query_dict", "process_query_model", "process_query", "get_query_runner", "get_query_runner_or_none"}
+)
+
+# The Django test client runs a request in-process, so a query posted to any endpoint that executes
+# queries (query, insights, endpoints, exports) reaches the runner the same way.
+TEST_CLIENT_METHODS: frozenset[str] = frozenset({"get", "post", "put", "patch", "delete"})
+
+
+def garage_label(product: str, garage: str) -> str:
+    """The baseline label of one product's garage, e.g. `product_analytics:backend/hogql_queries/`."""
+    return f"{product}:{garage}"
+
+
+def _kinds_in_dispatcher(source: str) -> dict[str, str]:
+    """Query kind -> owning product, for every kind whose dispatch branch imports from a product."""
+    tree = ast.parse(source)
+    kinds: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        for kind in _compared_kinds(node.test):
+            for statement in node.body:
+                if (
+                    isinstance(statement, ast.ImportFrom)
+                    and statement.module
+                    and statement.module.startswith("products.")
+                ):
+                    kinds[kind] = statement.module.split(".")[1]
+    return kinds
+
+
+def _compared_kinds(test: ast.expr) -> list[str]:
+    """The literals of `kind == "X"` or `kind in ("X", "Y")`; empty for any other test."""
+    if not (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name) and test.left.id == "kind"):
+        return []
+    target = test.comparators[0]
+    if isinstance(target, ast.Constant) and isinstance(target.value, str):
+        return [target.value]
+    if isinstance(target, ast.Tuple):
+        return [e.value for e in target.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+    return []
+
+
+def product_query_kinds(products: Iterable[str] | None = None) -> dict[str, str]:
+    """Query kind -> owning product, read off core's dispatch table."""
+    kinds = _kinds_in_dispatcher(QUERY_DISPATCHER.read_text(encoding="utf-8"))
+    if products is not None:
+        wanted = set(products)
+        kinds = {kind: product for kind, product in kinds.items() if product in wanted}
+    return kinds
+
+
+def _garage_exports(product: str, garage: str) -> dict[_Export, str]:
+    """Every top-level class or function a garage module defines, labeled with its garage."""
+    label = garage_label(product, garage)
+    root = PRODUCTS_DIR / product / garage.rstrip("/")
+    paths = sorted(root.rglob("*.py")) if root.is_dir() else [root] if root.is_file() else []
+    exports: dict[_Export, str] = {}
+    for path in paths:
+        tree = ast_parse_safe(path)
+        if tree is None:
+            continue
+        module = _dotted_module(path)
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                exports[_Export(module, node.name)] = label
+    return exports
+
+
+def _is_test_client_call(node: ast.Call) -> bool:
+    func = node.func
+    if not isinstance(func, ast.Attribute) or func.attr not in TEST_CLIENT_METHODS:
+        return False
+    receiver = _dotted_of(func.value)
+    return receiver is not None and receiver.endswith("client")
+
+
+def _kind_mentions(tree: ast.Module, kinds: dict[str, str]) -> list[tuple[ast.AST, str]]:
+    """Nodes where a product query kind enters a query: `{"kind": "X"}` or the schema constructor `X(...)`.
+
+    A bare string (a parametrize row, a URL segment) is not a query and is not counted."""
+    found: list[tuple[ast.AST, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "kind"
+                    and isinstance(value, ast.Constant)
+                    and value.value in kinds
+                ):
+                    found.append((node, value.value))
+        elif isinstance(node, ast.Call):
+            name = _callee_name(node)
+            if name in kinds:
+                found.append((node, name))
+    return found
+
+
+_Function = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+def _enclosing(node: ast.AST, parents: dict[int, ast.AST]) -> tuple[_Function | None, ast.ClassDef | None]:
+    """The nearest function and the nearest class around `node`; a decorator counts as inside its function."""
+    function: _Function | None = None
+    current = parents.get(id(node))
+    while current is not None:
+        if isinstance(current, _Function) and function is None:
+            function = current
+        if isinstance(current, ast.ClassDef):
+            return function, current
+        current = parents.get(id(current))
+    return function, None
+
+
+def _executes_directly(scope: ast.AST) -> bool:
+    return any(
+        isinstance(node, ast.Call) and (_callee_name(node) in DISPATCH_CALLS or _is_test_client_call(node))
+        for node in ast.walk(scope)
+    )
+
+
+class _Executions:
+    """Which functions of a module execute queries, directly or through a helper they call.
+
+    A test method that builds a query and hands it to `self._run(...)` executes it one call away;
+    following one hop by name covers that without walking a real call graph."""
+
+    def __init__(self, tree: ast.Module) -> None:
+        self._direct = {node.name: _executes_directly(node) for node in ast.walk(tree) if isinstance(node, _Function)}
+
+    def executes(self, function: _Function) -> bool:
+        if self._direct.get(function.name):
+            return True
+        called = {_callee_name(node) for node in ast.walk(function) if isinstance(node, ast.Call)}
+        return any(self._direct.get(name) for name in called if name)
+
+
+def kind_drives(tree: ast.Module, kinds: dict[str, str]) -> Counter[tuple[str, str]]:
+    """(owning product, kind) -> mentions, for every kind this module both builds and executes.
+
+    Building alone is not a drive: a test that checks a schema or a formatter constructs the query
+    and never runs it. Execution is a dispatcher call or a test-client request. A kind built inside
+    a test function counts when that function executes (itself or through a helper it calls); a
+    kind built elsewhere, a `setUp` fixture or a class attribute, counts when any function of the
+    enclosing class (or of the module, outside a class) executes."""
+    mentions = _kind_mentions(tree, kinds)
+    if not mentions:
+        return Counter()
+    parents = _parent_map(tree)
+    executions = _Executions(tree)
+    scope_executes: dict[int, bool] = {}
+    found: Counter[tuple[str, str]] = Counter()
+    for node, kind in mentions:
+        function, class_def = _enclosing(node, parents)
+        if function is not None and function.name.startswith("test"):
+            executes = executions.executes(function)
+        else:
+            scope: ast.AST = class_def if class_def is not None else tree
+            if id(scope) not in scope_executes:
+                scope_executes[id(scope)] = _executes_directly(scope)
+            executes = scope_executes[id(scope)]
+        if executes:
+            found[(kinds[kind], kind)] += 1
+    return found
+
+
+def _garage_targets(products: list[str] | None) -> set[tuple[str, str]]:
+    """(product, garage) for every computed garage that exists, in the products the scan covers.
+
+    Every product with the directory counts, not only those in the dispatch table: the import
+    channel applies to all of them, and a garage the scan never looked at must not read as clean."""
+    owners = [d.name for d in PRODUCTS_DIR.iterdir() if d.is_dir()] if products is None else products
+    return {
+        (product, garage)
+        for garage in COMPUTED_GARAGES
+        for product in owners
+        if (PRODUCTS_DIR / product / garage.rstrip("/")).exists()
+    }
+
+
+def driven_garages(product: str, path: Path | None = None) -> frozenset[str]:
+    """The computed garages of `product` that some outside test drives, per the crossings baseline.
+
+    The baseline is the evidence the lint reads: the repo-invariant test keeps it equal to a fresh
+    scan, so a garage with no line here has no outside driver in the tree."""
+    prefix = f"{product}:"
+    return frozenset(
+        line.split(" ", 1)[0].removeprefix(prefix)
+        for line in _baseline_lines(path or BASELINE_PATH)
+        if line.startswith(prefix)
+    )
+
+
+@functools.lru_cache(maxsize=4)
+def _baseline_lines(path: Path) -> tuple[str, ...]:
+    """Read once per process: `product:lint --all` asks for every product's garages in one run."""
+    return tuple(read_baseline(path))
+
+
+# ---------------------------------------------------------------------------
 # Scan
 # ---------------------------------------------------------------------------
+
+
+def _alternation(names: Iterable[str]) -> bytes:
+    return b"|".join(sorted(re.escape(n).encode() for n in names))
+
+
+@dataclass(frozen=True)
+class _KindHint:
+    """A cheap test for the two textual shapes `_kind_mentions` accepts, so a file that only names
+    a kind in a parametrize row or a URL is never parsed.
+
+    The alternation over every kind is slow at each position of a large file; the longest common
+    suffix of the kinds ("Query" today) gates it with one substring search."""
+
+    gate: bytes
+    pattern: re.Pattern[bytes]
+
+    @classmethod
+    def for_kinds(cls, kinds: Iterable[str]) -> _KindHint:
+        names = sorted(kinds)
+        reversed_common = os.path.commonprefix([name[::-1] for name in names])
+        alternation = _alternation(names)
+        pattern = rb"[\"']kind[\"']\s*:\s*[\"'](?:" + alternation + rb")[\"']|\b(?:" + alternation + rb")\("
+        return cls(reversed_common[::-1].encode(), re.compile(pattern))
+
+    def matches(self, source: bytes) -> bool:
+        return self.gate in source and self.pattern.search(source) is not None
 
 
 def _reads_class_off_module(source: bytes, aliases: dict[str, str], class_names: set[str]) -> bool:
     """Whether `alias.ClassName` appears in the text at all, for any module alias and crossing class.
 
     Most files that alias a module handing out a crossing class never read the class off it, and
-    this check spares them the full parse."""
-    names = b"|".join(sorted(re.escape(n).encode() for n in class_names))
-    locals_ = b"|".join(sorted(re.escape(a).encode() for a in aliases))
-    return re.search(rb"\b(?:" + locals_ + rb")\.(?:" + names + rb")\b", source) is not None
+    this check spares them the full parse. The alias pattern is small and per file; the class names
+    are matched as a set so the thousands of them are never compiled into a regex."""
+    pattern = rb"\b(?:" + _alternation(aliases) + rb")\.(\w+)"
+    return any(match.group(1).decode() in class_names for match in re.finditer(pattern, source))
 
 
 def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
     """Every use of every crossing class in consumer code, sorted, one entry per kind per module.
 
-    Plus every `apps.get_model` reference to any product model from outside the owning product."""
-    # Consumed twice below; a generator argument would silently empty the second pass.
+    Plus every `apps.get_model` reference to any product model from outside the owning product,
+    and, from test modules only, every drive of a computed garage: a query kind the test builds
+    and runs (see `kind_drives`), or an import of anything the garage defines, by any re-export
+    path. One pass over the tree serves all three channels."""
+    # Consumed more than once below; a generator argument would silently empty the later passes.
     products = list(products) if products is not None else None
     classes = crossing_classes(products)
     owning_dir = {c.label: PRODUCTS_DIR / c.product for c in classes}
     owning_dir |= {label: PRODUCTS_DIR / product for label, product in product_model_labels(products).items()}
+    kinds = product_query_kinds(products)
+    garages = _garage_targets(products)
+    owning_dir |= {garage_label(p, g): PRODUCTS_DIR / p for p, g in garages}
     if not owning_dir:
         return []
-    class_names = {c.class_name for c in classes}
-    candidates = _candidates()
-    origins = _origins(candidates, classes)
+
+    seeds = {_Export(c.defining_module, c.class_name): c.label for c in classes}
+    for product, garage in sorted(garages):
+        seeds |= _garage_exports(product, garage)
+    # Tests are read for garage exports only and consumer code for model classes only, so a test
+    # that imports a model class (most API tests do) is never parsed for nothing.
+    names_by_scope = {
+        True: {export.name for export, label in seeds.items() if ":" in label},
+        False: {export.name for export, label in seeds.items() if ":" not in label},
+    }
+    candidates = _candidates(_KindHint.for_kinds(kinds) if kinds else None)
+    origins = _grow_origins(candidates, seeds)
     origin_modules = {export.module for export in origins}
+    query_products = {p for p, g in garages if g == QUERY_GARAGE}
     product_by_label = _app_labels()
     # Django resolves a model name case-insensitively, so the get_model scan matches on the lowered form.
     label_by_lower = {label.lower(): label for label in owning_dir}
 
     counts: dict[tuple[str, str, str], int] = defaultdict(int)
     for candidate in candidates:
-        if _is_out_of_scope_module(candidate.path):
+        is_test = _is_test_module(candidate.path)
+        if not is_test and _is_out_of_scope_module(candidate.path):
             continue
-        names = _bound_names(candidate, origins)
+        names = {name: label for name, label in _bound_names(candidate, origins).items() if (":" in label) == is_test}
         aliases = {a.alias: a.module for a in candidate.imports.module_aliases if a.module in origin_modules}
-        if not names and not aliases and not candidate.mentions_get_model:
+        hinted = candidate.mentions_query_kind if is_test else candidate.mentions_get_model
+        if not names and not aliases and not hinted:
             continue
         try:
             source = candidate.path.read_bytes()
         except OSError:
             continue
-        if not names and not candidate.mentions_get_model and not _reads_class_off_module(source, aliases, class_names):
+        if not names and not hinted and not _reads_class_off_module(source, aliases, names_by_scope[is_test]):
             continue
         try:
-            tree = ast.parse(source)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                tree = ast.parse(source)
         except (SyntaxError, ValueError):
             continue
-        class_nodes = _class_nodes(tree, names, aliases, origins)
-        if class_nodes:
-            parents = _parent_map(tree)
-            for node, label in class_nodes:
-                if candidate.path.is_relative_to(owning_dir[label]):
-                    continue
+        parents: dict[int, ast.AST] | None = None
+        for node, label in _class_nodes(tree, names, aliases, origins):
+            if (":" in label) != is_test or candidate.path.is_relative_to(owning_dir[label]):
+                continue
+            # A test drives whatever it imports from a garage; a model class use is classified.
+            if is_test:
+                name = node.id if isinstance(node, ast.Name) else node.attr
+                counts[(label, candidate.dotted, f"drives({name})")] += 1
+            else:
+                parents = parents or _parent_map(tree)
                 counts[(label, candidate.dotted, classify_use(node, parents))] += 1
-        if candidate.mentions_get_model:
+        if is_test and candidate.mentions_query_kind:
+            for (product, kind), count in kind_drives(tree, kinds).items():
+                if product in query_products and not candidate.path.is_relative_to(PRODUCTS_DIR / product):
+                    counts[(garage_label(product, QUERY_GARAGE), candidate.dotted, f"drives({kind})")] += count
+        if not is_test and candidate.mentions_get_model:
             for label, count in _get_model_uses(tree, product_by_label, label_by_lower).items():
                 if not candidate.path.is_relative_to(owning_dir[label]):
                     counts[(label, candidate.dotted, "get_model")] += count
@@ -700,11 +1000,14 @@ BASELINE_HEADER = """\
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Two channels land here. Name-level uses of a watched-models crossing class, in any kind the
-# doctrine does not call instance-free. And the kind `get_model`: an `apps.get_model` reference
+# Three channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
-# Test modules and migrations are out of scope on both channels: a migration reaches a model
-# through the historical registry, which is the only way a migration can.
+# Test modules and migrations are out of scope on both: a migration reaches a model through the
+# historical registry, which is the only way a migration can.
+# And the kind `drives(<Kind>)`, read from tests only: a test outside the product that executes a
+# query runner in the product's backend/hogql_queries/ garage, by kind string or by import. While
+# a line stands for a garage, `hogli product:lint` keeps it in the contract-check inputs.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.
@@ -724,3 +1027,4 @@ def read_baseline(path: Path = BASELINE_PATH) -> list[str]:
 
 def write_baseline(uses: Iterable[CrossingUse], path: Path = BASELINE_PATH) -> None:
     path.write_text(render_baseline(uses))
+    _baseline_lines.cache_clear()

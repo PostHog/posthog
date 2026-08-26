@@ -2,17 +2,21 @@
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Two channels land here. Name-level uses of a watched-models crossing class, in any kind the
-# doctrine does not call instance-free. And the kind `get_model`: an `apps.get_model` reference
+# Three channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
-# Test modules and migrations are out of scope on both channels: a migration reaches a model
-# through the historical registry, which is the only way a migration can.
+# Test modules and migrations are out of scope on both: a migration reaches a model through the
+# historical registry, which is the only way a migration can.
+# And the kind `drives(<Kind>)`, read from tests only: a test outside the product that executes a
+# query runner in the product's backend/hogql_queries/ garage, by kind string or by import. While
+# a line stands for a garage, `hogli product:lint` keeps it in the contract-check inputs.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.
 #
 # Regenerate: bin/hogli product:crossings --all --write-baseline
 canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
+customer_analytics:backend/hogql_queries/ posthog.api.test.test_sharing drives(AccountsQuery) 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
 error_tracking.ErrorTrackingIssue products.demo.backend.logic.products.hedgebox.matrix get_model 1
 error_tracking.ErrorTrackingIssue products.posthog_ai.evals.error_tracking.seeders get_model 1
@@ -23,6 +27,16 @@ error_tracking.ErrorTrackingIssueFingerprintV2 posthog.models.team.util get_mode
 error_tracking.ErrorTrackingIssueFingerprintV2 products.demo.backend.logic.products.hedgebox.matrix get_model 1
 error_tracking.ErrorTrackingIssueFingerprintV2 products.posthog_ai.evals.error_tracking.seeders get_model 1
 error_tracking.ErrorTrackingStackFrame products.demo.backend.logic.products.hedgebox.matrix get_model 1
+error_tracking:backend/hogql_queries/ products.posthog_ai.eval_harness.test.test_eval_seeders drives(ErrorTrackingQueryRunner) 1
+error_tracking:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_query drives(ErrorTrackingQuery) 1
+experiments:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(ExperimentTrendsQuery) 1
+experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
+experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunner) 2
+experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunnerBaseTest) 1
+experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(compute_metric_fingerprint) 2
+experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(get_experiment_stats_method) 2
+experiments:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(ExperimentTrendsQuery) 3
+metrics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts drives(MetricsQuery) 1
 product_analytics.Insight ee.api.subscription instance-many(filter) 2
 product_analytics.Insight ee.api.subscription instance-many(manager) 2
 product_analytics.Insight ee.hogai.artifacts.handlers.visualization instance-many(filter) 1
@@ -245,3 +259,7 @@ warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.pres
 warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.presentation.views.column_annotation instance-many(unscoped) 1
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder construct 2
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder write(bulk_create) 1
+web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(FloatAwareTestCase) 1
+web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(WebAnalyticsPreAggregatedTestBase) 1
+web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(WebStatsTableQueryRunner) 2
+web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_preaggregated_sql drives(WebAnalyticsPreAggregatedTestBase) 1
