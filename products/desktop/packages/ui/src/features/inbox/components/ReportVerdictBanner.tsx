@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   ArrowSquareOutIcon,
+  ChatCircleIcon,
   ClockIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
@@ -193,7 +194,7 @@ export function ReportVerdictBanner({
     report.status === "resolved" ||
     report.status === "suppressed" ||
     report.status === "deleted";
-  const showActions = !isTerminalReport && (canCreatePr || hasExistingPr);
+  const showActions = !isTerminalReport;
 
   // One key fires the primary action (triage mode passes "f"): continue the
   // task when a PR exists, otherwise start the fix with no extra direction.
@@ -326,6 +327,19 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => {
+          fireAction("discuss");
+          setChatOpen(true);
+          onEngaged?.();
+        }}
+        className={buttonClass}
+      >
+        <ChatCircleIcon size={16} />
+        Ask about it
+      </Button>
       {canArchiveHere && !compact && (
         <Tooltip>
           <TooltipTrigger

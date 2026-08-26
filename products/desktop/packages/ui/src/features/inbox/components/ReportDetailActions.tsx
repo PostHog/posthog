@@ -1,6 +1,5 @@
 import {
   ArrowSquareOutIcon,
-  ChatCircleIcon,
   ClockIcon,
   CopyIcon,
   DotsThreeIcon,
@@ -63,7 +62,6 @@ export function ReportDetailActions({
 
   const fireAction = useReportActionTracker(report);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
-  const chatOpen = useReportChatPanelStore((s) => s.open);
 
   // Canvases started from a report file into the report's space, or #general
   // when the report has none — a task without a channel shows in no space's
@@ -196,18 +194,6 @@ export function ReportDetailActions({
     return (
       <>
         {githubButton}
-        {!chatOpen && (
-          <Button
-            type="button"
-            variant="primary"
-            size="xs"
-            className={HEADER_ACTION_CLASS}
-            onClick={() => setChatOpen(true)}
-          >
-            <ChatCircleIcon size={14} />
-            Chat with this report
-          </Button>
-        )}
         {canDefer && (
           <Tooltip>
             <TooltipTrigger
