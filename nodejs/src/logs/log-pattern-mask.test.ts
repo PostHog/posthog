@@ -150,7 +150,7 @@ describe('log-pattern-mask', () => {
                 .update(MASK_RULES.map((rule) => `${rule.name}\0${rule.pattern}\0${rule.replacement}`).join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
-            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 2, digest: 'd4700d63dd52ba57' })
+            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 2, digest: 'cf5d13fd81dbf547' })
         })
     })
 
