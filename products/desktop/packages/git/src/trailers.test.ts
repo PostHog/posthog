@@ -5,8 +5,7 @@ describe("stripClaudeAttribution", () => {
   it.each([
     {
       name: "removes the Claude co-author trailer",
-      input:
-        "fix: thing\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+      input: "fix: thing\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
       expected: "fix: thing",
     },
     {
