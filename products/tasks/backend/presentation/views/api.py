@@ -219,6 +219,14 @@ def _pi_cloud_runtime_disabled_response() -> Response:
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
+POSTHOG_AI_PREWARM_SANDBOX_FLAG = "posthog-ai-prewarm-sandbox"
+
+# One rollout per origin product — the Code app and PostHog AI reach different populations. An origin
+# missing here cannot warm, which keeps the endpoint fail-closed for products that never opted in.
+WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
+    tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
+    tasks_facade.TaskOriginProduct.POSTHOG_AI: POSTHOG_AI_PREWARM_SANDBOX_FLAG,
+}
 
 # Detail-route lookup pattern for viewsets keyed on a UUID primary key. Keeps the router from
 # matching an unknown collection path as a pk and passing a non-UUID string to the ORM.
@@ -1052,15 +1060,22 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._task_error_response(result.error)
         return Response(TaskSerializer(result.task).data)
 
-    def _warm_enabled(self) -> bool:
-        """Person + org level gate for the sandbox-warming feature. Fail-closed on any error."""
+    def _warm_enabled(self, origin_product: str) -> bool:
+        """Person + org level gate for the sandbox-warming feature. Fail-closed on any error.
+
+        One flag per origin product: the Code app and PostHog AI are disjoint populations, so a shared
+        flag would drag one to 100% while rolling out the other.
+        """
+        flag = WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT.get(origin_product)
+        if flag is None:
+            return False
         user = self.request.user
         distinct_id = getattr(user, "distinct_id", None) or str(getattr(user, "uuid", ""))
         organization_id = str(getattr(self.team, "organization_id", "") or "")
         try:
             return bool(
                 posthoganalytics.feature_enabled(
-                    TASKS_PREWARM_SANDBOX_FLAG,
+                    flag,
                     distinct_id,
                     groups={"organization": organization_id},
                     group_properties={"organization": {"id": organization_id}},
@@ -1069,7 +1084,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             )
         except Exception:
-            logger.exception("tasks-prewarm-sandbox flag check failed; treating as disabled")
+            logger.exception("%s flag check failed; treating as disabled", flag)
             return False
 
     @validated_request(
@@ -1092,7 +1107,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Warm a task sandbox",
         description=(
-            "Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, "
+            "Warm a full idling Run for a cloud task while the user composes: boot a sandbox, "
             "clone the repo, check out the branch, and start the agent, then idle awaiting the first "
             "message. On submit the normal create+run path transparently reuses and activates this Run; "
             "abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty "
@@ -1103,10 +1118,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["post"], url_path="warm", required_scopes=["task:write"])
     def warm(self, request, **kwargs):
-        if not self._warm_enabled():
+        origin_product = request.validated_data["origin_product"]
+        if not self._warm_enabled(origin_product):
             return Response(status=status.HTTP_200_OK)
 
-        # Warming is a Desktop-composer feature with no Inbox caller, so no exemption applies.
+        # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
+        # `task_exempt_from_code_access`, only the Inbox shapes are — so warming applies it flat. A
+        # caller who can't run the task must not be able to provision a sandbox for it either.
         if access_response := code_access_required_response(request, self.organization):
             return access_response
 
@@ -1136,6 +1154,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
             client_provenance=get_task_client_provenance(request),
+            origin_product=request.validated_data["origin_product"],
+            initial_permission_mode=request.validated_data.get("initial_permission_mode"),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
