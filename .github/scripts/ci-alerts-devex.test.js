@@ -154,6 +154,8 @@ function run(github, { history = [], now = minutes(0), env = {}, fetchImpl } = {
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
         DIAGNOSIS_LOOP_ID: '',
         POSTHOG_PROJECT_SECRET_API_KEY: '',
+        POSTHOG_PROJECT_ID: '2',
+        POSTHOG_API_BASE: 'https://us.posthog.com',
         ...env,
     })
     return ciAlertsDevex(
@@ -165,7 +167,7 @@ function run(github, { history = [], now = minutes(0), env = {}, fetchImpl } = {
 // Env that arms the diagnosis loop fire.
 const diagnosisEnv = { DIAGNOSIS_LOOP_ID: 'loop-uuid', POSTHOG_PROJECT_SECRET_API_KEY: 'phs_test' }
 
-// Five consecutive Backend CI failures — the streak arm, which opens an incident.
+// Five consecutive Backend CI failures: the streak arm, which opens an incident.
 const redMaster = () =>
     createGithubMock({
         'ci-backend.yml': runs('Backend CI', Array(5).fill('failure')),

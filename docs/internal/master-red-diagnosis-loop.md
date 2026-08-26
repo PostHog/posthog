@@ -16,7 +16,7 @@ A workflow that goes red later shows up in the agent's own reading of master, an
 ## Latency
 
 Time to answer is the incident open plus sandbox boot plus the agent's own turns.
-Sandbox boot measured p50 24.8s and p90 38.9s over 255,681 runs in the two weeks to 2026-08-26.
+Sandbox boot is tens of seconds: roughly 25s at p50 and 40s at p90 when last measured, in August 2026.
 
 The dominant wait is upstream of all of that: the alerter only opens an incident once a gating workflow has been red for `WORKFLOW_FAILURE_MINUTES_THRESHOLD` (60) minutes or has failed `WORKFLOW_FAILURE_STREAK_THRESHOLD` (5) runs in a row.
 Those thresholds exist so transient flakes stay quiet.
@@ -78,7 +78,7 @@ The owner must stay an active member of the org, or every fire is refused with `
 Loop-origin runs are bot-authored (`USER_AUTHORABLE_ORIGIN_PRODUCTS` covers only `user_created` and `slack`), so a fix PR is never attributed to a person who did not ask for it.
 
 Leave `create_prs` false until the thread answers have been read for a few weeks and the verdicts hold up.
-Most master-red incidents are infrastructure, where no PR is the correct output, so an agent that opens one is producing noise with a review cost attached.
+When the cause is infrastructure, such as a lost runner or a dispatch overflow, no PR is the correct output, and an agent that opens one produces noise with a review cost attached.
 When it is turned on, keep the PR a draft and never let it reach the merge queue.
 
 ## Arming and disarming
