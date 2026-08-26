@@ -856,6 +856,37 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
     return pa_table
 
 
+def relax_batch_nullability(pa_table: pa.Table) -> pa.Table:
+    """Mark every batch column that actually holds nulls as nullable in the batch's own schema.
+
+    SQL sources build the batch schema from the source database's own `is_nullable` metadata, so a
+    column the source declares NOT NULL can still arrive holding nulls: the value was dropped by a
+    projection or a join, or its conversion failed. pyarrow does not check the claim when it builds
+    the table in Python, so the batch reaches the writers with a schema that contradicts its data.
+
+    Every delta path checks it and refuses the batch: `write_deltalake` raises a DeltaError,
+    `DeltaTable.merge` panics in Rust before it can plan the merge, and deltalite's
+    `RecordBatch::try_new` rejects it, which sends the write to the MERGE that then panics. All
+    three report "declared as non-nullable but contains null values". Correcting the claim before
+    the write also lets deltalite relax a stored column that a past batch already poisoned.
+
+    The cast rewrites field metadata only, so the column buffers are shared and not copied.
+    """
+    relaxed: list[pa.Field] = []
+    changed = False
+    for index, field in enumerate(pa_table.schema):
+        if not field.nullable and pa_table.column(index).null_count > 0:
+            relaxed.append(field.with_nullable(True))
+            changed = True
+        else:
+            relaxed.append(field)
+
+    if not changed:
+        return pa_table
+
+    return pa_table.cast(pa.schema(relaxed).with_metadata(pa_table.schema.metadata or {}))
+
+
 def raise_on_nullability_drift(pa_table: pa.Table, delta_schema: deltalake.Schema) -> None:
     """Stop the sync when a batch has nulls in a column the table declares non-nullable.
 

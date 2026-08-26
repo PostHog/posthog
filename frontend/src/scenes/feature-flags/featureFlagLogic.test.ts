@@ -11,11 +11,9 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -2163,23 +2161,20 @@ describe('featureFlagLogic', () => {
 
             expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
             const dialogProps = dialogOpenSpy.mock.calls[0][0]
-            expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
-            expect(dialogProps.primaryButton?.children).toBe('Disable flag')
+            expect(dialogProps.title).toBe('Disable this flag?')
+            expect(dialogProps.primaryButton?.children).toBe('Disable only')
             dialogOpenSpy.mockRestore()
         })
 
         // onDisableAndArchive is optional at every hop between this listener and
         // checkFeatureFlagConfirmation, so dropping it anywhere still compiles and would silently
-        // put test-variant users back on the control dialog.
-        it('offers disable and archive to the test variant, archiving via the disable confirmation', async () => {
+        // fall back to the plain status confirmation without the archive option.
+        it('offers disable and archive, archiving via the disable confirmation', async () => {
             const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
             jest.spyOn(api, 'update').mockResolvedValueOnce({
                 ...MOCK_FEATURE_FLAG,
                 archived: true,
                 active: false,
-            })
-            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
-                [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
             })
             logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
 
