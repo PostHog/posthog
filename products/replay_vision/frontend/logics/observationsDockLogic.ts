@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import type { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { metricCount } from 'lib/operationalMetrics'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -333,7 +334,13 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     // is in hand before naming it, and leave a way to re-read when it stays hidden.
                     actions.summarizeFailure()
                     actions.setDockOpen(true)
-                    const tryAgain = { label: 'Try again', action: () => actions.loadObservations() }
+                    // Both retries re-read the same rows, but they follow different failures: a row the
+                    // reload could not see, and a reload that did not complete. Keep them apart.
+                    const tryAgain = (dataAttr: string): ToastButton => ({
+                        label: 'Try again',
+                        action: () => actions.loadObservations(),
+                        dataAttr,
+                    })
                     try {
                         const reloaded = await visionObservationsList(String(teamId), {
                             session_id: props.sessionId,
@@ -347,13 +354,15 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                         } else {
                             lemonToast.warning(
                                 'This recording was already summarized, but the result is not available here.',
-                                { button: tryAgain }
+                                { button: tryAgain('vision-summary-hidden-retry') }
                             )
                         }
                     } catch {
                         metricCount('replay_vision_frontend_observations_load_failures')
                         actions.loadObservationsFailure()
-                        lemonToast.warning("Couldn't load this recording's summary.", { button: tryAgain })
+                        lemonToast.warning("Couldn't load this recording's summary.", {
+                            button: tryAgain('vision-summary-reload-retry'),
+                        })
                     }
                     return
                 }

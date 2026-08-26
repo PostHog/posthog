@@ -4,6 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -479,11 +480,22 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    const configs = await signalsScoutConfigList(String(teamId))
-                    // The 60s poll refetches all configs every cycle. Reconcile against the previous
-                    // list so an unchanged fleet keeps the same references — otherwise the whole
-                    // roster re-renders on every poll even when nothing changed.
-                    return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
+                    try {
+                        const configs = await signalsScoutConfigList(String(teamId))
+                        // The 60s poll refetches all configs every cycle. Reconcile against the previous
+                        // list so an unchanged fleet keeps the same references — otherwise the whole
+                        // roster re-renders on every poll even when nothing changed.
+                        return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
+                    } catch (error) {
+                        // A stale project id left in the URL by a project switch, or a member without
+                        // access, are expected — degrade to the same null the no-team guard returns
+                        // instead of reporting them. Anything else, notably a 5xx, still throws so a
+                        // real backend failure keeps reaching error tracking.
+                        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
