@@ -604,7 +604,7 @@ export function AgentsRoster(): JSX.Element {
         isHealthChecksToggling,
         isCiSignalsToggling,
         toolStatusBySource,
-        enablingTool,
+        enablingTools,
     } = useValues(signalSourcesLogic)
     const {
         toggleConversations,
@@ -851,6 +851,7 @@ export function AgentsRoster(): JSX.Element {
                                 agent.steerable && state.sourceConfig && !state.sourceConfig.id.startsWith('new_')
                                     ? state.sourceConfig
                                     : null
+                            const enablement = toolStatusBySource[agent.source]?.enablement
                             return (
                                 <AgentRow
                                     key={agent.source}
@@ -858,9 +859,7 @@ export function AgentsRoster(): JSX.Element {
                                     state={state}
                                     tool={toolStatusBySource[agent.source]}
                                     expanded={expandedSource === agent.source}
-                                    enablingTool={
-                                        !!enablingTool && enablingTool === toolStatusBySource[agent.source]?.enablement
-                                    }
+                                    enablingTool={!!enablement && enablingTools.has(enablement)}
                                     onExpand={() =>
                                         setExpandedSource((current) => (current === agent.source ? null : agent.source))
                                     }
