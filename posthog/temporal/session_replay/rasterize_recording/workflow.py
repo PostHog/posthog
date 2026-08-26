@@ -101,7 +101,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
                 _record_outcome(RASTERIZATION_FAILED_COUNTER, inputs)
                 if wf.patched(_RECORD_FAILURE_PATCH):
                     await self._record_failure(inputs, exc)
-            await self._maybe_bump_stuck_counter()
+            await self._maybe_bump_stuck_counter(exc)
             raise
         await self._maybe_clear_stuck_counter()
         _record_outcome(RASTERIZATION_COMPLETED_COUNTER, inputs)
@@ -138,7 +138,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         except Exception as record_exc:
             wf.logger.warning("rasterize.record_failure_failed", extra={"error": str(record_exc)})
 
-    async def _maybe_bump_stuck_counter(self) -> None:
+    async def _maybe_bump_stuck_counter(self, run_exc: BaseException) -> None:
         info = wf.info()
         max_attempts = self._max_attempts()
         # Bump only on the final scheduled attempt; recoverable failures would otherwise over-count.
@@ -154,10 +154,13 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         team_id = info.typed_search_attributes.get(POSTHOG_TEAM_ID_KEY)
         if session_id is None or team_id is None:
             return
+        # A timeout-class final failure means the worker died mid-render (OOM, wedge): the recording
+        # already took a pod down, so it quarantines at once instead of after a second envelope.
+        killed_worker = _resolve_error_code(run_exc) == "ACTIVITY_TIMEOUT"
         try:
             await wf.execute_activity(
                 bump_stuck_counter_activity,
-                BumpStuckCounterInput(team_id=team_id, session_id=session_id),
+                BumpStuckCounterInput(team_id=team_id, session_id=session_id, killed_worker=killed_worker),
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=common.RetryPolicy(maximum_attempts=2),
             )

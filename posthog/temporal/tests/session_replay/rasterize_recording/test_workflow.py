@@ -104,6 +104,55 @@ async def test_terminal_failure_bumps_stuck_counter():
     assert [(call.exported_asset_id, call.error_code) for call in record_calls] == [(42, "RuntimeError")]
 
 
+@pytest.mark.asyncio
+async def test_killed_worker_final_failure_quarantines_immediately(monkeypatch):
+    # A timeout-class final failure must bump with killed_worker=True, or a worker-killing
+    # recording waits for a second whole retry envelope before the quarantine engages.
+    # The classifier is patched because the test server cannot mint a real heartbeat timeout
+    # without a live worker hanging for the full 30s timeout; the classifier itself is covered
+    # by test_resolve_error_code_maps_temporal_timeouts.
+    monkeypatch.setattr(
+        "posthog.temporal.session_replay.rasterize_recording.workflow._resolve_error_code",
+        lambda _exc: "ACTIVITY_TIMEOUT",
+    )
+    bump_calls: list[BumpStuckCounterInput] = []
+    record_calls: list[RecordRasterizationFailureInput] = []
+
+    @activity.defn(name="build_rasterization_input")
+    async def build_failing(_exported_asset_id: int) -> BuildRasterizationResult:
+        raise RuntimeError("synthetic worker-killing failure")
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_unused(_inputs: FinalizeRasterizationInput) -> None:
+        pass  # not reached on failure
+
+    @activity.defn(name="bump_stuck_counter_activity")
+    async def bump_mocked(inputs: BumpStuckCounterInput) -> None:
+        bump_calls.append(inputs)
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[RasterizeRecordingWorkflow],
+            activities=[build_failing, finalize_unused, bump_mocked, _record_failure_into(record_calls)],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(Exception):
+                await env.client.execute_workflow(
+                    RasterizeRecordingWorkflow.run,
+                    RasterizeRecordingInputs(exported_asset_id=42),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    search_attributes=_search_attributes(team_id=7, session_id="sess-huge"),
+                )
+
+    assert bump_calls == [BumpStuckCounterInput(team_id=7, session_id="sess-huge", killed_worker=True)]
+
+
 def _scheduled_activities(history: WorkflowHistory) -> list[str]:
     return [
         event.activity_task_scheduled_event_attributes.activity_type.name
