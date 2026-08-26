@@ -1,7 +1,6 @@
 import { ChatCircleIcon } from "@phosphor-icons/react";
 import {
   Button,
-  Dot,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -49,10 +48,10 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
       >
         <ChatCircleIcon size={14} />
         {hasConversation && (
-          <Dot
+          <span
             aria-hidden
-            variant="info"
-            className="-top-0.5 -right-0.5 absolute"
+            data-slot="dot"
+            className="-top-1 -right-1 absolute size-2 rounded-full bg-primary ring-2 ring-chrome"
           />
         )}
       </TooltipTrigger>

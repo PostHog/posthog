@@ -45,7 +45,11 @@ describe("ReportChatToggle", () => {
     render(<ReportChatToggle report={report} />);
 
     const openButton = screen.getByLabelText("Open existing chat");
-    expect(openButton.querySelector('[data-slot="dot"]')).not.toBeNull();
+    expect(openButton.querySelector('[data-slot="dot"]')).toHaveClass(
+      "absolute",
+      "-top-1",
+      "-right-1",
+    );
     expect(openButton).not.toHaveTextContent("Chat");
     expect(openButton).toHaveAttribute("aria-pressed", "false");
 
