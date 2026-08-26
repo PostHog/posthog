@@ -12119,7 +12119,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-flakiness-retrieve": {
-        "description": "Snapshots in a repo whose rendering cannot be trusted: those that recently rendered differently from their baseline on the default branch, and those under an active quarantine. This is the triage view, and it is far smaller than the baselines universe, so start here when asked why a suite is unreliable, which snapshots to quarantine, or which quarantines to lift. `totals` covers the whole population even when the entry list is capped, so read counts from there rather than by counting entries. Takes no filter parameters: filter the returned entries yourself.",
+        "description": "Snapshots in a repo whose rendering cannot be trusted: those carrying a live tolerated variant against their current baseline, and those under an active quarantine. Recency changes an entry's state rather than excluding it, so a snapshot that has been quiet for weeks is still listed. This is the triage view, and it is far smaller than the baselines universe, so start here when asked why a suite is unreliable, which snapshots to quarantine, or which quarantines to lift. Every `totals` field except `listed` covers the whole population even when the entry list is capped; `listed` counts the entries actually returned, so it stops at the cap. Takes no filter parameters: filter the returned entries yourself.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Visual review flakiness overview",
