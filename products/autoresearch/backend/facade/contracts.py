@@ -41,6 +41,14 @@ class AutoresearchConflict(ValueError):
     """
 
 
+class ArtifactNotFound(LookupError):
+    """No artifact at that path in the run's bundle."""
+
+
+class InvalidArtifactPath(ValueError):
+    """The artifact path escapes the bundle prefix or is otherwise unusable."""
+
+
 # ── Model-backed read contracts ────────────────────────────────────────────
 
 
@@ -294,3 +302,50 @@ class TrainingRunHistoryEntry:
 @dataclass(frozen=True)
 class TrainingRunHistory:
     runs: list[TrainingRunHistoryEntry]
+
+
+# ── Artifact bundle ────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ArtifactList:
+    paths: list[str]
+    count: int
+
+
+@dataclass(frozen=True)
+class StoredArtifact:
+    path: str
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ArtifactContent:
+    path: str
+    size_bytes: int
+    sha256: str
+    content_base64: str
+
+
+@dataclass(frozen=True)
+class ArtifactDeleteResult:
+    path: str
+    deleted: bool
+
+
+# ── Feature materialization ────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class MaterializedFeatures:
+    """Sandbox paths and shape of the parquet the agent reads with ``pd.read_parquet``."""
+
+    train_features_path: str
+    train_labels_path: str
+    holdout_features_path: str
+    holdout_labels_path: str
+    n_train: int
+    n_holdout: int
+    n_features: int
+    feature_cols: list[str]

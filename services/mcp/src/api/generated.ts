@@ -10453,6 +10453,51 @@ export namespace Schemas {
     }
 
     /**
+     * A single bundle file's content, base64-encoded.
+     */
+    export interface ArtifactContent {
+      /** Relative path of the file within the bundle. */
+      path: string;
+      /** File size in bytes. */
+      size_bytes: number;
+      /** SHA-256 hex digest of the file content. */
+      sha256: string;
+      /** File contents, base64-encoded. */
+      content_base64: string;
+    }
+
+    /**
+     * Whether a delete removed an existing file.
+     */
+    export interface ArtifactDeleteResult {
+      /** Relative path targeted for deletion. */
+      path: string;
+      /** True if a file existed and was removed; False if nothing was there. */
+      deleted: boolean;
+    }
+
+    /**
+     * The relative paths present in a training run's bundle.
+     */
+    export interface ArtifactList {
+      /** Relative paths of every file stored under this training run's bundle prefix. */
+      paths: string[];
+      /** Number of files in the bundle. */
+      count: number;
+    }
+
+    /**
+     * Input for fetching or deleting one bundle file by path.
+     */
+    export interface ArtifactPath {
+      /**
+         * Relative path of the file within the bundle, e.g. 'train.py'.
+         * @maxLength 500
+         */
+      path: string;
+    }
+
+    /**
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
      * * `document` - document
@@ -10473,6 +10518,19 @@ export namespace Schemas {
       File: 'file',
       GithubPr: 'github_pr',
     } as const;
+
+    /**
+     * Input for uploading one file of a training run's artifact bundle.
+     */
+    export interface ArtifactUpload {
+      /**
+         * Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.
+         * @maxLength 500
+         */
+      path: string;
+      /** File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded. */
+      content_base64: string;
+    }
 
     export interface AsknicelyFeedbackSignalExtra {
       score: string | null;
@@ -50049,6 +50107,36 @@ export namespace Schemas {
       bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
     }
 
+    /**
+     * Input for materializing the labeled training feature matrix into the run's sandbox.
+     */
+    export interface MaterializeFeaturesRequest {
+      /** Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox. */
+      features_sql: string;
+    }
+
+    /**
+     * The local sandbox paths and shape of the materialized training matrix.
+     */
+    export interface MaterializeFeaturesResponse {
+      /** Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns). */
+      train_features_path: string;
+      /** Sandbox path to the training labels parquet (distinct_id + __label). */
+      train_labels_path: string;
+      /** Sandbox path to the holdout feature matrix parquet (same columns as train_features). */
+      holdout_features_path: string;
+      /** Sandbox path to the holdout labels parquet (distinct_id + __label). */
+      holdout_labels_path: string;
+      /** Number of rows in the training split. */
+      n_train: number;
+      /** Number of rows in the holdout split. */
+      n_holdout: number;
+      /** Number of numeric feature columns produced by features_sql. */
+      n_features: number;
+      /** The numeric feature column names (excludes distinct_id, __label, __fold). */
+      feature_cols: string[];
+    }
+
     export interface PropertyDefinition {
       readonly id: string;
       readonly name: string;
@@ -80809,6 +80897,18 @@ export namespace Schemas {
       readonly app_not_installed: boolean;
       /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
       readonly installations: readonly StamphogDiscoveredInstallation[];
+    }
+
+    /**
+     * Result of an upload: where the file landed and its content hash.
+     */
+    export interface StoredArtifact {
+      /** Relative path the file was stored at. */
+      path: string;
+      /** Decoded file size in bytes. */
+      size_bytes: number;
+      /** SHA-256 hex digest of the decoded file content. */
+      sha256: string;
     }
 
     /**

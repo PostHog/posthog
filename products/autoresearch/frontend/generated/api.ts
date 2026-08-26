@@ -9,6 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ArtifactContentApi,
+    ArtifactDeleteResultApi,
+    ArtifactListApi,
+    ArtifactPathApi,
+    ArtifactUploadApi,
     AutoresearchIterationApi,
     AutoresearchListParams,
     AutoresearchModelApi,
@@ -22,6 +27,8 @@ import type {
     AutoresearchTrainingRunsHistoryRetrieveParams,
     AutoresearchTrainingRunsListParams,
     CompleteTrainingRunApi,
+    MaterializeFeaturesRequestApi,
+    MaterializeFeaturesResponseApi,
     OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
@@ -32,6 +39,7 @@ import type {
     RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
+    StoredArtifactApi,
     TrainingRunHistoryApi,
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
@@ -298,6 +306,109 @@ export const autoresearchTrainingRunsRetrieve = async (
     })
 }
 
+export const getAutoresearchTrainingRunsArtifactsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/`
+}
+
+/**
+ * List the files an agent has uploaded for this training run's artifact bundle (train.py, predict.py, features.sql, and any eda/ notebooks).
+ * @summary List artifact bundle files
+ */
+export const autoresearchTrainingRunsArtifactsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ArtifactListApi> => {
+    return apiMutator<ArtifactListApi>(getAutoresearchTrainingRunsArtifactsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchTrainingRunsArtifactsDeleteCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/delete/`
+}
+
+/**
+ * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op. The bundle is frozen once the run completes or fails.
+ * @summary Delete an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsDeleteCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactPathApi: ArtifactPathApi,
+    options?: RequestInit
+): Promise<ArtifactDeleteResultApi> => {
+    return apiMutator<ArtifactDeleteResultApi>(
+        getAutoresearchTrainingRunsArtifactsDeleteCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(artifactPathApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsArtifactsGetCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/get/`
+}
+
+/**
+ * Fetch one file from this training run's artifact bundle, base64-encoded.
+ * @summary Get an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsGetCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactPathApi: ArtifactPathApi,
+    options?: RequestInit
+): Promise<ArtifactContentApi> => {
+    return apiMutator<ArtifactContentApi>(getAutoresearchTrainingRunsArtifactsGetCreateUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(artifactPathApi),
+    })
+}
+
+export const getAutoresearchTrainingRunsArtifactsUploadCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/artifacts/upload/`
+}
+
+/**
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql. The bundle is frozen once the run completes or fails.
+ * @summary Upload an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsUploadCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    artifactUploadApi: ArtifactUploadApi,
+    options?: RequestInit
+): Promise<StoredArtifactApi> => {
+    return apiMutator<StoredArtifactApi>(
+        getAutoresearchTrainingRunsArtifactsUploadCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(artifactUploadApi),
+        }
+    )
+}
+
 export const getAutoresearchTrainingRunsCompleteCreateUrl = (projectId: string, pipelineId: string, id: string) => {
     return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/complete/`
 }
@@ -346,6 +457,36 @@ export const autoresearchTrainingRunsIterationsCreate = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(recordIterationApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsMaterializeFeaturesCreateUrl = (
+    projectId: string,
+    pipelineId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/materialize-features/`
+}
+
+/**
+ * Run features_sql server-side against the labeled training population and write the resulting train/holdout feature and label parquet files directly into this run's sandbox. Returns the local sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python.
+ * @summary Materialize training features to the sandbox
+ */
+export const autoresearchTrainingRunsMaterializeFeaturesCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    materializeFeaturesRequestApi: MaterializeFeaturesRequestApi,
+    options?: RequestInit
+): Promise<MaterializeFeaturesResponseApi> => {
+    return apiMutator<MaterializeFeaturesResponseApi>(
+        getAutoresearchTrainingRunsMaterializeFeaturesCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(materializeFeaturesRequestApi),
         }
     )
 }

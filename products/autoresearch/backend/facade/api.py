@@ -10,6 +10,7 @@ filters on it. Business rules live in the modules behind this facade, not in the
 """
 
 import json
+import base64
 import hashlib
 from typing import Any
 from uuid import UUID
@@ -19,10 +20,13 @@ from django.utils import timezone as django_timezone
 from posthog.models.team import Team
 
 from products.actions.backend.models.action import Action
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.sandbox import get_sandbox_class
 
 from ..dataset import templates as templates_module
 from ..dataset.labeling import POPULATION_KINDS as _POPULATION_KINDS
 from ..dataset.validation import validate_pipeline_definition as _validate_pipeline_definition
+from ..inference.sandbox import SandboxInferenceError, features_parquet, labels_parquet, materialize_training_data
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -31,12 +35,19 @@ from ..models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from ..training import artifacts as artifact_store
 from ..training.promotion import PromotionError, complete_training_run
-from ..training.recipe_validation import RecipeValidationError, validate_recipe
+from ..training.recipe_validation import RecipeValidationError, validate_feature_sql, validate_recipe
 from .contracts import (
+    ArtifactContent,
+    ArtifactDeleteResult,
+    ArtifactList,
+    ArtifactNotFound,
     AutoresearchConflict,
+    InvalidArtifactPath as InvalidArtifactPath,
     Iteration,
     IterationTrailEntry,
+    MaterializedFeatures,
     Model,
     Pipeline,
     PipelineNotFound,
@@ -44,6 +55,7 @@ from .contracts import (
     PipelineWrite,
     ResolvedTemplate,
     Run,
+    StoredArtifact,
     TemplateInfo,
     TrainingRun,
     TrainingRunHistory,
@@ -51,6 +63,10 @@ from .contracts import (
     TrainingRunNotFound,
     ValidationWarning,
 )
+
+# Where materialized training parquet lands inside the agent's sandbox. The agent reads
+# these paths with pd.read_parquet — the rows never transit the model's context.
+_AGENT_FEATURE_DIR = "/tmp/workspace/autoresearch/data"
 
 _HISTORY_LIMIT_MAX = 20
 
@@ -414,6 +430,14 @@ def validate_definition(
     )
 
 
+def validate_features_sql(features_sql: str) -> None:
+    """Raise ``AutoresearchConflict`` if the agent's feature SQL is not a safe read-only SELECT."""
+    try:
+        validate_feature_sql(features_sql)
+    except RecipeValidationError as exc:
+        raise AutoresearchConflict(str(exc)) from exc
+
+
 # ── Models ─────────────────────────────────────────────────────────────────
 
 
@@ -611,6 +635,156 @@ def training_run_history(team_id: int, pipeline_id: str | UUID, *, limit: int = 
             for run in runs
         ]
     )
+
+
+# ── Feature materialization ────────────────────────────────────────────────
+
+
+def materialize_features(team_id: int, training_run_id: str | UUID, *, features_sql: str) -> MaterializedFeatures:
+    """Run ``features_sql`` server-side and write the parquet into this run's sandbox.
+
+    The rows never pass through the agent's context and there is no row cap. The destination
+    paths are fixed by the framework — the agent supplies the query, never where it lands.
+    """
+    training_run = _training_run_row(team_id, training_run_id)
+    if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+        raise AutoresearchConflict("Can only materialize features for a running training run.")
+    validate_features_sql(features_sql)
+
+    sandbox_id = _resolve_run_sandbox_id(training_run)
+    team = Team.objects.get(pk=team_id)
+    try:
+        data = materialize_training_data(team=team, pipeline=training_run.pipeline, feature_sql=features_sql)
+    except (SandboxInferenceError, RecipeValidationError) as exc:
+        raise AutoresearchConflict(f"Feature materialization failed: {exc}") from exc
+    if not data.train_rows:
+        raise AutoresearchConflict("features_sql produced no training rows.")
+    if not data.feature_cols:
+        raise AutoresearchConflict("features_sql produced no numeric feature columns.")
+
+    paths = _write_feature_parquets(sandbox_id, data)
+    return MaterializedFeatures(
+        train_features_path=paths["train_features_path"],
+        train_labels_path=paths["train_labels_path"],
+        holdout_features_path=paths["holdout_features_path"],
+        holdout_labels_path=paths["holdout_labels_path"],
+        n_train=len(data.train_rows),
+        n_holdout=len(data.holdout_rows),
+        n_features=len(data.feature_cols),
+        feature_cols=list(data.feature_cols),
+    )
+
+
+def _resolve_run_sandbox_id(training_run: AutoresearchTrainingRun) -> str:
+    """Resolve the live sandbox for this run from its TaskRun state.
+
+    The sandbox id comes from the team-scoped run record, never from the client, and is
+    verified to belong to this training run.
+    """
+    if not training_run.task_run_id:
+        raise AutoresearchConflict("This training run has no sandbox (e.g. a stub run). Cannot materialize features.")
+    task_run = tasks_facade.get_task_run(training_run.task_run_id)
+    if task_run is None:
+        raise AutoresearchConflict("Sandbox task run not found for this training run.")
+    state = task_run.state or {}
+    if str(state.get("autoresearch_training_run_id")) != str(training_run.id):
+        raise AutoresearchConflict("Sandbox does not belong to this training run.")
+    sandbox_id = state.get("sandbox_id")
+    if not sandbox_id:
+        raise AutoresearchConflict("Sandbox is not ready yet — try again once the agent has started.")
+    return str(sandbox_id)
+
+
+def _write_feature_parquets(sandbox_id: str, data: Any) -> dict[str, str]:
+    """Serialize the train/holdout matrices to parquet and write them into the agent's sandbox."""
+    try:
+        sandbox = get_sandbox_class().get_by_id(sandbox_id)
+    except Exception as exc:
+        raise AutoresearchConflict(f"Could not connect to the run's sandbox: {exc}") from exc
+    files = {
+        "train_features_path": (
+            f"{_AGENT_FEATURE_DIR}/train_features.parquet",
+            features_parquet(data.train_rows, data.feature_cols),
+        ),
+        "train_labels_path": (f"{_AGENT_FEATURE_DIR}/train_labels.parquet", labels_parquet(data.train_rows)),
+        "holdout_features_path": (
+            f"{_AGENT_FEATURE_DIR}/holdout_features.parquet",
+            features_parquet(data.holdout_rows, data.feature_cols),
+        ),
+        "holdout_labels_path": (
+            f"{_AGENT_FEATURE_DIR}/holdout_labels.parquet",
+            labels_parquet(data.holdout_rows),
+        ),
+    }
+    paths: dict[str, str] = {}
+    for key, (path, content) in files.items():
+        result = sandbox.write_file(path, content)
+        if result.exit_code != 0:
+            raise AutoresearchConflict(f"Failed to write {path} into the sandbox: {result.stderr[:300]}")
+        paths[key] = path
+    return paths
+
+
+# ── Artifact bundle ────────────────────────────────────────────────────────
+
+
+def _bundle_prefix(team_id: int, training_run: AutoresearchTrainingRun) -> str:
+    return artifact_store.bundle_prefix(
+        team_id=team_id,
+        pipeline_id=str(training_run.pipeline_id),
+        training_run_id=str(training_run.id),
+    )
+
+
+def list_artifacts(team_id: int, training_run_id: str | UUID) -> ArtifactList:
+    training_run = _training_run_row(team_id, training_run_id)
+    paths = artifact_store.list_artifacts(_bundle_prefix(team_id, training_run))
+    return ArtifactList(paths=paths, count=len(paths))
+
+
+def write_artifact(team_id: int, training_run_id: str | UUID, *, path: str, content_base64: str) -> StoredArtifact:
+    """Store one file of the run's bundle. The bundle freezes once the run leaves ``running``."""
+    training_run = _training_run_row(team_id, training_run_id)
+    if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+        raise AutoresearchConflict("Can only upload artifacts on a running training run.")
+    try:
+        content = base64.b64decode(content_base64, validate=True)
+    except Exception as exc:
+        raise AutoresearchConflict("content_base64 is not valid base64.") from exc
+    try:
+        stored = artifact_store.write_artifact(_bundle_prefix(team_id, training_run), path, content)
+    except artifact_store.InvalidArtifactPath as exc:
+        raise InvalidArtifactPath(str(exc)) from exc
+    return StoredArtifact(path=stored.path, size_bytes=stored.size_bytes, sha256=stored.sha256)
+
+
+def read_artifact(team_id: int, training_run_id: str | UUID, *, path: str) -> ArtifactContent:
+    training_run = _training_run_row(team_id, training_run_id)
+    prefix = _bundle_prefix(team_id, training_run)
+    try:
+        content = artifact_store.read_artifact(prefix, path)
+    except artifact_store.InvalidArtifactPath as exc:
+        raise InvalidArtifactPath(str(exc)) from exc
+    except artifact_store.BundleNotFound as exc:
+        raise ArtifactNotFound(str(exc)) from exc
+    return ArtifactContent(
+        path=artifact_store.normalize_artifact_path(path),
+        size_bytes=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+        content_base64=base64.b64encode(content).decode("ascii"),
+    )
+
+
+def delete_artifact(team_id: int, training_run_id: str | UUID, *, path: str) -> ArtifactDeleteResult:
+    training_run = _training_run_row(team_id, training_run_id)
+    if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+        raise AutoresearchConflict("Can only delete artifacts on a running training run.")
+    try:
+        deleted = artifact_store.delete_artifact(_bundle_prefix(team_id, training_run), path)
+        normalized = artifact_store.normalize_artifact_path(path)
+    except artifact_store.InvalidArtifactPath as exc:
+        raise InvalidArtifactPath(str(exc)) from exc
+    return ArtifactDeleteResult(path=normalized, deleted=deleted)
 
 
 # ── Recipe validation surface for the presentation layer ───────────────────
