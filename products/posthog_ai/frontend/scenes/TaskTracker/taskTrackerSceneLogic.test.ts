@@ -108,6 +108,39 @@ describe('taskTrackerSceneLogic', () => {
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
 
+    // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
+    // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
+    // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
+    // the backend never even attempts a match unless `branch` is present as a key.
+    it('skips the run create when the backend activated a warm run', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'new-task', latest_run: { id: 'warm-run-1' } }]
+                },
+                '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
+                    runBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'new-task', latest_run: 'run-1' }]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({
+            branch: null,
+            model: 'claude-sonnet-5',
+            initial_permission_mode: 'plan',
+            pending_user_message: 'do the thing',
+        })
+        expect(runBody).toBeNull()
+        expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
+    })
+
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
