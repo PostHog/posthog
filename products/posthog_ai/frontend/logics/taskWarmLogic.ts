@@ -52,10 +52,18 @@ export function warmLeaseKey(request: WarmTaskRequestApi): string {
  * is proxied to the agent server to abort the turn in flight, and a warm Run has no turn. It answers
  * `{cancelled: true}` and leaves the Run idling until the inactivity timer reclaims it, so the pool
  * slot stays held and the miss is booked as `idle_timeout` rather than `released`.
+ *
+ * `only_if_awaiting_first_message` makes the server refuse to stop a Run that has since been activated.
+ * A lease is not exclusive: the backend hands the same warm Run to every composer holding the same
+ * selection, so a submit in one composer can activate the Run another composer is still holding. Without
+ * the fence, that composer releasing — on unmount, an emptied draft, or a selection change — would stop
+ * the run the user just started.
  */
 async function cancelWarmRun(projectId: string, lease: WarmLease): Promise<void> {
     try {
-        await tasksRunsCancelCreate(projectId, lease.taskId, lease.runId)
+        await tasksRunsCancelCreate(projectId, lease.taskId, lease.runId, {
+            only_if_awaiting_first_message: true,
+        })
     } catch (error) {
         posthog.captureException(error)
     }

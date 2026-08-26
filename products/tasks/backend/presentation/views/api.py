@@ -1507,7 +1507,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=TaskRunCancelRequestSerializer,
         responses={
             200: OpenApiResponse(
-                response=TaskRunDetailSerializer, description="Run already finished; returned unchanged"
+                response=TaskRunDetailSerializer,
+                description=(
+                    "Run already finished, or `only_if_awaiting_first_message` was set and the run has "
+                    "since received its first message; returned unchanged"
+                ),
             ),
             202: OpenApiResponse(response=TaskRunDetailSerializer, description="Cancellation accepted"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Run is not a cloud run"),
@@ -1534,10 +1538,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source="api",
             requested_by_user_id=request.user.id,
             requested_by_distinct_id=request.user.distinct_id,
+            only_if_awaiting_first_message=request.validated_data.get("only_if_awaiting_first_message", False),
         )
         if outcome == "not_found" or run is None:
             raise NotFound()
-        if outcome == "already_terminal":
+        if outcome in ("already_terminal", "already_activated"):
             return Response(TaskRunDetailSerializer(run).data)
         if outcome == "not_cloud":
             return Response(

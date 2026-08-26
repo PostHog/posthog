@@ -2931,12 +2931,20 @@ export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object
  */
 export const tasksRunsCancelCreateBodyReasonMax = 500
 
+export const tasksRunsCancelCreateBodyOnlyIfAwaitingFirstMessageDefault = false
+
 export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
     reason: zod
         .string()
         .max(tasksRunsCancelCreateBodyReasonMax)
         .nullish()
         .describe('Optional reason for the cancellation, recorded on the run and shown to run watchers.'),
+    only_if_awaiting_first_message: zod
+        .boolean()
+        .default(tasksRunsCancelCreateBodyOnlyIfAwaitingFirstMessageDefault)
+        .describe(
+            'Cancel only while the run is still a warm sandbox awaiting its first message. A run that has since received one is left alone and returned unchanged. Set this when handing a warm sandbox back, so a release that races a submit cannot stop the run that submit started.'
+        ),
 })
 
 /**
