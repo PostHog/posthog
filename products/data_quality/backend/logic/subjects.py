@@ -10,9 +10,15 @@ from uuid import UUID
 
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
+from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_OBJECT_TABLE, WAREHOUSE_OBJECT_VIEW
 
 from ..facade.enums import SubjectType
 from .contracts import SubjectRef
+
+_WAREHOUSE_OBJECT_SUBJECT_TYPES = {
+    WAREHOUSE_OBJECT_TABLE: SubjectType.TABLE,
+    WAREHOUSE_OBJECT_VIEW: SubjectType.VIEW,
+}
 
 
 def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectRef:
@@ -21,6 +27,26 @@ def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -
     if kind is SubjectType.TABLE:
         return _resolve_table(team_id, subject_uuid)
     return _resolve_view(team_id, subject_uuid)
+
+
+def resolve_subject_by_name(team_id: int, name: str) -> SubjectRef | None:
+    """The subject a query reaches under this name, or None when the name is no warehouse object.
+
+    The inverse of :func:`resolve_subject`, for pinning what a run read while it still names the
+    right object. None is not a failure: only warehouse tables and saved queries carry object-level
+    access control, so a name that reaches neither has no identity worth recording.
+    """
+    resolved = warehouse_facade.resolve_object_by_name(team_id, name)
+    if resolved is None:
+        return None
+    kind = _WAREHOUSE_OBJECT_SUBJECT_TYPES[resolved.kind]
+    return SubjectRef(
+        subject_type=kind,
+        subject_uuid=str(resolved.id),
+        name=name,
+        queryable_name=name,
+        exists=True,
+    )
 
 
 def _resolve_table(team_id: int, subject_uuid: str | UUID) -> SubjectRef:
