@@ -819,8 +819,8 @@ const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 // average.
 //
 // The floor on the work budget covers a pathological overhead at or above the
-// target: it degrades to the 50% efficiency rule (work budget = overhead)
-// instead of dividing by zero or a negative.
+// target: the budget stops at half the overhead instead of going to zero or
+// negative, so the shard count stays bounded.
 //
 // minShards: full runs keep the DJANGO_MIN_SHARDS floor, but a narrowed
 // (test-selection) run may legitimately fit one shard.

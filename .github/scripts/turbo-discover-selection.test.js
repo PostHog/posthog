@@ -127,7 +127,7 @@ test('a selection with no temporal file does not start the temporal leg', () => 
 
 test('applies the full-matrix budget to the selected seconds of each segment', () => {
     // Work budget per shard is (target wall - segment overhead), same as the full
-    // matrix: Core ceil(5000 / (900 - 295)) = 9, Temporal ceil(900 / (900 - 182)) = 2.
+    // matrix: Core ceil(5000 / (720 - 295)) = 12, Temporal ceil(900 / (720 - 182)) = 2.
     // POE floors at 1 despite nothing selected.
     const selection = { durations: { selected_seconds_by_segment: { core: 5000, poe: 0, temporal: 900 } } }
     assert.deepEqual(selectedShards(selection), { core: 12, poe: 1, temporal: 2 })
