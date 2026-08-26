@@ -1611,20 +1611,24 @@ mod tests {
     fn test_effective_level_decay() {
         let base = Instant::now();
         let cases = vec![
-            // (estimated_count, elapsed_secs, local_pending, leak_rate, expected)
-            (100.0, 0.0, 0, 10.0, 100.0),  // no elapsed: full count
-            (100.0, 10.0, 0, 10.0, 0.0),   // full drain
-            (100.0, 5.0, 0, 10.0, 50.0),   // partial drain
-            (100.0, 0.0, 50, 10.0, 150.0), // local_pending adds
-            (100.0, 5.0, 30, 10.0, 80.0),  // drain + pending: (100-50)+30
-            (10.0, 20.0, 0, 10.0, 0.0),    // over-drain floors at 0
-            (10.0, 20.0, 5, 10.0, 5.0),    // over-drain + pending
+            // (estimated_count, elapsed_secs, local_pending, leak_rate, synced, expected)
+            (100.0, 0.0, 0, 10.0, true, 100.0), // no elapsed: full count
+            (100.0, 10.0, 0, 10.0, true, 0.0),  // full drain
+            (100.0, 5.0, 0, 10.0, true, 50.0),  // partial drain
+            (100.0, 0.0, 50, 10.0, true, 150.0), // local_pending adds
+            (100.0, 5.0, 30, 10.0, true, 80.0), // drain + pending: (100-50)+30
+            (10.0, 20.0, 0, 10.0, true, 0.0),   // over-drain floors at 0
+            (10.0, 20.0, 5, 10.0, true, 5.0),   // over-drain + pending
+            // Never synced: no fleet estimate exists yet, so nothing decays and
+            // the level is the local count alone, whatever the other fields say.
+            (100.0, 10.0, 7, 10.0, false, 7.0),
+            (0.0, 0.0, 0, 10.0, false, 0.0),
         ];
 
-        for (est, elapsed, pending, rate, expected) in cases {
+        for (est, elapsed, pending, rate, synced, expected) in cases {
             let entry = CacheEntry {
                 estimated_count: est,
-                synced_at: Some(base),
+                synced_at: synced.then_some(base),
                 local_pending: pending,
                 pressure: 0.0,
             };
@@ -1632,7 +1636,7 @@ mod tests {
             let result = effective_level(&entry, rate, now);
             assert!(
                 (result - expected).abs() < 0.01,
-                "effective_level(est={est}, elapsed={elapsed}s, pending={pending}, rate={rate}) = {result}, expected {expected}"
+                "effective_level(est={est}, elapsed={elapsed}s, pending={pending}, rate={rate}, synced={synced}) = {result}, expected {expected}"
             );
         }
     }
