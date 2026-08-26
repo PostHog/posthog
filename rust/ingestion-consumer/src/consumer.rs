@@ -585,7 +585,7 @@ impl IngestionConsumer {
                 // A busy worker is backpressure, not a fault: re-route the work
                 // but keep it off the worker's health, so passive health tracks
                 // real faults.
-                let is_fault = !send_err.error.is_retriable();
+                let is_fault = !send_err.error.is_backpressure();
                 dispatcher.defer_failed(&batch_id, send_err.messages);
                 dispatcher.eager_flush_failed(&batch_id);
                 dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys, true, true);
@@ -773,7 +773,7 @@ impl IngestionConsumer {
                         // Backpressure (a busy worker) is transient, not a fault:
                         // re-route the work but do not count it against the
                         // worker's health, so passive health tracks real faults.
-                        let is_fault = !send_err.error.is_retriable();
+                        let is_fault = !send_err.error.is_backpressure();
                         dispatcher.defer_failed(&bid, send_err.messages);
                         dispatcher.on_sub_batch_resolved(
                             &worker,

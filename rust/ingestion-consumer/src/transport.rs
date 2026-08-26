@@ -647,6 +647,16 @@ impl TransportError {
             TransportError::LaneClosed => false,
         }
     }
+
+    /// Backpressure the worker signalled deliberately (503 or a busy lane).
+    /// Distinct from `is_retriable`: connection errors and 5xx are retriable
+    /// too, but they are worker faults and must count against passive health.
+    pub fn is_backpressure(&self) -> bool {
+        matches!(
+            self,
+            TransportError::WorkerBusy(_) | TransportError::LaneBusy(_)
+        )
+    }
 }
 
 /// Backoff before a retry. A busy worker (503) gets a longer base plus jitter so
@@ -695,6 +705,16 @@ mod tests {
     #[test]
     fn test_worker_busy_is_retriable() {
         assert!(TransportError::WorkerBusy("at capacity".into()).is_retriable());
+    }
+
+    #[test]
+    fn test_only_busy_errors_are_backpressure() {
+        assert!(TransportError::WorkerBusy("at capacity".into()).is_backpressure());
+        assert!(TransportError::LaneBusy("busy").is_backpressure());
+        assert!(!TransportError::HttpStatus(500, "boom".into()).is_backpressure());
+        assert!(!TransportError::WorkerError("boom".into()).is_backpressure());
+        assert!(!TransportError::LaneFailed("nack").is_backpressure());
+        assert!(!TransportError::RetriesExhausted.is_backpressure());
     }
 
     #[test]
