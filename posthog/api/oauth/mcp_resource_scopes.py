@@ -88,8 +88,12 @@ def mcp_advertised_scopes() -> list[str]:
 
 
 def mcp_advertised_resource_scopes() -> list[str]:
-    """`mcp_advertised_scopes()` without the identity scopes, which only ride an
-    OAuth access token and mean nothing on a Personal API Key."""
+    """The MCP-advertised scopes a Personal API Key can hold.
+
+    Drops `openid`, `profile` and `email`, which an OAuth access token carries to
+    identify the user. A Personal API Key has no such flow, and the scope checker
+    ignores anything without a `:`.
+    """
     return [scope for scope in mcp_advertised_scopes() if ":" in scope]
 
 
