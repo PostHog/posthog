@@ -19,17 +19,43 @@ from products.actions.backend.models.action import Action
 from ..dataset import templates as templates_module
 from ..dataset.labeling import POPULATION_KINDS as _POPULATION_KINDS
 from ..dataset.validation import validate_pipeline_definition as _validate_pipeline_definition
-from ..models import AutoresearchModel, AutoresearchPipeline
+from ..models import (
+    AutoresearchIteration,
+    AutoresearchModel,
+    AutoresearchPipeline,
+    AutoresearchRun,
+    AutoresearchTrainingRun,
+)
 from .contracts import (
     AutoresearchConflict,
+    IterationTrailEntry,
+    Model,
     Pipeline,
     PipelineNotFound,
     PipelineValidation,
     PipelineWrite,
     ResolvedTemplate,
+    Run,
     TemplateInfo,
+    TrainingRun,
+    TrainingRunNotFound,
     ValidationWarning,
 )
+
+
+def _as_uuid(value: str | UUID | None) -> UUID | None:
+    """A pk from a URL as a UUID, or None when it cannot be one.
+
+    An id that is not a UUID matches nothing, so callers filter it down to an empty result
+    rather than letting the malformed value reach the database.
+    """
+    if value is None:
+        return None
+    try:
+        return value if isinstance(value, UUID) else UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
 
 # ── Mappers ────────────────────────────────────────────────────────────────
 
@@ -75,6 +101,77 @@ def _pipeline_with_champion(row: AutoresearchPipeline) -> Pipeline:
     )
 
 
+def _model_to_contract(row: AutoresearchModel) -> Model:
+    return Model(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        role=row.role,
+        recipe_hash=row.recipe_hash,
+        model_recipe=row.model_recipe or {},
+        model_explanation=row.model_explanation or {},
+        holdout_score=row.holdout_score,
+        realized_score=row.realized_score,
+        calibration_error=row.calibration_error,
+        metrics=row.metrics or {},
+        source_training_run=row.source_training_run_id,
+        agent_description=row.agent_description,
+        trained_on_start=row.trained_on_start,
+        trained_on_end=row.trained_on_end,
+        is_preliminary=row.is_preliminary,
+        promoted_at=row.promoted_at,
+        archived_at=row.archived_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
+    return IterationTrailEntry(
+        iteration_number=row.iteration_number,
+        status=row.status,
+        holdout_score=row.holdout_score,
+        train_score=row.train_score,
+        agent_description=row.agent_description,
+        model_spec=row.model_spec or {},
+    )
+
+
+def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
+    return TrainingRun(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        task_id=row.task_id,
+        task_run_id=row.task_run_id,
+        task_url=f"/tasks/{row.task_id}" if row.task_id else None,
+        status=row.status,
+        iteration_budget=row.iteration_budget,
+        iteration_count=row.iteration_count,
+        best_holdout_score=row.best_holdout_score,
+        summary=row.summary or None,
+        iterations=[_iteration_trail_entry(i) for i in row.iterations.all()],
+        error=row.error,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+    )
+
+
+def _run_to_contract(row: AutoresearchRun) -> Run:
+    return Run(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        model=row.model_id,
+        run_type=row.run_type,
+        status=row.status,
+        rows_scored=row.rows_scored,
+        metrics=row.metrics or {},
+        error=row.error,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+    )
+
+
 # ── Row lookups (internal) ─────────────────────────────────────────────────
 
 
@@ -93,6 +190,18 @@ def _pipeline_row(team_id: int, pipeline_id: str | UUID, *, live_only: bool = Fa
         return qs.get(pk=str(pipeline_id))
     except (AutoresearchPipeline.DoesNotExist, ValueError, TypeError):
         raise PipelineNotFound("Pipeline not found.")
+
+
+def _training_run_row(team_id: int, training_run_id: str | UUID) -> AutoresearchTrainingRun:
+    try:
+        return (
+            AutoresearchTrainingRun.objects.for_team(team_id)
+            .select_related("pipeline")
+            .prefetch_related("iterations")
+            .get(pk=str(training_run_id))
+        )
+    except (AutoresearchTrainingRun.DoesNotExist, ValueError, TypeError):
+        raise TrainingRunNotFound("Training run not found.")
 
 
 # ── Pipelines ──────────────────────────────────────────────────────────────
@@ -274,6 +383,63 @@ def validate_definition(
     )
 
 
+# ── Models ─────────────────────────────────────────────────────────────────
+
+
+def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Model], int]:
+    qs = AutoresearchModel.objects.for_team(team_id).select_related("pipeline").order_by("-created_at")
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    count = qs.count()
+    return [_model_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def get_model(team_id: int, model_id: str | UUID) -> Model | None:
+    row = AutoresearchModel.objects.for_team(team_id).filter(pk=str(model_id)).first()
+    return _model_to_contract(row) if row else None
+
+
+# ── Operational runs ───────────────────────────────────────────────────────
+
+
+def list_runs(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Run], int]:
+    qs = AutoresearchRun.objects.for_team(team_id).select_related("pipeline", "model").order_by("-created_at")
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    count = qs.count()
+    return [_run_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def get_run(team_id: int, run_id: str | UUID) -> Run | None:
+    row = AutoresearchRun.objects.for_team(team_id).filter(pk=str(run_id)).first()
+    return _run_to_contract(row) if row else None
+
+
+# ── Training runs ──────────────────────────────────────────────────────────
+
+
+def list_training_runs(
+    team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
+) -> tuple[list[TrainingRun], int]:
+    qs = (
+        AutoresearchTrainingRun.objects.for_team(team_id)
+        .select_related("pipeline")
+        .prefetch_related("iterations")
+        .order_by("-created_at")
+    )
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    count = qs.count()
+    return [_training_run_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def get_training_run(team_id: int, training_run_id: str | UUID) -> TrainingRun | None:
+    try:
+        return _training_run_to_contract(_training_run_row(team_id, training_run_id))
+    except TrainingRunNotFound:
+        return None
+
+
 # ── Recipe validation surface for the presentation layer ───────────────────
 
 # The semantic population kinds the labeler can compile. Presentation validates a submitted
@@ -288,3 +454,8 @@ POPULATION_KINDS = _POPULATION_KINDS
 # model-bound serializers produced — including the one shared with another product, which
 # `ENUM_NAME_OVERRIDES` pins by value set.
 PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
+MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
+TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
+ITERATION_STATUS_CHOICES = AutoresearchIteration.Status.choices
+RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
+RUN_STATUS_CHOICES = AutoresearchRun.Status.choices

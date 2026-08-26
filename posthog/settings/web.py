@@ -685,6 +685,12 @@ SPECTACULAR_SETTINGS = {
         "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "AutoresearchPipelineStatusEnum": "products.autoresearch.backend.models.AutoresearchPipeline.Status",
+        "AutoresearchIterationStatusEnum": "products.autoresearch.backend.models.AutoresearchIteration.Status",
+        "AutoresearchModelRoleEnum": "products.autoresearch.backend.models.AutoresearchModel.Role",
+        # Autoresearch runs share this pending/running/completed/failed set. Pinning it to the
+        # name it already had keeps the shared component off a hash name and leaves the
+        # conversations types that reference it unchanged.
+        "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # Pin the subscriptions target enum to its existing name so adding customer_analytics'
