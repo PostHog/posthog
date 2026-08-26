@@ -60,6 +60,38 @@ export const dayOptions = [
 /** Run or backfill workflow status (same union on both types). */
 export type BatchExportStatus = BatchExportRun['status']
 
+/** Statuses a person can filter runs by, collapsing the Temporal states they don't distinguish. */
+export type BatchExportRunStatusGroup = 'in_progress' | 'completed' | 'failed' | 'billing' | 'cancelled'
+
+// Typed as a full Record so a new status fails the build until someone puts it in a group.
+const STATUS_TO_GROUP: Record<BatchExportStatus, BatchExportRunStatusGroup> = {
+    Starting: 'in_progress',
+    Running: 'in_progress',
+    ContinuedAsNew: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    FailedRetryable: 'failed',
+    FailedBilling: 'billing',
+    Cancelled: 'cancelled',
+    Terminated: 'cancelled',
+    TimedOut: 'cancelled',
+}
+
+export const BATCH_EXPORT_RUN_STATUS_FILTER_OPTIONS: { value: BatchExportRunStatusGroup; label: string }[] = [
+    { value: 'in_progress', label: 'In progress' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'billing', label: 'Over billing limit' },
+    { value: 'cancelled', label: 'Cancelled or timed out' },
+]
+
+export function batchExportRunStatusesForGroups(groups: BatchExportRunStatusGroup[]): BatchExportStatus[] {
+    const selected = new Set(groups)
+    return (Object.keys(STATUS_TO_GROUP) as BatchExportStatus[]).filter((status) =>
+        selected.has(STATUS_TO_GROUP[status])
+    )
+}
+
 export function statusToLemonTagType(status: BatchExportStatus, options?: { recordsFailed?: number }): LemonTagType {
     if (status === 'Completed' && options?.recordsFailed != null && options.recordsFailed > 0) {
         return 'warning'
@@ -77,6 +109,7 @@ export function statusToLemonTagType(status: BatchExportStatus, options?: { reco
             return 'warning'
         case 'Failed':
         case 'FailedRetryable':
+        case 'FailedBilling':
             return 'danger'
         default:
             return 'default'
@@ -97,6 +130,7 @@ export function statusToProgressStrokeColor(status: BatchExportStatus): string {
             return 'var(--warning)'
         case 'Failed':
         case 'FailedRetryable':
+        case 'FailedBilling':
             return 'var(--danger)'
         default:
             return 'var(--color-border-primary)'
