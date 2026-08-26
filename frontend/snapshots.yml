@@ -1664,6 +1664,10 @@ snapshots:
         hash: v1.k794b7964.c7010a17087a5d938010755a647e04d0950b272490f72652e39952e9f43c8ee7.V8sVtA7GO9RV46TXBX4MJPAjicCqlNF-vrsNyGXHeV8
     components-playerinspector-itemevent--web-vitals-event--light:
         hash: v1.k794b7964.f6eecbe85fedd1c71f63c301b70f28e9a2d2291e70bc7587bb2e3cb4de64db4c.s1Qr84WeSsLBSWJ5OQl15QkQ9qIMCjr1L70pxgqHzzI
+    components-playerinspector-itemevent--web-vitals-event-with-unusable-values--dark:
+        hash: v1.k794b7964.a0a2c7917255169a045b428aedfabaaf585549938336fa3ef6b3ea43ba75f890.jEMfcnfMMDUB1vNcE2GLiXrIBVnUjT81wg24-XNLJkM
+    components-playerinspector-itemevent--web-vitals-event-with-unusable-values--light:
+        hash: v1.k794b7964.977488d5c87c3666827d8e7247a7ad4ef0db4d9c18537a5b1fccf46827ff9012.pxOweNjiGiwl8ADJsqty3CIvXkMKose2gO3FiRpaz7A
     components-playerinspector-itemexperimentvariant--default--dark:
         hash: v1.k794b7964.16972cbc7f6e7bf8b96068c9870985988263ded5d21d1417f67313d47cd46534.fRpxzpthpTvisi_q793m1PcRBjqfU_QQ8E_rFmg8djs
     components-playerinspector-itemexperimentvariant--default--light:
@@ -2384,6 +2388,22 @@ snapshots:
         hash: v1.k794b7964.01e1b40b4a0ab0c328958e94bc0e3b05150e30c3ec182818ef1d9b8475a0c91a.nt0Ok0V7e9_x1rGNVajbWZ-iZ5LMriFrYCI0m_M740o
     filters-action-filter--trends-group-default-name--light:
         hash: v1.k794b7964.0ae44b0f25e02c062e985b302f4563d1736ca6b1b01f2ecd15bd1cd563d1cc78.-5AoeartLEtxntcPowA-5fjRJ04EoSdMhI1_lfYbj_M
+    filters-behavioral-property-filter-row--action--dark:
+        hash: v1.k794b7964.64be13cd28775723861e4f207be903912d920a6c3fc07b0642fcf5b649ece71b.-g0cCMVhx80qaSirvtkcIWNXCCuDqQQFBw3s2S75JUk
+    filters-behavioral-property-filter-row--action--light:
+        hash: v1.k794b7964.3879bd7d908474b51cd37254eedab66fe23ab852a9736568d12cc985dcd55c34.8y4ho1W8dxU0Spoy39HHvf2O590lt5AkOvv6M8kfCtI
+    filters-behavioral-property-filter-row--default--dark:
+        hash: v1.k794b7964.6c098c9d07b3fa2c86fe538ce7945c965a098a002ec6b0e56481f167e16b4ba4.6d-IwX4pVq2svuxGFXT1cCAVjKQ4Zv_cJ0cau6rXiXs
+    filters-behavioral-property-filter-row--default--light:
+        hash: v1.k794b7964.a487c6f8a0f019c2a8e8e390a384e50fb5ad829d3e3bc5bf1e44f65cf89779c2.pwncW6m1jZuhyuW-_EQFilUiLjOSA86CW3Z1cOokGGk
+    filters-behavioral-property-filter-row--read-only--dark:
+        hash: v1.k794b7964.14387613fce7c7a7c5ba8bd849a0171880ad4fa50e82fc3df4a9ccd0659ed0cd.MbDp30kp-57hPNOb6VqaZutKy4arkZbmSf2rzcPd_sc
+    filters-behavioral-property-filter-row--read-only--light:
+        hash: v1.k794b7964.6540a4f27b02c725a923fd645f0e38d665fda7cc8f9e99d040492ac8ec2d7980.ou5SmbjfPDp7D24CMMp4aXfvdvEVju3ylLjXfp1Wq0A
+    filters-behavioral-property-filter-row--read-only-with-count--dark:
+        hash: v1.k794b7964.8b0d6d3f9b613d643790d6afeb7d9fbd6fd37fc92c2a909ae1a6171b53693221.c982c9VZHohS7BM8Ypec9GmEhe7m-T1RUAmbf0FCAJo
+    filters-behavioral-property-filter-row--read-only-with-count--light:
+        hash: v1.k794b7964.b791a9c5ce7c345a68c8528ad5ab4097671704b92e7f749c114fdc8eb7f10f54.VufLlD1J093-NdMoyYxIz4FPQwkCCweZfKnA3I2eBV4
     filters-breakdown-tag--breakdown-tag--dark:
         hash: v1.k794b7964.e6cbdc3a3393ecc4000ad415cc5ab5d834207538c4114398f2f55c2823e797cb.wQxm2Qz-ltdbkXWgwNfBwgF5-uZnsGK4y3eNDQTol1c
     filters-breakdown-tag--breakdown-tag--light:
