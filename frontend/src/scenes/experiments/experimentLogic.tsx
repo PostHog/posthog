@@ -702,6 +702,21 @@ export interface experimentLogicActions {
         isPrimary: boolean
         metricUuid: string
     } // eventUsageLogic
+    reportExperimentMetricsReordered: (
+        experiment: Experiment,
+        source: 'drag' | 'modal' | 'menu',
+        metricCount: number,
+        isSecondary: boolean,
+        movedCount: number,
+        removedCount: number
+    ) => {
+        experiment: Experiment
+        isSecondary: boolean
+        metricCount: number
+        movedCount: number
+        removedCount: number
+        source: 'drag' | 'modal' | 'menu'
+    } // eventUsageLogic
     reportExperimentMetricsRefreshed: (
         experiment: Experiment,
         forceRefresh: boolean,
@@ -1510,6 +1525,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentAutoRefreshToggled',
                 'reportExperimentMetricBreakdownAdded',
                 'reportExperimentMetricBreakdownRemoved',
+                'reportExperimentMetricsReordered',
             ],
             teamLogic,
             ['addProductIntent'],

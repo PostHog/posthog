@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconList } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
@@ -17,6 +18,7 @@ import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scene
 import { Experiment } from '~/types'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
+import { MetricsReorderModal } from './MetricsReorderModal'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
 
@@ -47,6 +49,8 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
     } = useValues(experimentMetricsLogic({ experiment }))
     const { featureFlags } = useValues(featureFlagLogic)
     const recalculationFlow = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+
+    const [reorderModalOpen, setReorderModalOpen] = useState(false)
 
     const type = isSecondary ? 'secondary' : 'primary'
 
@@ -95,6 +99,14 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                                 <AddMetricButton
                                     metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
                                 />
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    icon={<IconList />}
+                                    tooltip="Reorder, move or remove metrics"
+                                    aria-label="Reorder metrics"
+                                    onClick={() => setReorderModalOpen(true)}
+                                />
                             </div>
                         )}
                     </div>
@@ -102,6 +114,11 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
             </div>
             {metrics.length > 0 ? (
                 <>
+                    <MetricsReorderModal
+                        isOpen={reorderModalOpen}
+                        onClose={() => setReorderModalOpen(false)}
+                        isSecondary={!!isSecondary}
+                    />
                     <MetricsTable
                         metrics={metrics}
                         results={results}

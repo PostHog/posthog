@@ -1159,6 +1159,21 @@ export interface eventUsageLogicActions {
         isPrimary: boolean
         metricUuid: string
     }
+    reportExperimentMetricsReordered: (
+        experiment: Experiment,
+        source: 'drag' | 'modal' | 'menu',
+        metricCount: number,
+        isSecondary: boolean,
+        movedCount: number,
+        removedCount: number
+    ) => {
+        experiment: Experiment
+        isSecondary: boolean
+        metricCount: number
+        movedCount: number
+        removedCount: number
+        source: 'drag' | 'modal' | 'menu'
+    }
     reportExperimentMetricFinished: (
         experimentId: ExperimentIdType,
         metric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery,
@@ -2591,6 +2606,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             index,
             isPrimary,
         }),
+        reportExperimentMetricsReordered: (
+            experiment: Experiment,
+            source: 'drag' | 'modal' | 'menu',
+            metricCount: number,
+            isSecondary: boolean,
+            movedCount: number,
+            removedCount: number
+        ) => ({
+            experiment,
+            source,
+            metricCount,
+            isSecondary,
+            movedCount,
+            removedCount,
+        }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
             experiment,
             newStartDate,
@@ -3785,6 +3815,23 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 breakdown_property: breakdown.property,
                 breakdown_index: index,
                 is_primary_metric: isPrimary,
+            })
+        },
+        reportExperimentMetricsReordered: ({
+            experiment,
+            source,
+            metricCount,
+            isSecondary,
+            movedCount,
+            removedCount,
+        }) => {
+            posthog.capture('experiment metrics reordered', {
+                ...getEventPropertiesForExperiment(experiment),
+                source,
+                metric_count: metricCount,
+                is_secondary_section: isSecondary,
+                moved_count: movedCount,
+                removed_count: removedCount,
             })
         },
         reportExperimentStartDateChange: ({ experiment, newStartDate }) => {

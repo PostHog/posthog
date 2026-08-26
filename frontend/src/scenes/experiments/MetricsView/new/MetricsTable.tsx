@@ -73,6 +73,7 @@ export function MetricsTable({
         removeMetric,
         removeSharedMetricFromExperiment,
         reorderMetrics,
+        reportExperimentMetricsReordered,
     } = useActions(experimentLogic)
 
     const sensors = useSensors(
@@ -97,6 +98,7 @@ export function MetricsTable({
         }
 
         reorderMetrics(isSecondary, arrayMove(orderedUuids, from, to))
+        reportExperimentMetricsReordered(experiment, 'drag', metrics.length, isSecondary, 0, 0)
     }
 
     const nameByUuid = new Map(metrics.map((metric) => [metric.uuid, metricName(metric)]))
