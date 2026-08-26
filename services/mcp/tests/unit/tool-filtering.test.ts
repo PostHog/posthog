@@ -880,7 +880,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
-                'product-data-catalog',
                 'loops',
                 'review-hog',
                 'warehouse-person-properties',
@@ -895,7 +894,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'context-layer',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(33)
     })
 
     it('every loops tool is gated on the loops flag', () => {

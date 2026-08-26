@@ -204,12 +204,16 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   tree scrolls rows under a stationary cursor, so prefetching straight from
   `pointerenter` fired a request for every row the list passed and made each
   keypress take a second.
-- **Keyboard contract of the list.** The search box holds focus and drives
-  everything: ↑/↓ walk every visible row, → opens the highlighted space (and
+- **Keyboard contract of the list.** `SidebarSearchHeader` gives Spaces and
+  Activity the same title and search treatment. Its shared focus request means
+  ⌘⇧S opens the sidebar and focuses whichever search is visible. Both lists
+  are permanently open inline Autocompletes: the search box keeps focus while
+  ↑/↓ walk every visible row and Enter opens it. In Spaces, the input also
+  drives the tree: → opens the highlighted space (and
   again steps into it), ← closes the space you're in and puts the highlight back
   on it. Both arrows defer to the text caret first, so they still edit the
-  query. ⌘⇧S from anywhere opens the sidebar, slides back to the list and takes
-  the keyboard; it is advertised on the search box (until a query replaces it
+  query. From elsewhere, ⌘⇧S slides Spaces back to the list and takes the
+  keyboard; it is advertised on the search box (until a query replaces it
   with the clear button) and on the space's back row, which is what it does from
   inside a space. Autocomplete has no API for setting the highlight, so moving it
   means synthesizing the arrow keys it listens for — and moving *before*
@@ -219,6 +223,18 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   instead. Off the layout it keeps its original two-item menu.
   Archived moves out of the sidebar and into the account menu
   (`ProjectSwitcher`), beside Settings.
+- **Activity mixes task updates with a bounded Self-driving preview.** Both
+  `ActivityFeedList` and `ActivityView` merge their task activity with up to
+  three reports matching Activity's persisted Inbox filters, then sort and group
+  the combined rows by activity time. The Activity actions menu has an Include
+  section: Mentions are on by default and Self-driving is off. Enabling
+  Self-driving reveals its P1/For you defaults plus scope, source, PR state,
+  sort, and priority filters without changing the Inbox page's filters. Inbox
+  reports do not have the task activity read model, so the unreads-only view
+  hides them. If more than three match, the overflow row copies Activity's Inbox
+  filters into `/inbox/reports` before opening it.
+  Picking a preview report stays on `/activity` and renders that already-loaded
+  report beside the feed while its detail query refreshes in the background.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
   separately from the scoped channel (`currentChannelStore`): "back to channels"
   browses the list while the route, the main pane and the scoped channel stay

@@ -32,6 +32,9 @@ jobs:
     multinode-migration-smoke:
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         # The common path primes Postgres from the master schema artifact. The
         # fallback applies every Django migration from scratch and grows with the
         # migration count, so the timeout is sized for the fallback. Raise it if
