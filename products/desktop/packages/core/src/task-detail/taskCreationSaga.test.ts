@@ -391,6 +391,8 @@ describe("TaskCreationSaga", () => {
       runtime: "pi",
       model: "claude-sonnet",
       reasoningLevel: "medium",
+      customInstructions: "Keep the patch small.",
+      additionalDirectories: ["/tmp/shared"],
       allowNoRepo: true,
     });
 
@@ -399,8 +401,13 @@ describe("TaskCreationSaga", () => {
       expect.objectContaining({ runtime: "pi" }),
     );
     expect(piRunner.create).toHaveBeenCalledWith({
-      taskId: "task-123",
-      cwd: "/tmp/scratch/task-123",
+      taskContext: {
+        taskId: "task-123",
+        cwd: "/tmp/scratch/task-123",
+        customInstructions: "Keep the patch small.",
+        additionalDirectories: ["/tmp/shared"],
+        channelMode: true,
+      },
       projectTrustPath: "/tmp/scratch/task-123",
       prompt: "Draft a launch email",
       model: "claude-sonnet",
