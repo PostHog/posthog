@@ -1,11 +1,12 @@
 import { LifebuoyIcon } from "@phosphor-icons/react";
 import { Badge } from "@posthog/quill";
+import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
 import { SidebarCountBadge } from "./SidebarCountBadge";
 
 interface SupportItemProps {
   isActive: boolean;
-  onClick: () => void;
+  onClick: MouseEventHandler<Element>;
   openCount?: number;
   depth?: number;
 }

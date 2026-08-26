@@ -3,7 +3,7 @@ import type {
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
-import type { AgentRuntime } from "@posthog/shared";
+import type { AgentRuntime, WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   forwardRef,

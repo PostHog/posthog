@@ -222,6 +222,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Support",
     analyticsId: "support",
     Icon: LifebuoyIcon,
+    href: "/support",
     onPick: navigateToSupport,
     count: (counts) => counts.support,
     enabled: (flags) => flags.support,
