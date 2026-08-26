@@ -294,7 +294,9 @@ export const MetricsViewer = (): JSX.Element => {
                             data-attr="metrics-viewer-live-toggle"
                             disabledReason={metricsViewerDisabledReason}
                         />
-                        {errorOverlaysEnabled && (
+                        {/* Hidden (not disabled) without Error Tracking view access, so the
+                            toggle never references a product the user cannot see. */}
+                        {errorOverlaysEnabled && !errorTrackingDisabledReason && (
                             <LemonSwitch
                                 label="Error spikes"
                                 checked={showErrorSpikes}
@@ -302,7 +304,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 tooltip="Mark Error Tracking issue spikes on the chart (team-wide, PoC)"
                                 bordered
                                 data-attr="metrics-viewer-error-spikes-toggle"
-                                disabledReason={metricsViewerDisabledReason ?? errorTrackingDisabledReason}
+                                disabledReason={metricsViewerDisabledReason}
                             />
                         )}
                     </div>

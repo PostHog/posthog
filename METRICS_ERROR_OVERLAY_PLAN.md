@@ -236,8 +236,11 @@ dependency on an experimental flag, unlike logs anomalies. Team-wide only
 4. `products/metrics/backend/presentation/api.py`: add an `error_spikes` GET
    action on `MetricsViewSet`, mirroring the existing `attribute_values`
    action's shape (query params `dateFrom`/`dateTo`, response
-   `{"results": [...]}`). Same `metrics:read` scope as every other action;
-   no new permission surface.
+   `{"results": [...]}`). Keeps the `metrics:read` scope, but — because it
+   returns Error Tracking data — it also asserts the caller has Error Tracking
+   **view** access (`user_access_control.check_access_level_for_resource(
+   "error_tracking", "viewer")`), 403 otherwise. Metrics access alone must not
+   leak issue ids/names to a user who cannot see Error Tracking.
 5. `hogli build:openapi` to regenerate the generated frontend types
    (`products/metrics/frontend/generated/api*.ts`).
 
@@ -253,6 +256,12 @@ dependency on an experimental flag, unlike logs anomalies. Team-wide only
    the existing `exemplarMarkers` array passed to `MetricsSeriesChart` (no
    change needed to that component); add a `LemonSwitch` toggle; clicking an
    error-spike dot navigates to `urls.errorTrackingIssue(issueId, { timestamp })`.
+   The toggle and the markers are gated on Error Tracking **view** access
+   (`getAccessControlDisabledReason(ErrorTracking, Viewer)`): without it the
+   toggle is **hidden** (not just disabled) and no markers render, so nothing
+   referencing Error Tracking appears for a user who lacks access to it. This
+   mirrors how the pre-existing trace exemplars gate on Tracing view access,
+   and matches the backend 403.
 
 ### Explicitly out of scope for the PoC
 
@@ -262,7 +271,9 @@ dependency on an experimental flag, unlike logs anomalies. Team-wide only
 - MCP tool flag flips (`metrics-samples-create`, `error-tracking-spike-events-list`)
   and the `characterize-metric-anomaly.md` prompt extension — tracked above,
   not needed to prove the UI overlay works.
-- Access-control polish beyond reusing the existing `metrics:read` scope.
+- Access-control polish beyond the `metrics:read` scope plus the Error Tracking
+  view-access gate described above (that gate is in scope; anything finer, like
+  object-level issue permissions, is not).
 
 ### Verification plan — executed
 

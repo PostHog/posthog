@@ -114,11 +114,13 @@ class TestMetricsAccessControl(APIBaseTest):
             self.organization, "metrics-no-access@posthog.com", "testtest"
         )
 
-    def _create_access_control(self, user: User, access_level: AccessControlLevelResource) -> None:
+    def _create_access_control(
+        self, user: User, access_level: AccessControlLevelResource, resource: str = "metrics"
+    ) -> None:
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
-            resource="metrics",
+            resource=resource,
             resource_id=None,
             access_level=access_level,
             organization_member=membership,
@@ -170,3 +172,26 @@ class TestMetricsAccessControl(APIBaseTest):
             response = self.client.post(url, payload, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("error_tracking_viewer", "viewer", status.HTTP_200_OK),
+            ("error_tracking_none", "none", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_error_spikes_requires_error_tracking_access(
+        self, _name: str, error_tracking_level: AccessControlLevelResource, expected_status: int
+    ) -> None:
+        # The overlay endpoint serves Error Tracking data, so metrics access alone must not
+        # reach it — the caller also needs Error Tracking view access.
+        self._create_access_control(self.viewer_user, "viewer", resource="metrics")
+        self._create_access_control(self.viewer_user, error_tracking_level, resource="error_tracking")
+        self.client.force_login(self.viewer_user)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/metrics/error_spikes/",
+                {"dateFrom": (timezone.now() - timedelta(hours=1)).isoformat()},
+            )
+
+        assert response.status_code == expected_status

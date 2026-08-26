@@ -996,6 +996,12 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ):
             raise PermissionDenied("The metrics error-spike overlay is not enabled for this user.")
 
+        # This action serves Error Tracking data (issue ids and names), so the caller
+        # needs view access to that resource too — metrics access alone must not leak
+        # it. The frontend hides the overlay on the same condition.
+        if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
+            raise PermissionDenied("You do not have access to error tracking.")
+
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricErrorSpikesParamsSerializer(data=request.query_params)
