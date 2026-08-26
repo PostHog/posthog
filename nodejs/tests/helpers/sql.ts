@@ -294,12 +294,12 @@ export async function createUserTeamAndOrganization(
     await insertRow(db, 'posthog_team', teamData)
 }
 
-export async function getTeams(postgres: PostgresRouter): Promise<Team[]> {
+async function queryTeams(postgres: PostgresRouter, where: string, params?: any[], limit = ''): Promise<Team[]> {
     const selectResult = await postgres.query<Team>(
         PostgresUse.COMMON_READ,
-        'SELECT * FROM posthog_team ORDER BY id',
-        undefined,
-        'fetchAllTeams'
+        `SELECT * FROM posthog_team ${where} ORDER BY id ${limit}`,
+        params,
+        'fetchTeams'
     )
     for (const row of selectResult.rows) {
         row.project_id = parseInt(row.project_id as unknown as string) as ProjectId
@@ -307,13 +307,16 @@ export async function getTeams(postgres: PostgresRouter): Promise<Team[]> {
     return selectResult.rows
 }
 
+export async function getTeams(postgres: PostgresRouter): Promise<Team[]> {
+    return await queryTeams(postgres, '')
+}
+
 export async function getTeam(postgres: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
-    const teams = await getTeams(postgres)
-    return teams.find((team) => team.id === teamId) ?? null
+    return (await queryTeams(postgres, 'WHERE id = $1', [teamId]))[0] ?? null
 }
 
 export async function getFirstTeam(postgres: PostgresRouter): Promise<Team> {
-    return (await getTeams(postgres))[0]
+    return (await queryTeams(postgres, '', undefined, 'LIMIT 1'))[0]
 }
 
 export const createOrganization = async (pg: PostgresRouter) => {
