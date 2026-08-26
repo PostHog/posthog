@@ -446,28 +446,20 @@ if DEBUG:
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
 
-# CompressedManifest: collectstatic pre-generates .br and .gz (brotli is
-# already a dependency) so WhiteNoise serves compressed bytes from disk and
-# the envoy edge — which otherwise gzips static per request (Contour's
-# default compression filter) — skips recompression since Content-Encoding
-# is already set. Same Manifest base class: hashed names unchanged.
-#
-# STATIC_PRECOMPRESS gates only what collectstatic writes. WhiteNoise probes for
-# .br and .gz on disk per request, so clearing it on a serving process does nothing;
-# only the build that ran collectstatic decides whether they exist.
+# WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
 if TEST:
-    _staticfiles_backend = "django.contrib.staticfiles.storage.StaticFilesStorage"
+    _staticfiles_storage_backend = "django.contrib.staticfiles.storage.StaticFilesStorage"
 elif get_from_env("STATIC_PRECOMPRESS", True, type_cast=str_to_bool):
-    _staticfiles_backend = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    _staticfiles_storage_backend = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 else:
-    _staticfiles_backend = "whitenoise.storage.ManifestStaticFilesStorage"
+    _staticfiles_storage_backend = "whitenoise.storage.ManifestStaticFilesStorage"
 
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": _staticfiles_backend,
+        "BACKEND": _staticfiles_storage_backend,
     },
 }
 # Never emit .map.gz/.map.br: the production image deletes *.map after the
