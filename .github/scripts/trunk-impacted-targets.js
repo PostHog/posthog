@@ -127,6 +127,12 @@ const RUST = 'rust'
 // those files can reach.
 const PRODUCT_SURFACE = 'product-surface'
 
+// The desktop app's workflow family. Named for its product rather than a
+// language because products/desktop is backend-detached: its files land on
+// fe:product:desktop and py:product:desktop and nothing else, so those two
+// lanes are the whole radius of a workflow confined to that tree.
+const DESKTOP = 'desktop'
+
 // The proto trees, named for their consumers for the same reason. Every
 // consumer generates stubs, so the set is enumerable: tonic builds the rust
 // ones on `cargo build`, and the personhog stubs are checked in for both python
@@ -231,6 +237,12 @@ const TRIPWIRE_RULES = [
     // Tests tools/openapi-codegen, so it takes the same domain as the tree
     // it gates.
     ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
+    // The desktop app's CI and release family. Every desktop-*.yml confines
+    // itself to products/desktop/** and .github/scripts/desktop/** (the
+    // PR-triggering ones are also path-filtered to that tree), so its radius
+    // is the desktop product's own two lanes. A desktop workflow that starts
+    // reaching further must be placed above this rule with the wider domain.
+    ['.github/workflows/desktop-*.yml', DESKTOP],
 
     // The Depot shadows of workflows narrowed above take their canonical
     // twin's domain: a shadow defines the same single-language suite, just on
@@ -1337,6 +1349,18 @@ function addProductSurfaceLanes(targets, context) {
     return true
 }
 
+// The two lanes of the backend-detached desktop product. Returns false when
+// no such product directory exists, so a rename widens instead of claiming a
+// lane no file can land on.
+function addDesktopLanes(targets, context) {
+    if (!context.products.includes('desktop')) {
+        return false
+    }
+    targets.add(pyProduct('desktop'))
+    targets.add(feProduct('desktop'))
+    return true
+}
+
 function addRustLanes(targets, context) {
     if (!context.rustGraph) {
         return false
@@ -1449,6 +1473,7 @@ const DOMAIN_LANES = new Map([
     [NODE, addNodeLanes],
     [PRODUCT_SURFACE, addProductSurfaceLanes],
     [PROTO, addProtoLanes],
+    [DESKTOP, addDesktopLanes],
 ])
 
 // Returns false when the file's domain is universal, which is the caller's cue

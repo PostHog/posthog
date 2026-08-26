@@ -526,6 +526,18 @@ test('a single-language workflow claims that language rather than everything', (
         computeTargets(['.github/workflows/ci-openapi-codegen.yml'], CONTEXT),
         computeTargets(['tools/openapi-codegen/package.json'], CONTEXT)
     )
+    // The desktop workflow family takes the desktop product's own two lanes,
+    // and widens in a context where no such product exists.
+    const desktopContext = {
+        ...CONTEXT,
+        products: [...CONTEXT.products, 'desktop'],
+        backendDetachedProducts: new Set(['desktop']),
+    }
+    assert.deepEqual(
+        computeTargets(['.github/workflows/desktop-ci.yml', '.github/workflows/desktop-release.yml'], desktopContext),
+        computeTargets(['products/desktop/apps/code/src/main.ts', 'products/desktop/tools/build.py'], desktopContext)
+    )
+    assert.deepEqual(computeTargets(['.github/workflows/desktop-ci.yml'], CONTEXT), EVERYTHING)
     // The Depot shadows take their canonical twin's domain instead of the
     // .depot/** universal rule, so a shadow-only or paired edit stays on the
     // python lanes.
