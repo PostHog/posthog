@@ -41,10 +41,25 @@ describe('parseReportSummary', () => {
         expect(parseReportSummary(summary)).toEqual({ lead: summary, sections: [] })
     })
 
-    it('keeps a deeper heading inside its section body', () => {
-        const [section] = parseReportSummary('Lead.\n\n## Problem\n\n#### Detail\n\nMore.').sections
+    it.each([
+        // H4 is past the section-heading cap, so it never opens a section.
+        ['## Problem', '#### Detail\n\nMore.'],
+        // An H3 nested under an H2 section is a subheading, not a peer section. Splitting it out would
+        // also push the Create PR action (rendered at the end of the solution section) above it.
+        ['## Solution', '### Rollout\n\nShip behind a flag.'],
+    ])('keeps a deeper heading inside the %s section body', (sectionHeading, deeperBlock) => {
+        const sections = parseReportSummary(`Lead.\n\n${sectionHeading}\n\n${deeperBlock}`).sections
 
-        expect(section.body).toEqual('#### Detail\n\nMore.')
+        expect(sections).toHaveLength(1)
+        expect(sections[0].body).toEqual(deeperBlock)
+    })
+
+    it('keeps recognized sections that follow a shallower heading', () => {
+        // A stray shallower heading (e.g. a document title) must not swallow the recognized sections
+        // below it: Problem and Solution are named sections, so they still split into their own.
+        const parsed = parseReportSummary('Lead.\n\n# Report\n\n## Problem\n\nA.\n\n## Solution\n\nB.')
+
+        expect(parsed.sections.map((section) => section.kind)).toEqual(['other', 'problem', 'solution'])
     })
 
     it('appends reference definitions to every slice so chart links still resolve', () => {

@@ -89,10 +89,21 @@ export function parseReportSummary(summary: string | null | undefined): ParsedRe
         return whole
     }
 
-    // Only headings the prompt uses and the two levels around them; deeper ones stay inside a body.
-    const headingIndexes = children
-        .map((node, index) => (node?.type === 'heading' && node.depth <= 3 && node.position ? index : -1))
-        .filter((index) => index >= 0)
+    // A heading splits the summary into sections when it names a recognized section (Problem /
+    // Impact / Solution and their aliases) or sits at or above the depth of the section already open.
+    // An unrecognized, deeper heading — e.g. `### Rollout` under `## Solution` — is a subheading, so
+    // it stays inside the current section's body. Headings past depth 3 never split (H4+ stay in a body).
+    const headingIndexes: number[] = []
+    let openDepth = Number.POSITIVE_INFINITY
+    children.forEach((node, index) => {
+        if (node?.type !== 'heading' || node.depth > 3 || !node.position) {
+            return
+        }
+        if (sectionKind(headingText(node)) !== 'other' || node.depth <= openDepth) {
+            headingIndexes.push(index)
+            openDepth = node.depth
+        }
+    })
     if (headingIndexes.length === 0) {
         return whole
     }
