@@ -257,6 +257,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: .depot/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
