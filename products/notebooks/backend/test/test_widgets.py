@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.notebook_integration import (
     CanvasGenerationState,
     NotebookCanvasVersion,
@@ -56,8 +57,6 @@ from products.notebooks.backend.widgets import (
     read_widget_frame,
     start_widget_generation,
 )
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def markdown_content(markdown: str) -> dict[str, Any]:
