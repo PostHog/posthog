@@ -123,8 +123,8 @@ project prefix, so the user is redirected to login instead of the page you meant
 - **Prefer the canonical URL the tool returns.** `query-llm-traces-list` and `query-llm-trace`
   return `_posthogUrl` — surface that value. For a single trace, append
   `?timestamp=<url_encoded_iso>` (the trace's earliest event time) to that URL; the returned link
-  carries no timestamp, and a timestamp-less trace lookup defaults to an old date and shows the
-  wrong trace.
+  carries no timestamp, and without one the trace page scans from a fixed early date instead of
+  the ten-minute window around the trace.
 - **Otherwise build the link with `generate-app-url`.** It resolves the correct region host and
   `/project/<id>/` prefix (e.g. `https://us.posthog.com/project/2/ai-observability/traces`). Pass
   concrete ids via `params`, never inline them into the path.
@@ -134,8 +134,8 @@ project prefix, so the user is redirected to login instead of the page you meant
   - **Users list** (per-user cost): `generate-app-url {url: "/ai-observability/users"}`
   - **Single trace**: `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`
 
-`generate-app-url` cannot express query params, so append `?timestamp=<url_encoded_iso>` to a
-single-trace link yourself — the trace page reads it to resolve older traces.
+`generate-app-url` cannot express query params, so append the `?timestamp=<url_encoded_iso>`
+described above to a single-trace link yourself.
 
 Always surface a UI link so the user can verify visually.
 

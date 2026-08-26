@@ -53,6 +53,7 @@ reports that summarize recent runs on a schedule.
 | `posthog:llma-evaluation-report-run-list` | Past report runs, including the report content that was sent   |
 | `posthog:execute-sql`                     | Ad-hoc HogQL over `$ai_evaluation` events                      |
 | `posthog:query-llm-trace`                 | Drill into the underlying generation that an evaluation scored |
+| `posthog:generate-app-url`                | Build region- and project-qualified links back to the UI       |
 
 All `llma-evaluation-*` tools are defined in `products/ai_observability/mcp/tools.yaml`.
 
@@ -383,8 +384,12 @@ or wiring evaluations into a larger agent loop.
 
 ## Constructing UI links
 
-- **Evaluations list**: `https://app.posthog.com/ai-evals/evaluations`
-- **Single evaluation**: `https://app.posthog.com/ai-evals/evaluations/<evaluation_id>`
+Never hand-write `https://app.posthog.com/...` links. That host drops the region and the project
+prefix, so the user is redirected to login instead of the page you meant. Build the link with
+`generate-app-url`, which resolves the correct region host and `/project/<id>/` prefix.
+
+- **Evaluations list**: `generate-app-url {url: "/ai-evals/evaluations"}`
+- **Single evaluation**: `generate-app-url {url: "/ai-evals/evaluations/{id}", params: {id: "<evaluation_id>"}}`
 - **Underlying generation/trace**: see the `exploring-llm-traces` skill's URL conventions
 
 Always surface the relevant link so the user can verify in the UI.

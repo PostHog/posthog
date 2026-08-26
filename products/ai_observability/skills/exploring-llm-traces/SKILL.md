@@ -23,6 +23,7 @@ a single AI interaction — from the top-level agent invocation down to individu
 | `posthog:query-llm-trace`       | Get a single trace by ID with full event tree                 |
 | `posthog:read-data-schema`      | Discover custom event/person properties before filtering      |
 | `posthog:execute-sql`           | Ad-hoc SQL for complex trace analysis                         |
+| `posthog:generate-app-url`      | Build region- and project-qualified links back to the UI      |
 
 ## Event hierarchy
 
@@ -149,12 +150,16 @@ All scripts support `MAX_LEN=N` env var to control truncation (0 = unlimited).
 
 The trace tools return `_posthogUrl` — always surface this to the user.
 
-You can also construct links manually:
+Never hand-write `https://app.posthog.com/...` links. That host drops the region and the project
+prefix, so the user is redirected to login instead of the page you meant.
 
-- **Trace detail**: `https://app.posthog.com/ai-observability/traces/<trace_id>?timestamp=<url_encoded_timestamp>&event=<optional_event_id>`
 - **Traces list with filters**: returned in `_posthogUrl` from `query-llm-traces-list`
+- **Trace detail**: `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`, which
+  resolves the correct region host and `/project/<id>/` prefix
 
-The `timestamp` query param is **required** — use the `createdAt` of the earliest event in the trace, URL-encoded (e.g. `timestamp=2026-04-01T19%3A39%3A20Z`).
+`generate-app-url` cannot express query params, so append them to the trace-detail link yourself:
+`?timestamp=<url_encoded_timestamp>` and, optionally, `&event=<event_id>`. Use the `createdAt` of
+the earliest event in the trace, URL-encoded (e.g. `timestamp=2026-04-01T19%3A39%3A20Z`).
 
 When presenting findings, always include the relevant PostHog URL so the user can verify.
 
