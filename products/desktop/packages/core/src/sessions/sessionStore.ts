@@ -25,12 +25,15 @@ export interface SessionState {
   sessions: Record<string, AgentSession>;
   /** Index mapping taskId -> taskRunId for O(1) lookups */
   taskIdIndex: Record<string, string>;
+  /** Task ids whose first/resumed agent session is being created. */
+  startingTaskIds: Record<string, true>;
 }
 
 export const sessionStore = createStore<SessionState>()(
   immer(() => ({
     sessions: {},
     taskIdIndex: {},
+    startingTaskIds: {},
   })),
 );
 
@@ -94,6 +97,7 @@ export const sessionStoreSetters = {
 
       state.sessions[session.taskRunId] = session;
       state.taskIdIndex[session.taskId] = session.taskRunId;
+      delete state.startingTaskIds[session.taskId];
     });
   },
 
@@ -102,8 +106,21 @@ export const sessionStoreSetters = {
       const session = state.sessions[taskRunId];
       if (session) {
         delete state.taskIdIndex[session.taskId];
+        delete state.startingTaskIds[session.taskId];
       }
       delete state.sessions[taskRunId];
+    });
+  },
+
+  setTaskStarting: (taskId: string) => {
+    sessionStore.setState((state) => {
+      state.startingTaskIds[taskId] = true;
+    });
+  },
+
+  clearTaskStarting: (taskId: string) => {
+    sessionStore.setState((state) => {
+      delete state.startingTaskIds[taskId];
     });
   },
 
@@ -448,6 +465,7 @@ export const sessionStoreSetters = {
     sessionStore.setState((state) => {
       state.sessions = {};
       state.taskIdIndex = {};
+      state.startingTaskIds = {};
     });
   },
 };
