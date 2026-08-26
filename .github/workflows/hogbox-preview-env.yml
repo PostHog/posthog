@@ -387,6 +387,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: hogbox-preview-frontend-dist
+                  compression-level: 0
                   path: ${{ runner.temp }}/frontend-dist.tgz
                   retention-days: 1
 

@@ -1851,6 +1851,7 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migrated-schema
+                  compression-level: 0
                   path: schema.sql.gz
                   # Consumers only ever take the newest artifact, so a longer window just
                   # adds pages to the artifacts listing that db:download-schema walks.

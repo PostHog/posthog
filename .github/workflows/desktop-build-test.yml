@@ -165,6 +165,7 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: code-macos-${{ matrix.arch }}
+                  compression-level: 0
                   path: |
                       products/desktop/apps/code/out/*.dmg
                       products/desktop/apps/code/out/*-mac.zip
@@ -244,6 +245,7 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: code-windows
+                  compression-level: 0
                   path: |
                       products/desktop/apps/code/out/*.exe
                       products/desktop/apps/code/out/latest.yml
@@ -327,6 +329,7 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: code-linux-${{ matrix.arch }}
+                  compression-level: 0
                   path: |
                       products/desktop/apps/code/out/*.AppImage
                       products/desktop/apps/code/out/*.deb

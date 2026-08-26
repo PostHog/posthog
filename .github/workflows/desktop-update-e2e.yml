@@ -265,6 +265,7 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: update-old-build-1.0.0
+                  compression-level: 0
                   path: |
                       products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip
                       products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip.blockmap
@@ -276,6 +277,7 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: update-new-build-2.0.0
+                  compression-level: 0
                   path: products/desktop/apps/code/out/dev-update-feed/
                   if-no-files-found: warn
                   retention-days: 7
@@ -308,6 +310,7 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: update-old-forge-build-1.0.0
+                  compression-level: 0
                   path: products/desktop/apps/code/out/PostHog-Code-forge-1.0.0-arm64-mac.zip
                   if-no-files-found: warn
                   retention-days: 7
