@@ -674,6 +674,50 @@ class TestScoutSlackDelivery(BaseTest):
 
         assert fake_client.chat_postMessage.call_args_list[0].kwargs["channel"] == "CSCOUTS"
 
+    def test_delivery_posts_with_the_token_stored_after_the_render(self) -> None:
+        # The chart build can hold the worker for minutes, long enough for the workspace to be
+        # reconnected. That writes a new token to the same integration row and revokes the old one,
+        # and a post with the old token fails as permanent, so the row is read again before the post.
+        get_client().flushdb()
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SLACK, sensitive_config={"access_token": "xoxb-old"}
+        )
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = FakeSlackResponse({"ts": "1785418710.000700"})
+
+        def _build(report_arg, run_arg, *, delivery_id=None, render_budget=None):
+            Integration.objects.filter(id=integration.id).update(sensitive_config={"access_token": "xoxb-new"})
+            return [{"type": "header", "text": {"type": "plain_text", "text": "Checkout failures"}}], "fallback"
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
+                side_effect=_build,
+            ),
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        posted_with = slack_integration.call_args_list[-1].args[0]
+        assert posted_with.sensitive_config == {"access_token": "xoxb-new"}
+        assert fake_client.chat_postMessage.call_args_list[0].kwargs["channel"] == "CSCOUTS"
+
     @parameterized.expand(
         [
             # Nothing else claimed the report, so the claim this enqueue made goes down with it.

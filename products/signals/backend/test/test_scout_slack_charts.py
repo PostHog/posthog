@@ -1,10 +1,12 @@
 import json
 from contextlib import nullcontext
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -16,7 +18,9 @@ from products.signals.backend.scout_harness.slack_charts import (
     CHART_BLOCK_ID_PREFIX,
     MAX_SLACK_REPORT_CHARTS,
     SLACK_REPORT_CHART_RENDER_BUDGET_SECONDS,
+    SLACK_REPORT_CHART_URL_TTL,
     ChartRenderBudget,
+    _rendered_asset_entry_key,
     _rendered_assets_cache_key,
     build_scout_report_chart_blocks,
 )
@@ -79,6 +83,12 @@ class TestScoutSlackReportCharts(BaseTest):
         assert [call.kwargs.get("insight_short_id") for call in render_mock.call_args_list] == [None, "abc123xy", None]
         assert render_mock.call_args_list[0].kwargs["export_context"] == {"source": _TRENDS}
         assert render_mock.call_args_list[0].kwargs["created_by"] == self.user
+        # A delivery render is a system asset that expires with its url, not a user export kept for months.
+        for call in render_mock.call_args_list:
+            assert call.kwargs["is_system"] is True
+            assert abs(call.kwargs["expires_after"] - timezone.now() - SLACK_REPORT_CHART_URL_TTL) < timedelta(
+                minutes=1
+            )
         # Every URL mint is pinned to the acting user, so a substituted cache id can't be published.
         assert all(call.kwargs["created_by_id"] == self.user.id for call in url_mock.call_args_list)
         assert [{k: v for k, v in b.items() if k != "block_id"} for b in blocks if b["type"] == "image"] == [
@@ -229,21 +239,26 @@ class TestScoutSlackReportCharts(BaseTest):
 
     def test_shared_budget_carries_the_render_time_across_builds(self) -> None:
         run = self._make_run(created_by=self.user)
-        report = self._make_report([_chart("a", _TRENDS)])
+        # The edit a rebuild reacts to placed a new chart ahead of one the first build rendered.
+        report = self._make_report([_chart("new", _TRENDS), _chart("kept", _TRENDS)])
+        budget = ChartRenderBudget(started=1.0)
+        budget.rendered_assets[_rendered_asset_entry_key("kept", _TRENDS)] = 7
         render, url = self._patched_render()
         # The budget started a whole window ago, so a rebuild sharing it has no time left and renders
-        # nothing — proving the budget is measured from when it opened, not fresh per build.
-        with render as render_mock, url:
+        # nothing — proving the budget is measured from when it opened, not fresh per build. Reusing
+        # an asset it already rendered costs no time, so the chart behind the new one still shows.
+        with render as render_mock, url as url_mock:
             render_mock.return_value = (MagicMock(id=1), b"png")
+            url_mock.side_effect = lambda **kw: f"https://img/{kw['asset_id']}"
             blocks = build_scout_report_chart_blocks(
                 report,
                 run,
                 clock=lambda: SLACK_REPORT_CHART_RENDER_BUDGET_SECONDS,
-                budget=ChartRenderBudget(started=1.0),
+                budget=budget,
             )
 
         assert render_mock.call_count == 0
-        assert [b for b in blocks if b["type"] == "image"] == []
+        assert [b["image_url"] for b in blocks if b["type"] == "image"] == ["https://img/7"]
 
     @parameterized.expand(
         [

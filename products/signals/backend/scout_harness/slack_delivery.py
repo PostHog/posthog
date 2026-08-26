@@ -649,6 +649,13 @@ def post_scout_report_to_slack(
         )
         return
 
+    # The build can hold the worker for the whole render budget, long enough for the workspace to be
+    # reconnected, which writes a new token to the same row and revokes the one loaded above. Posting
+    # with the stale token fails as permanent, so resolve the row again before the post.
+    integration = _slack_integration_for_project(
+        integration_id=integration_id,
+        project_id=report.team.project_id,
+    )
     client = SlackIntegration(integration).client
     try:
         response = _post_scout_report_lead_message(

@@ -10,6 +10,7 @@ from datetime import timedelta
 from time import monotonic
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 
@@ -77,14 +78,23 @@ def _render_chart_asset_id(*, team: Team, created_by: User, query: dict) -> int 
     # startup wiring reaches this module, so the facade stays off the django.setup() path.
     from products.exports.backend.facade.api import render_png_export  # noqa: PLC0415
 
+    # A system render stays out of the acting user's export quota and the stuck-export sweep, and it
+    # expires with the delivery url, its only reference; the format default would keep the PNG for
+    # months after the url stopped working.
+    render_kwargs: dict = {
+        "team": team,
+        "created_by": created_by,
+        "is_system": True,
+        "expires_after": timezone.now() + SLACK_REPORT_CHART_URL_TTL,
+    }
     kind = query.get("kind")
     if kind == "SavedInsightNode":
         short_id = query.get("shortId")
         if not isinstance(short_id, str) or not short_id:
             return None
-        asset, png = render_png_export(team=team, created_by=created_by, insight_short_id=short_id)
+        asset, png = render_png_export(insight_short_id=short_id, **render_kwargs)
     else:
-        asset, png = render_png_export(team=team, created_by=created_by, export_context={"source": query})
+        asset, png = render_png_export(export_context={"source": query}, **render_kwargs)
     if png is None:
         logger.warning("signals_scout.slack_report_chart_render_failed", asset_id=asset.id, error=asset.exception)
         return None
@@ -303,13 +313,17 @@ def _build_scout_report_chart_blocks(
         entry_key = _rendered_asset_entry_key(chart_id, query)
         asset_id = rendered_assets.get(entry_key)
         if asset_id is None:
-            # Out of renders, but a later chart may still be in the delivery's cache from an earlier
-            # build, so keep looking rather than dropping the rest of the message's charts.
+            if (
+                budget.renders_remaining > 0
+                and clock() - budget.started + RENDER_TIMEOUT.total_seconds() > SLACK_REPORT_CHART_RENDER_BUDGET_SECONDS
+            ):
+                logger.info("signals_scout.slack_report_chart_budget_exhausted", report_id=str(report.id))
+                budget.renders_remaining = 0
+            # Out of renders or out of time, but a later chart may still be in the delivery's cache
+            # from an earlier build, so keep looking rather than dropping the rest of the message's
+            # charts.
             if budget.renders_remaining <= 0:
                 continue
-            if clock() - budget.started + RENDER_TIMEOUT.total_seconds() > SLACK_REPORT_CHART_RENDER_BUDGET_SECONDS:
-                logger.info("signals_scout.slack_report_chart_budget_exhausted", report_id=str(report.id))
-                break
             budget.renders_remaining -= 1
         shown += 1
         try:
