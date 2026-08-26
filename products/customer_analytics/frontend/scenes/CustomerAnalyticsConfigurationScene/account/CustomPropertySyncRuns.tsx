@@ -68,22 +68,6 @@ function runDuration(run: CustomPropertySyncRunApi): string {
     return humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
-function runMatchesSearch(run: CustomPropertySyncRunApi, searchTerm: string): boolean {
-    const normalizedSearch = searchTerm.trim().toLowerCase()
-    if (!normalizedSearch) {
-        return true
-    }
-    return [
-        run.workflow_run_id,
-        run.workflow_id,
-        run.job_id,
-        run.status,
-        run.account_segment,
-        run.trigger,
-        run.error,
-    ].some((value) => value?.toLowerCase().includes(normalizedSearch))
-}
-
 function updatedShare(existing: number, changed: number): string | null {
     if (changed <= 0) {
         return null
@@ -129,7 +113,6 @@ export function CustomPropertySyncRuns({
 }: CustomPropertySyncRunsProps): JSX.Element {
     const labels = TARGET_LABELS[targetType]
     const accountRuns = targetType === 'account'
-    const filteredRuns = runs.filter((run) => runMatchesSearch(run, searchTerm))
 
     if (loadFailed) {
         return (
@@ -306,7 +289,7 @@ export function CustomPropertySyncRuns({
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={filteredRuns}
+                dataSource={runs}
                 loading={loading}
                 rowKey="id"
                 size="small"

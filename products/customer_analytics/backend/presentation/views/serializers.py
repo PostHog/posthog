@@ -1437,6 +1437,14 @@ class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
     )
 
 
+class CustomPropertySyncRunListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.",
+    )
+
+
 class CustomPropertySyncRunSerializer(DataclassSerializer):
     """One warehouse-backed custom property sync run."""
 

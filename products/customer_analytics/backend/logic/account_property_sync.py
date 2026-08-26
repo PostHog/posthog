@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.customer_analytics.backend.logic.account_property_runs import (
     AccountPropertySyncRunContext,
     AccountPropertySyncRunOutcome,
+    finalize_account_property_sync_runs,
     finish_account_property_sync_runs,
 )
 from products.customer_analytics.backend.logic.custom_property_values import (
@@ -30,7 +31,9 @@ from products.customer_analytics.backend.logic.custom_property_values import (
 from products.customer_analytics.backend.metrics import record_account_property_sync_phase_duration
 from products.customer_analytics.backend.models import Account, CustomPropertySource, TargetType
 from products.customer_analytics.backend.models.custom_property_sync_run import (
+    SyncPhase,
     SyncSegment as AccountPropertySyncSegment,
+    SyncStatus,
 )
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding
@@ -326,9 +329,6 @@ async def run_account_property_segment_sync(
     segment: AccountPropertySyncSegment,
     final_attempt: bool = False,
 ) -> dict[str, int]:
-    if await _segment_already_completed(team_id, binding, job_id, segment):
-        return {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
-
     log = logger.bind(
         team_id=team_id,
         saved_query_id=binding.id,
@@ -337,8 +337,7 @@ async def run_account_property_segment_sync(
     )
     counts = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
 
-    sources = await database_sync_to_async(_enabled_sources, thread_sensitive=False)(team_id, binding)
-    states = [SourceSyncState(source=source, prior_hashes={}) for source in sources if source.source_column is not None]
+    states: list[SourceSyncState] = []
     run_context = AccountPropertySyncRunContext(
         team_id=team_id,
         saved_query_id=binding.id,
@@ -346,6 +345,13 @@ async def run_account_property_segment_sync(
     )
 
     try:
+        if await _segment_already_completed(team_id, binding, job_id, segment):
+            return {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
+
+        sources = await database_sync_to_async(_enabled_sources, thread_sensitive=False)(team_id, binding)
+        states = [
+            SourceSyncState(source=source, prior_hashes={}) for source in sources if source.source_column is not None
+        ]
         phase_started_at = asyncio.get_running_loop().time()
         for state in states:
             state.prior_hashes.update(await _read_snapshot_hashes(team_id, binding, str(state.source.id), segment))
@@ -486,6 +492,13 @@ async def run_account_property_segment_sync(
                     for state in states
                 ],
             )
+            await database_sync_to_async(finalize_account_property_sync_runs)(
+                run_context,
+                status=SyncStatus.FAILED,
+                phase=SyncPhase.SYNCING,
+                error=_RUN_FAILED_ERROR,
+                segment=segment,
+            )
         raise
 
     await database_sync_to_async(finish_account_property_sync_runs)(
@@ -502,6 +515,12 @@ async def run_account_property_segment_sync(
             )
             for state in states
         ],
+    )
+    await database_sync_to_async(finalize_account_property_sync_runs)(
+        run_context,
+        status=SyncStatus.COMPLETED,
+        phase=SyncPhase.COMPLETED,
+        segment=segment,
     )
 
     if counts["source_errors"]:

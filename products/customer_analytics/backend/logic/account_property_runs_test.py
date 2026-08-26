@@ -94,7 +94,30 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
         assert {view.account_segment for view in views} == {"tracked", "ignored"}
         assert {view.sync_phase for view in views} == {"staging"}
         assert {view.job_id for view in views} == {"job-1"}
-        assert {str(view.workflow_run_id) for view in views} == {"00000000-0000-4000-8000-000000000001"}
+        assert {view.workflow_id for view in views} == {None}
+        assert {view.workflow_run_id for view in views} == {None}
+        assert {view.temporal_url for view in views} == {None}
+
+        staff_views, _ = api.list_custom_property_sync_runs(
+            self.team.id,
+            str(self.source.id),
+            offset=0,
+            limit=10,
+            include_temporal_urls=True,
+        )
+        assert {view.workflow_id for view in staff_views} == {"stage-workflow-job-1"}
+        assert {str(view.workflow_run_id) for view in staff_views} == {"00000000-0000-4000-8000-000000000001"}
+        assert all(view.temporal_url is not None for view in staff_views)
+
+        search_views, search_count = api.list_custom_property_sync_runs(
+            self.team.id,
+            str(self.source.id),
+            offset=0,
+            limit=20,
+            search="ignored",
+        )
+        assert search_count == 1
+        assert [view.account_segment for view in search_views] == ["ignored"]
 
     def test_phase_updates_record_retries_without_regressing_the_sibling(self) -> None:
         self._start_runs()

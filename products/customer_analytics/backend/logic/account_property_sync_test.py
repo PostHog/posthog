@@ -142,6 +142,70 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         assert run.status == "failed"
         assert run.finished_at is not None
 
+    def test_final_attempt_finishes_runs_when_source_loading_fails(self) -> None:
+        source = self._create_source()
+        start_account_property_sync_runs(
+            AccountPropertySyncRunContext(
+                team_id=self.team.id,
+                saved_query_id=str(source.saved_query_id),
+                job_id="job-1",
+            ),
+            workflow_id="stage-workflow-job-1",
+            workflow_run_id="00000000-0000-4000-8000-000000000001",
+        )
+
+        with (
+            patch(f"{_MODULE}._segment_already_completed", new=AsyncMock(return_value=False)),
+            patch(f"{_MODULE}._enabled_sources", side_effect=OSError("database unavailable")),
+            pytest.raises(OSError, match="database unavailable"),
+        ):
+            async_to_sync(run_account_property_segment_sync)(
+                team_id=self.team.id,
+                binding=saved_query_binding(str(source.saved_query_id)),
+                job_id="job-1",
+                segment=AccountPropertySyncSegment.TRACKED,
+                final_attempt=True,
+            )
+
+        run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source=source, segment="tracked")
+        assert run.status == "failed"
+        assert run.finished_at is not None
+
+    def test_disabled_source_run_finishes_without_work(self) -> None:
+        source = self._create_source()
+        start_account_property_sync_runs(
+            AccountPropertySyncRunContext(
+                team_id=self.team.id,
+                saved_query_id=str(source.saved_query_id),
+                job_id="job-1",
+            ),
+            workflow_id="stage-workflow-job-1",
+            workflow_run_id="00000000-0000-4000-8000-000000000001",
+        )
+        source.is_enabled = False
+        source.save(update_fields=["is_enabled"])
+
+        async def no_batches(*args):
+            for _ in range(0):
+                yield []
+
+        with (
+            patch(f"{_MODULE}._segment_already_completed", new=AsyncMock(return_value=False)),
+            patch(f"{_MODULE}._enabled_sources", return_value=[]),
+            patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=no_batches),
+            patch(f"{_MODULE}._mark_completed_and_maybe_cleanup", new=AsyncMock()),
+        ):
+            async_to_sync(run_account_property_segment_sync)(
+                team_id=self.team.id,
+                binding=saved_query_binding(str(source.saved_query_id)),
+                job_id="job-1",
+                segment=AccountPropertySyncSegment.TRACKED,
+            )
+
+        run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source=source, segment="tracked")
+        assert run.status == "completed"
+        assert run.finished_at is not None
+
 
 class _S3ClientContext:
     def __init__(self, client: MagicMock) -> None:
@@ -176,6 +240,7 @@ async def test_each_staged_batch_is_shared_across_sources() -> None:
         patch(f"{_MODULE}._enabled_sources", return_value=sources),
         patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
         patch(f"{_MODULE}.finish_account_property_sync_runs"),
+        patch(f"{_MODULE}.finalize_account_property_sync_runs"),
         patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=batches),
         patch(f"{_MODULE}._matching_account_ids", return_value={}),
         patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
@@ -216,6 +281,7 @@ async def test_sync_records_each_phase_duration() -> None:
         patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
         patch(f"{_MODULE}._mark_completed_and_maybe_cleanup", new=AsyncMock()),
         patch(f"{_MODULE}.finish_account_property_sync_runs"),
+        patch(f"{_MODULE}.finalize_account_property_sync_runs"),
         patch(f"{_MODULE}.record_account_property_sync_phase_duration", phase_duration_recorder),
     ):
         await run_account_property_segment_sync(

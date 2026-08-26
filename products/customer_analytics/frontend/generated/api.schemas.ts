@@ -2747,6 +2747,10 @@ export type CustomPropertySourcesRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.
+     */
+    search?: string
 }
 
 export type CustomerJourneysListParams = {

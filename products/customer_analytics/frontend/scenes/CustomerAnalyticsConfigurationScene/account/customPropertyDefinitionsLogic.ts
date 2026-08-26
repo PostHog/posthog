@@ -1193,6 +1193,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        setRunsSearch: async ({ sourceId }, breakpoint) => {
+            await breakpoint(300)
+            actions.loadRuns({ sourceId, offset: 0 })
+        },
         mapAllColumns: () => {
             if (!values.mappableColumns.length) {
                 return
@@ -1387,9 +1391,11 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         },
         loadRuns: async ({ sourceId, offset }) => {
             try {
+                const search = values.runsSearchBySourceId[sourceId]?.trim()
                 const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId, {
                     limit: 20,
                     offset,
+                    ...(search ? { search } : {}),
                 })
                 actions.runsLoaded({ sourceId, runs: response.results, count: response.count, offset })
             } catch (error) {
