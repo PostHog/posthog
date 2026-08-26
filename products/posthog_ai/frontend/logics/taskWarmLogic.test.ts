@@ -161,6 +161,45 @@ describe('taskWarmLogic', () => {
         expect(warmCalls).toBe(1)
     })
 
+    it('asks once per selection when the server answers that it did not warm', async () => {
+        // An empty body ("flag off", "pool full", "integration didn't resolve") installs no lease, so
+        // the lease check can't stop the next typing pause from asking again. Before the cooldown that
+        // was one POST every couple of hundred milliseconds for the length of the draft.
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': async () => {
+                    warmCalls += 1
+                    return [200, {}]
+                },
+            },
+        })
+
+        jest.useFakeTimers()
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(warmCalls).toBe(1)
+        expect(logic.values.warmLease).toBeNull()
+
+        jest.useFakeTimers()
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(warmCalls).toBe(1)
+
+        // Past the cooldown the composer tries once more, in case the answer has changed.
+        jest.useFakeTimers()
+        jest.setSystemTime(Date.now() + 6 * 60 * 1000)
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(warmCalls).toBe(2)
+    })
+
     it('re-warms for a selection changed while the first warm was still in flight', async () => {
         // Hold the first warm POST open so a model change collides with it. Without queuing the newer
         // selection, the completing POST leaves the lease on the stale model and never warms the new
