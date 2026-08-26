@@ -7,7 +7,7 @@ from django.db.models import F, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -483,6 +483,7 @@ class VisionAlertDestinationResponseSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(list=extend_schema(parameters=[VisionAlertListQuerySerializer]))
 class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_alert"
     scope_object_read_actions = ["list", "retrieve", "events"]
