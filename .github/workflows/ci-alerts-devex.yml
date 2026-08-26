@@ -45,7 +45,8 @@ env:
     COMMIT_FAILURE_STREAK_THRESHOLD: '10'
     # Cloud agent fired when an incident opens: it diagnoses the failure and answers in the
     # incident's Slack thread. Unset (or a missing POSTHOG_PROJECT_SECRET_API_KEY) disables the
-    # fire and leaves the alert itself untouched.
+    # fire and leaves the alert itself untouched. Setup lives in
+    # .agents/skills/diagnosing-master-red/references/loop-setup.md.
     DIAGNOSIS_LOOP_ID: ''
     # The master ruleset's required status checks that run on master push — a failure
     # here means master is genuinely broken. Hand-synced with the ruleset; there is no
