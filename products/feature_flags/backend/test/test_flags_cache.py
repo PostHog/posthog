@@ -927,7 +927,7 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
     @parameterized.expand([("gate_off", False), ("gate_on", True)])
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._publish_shadow")
-    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
     def test_publishes_only_when_the_shadow_gate_is_open(
         self, name, shadow_gate_open, mock_gate, mock_shadow_gate, mock_produce
     ):
@@ -943,7 +943,7 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._publish_shadow", return_value=True)
-    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=True)
     def test_kafka_owned_team_never_shadow_publishes(self, mock_gate, mock_shadow_gate, mock_produce):
         # Cohort invalidation dispatches this build task for every team, so a team
         # Rust already serves reaches here and would diff Rust output against itself.
@@ -954,7 +954,7 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
 
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
     @patch("products.feature_flags.backend.flags_cache._publish_shadow", return_value=True)
-    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
     def test_shadow_message_carries_the_shadow_flag_on_the_wire(self, mock_gate, mock_shadow_gate, mock_producer_scope):
         mock_producer = MagicMock()
         mock_producer_scope.return_value.__enter__.return_value = mock_producer
@@ -971,13 +971,31 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
         side_effect=RuntimeError("kafka cluster unreachable"),
     )
     @patch("products.feature_flags.backend.flags_cache._publish_shadow", return_value=True)
-    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
     def test_produce_failure_does_not_raise_into_the_build(self, mock_gate, mock_shadow_gate, mock_producer_scope):
         # Parity evidence is telemetry, so an unhealthy Kafka must not raise back
         # into the task that just wrote the cache.
         publish_shadow_invalidation(self.TEAM_ID)
 
         mock_producer_scope.assert_called_once()
+
+    @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._publish_shadow")
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=None)
+    def test_unresolved_ownership_skips_without_ticking_the_routing_tombstone(
+        self, mock_gate, mock_shadow_gate, mock_produce, mock_tombstone
+    ):
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        # Cohort invalidation and the backfill finalizer dispatch this build task
+        # without reading the routing gate, so ticking its cold-cache counter here
+        # would spike a panel that means the flag polling thread is wedged.
+        mock_tombstone.labels.assert_not_called()
+        # Ownership is unknown, and shadow-building a team Rust owns would diff the
+        # Rust output against itself.
+        mock_shadow_gate.assert_not_called()
+        mock_produce.assert_not_called()
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled", return_value=False)
@@ -1071,7 +1089,7 @@ class TestServiceFlagsCeleryTasks(BaseTest):
     @parameterized.expand([("build_succeeded", True), ("build_failed", False)])
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
     @patch("products.feature_flags.backend.flags_cache._publish_shadow", return_value=True)
-    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
     @patch("products.feature_flags.backend.tasks.update_flags_cache")
     def test_task_publishes_shadow_invalidation_only_after_a_successful_build(
         self, name, build_succeeded, mock_update, mock_gate, mock_shadow_gate, mock_producer_scope

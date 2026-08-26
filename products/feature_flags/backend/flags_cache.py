@@ -1193,15 +1193,33 @@ def publish_shadow_invalidation(team_id: int) -> None:
     content hash, but two invalidations that both land inside one stale window
     hash the same, which promotes pure Celery lag to a confirmed parity defect.
 
-    The Kafka-routing gate still applies, because this task also serves teams
-    Rust owns: cohort invalidation dispatches it for every team (see
-    `cohort_changed_flags_cache`), and a shadow build for a Rust-owned team would
+    The Kafka-routing decision still applies, because this task also serves teams
+    Rust owns: `cohort_changed_flags_cache` and the cohort backfill finalizer
+    dispatch it for every team, and a shadow build for a Rust-owned team would
     diff the Rust output against itself.
+
+    It reads `_evaluate_kafka_routing_flag` rather than `_route_to_kafka` so those
+    callers do not start ticking the routing gate's cold-cache tombstone counter.
+    Neither of them consulted that gate before, so a backfill on a freshly booted
+    worker would otherwise spike a panel that means the flag polling thread is
+    wedged.
 
     Both steps swallow their own failures, so a shadow publish cannot fail the
     build that precedes it.
     """
-    if _route_to_kafka(team_id):
+    try:
+        routed_to_kafka = _evaluate_kafka_routing_flag(team_id)
+    except Exception:
+        # Deliberately silent. This runs once per rebuild, so a broken flag client
+        # would log at fleet rate, and the only cost of skipping is a gap in parity
+        # evidence. `_route_to_kafka` still reports the same failure from the
+        # signal-handler path.
+        return
+
+    # Only an explicit False means Celery owns this team. `None` means local
+    # evaluation cannot resolve ownership, and shadow-building a team Rust owns
+    # would diff the Rust output against itself.
+    if routed_to_kafka is not False:
         return
 
     if _publish_shadow(team_id):
