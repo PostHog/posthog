@@ -12877,6 +12877,14 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    returnGoalName: str | None = Field(
+        default=None,
+        description=(
+            "Name of the goal the columns counted, absent when they counted any"
+            " pageview. The table reads it to say what a cell means, since a goal makes"
+            " period 0 a measurement rather than always 100%."
+        ),
+    )
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -18938,6 +18946,14 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    returnGoalName: str | None = Field(
+        default=None,
+        description=(
+            "Name of the goal the columns counted, absent when they counted any"
+            " pageview. The table reads it to say what a cell means, since a goal makes"
+            " period 0 a measurement rather than always 100%."
+        ),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20716,6 +20732,14 @@ class QueryResponseAlternative35(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    returnGoalName: str | None = Field(
+        default=None,
+        description=(
+            "Name of the goal the columns counted, absent when they counted any"
+            " pageview. The table reads it to say what a cell means, since a goal makes"
+            " period 0 a measurement rather than always 100%."
+        ),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -26851,6 +26875,14 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
     retentionInterval: MarketingAnalyticsRetentionInterval | None = Field(
         default=None,
         description=("Period for both the cohort rows and the return columns. Defaults to week."),
+    )
+    returnGoalId: str | None = Field(
+        default=None,
+        description=(
+            "conversion_goal_id of the event that counts as coming back. Defaults to"
+            " any pageview, which makes period 0 always 100%. Under a goal it counts"
+            " converters, so period 0 is a real measurement."
+        ),
     )
     tags: QueryLogTags | None = None
     totalIntervals: int | None = Field(

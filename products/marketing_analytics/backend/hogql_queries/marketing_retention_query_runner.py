@@ -33,6 +33,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRI
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, date_to_start_of_interval
 
+from .conversion_goal_conditions import ConversionGoal, conversion_goal_condition
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
 
 # Weekly by default, because a daily grain over a 90-day range is 90 cohort rows per breakdown value.
@@ -241,6 +242,38 @@ class MarketingAnalyticsRetentionQueryRunner(
             ),
         ]
 
+    @cached_property
+    def return_goal(self) -> ConversionGoal | None:
+        """The goal the columns count, or None when they count any pageview."""
+        if not self.query.returnGoalId:
+            return None
+        return self._resolve_conversion_goal(self.query.returnGoalId)
+
+    def _return_condition(self) -> ast.Expr:
+        """True for an event row that counts as coming back.
+
+        Any pageview by default, which is what makes a cohort's own period read as 100%: arriving is
+        itself a pageview. Under a goal the columns count converters, so period 0 stops being a
+        tautology and becomes "converted in the week they arrived".
+
+        Deliberately not `_touchpoint_condition()`. A return counts no matter which channel brought the
+        person back, because the question is whether the people this channel acquired stayed, not which
+        tag their later sessions carry.
+        """
+        goal = self.return_goal
+        if goal is None:
+            return self._pageview_condition()
+
+        condition = conversion_goal_condition(goal, self.team)
+        if condition is None:
+            # Validation already dropped the goals with nothing to match on, so what is left is an
+            # action-based goal whose action was deleted.
+            raise ValueError(
+                f"Conversion goal '{goal.conversion_goal_name}' points to an action that no longer exists. "
+                "Update the goal in marketing analytics settings, or pick another one."
+            )
+        return condition
+
     def _event_filters(self) -> list[ast.Expr]:
         """Applied to every arm, so the cohort side and the activity side select the same population."""
         exprs: list[ast.Expr] = []
@@ -365,7 +398,7 @@ class MarketingAnalyticsRetentionQueryRunner(
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    self._pageview_condition(),
+                    self._return_condition(),
                     *self._range_conditions(ast.Field(chain=["events", "timestamp"])),
                     ast.CompareOperation(
                         left=ast.Field(chain=["events", "person_id"]),
@@ -670,6 +703,7 @@ class MarketingAnalyticsRetentionQueryRunner(
             otherBreakdownCount=max(distinct_breakdowns - self.breakdown_limit, 0),
             truncatedCohorts=self.truncated_cohorts,
             totalCohortSize=sum(row.cohortSize for row in rows),
+            returnGoalName=self.return_goal.conversion_goal_name if self.return_goal else None,
             hogql=response.hogql,
             timings=response.timings,
             modifiers=self.modifiers,

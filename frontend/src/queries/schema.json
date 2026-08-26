@@ -11469,6 +11469,10 @@
                     },
                     "type": "array"
                 },
+                "returnGoalName": {
+                    "description": "Name of the goal the columns counted, absent when they counted any pageview. The table reads it to say what a cell means, since a goal makes period 0 a measurement rather than always 100%.",
+                    "type": "string"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -34285,6 +34289,10 @@
                     "$ref": "#/definitions/MarketingAnalyticsRetentionInterval",
                     "description": "Period for both the cohort rows and the return columns. Defaults to week."
                 },
+                "returnGoalId": {
+                    "description": "conversion_goal_id of the event that counts as coming back. Defaults to any pageview, which makes period 0 always 100%. Under a goal it counts converters, so period 0 is a real measurement.",
+                    "type": "string"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -34354,6 +34362,10 @@
                         "$ref": "#/definitions/MarketingAnalyticsRetentionRow"
                     },
                     "type": "array"
+                },
+                "returnGoalName": {
+                    "description": "Name of the goal the columns counted, absent when they counted any pageview. The table reads it to say what a cell means, since a goal makes period 0 a measurement rather than always 100%.",
+                    "type": "string"
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -41864,6 +41876,10 @@
                                 "$ref": "#/definitions/MarketingAnalyticsRetentionRow"
                             },
                             "type": "array"
+                        },
+                        "returnGoalName": {
+                            "description": "Name of the goal the columns counted, absent when they counted any pageview. The table reads it to say what a cell means, since a goal makes period 0 a measurement rather than always 100%.",
+                            "type": "string"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",

@@ -82,6 +82,13 @@ export function RetentionCohortTable({
     // Both caps change what the table covers, so neither can stay silent: without this the tab shows a
     // narrower range than the date filter says, and an "Other" row of unknown size.
     const caveats: string[] = []
+    if (retentionResponse?.returnGoalName) {
+        // Under a goal the first column stops being the tautological 100% and becomes a measurement,
+        // which changes how every row reads.
+        caveats.push(
+            `Columns count ${retentionResponse.returnGoalName} instead of visits, so the first column is the share who converted in the period they arrived.`
+        )
+    }
     if (retentionResponse?.truncatedCohorts) {
         caveats.push(
             `The ${humanFriendlyNumber(retentionResponse.truncatedCohorts)} earliest periods in your date range aren't included. Narrow the range, or group by a longer period, to see them.`

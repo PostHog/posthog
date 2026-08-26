@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 from parameterized import parameterized
 
 from posthog.schema import (
+    ConversionGoalFilter1,
     DateRange,
     EventPropertyFilter,
     MarketingAnalyticsAttributionBreakdown,
@@ -86,6 +87,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         breakdown_limit: int | None = None,
         new_user_lookback_days: int | None = None,
         properties: list | None = None,
+        return_goal_id: str | None = None,
     ) -> MarketingAnalyticsRetentionQuery:
         return MarketingAnalyticsRetentionQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -98,6 +100,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
             breakdownLimit=breakdown_limit,
             newUserLookbackDays=new_user_lookback_days,
             properties=properties or [],
+            returnGoalId=return_goal_id,
         )
 
     def _run(self, *args, **kwargs):
@@ -380,6 +383,57 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         row = response.results[0]
         self.assertEqual(row.cohortSize, 1)
         self.assertEqual([cell.count for cell in row.values], [1, 1, 0, 0])
+
+    def _configure_goal(self, goal_id="goal-1", event="purchase", name="Purchases"):
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event=event,
+                name=name,
+                conversion_goal_id=goal_id,
+                conversion_goal_name=name,
+                schema_map={},
+            ).model_dump()
+        ]
+        config.save()
+
+    def test_a_goal_return_event_counts_converters_instead_of_visits(self):
+        # The whole point of the option. p1 visits every week but only converts in week 2, so under a
+        # goal the row must read 0/0/1, not the 1/1/1 a pageview return would give. Period 0 stops being
+        # the tautological 100% too, which is what makes the column worth showing.
+        self._configure_goal()
+        create_person(team=self.team, distinct_ids=["p1"])
+        for at in (WEEK_0, WEEK_1, WEEK_2):
+            self._session("p1", at, utm_source="google")
+        _create_event(team=self.team, event="purchase", distinct_id="p1", timestamp=WEEK_2)
+
+        response = self._run(return_goal_id="goal-1")
+
+        row = next(r for r in response.results if r.cohortIndex == 0)
+        self.assertEqual(row.cohortSize, 1)
+        self.assertEqual([cell.count for cell in row.values], [0, 0, 1, 0])
+        self.assertEqual(response.returnGoalName, "Purchases")
+
+    def test_the_cohort_still_comes_from_arrival_under_a_goal(self):
+        # Only the columns change. Someone who never converts still has to appear, with their acquisition
+        # intact, or the table would silently become "converters by channel" and lose its denominator.
+        self._configure_goal()
+        create_person(team=self.team, distinct_ids=["never"])
+        self._session("never", WEEK_0, utm_source="google")
+
+        response = self._run(return_goal_id="goal-1")
+
+        self.assertEqual(response.results[0].cohortSize, 1)
+        self.assertEqual([cell.count for cell in response.results[0].values], [0, 0, 0, 0])
+
+    def test_an_unknown_return_goal_is_rejected(self):
+        self._configure_goal()
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", WEEK_0, utm_source="google")
+
+        with self.assertRaisesRegex(ValueError, "not found for this team"):
+            self._run(return_goal_id="does-not-exist")
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_shape(self):

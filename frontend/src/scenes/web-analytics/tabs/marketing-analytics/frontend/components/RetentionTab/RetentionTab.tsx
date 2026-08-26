@@ -24,6 +24,9 @@ import { RetentionCohortTable } from './RetentionCohortTable'
 
 const COLUMN_COUNT_OPTIONS = [4, 6, 8, 12, 16, 24]
 
+/** How long someone has to be away to count as new again. Capped at the backend's 365. */
+const LOOKBACK_OPTIONS = [30, 60, 90, 180, 365]
+
 export function RetentionTab(): JSX.Element {
     const {
         breakdownBy,
@@ -32,6 +35,9 @@ export function RetentionTab(): JSX.Element {
         excludeDirectTraffic,
         excludeUnattributed,
         onlyNewUsers,
+        newUserLookbackDays,
+        returnGoalId,
+        returnEventOptions,
         optionsOpen,
         query,
     } = useValues(marketingRetentionLogic)
@@ -42,6 +48,8 @@ export function RetentionTab(): JSX.Element {
         setExcludeDirectTraffic,
         setExcludeUnattributed,
         setOnlyNewUsers,
+        setNewUserLookbackDays,
+        setReturnGoalId,
         setOptionsOpen,
     } = useActions(marketingRetentionLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
@@ -79,6 +87,18 @@ export function RetentionTab(): JSX.Element {
                     options={COLUMN_COUNT_OPTIONS.map((count) => ({ value: count, label: `${count} periods` }))}
                 />
             </div>
+            <div>
+                <div className="text-muted mb-2 text-xs font-semibold uppercase">What counts as coming back</div>
+                <LemonSelect
+                    fullWidth
+                    value={returnGoalId}
+                    onChange={(value) => value && setReturnGoalId(value)}
+                    options={returnEventOptions}
+                />
+                <div className="text-muted mt-1 text-xs">
+                    Pick a conversion goal to count conversions instead of visits.
+                </div>
+            </div>
             <LemonDivider className="my-0" />
             <LemonSwitch
                 fullWidth
@@ -88,6 +108,20 @@ export function RetentionTab(): JSX.Element {
                 tooltip="Skip people who had already visited before this period started. Leave it on unless you want a channel's own returning traffic counted as newly acquired."
                 data-attr="marketing-retention-only-new-users"
             />
+            {onlyNewUsers && (
+                <div>
+                    <div className="text-muted mb-2 text-xs font-semibold uppercase">Counts as new after</div>
+                    <LemonSelect
+                        fullWidth
+                        value={newUserLookbackDays}
+                        onChange={(value) => value && setNewUserLookbackDays(value)}
+                        options={LOOKBACK_OPTIONS.map((days) => ({ value: days, label: `${days} days` }))}
+                    />
+                    <div className="text-muted mt-1 text-xs">
+                        How long someone has to stay away before they count as newly acquired again.
+                    </div>
+                </div>
+            )}
             <LemonSwitch
                 fullWidth
                 checked={excludeDirectTraffic}

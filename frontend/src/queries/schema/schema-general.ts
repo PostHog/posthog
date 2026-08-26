@@ -7261,6 +7261,11 @@ export interface MarketingAnalyticsRetentionQuery extends Omit<
     newUserLookbackDays?: integer
     /** Breakdown values kept before the rest roll into 'Other'. Defaults to 20. */
     breakdownLimit?: integer
+    /**
+     * conversion_goal_id of the event that counts as coming back. Defaults to any pageview, which makes
+     * period 0 always 100%. Under a goal it counts converters, so period 0 is a real measurement.
+     */
+    returnGoalId?: string
 }
 
 /** One cohort's activity in one period since acquisition. */
@@ -7290,6 +7295,11 @@ export interface MarketingAnalyticsRetentionRow {
 
 export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRetentionRow[]
+    /**
+     * Name of the goal the columns counted, absent when they counted any pageview. The table reads it to
+     * say what a cell means, since a goal makes period 0 a measurement rather than always 100%.
+     */
+    returnGoalName?: string
     /** Column count. Every row's values array has this length. */
     intervalCount: integer
     interval: MarketingAnalyticsRetentionInterval
