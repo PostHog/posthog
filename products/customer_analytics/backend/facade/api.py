@@ -2209,7 +2209,8 @@ def update_custom_property_source(
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
         _enqueue_sync_if_enabled(source)
-        _start_person_backfill_if_enabled(source)
+        if will_be_enabled:
+            _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
 
