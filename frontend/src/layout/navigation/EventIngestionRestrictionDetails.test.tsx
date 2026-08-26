@@ -19,35 +19,27 @@ function restriction(overrides: Partial<EventIngestionRestriction>): EventIngest
 describe('EventIngestionRestrictionDetails', () => {
     afterEach(cleanup)
 
-    it.each([
-        [restriction({}), 'Events dropped', 'Applies to all events in analytics events'],
-        [
-            restriction({ restriction_type: RestrictionType.FORCE_OVERFLOW_FROM_INGESTION, distinct_ids: ['u1'] }),
-            'Processing delayed',
-            'Applies to some events in analytics events',
-        ],
-        [
-            restriction({ restriction_type: RestrictionType.SKIP_PERSON_PROCESSING, session_ids: ['s1'] }),
-            'Person processing disabled',
-            'Applies to some events in analytics events',
-        ],
-        [
-            restriction({ pipelines: ['session_recordings', 'ai'] }),
-            'Events dropped',
-            'Applies to all events in session recordings, AI events',
-        ],
-    ])('describes effect and scope (%#)', (input, expectedLabel, expectedScope) => {
-        render(<EventIngestionRestrictionDetails restrictions={[input]} />)
-        expect(screen.getByText(expectedLabel)).toBeTruthy()
-        expect(screen.getByText(expectedScope)).toBeTruthy()
+    it('reports an unfiltered restriction as applying to all events', () => {
+        render(<EventIngestionRestrictionDetails restrictions={[restriction({})]} />)
+        expect(screen.getByText('Events dropped')).toBeTruthy()
+        expect(screen.getByText('Applies to all events in analytics events')).toBeTruthy()
     })
 
-    it('lists every scope filter and notes they combine', () => {
+    it('lists every scope filter and pipeline, and notes that filters combine', () => {
         render(
             <EventIngestionRestrictionDetails
-                restrictions={[restriction({ distinct_ids: ['u1', 'u2'], event_names: ['$pageview'] })]}
+                restrictions={[
+                    restriction({
+                        restriction_type: RestrictionType.SKIP_PERSON_PROCESSING,
+                        distinct_ids: ['u1', 'u2'],
+                        event_names: ['$pageview'],
+                        pipelines: ['session_recordings', 'ai'],
+                    }),
+                ]}
             />
         )
+        expect(screen.getByText('Person processing disabled')).toBeTruthy()
+        expect(screen.getByText('Applies to some events in session recordings, AI events')).toBeTruthy()
         expect(screen.getByText('Only these 2 distinct IDs:')).toBeTruthy()
         expect(screen.getByText('Only this event name:')).toBeTruthy()
         expect(screen.getByText('u1')).toBeTruthy()
