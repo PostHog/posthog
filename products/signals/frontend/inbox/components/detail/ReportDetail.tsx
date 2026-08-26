@@ -23,6 +23,7 @@ import {
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
+import { parseReportSummary } from '../../utils/reportSummary'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -305,6 +306,11 @@ export function InboxDetailFrame({ report, asideFooter, primaryAction, children 
     // and as a standard `LemonMenu` on narrow ones.
     const allReportActions = useReportDetailActions(report)
     const createPrAction = allReportActions.find((action) => action.key === 'create-pr')
+    // `ReportSummaryBody` renders Create PR under the Solution section, so the header only carries it
+    // when the summary has no Solution section — otherwise an actionable report shows it twice.
+    const summaryHasSolution = parseReportSummary(report.summary).sections.some(
+        (section) => section.kind === 'solution'
+    )
     const reportActions = allReportActions.filter((action) => action.key !== 'create-pr')
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
@@ -438,7 +444,7 @@ export function InboxDetailFrame({ report, asideFooter, primaryAction, children 
                 </LemonButton>
                 <div className="flex items-center gap-2">
                     {primaryAction}
-                    {createPrAction && (
+                    {createPrAction && !summaryHasSolution && (
                         <LemonButton
                             type="primary"
                             size="small"
