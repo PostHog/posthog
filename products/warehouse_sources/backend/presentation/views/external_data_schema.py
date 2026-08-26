@@ -21,9 +21,10 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, is_service_auth
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,

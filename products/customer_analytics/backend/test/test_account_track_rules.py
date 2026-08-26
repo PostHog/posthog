@@ -2,15 +2,17 @@ import json
 import asyncio
 from dataclasses import asdict
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from rest_framework import status
 from temporalio import activity
+from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy, ScheduleState
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -22,26 +24,44 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.customer_analytics.backend.logic.account_track_rules import (
     AccountTrackRuleValidationError,
+    EnabledAccountTrackRuleConfig,
+    EnabledAccountTrackRuleConfigPage,
     create_account_track_rule_run,
     get_account_track_rules,
+    list_enabled_account_track_rule_configs,
     preview_account_track_rules,
     process_next_account_track_rule_batch,
+    update_account_track_rules,
 )
 from products.customer_analytics.backend.models import (
     AccountTrackRuleRun,
     AccountTrackRuleRunStatus,
+    AccountTrackRuleRunTrigger,
     CustomPropertyValue,
     DisplayType,
     TargetType,
     TeamCustomerAnalyticsConfig,
 )
 from products.customer_analytics.backend.temporal.account_track_rules import (
+    ACCOUNT_TRACK_RULE_COORDINATOR_SCHEDULE_ID,
+    ACCOUNT_TRACK_RULE_COORDINATOR_WORKFLOW_NAME,
+    ACCOUNT_TRACK_RULE_SCHEDULE_HOUR_UTC,
     ACCOUNT_TRACK_RULE_WORKFLOW_NAME,
+    AccountTrackRuleCoordinatorInput,
+    AccountTrackRuleCoordinatorPage,
+    AccountTrackRuleCoordinatorPageInput,
+    AccountTrackRuleCoordinatorTeam,
+    AccountTrackRuleCoordinatorWorkflow,
     AccountTrackRuleEvaluationInput,
     AccountTrackRuleEvaluationOutput,
     AccountTrackRuleEvaluationWorkflow,
+    AccountTrackRuleScheduledRun,
+    account_track_rule_collect_configs_activity,
+    account_track_rule_create_scheduled_run_activity,
     account_track_rule_fail_run_activity,
+    account_track_rule_observe_coordinator_activity,
     account_track_rule_workflow_id,
+    create_account_track_rule_coordinator_schedule,
 )
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 
@@ -101,6 +121,167 @@ async def test_workflow_marks_the_run_failed_when_cancelled() -> None:
     assert execute_activity.await_args_list[1].args[0] is account_track_rule_fail_run_activity
 
 
+@freeze_time("2026-08-20T12:00:00Z")
+@pytest.mark.parametrize(
+    ("enabled_at", "expected_overdue", "expected_age_seconds"),
+    [
+        (datetime(2026, 8, 18, 23, 0, tzinfo=UTC), 1, 37 * 60 * 60),
+        (datetime(2026, 8, 20, 11, 0, tzinfo=UTC), 0, 60 * 60),
+    ],
+)
+@pytest.mark.asyncio
+async def test_coordinator_uses_enablement_age_for_teams_without_runs(
+    enabled_at: datetime, expected_overdue: int, expected_age_seconds: float
+) -> None:
+    config_page = EnabledAccountTrackRuleConfigPage(
+        configs=(
+            EnabledAccountTrackRuleConfig(
+                team_id=11,
+                config_version=3,
+                enabled_at=enabled_at,
+                first_run_at=None,
+                last_success_at=None,
+            ),
+        ),
+        next_team_id=None,
+    )
+
+    with patch(
+        "products.customer_analytics.backend.temporal.account_track_rules.list_enabled_account_track_rule_configs",
+        return_value=config_page,
+    ):
+        page = await account_track_rule_collect_configs_activity(AccountTrackRuleCoordinatorPageInput())
+
+    assert page.overdue_teams == expected_overdue
+    assert page.oldest_success_age_seconds == expected_age_seconds
+
+
+@pytest.mark.asyncio
+async def test_coordinator_pages_through_every_enabled_team() -> None:
+    team_ids = [11, 22, 33]
+    pages = [
+        AccountTrackRuleCoordinatorPage(
+            teams=tuple(AccountTrackRuleCoordinatorTeam(team_id=team_id, config_version=3) for team_id in team_ids[:2]),
+            next_team_id=team_ids[1],
+            overdue_teams=1,
+            oldest_success_age_seconds=40 * 60 * 60,
+        ),
+        AccountTrackRuleCoordinatorPage(
+            teams=(AccountTrackRuleCoordinatorTeam(team_id=team_ids[2], config_version=4),),
+            next_team_id=None,
+            overdue_teams=0,
+            oldest_success_age_seconds=60,
+        ),
+    ]
+    collected_after_team_ids: list[int] = []
+    observations = []
+
+    async def execute_activity(activity_function, input, **_kwargs):
+        if activity_function is account_track_rule_collect_configs_activity:
+            collected_after_team_ids.append(input.after_team_id)
+            return pages.pop(0)
+        if activity_function is account_track_rule_create_scheduled_run_activity:
+            return AccountTrackRuleScheduledRun(
+                status="created",
+                run_id=str(uuid4()),
+                config_version=input.config_version,
+            )
+        if activity_function is account_track_rule_observe_coordinator_activity:
+            observations.append(input)
+            return None
+        raise AssertionError(f"Unexpected activity: {activity_function}")
+
+    start_child_workflow = AsyncMock()
+    with (
+        patch(
+            "products.customer_analytics.backend.temporal.account_track_rules.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.account_track_rules.workflow.start_child_workflow",
+            start_child_workflow,
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.account_track_rules.workflow.info",
+            return_value=SimpleNamespace(run_id=str(uuid4())),
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.account_track_rules.workflow.now",
+            side_effect=[
+                datetime(2026, 8, 20, 6, 0, tzinfo=UTC),
+                datetime(2026, 8, 20, 6, 1, tzinfo=UTC),
+            ],
+        ),
+    ):
+        result = await AccountTrackRuleCoordinatorWorkflow().run(AccountTrackRuleCoordinatorInput())
+
+    assert collected_after_team_ids == [0, 22]
+    assert result.pages == 2
+    assert result.enabled_teams == 3
+    assert result.started_children == 3
+    assert result.overdue_teams == 1
+    assert [call.kwargs["id"] for call in start_child_workflow.await_args_list] == [
+        account_track_rule_workflow_id(team_id) for team_id in team_ids
+    ]
+    assert observations[0].outcome == "completed"
+    assert observations[0].duration_seconds == 60
+
+
+@pytest.mark.asyncio
+async def test_schedule_starts_paused_at_0600_utc() -> None:
+    client = AsyncMock()
+    with (
+        patch(
+            "products.customer_analytics.backend.temporal.account_track_rules.a_schedule_exists",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.account_track_rules.a_create_schedule",
+            new=AsyncMock(),
+        ) as create_schedule,
+    ):
+        await create_account_track_rule_coordinator_schedule(client)
+
+    create_call = create_schedule.await_args
+    assert create_call is not None
+    _, schedule_id, schedule = create_call.args
+    assert schedule_id == ACCOUNT_TRACK_RULE_COORDINATOR_SCHEDULE_ID
+    assert create_call.kwargs["trigger_immediately"] is False
+    assert isinstance(schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.action.workflow == ACCOUNT_TRACK_RULE_COORDINATOR_WORKFLOW_NAME
+    assert schedule.state.paused is True
+    assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+    assert schedule.spec.calendars[0].hour[0].start == ACCOUNT_TRACK_RULE_SCHEDULE_HOUR_UTC
+    assert schedule.spec.calendars[0].minute[0].start == 0
+
+
+@pytest.mark.asyncio
+async def test_schedule_update_preserves_operator_pause_state() -> None:
+    existing_state = ScheduleState(paused=False, note="Enabled after controlled tests.")
+    client = MagicMock()
+    client.get_schedule_handle.return_value.describe = AsyncMock(
+        return_value=SimpleNamespace(schedule=SimpleNamespace(state=existing_state))
+    )
+    with (
+        patch(
+            "products.customer_analytics.backend.temporal.account_track_rules.a_schedule_exists",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.account_track_rules.a_update_schedule",
+            new=AsyncMock(),
+        ) as update_schedule,
+    ):
+        await create_account_track_rule_coordinator_schedule(client)
+
+    update_call = update_schedule.await_args
+    assert update_call is not None
+    _, schedule_id, schedule = update_call.args
+    assert schedule_id == ACCOUNT_TRACK_RULE_COORDINATOR_SCHEDULE_ID
+    assert schedule.state == existing_state
+    assert schedule.state.paused is False
+
+
 def track_rules_config(*, version: int, definition_id: str, enabled: bool = True) -> dict:
     return {
         "schema_version": 1,
@@ -130,6 +311,25 @@ def track_rules_config(*, version: int, definition_id: str, enabled: bool = True
                     }
                 ]
             },
+        ],
+    }
+
+
+def account_name_track_rules_config(*, version: int, enabled: bool = True) -> dict:
+    return {
+        "schema_version": 1,
+        "version": version,
+        "enabled": enabled,
+        "groups": [
+            {
+                "conditions": [
+                    {
+                        "field": {"kind": "account_field", "field": "name"},
+                        "operator": "exact",
+                        "values": ["Paying"],
+                    }
+                ]
+            }
         ],
     }
 
@@ -182,6 +382,40 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
         config = TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id).account_track_rules
 
         assert config == {"schema_version": 1, "version": 0, "enabled": False, "groups": []}
+
+    def test_enablement_timestamp_tracks_the_current_enabled_period(self) -> None:
+        update_account_track_rules(
+            team_id=self.team.id,
+            raw_config=account_name_track_rules_config(version=0),
+            user=self.user,
+            organization_id=self.organization.id,
+            was_impersonated=False,
+        )
+        config_row = TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id)
+        enabled_at = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+        assert config_row.account_track_rules_enabled_at == enabled_at
+
+        edited_config = account_name_track_rules_config(version=1)
+        edited_config["groups"][0]["conditions"][0]["values"] = ["VIP"]
+        update_account_track_rules(
+            team_id=self.team.id,
+            raw_config=edited_config,
+            user=self.user,
+            organization_id=self.organization.id,
+            was_impersonated=False,
+        )
+        config_row.refresh_from_db()
+        assert config_row.account_track_rules_enabled_at == enabled_at
+
+        update_account_track_rules(
+            team_id=self.team.id,
+            raw_config=account_name_track_rules_config(version=2, enabled=False),
+            user=self.user,
+            organization_id=self.organization.id,
+            was_impersonated=False,
+        )
+        config_row.refresh_from_db()
+        assert config_row.account_track_rules_enabled_at is None
 
     def test_preview_uses_or_groups_and_skips_churned_accounts(self) -> None:
         definition, paying, vip, unmatched, ignored, churned = self.create_rule_fixtures()
@@ -477,6 +711,94 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
         assert first.id == second.id
         assert AccountTrackRuleRun.objects.for_team(self.team.id).count() == 1
         assert account_track_rule_workflow_id(self.team.id) == f"customer-analytics-account-track-rules-{self.team.id}"
+
+    def test_enabled_config_pagination_excludes_disabled_teams_without_starvation(self) -> None:
+        other_enabled_team = Team.objects.create(organization=self.organization)
+        disabled_team = Team.objects.create(organization=self.organization)
+        for team, enabled in [
+            (self.team, True),
+            (other_enabled_team, True),
+            (disabled_team, False),
+        ]:
+            TeamCustomerAnalyticsConfig.objects.filter(team_id=team.id).update(
+                account_track_rules=account_name_track_rules_config(version=3, enabled=enabled)
+            )
+
+        found_team_ids: list[int] = []
+        after_team_id = 0
+        while True:
+            page = list_enabled_account_track_rule_configs(after_team_id=after_team_id, limit=1)
+            found_team_ids.extend(config.team_id for config in page.configs)
+            if page.next_team_id is None:
+                break
+            after_team_id = page.next_team_id
+
+        assert found_team_ids == sorted([self.team.id, other_enabled_team.id])
+        assert disabled_team.id not in found_team_ids
+
+    def test_scheduled_run_retry_reuses_the_row_after_config_changes(self) -> None:
+        self.save_config(account_name_track_rules_config(version=3))
+        key = uuid4()
+
+        first, first_created = create_account_track_rule_run(
+            team_id=self.team.id,
+            idempotency_key=key,
+            user_id=None,
+            trigger=AccountTrackRuleRunTrigger.SCHEDULED,
+            expected_config_version=3,
+        )
+        self.save_config(account_name_track_rules_config(version=4, enabled=False))
+        retried, retry_created = create_account_track_rule_run(
+            team_id=self.team.id,
+            idempotency_key=key,
+            user_id=None,
+            trigger=AccountTrackRuleRunTrigger.SCHEDULED,
+            expected_config_version=3,
+        )
+
+        assert first_created is True
+        assert retry_created is False
+        assert retried.id == first.id
+        assert first.trigger == AccountTrackRuleRunTrigger.SCHEDULED
+        assert first.created_by is None
+        assert AccountTrackRuleRun.objects.for_team(self.team.id).count() == 1
+
+    def test_terminal_scheduled_run_records_metrics_and_structured_counts(self) -> None:
+        self.save_config(account_name_track_rules_config(version=3))
+        run = AccountTrackRuleRun.objects.unscoped().create(
+            team=self.team,
+            config_version=3,
+            idempotency_key=uuid4(),
+            trigger=AccountTrackRuleRunTrigger.SCHEDULED,
+        )
+
+        with (
+            patch(
+                "products.customer_analytics.backend.logic.account_track_rules.record_account_track_rule_run"
+            ) as record_run,
+            patch("products.customer_analytics.backend.logic.account_track_rules.logger.info") as log_info,
+        ):
+            result = process_next_account_track_rule_batch(self.team.id, run.id)
+
+        assert result.status == AccountTrackRuleRunStatus.COMPLETED
+        record_run.assert_called_once_with(
+            trigger=AccountTrackRuleRunTrigger.SCHEDULED,
+            status=AccountTrackRuleRunStatus.COMPLETED,
+            duration_seconds=0.0,
+            eligible_active=0,
+            skipped_churned=0,
+            tracked=0,
+            ignored=0,
+            newly_ignored=0,
+            restored=0,
+        )
+        completion_log = next(
+            call for call in log_info.call_args_list if call.args[0] == "account_track_rule_run_completed"
+        )
+        assert completion_log.kwargs["trigger"] == AccountTrackRuleRunTrigger.SCHEDULED
+        assert completion_log.kwargs["status"] == AccountTrackRuleRunStatus.COMPLETED
+        assert completion_log.kwargs["newly_ignored"] == 0
+        assert completion_log.kwargs["duration_seconds"] == 0.0
 
 
 @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
