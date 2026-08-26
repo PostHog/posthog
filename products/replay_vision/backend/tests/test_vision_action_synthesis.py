@@ -473,7 +473,7 @@ class TestVisionActionSynthesis(BaseTest):
 
         prompts: list[str] = []
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
         ):
             result = self._synthesize(action, run, captured_prompts=prompts)

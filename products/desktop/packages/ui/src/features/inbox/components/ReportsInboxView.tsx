@@ -3,6 +3,7 @@ import {
   CaretDownIcon,
   CheckCircleIcon,
   EnvelopeSimpleIcon,
+  FunnelIcon,
   GitMergeIcon,
   GitPullRequestIcon,
   ListChecksIcon,
@@ -13,6 +14,7 @@ import {
   REPORTS_INBOX_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import { partitionInboxReports } from "@posthog/core/inbox/reportInboxSections";
+import { INBOX_SCOPE_FOR_YOU } from "@posthog/core/inbox/reportMembership";
 import {
   deriveHeadline,
   humanizeReportTitle,
@@ -21,6 +23,7 @@ import {
 import {
   Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -43,7 +46,11 @@ import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAll
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
-import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
+import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
+import {
+  hasActiveInboxFilters,
+  useInboxSignalsFilterStore,
+} from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import {
   PageHeader,
   PageHeaderActions,
@@ -96,6 +103,11 @@ export function ReportsInboxView() {
     isFetchingNextPage,
     fetchNextPage,
     searchQuery,
+    totalCount,
+    scope,
+    isSuccess,
+    sourceProductFilter,
+    priorityFilter,
   } = useInboxAllReports({
     statusFilter: REPORTS_INBOX_STATUS_FILTER,
     applyPrFilter: true,
@@ -113,6 +125,8 @@ export function ReportsInboxView() {
   // searching page counts its matching rows instead.
   const serverCounts = useInboxSectionCounts();
   const prFilter = useInboxSignalsFilterStore((s) => s.prFilter);
+  const hasActiveFilters = useInboxSignalsFilterStore(hasActiveInboxFilters);
+  const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
   const searchActive = searchQuery.trim().length > 0;
   const decisionCount = searchActive
     ? sections.decision.length
@@ -120,6 +134,15 @@ export function ReportsInboxView() {
   const monitoringCount = searchActive
     ? sections.monitoring.length
     : serverCounts.monitoring;
+  useTrackReportsInboxViewed({
+    reports: scopedReports,
+    totalCount: searchActive ? scopedReports.length : totalCount,
+    isReady: isSuccess && !serverCounts.isLoading,
+    sourceProductFilter,
+    priorityFilter,
+    searchQuery,
+    isDefaultScope: scope === INBOX_SCOPE_FOR_YOU,
+  });
 
   // Keep paging rows in (capped) so the sections have bodies to render —
   // counts never depend on this; they come from the server queries above.
@@ -262,14 +285,34 @@ export function ReportsInboxView() {
                 <Empty className="mx-auto max-w-md py-16">
                   <EmptyHeader>
                     <EmptyMedia variant="icon">
-                      <EnvelopeSimpleIcon size={24} />
+                      {hasActiveFilters ? (
+                        <FunnelIcon size={24} />
+                      ) : (
+                        <EnvelopeSimpleIcon size={24} />
+                      )}
                     </EmptyMedia>
-                    <EmptyTitle>Nothing to review</EmptyTitle>
+                    <EmptyTitle>
+                      {hasActiveFilters
+                        ? "No reports match your filters"
+                        : "Nothing to review"}
+                    </EmptyTitle>
                     <EmptyDescription>
-                      Reports show up here as your agents find things worth
-                      acting on.
+                      {hasActiveFilters
+                        ? "Clear the filters to check for hidden reports."
+                        : "Reports show up here as your agents find things worth acting on."}
                     </EmptyDescription>
                   </EmptyHeader>
+                  {hasActiveFilters && (
+                    <EmptyContent>
+                      <Button
+                        variant="outline"
+                        size="default"
+                        onClick={() => resetFilters()}
+                      >
+                        Clear filters
+                      </Button>
+                    </EmptyContent>
+                  )}
                 </Empty>
               ) : (
                 <>

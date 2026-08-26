@@ -537,7 +537,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         mock_generate.return_value = _draft()
 
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
             side_effect=lambda resource, required_level=None, **_: (
                 not (resource == "replay_scanner" and required_level == "editor")
             ),

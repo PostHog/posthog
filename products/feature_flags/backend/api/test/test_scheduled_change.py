@@ -5,17 +5,17 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import serializers, status
+from rest_framework.response import Response
 
 from posthog.api.test.test_team import create_team
+from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.feature_flags.backend.api.scheduled_change import ScheduledChangeSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
-
-from ee.api.rbac.test.test_access_control import BaseAccessControlTest
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestScheduledChange(APIBaseTest):
@@ -791,11 +791,16 @@ class TestScheduledChangePersonalAPIKeyAccess(APIBaseTest):
         assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
 
 
-class TestScheduledChangeAccessControl(BaseAccessControlTest):
+class TestScheduledChangeAccessControl(APIBaseTest):
     """Scheduled changes inherit the feature_flag resource, so feature-flag access controls gate reads."""
 
     def setUp(self):
         super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
         self.feature_flag = FeatureFlag.objects.create(
             team=self.team, created_by=self.user, key="ac-flag", name="AC Flag"
         )
@@ -807,6 +812,16 @@ class TestScheduledChangeAccessControl(BaseAccessControlTest):
             scheduled_at=datetime(2023, 12, 8, 12, 0, 0, tzinfo=UTC),
             created_by=self.user,
         )
+
+    def _put_global_access_control(self, data: dict[str, str] | None = None) -> Response:
+        payload = {"access_level": "editor"}
+        if data:
+            payload.update(data)
+        return self.client.put("/api/projects/@current/resource_access_controls", payload)
+
+    def _org_membership(self, level: OrganizationMembership.Level = OrganizationMembership.Level.ADMIN) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
 
     def test_member_with_default_access_can_read(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)

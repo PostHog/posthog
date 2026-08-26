@@ -8,6 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Model, Q
 from django.shortcuts import render
+from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
@@ -48,13 +49,6 @@ from posthog.rate_limit import (
     SharePasswordVolumeThrottle,
     SustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import (
-    AccessControlLevel,
-    UserAccessControl,
-    UserAccessControlSerializerMixin,
-    access_level_satisfied_for_resource,
-)
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
@@ -63,11 +57,21 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
 
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
+from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import (
     EXPORTED_ASSET_PURPOSE_RENDER,
     EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
@@ -79,7 +83,8 @@ from products.feature_flags.backend.persisted_flags import get_dynamic_persisted
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, filter_notebook_content_for_sharing
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
-from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
+from products.product_analytics.backend.facade.api import insight_variables_for_team, record_insight_view
+from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 logger = structlog.get_logger(__name__)
@@ -442,7 +447,9 @@ class SharingConfigurationViewSet(
             except Notebook.DoesNotExist:
                 raise NotFound("Notebook not found.")
 
-        context["insight_variables"] = InsightVariable.objects.filter(team=self.team)
+        # Deferred: every insight and dashboard response carries this, but only payloads that
+        # hold variables read it, so resolving it eagerly costs a query on every list request.
+        context["insight_variables"] = SimpleLazyObject(lambda: insight_variables_for_team(self.team.pk))
 
         return context
 
@@ -1020,13 +1027,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             cast("User | None", SharedLinkUser(resource)) if isinstance(resource, SharingConfiguration) else None
         )
 
-        context = {
+        context: dict[str, Any] = {
             "view": self,
             "request": request,
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),
             "is_shared": True,
             "get_team": lambda: resource.team,
-            "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
+            "insight_variables": SimpleLazyObject(lambda: insight_variables_for_team(resource.team.pk)),
             "export_cache_keys": export_cache_keys,
             "shared_link_user": shared_link_user,
             # exported_data is embedded into the page with stdlib json.dumps, which cannot
@@ -1143,9 +1150,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             context["dashboard"] = resource.dashboard
             asset_title = resource.insight.name or resource.insight.derived_name
             asset_description = resource.insight.description or ""
-            InsightViewed.objects.update_or_create(
-                insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
-            )
+            record_insight_view(insight_id=resource.insight.pk)
 
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
@@ -1304,6 +1309,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     resource.team,
                     source_query,
                     execution_mode=execution_mode,
+                    limit_context=export_limit_context(resource.export_context),
                     # Anonymous render surface; attribute the read to the export owner so
                     # warehouse HogQL access control resolves against their access.
                     user=resource.created_by,
@@ -1409,9 +1415,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 insights_by_short_id = {item["short_id"]: item for item in serialized_insights if item.get("short_id")}
                 # Track the view exactly like the dashboard / single-insight branches do.
                 for insight in referenced_insights:
-                    InsightViewed.objects.update_or_create(
-                        insight=insight, team=None, user=None, defaults={"last_viewed_at": now()}
-                    )
+                    record_insight_view(insight_id=insight.pk)
             exported_data.update({"insights": insights_by_short_id})
             # Pre-compute every inline (non-saved-insight) `ph-query` node so the shared viewer
             # can seed `cachedResults` on them too — same reason as above (no `/query/` POST).

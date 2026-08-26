@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.user import User
+from posthog.temporal.oauth import MCP_READ_SCOPES
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
@@ -115,6 +116,17 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertEqual(kwargs["origin_key"], _origin_key(self.user.id))
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
             self.assertEqual(kwargs["model"], expected_model)
+            self.assertTrue(kwargs["title_manually_set"])
+            self.assertIn("Use the canonical `posthog:exec` tool", kwargs["description"])
+            self.assertIn("use `docs-search` before answering", kwargs["description"])
+            self.assertIn("without first running `docs-search`", kwargs["description"])
+            self.assertIn("info channel-instructions-retrieve", kwargs["description"])
+            self.assertIn("call channel-instructions-retrieve", kwargs["description"])
+            self.assertIn("info channel-instructions-update", kwargs["description"])
+            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write"})
+            self.assertFalse(
+                any(scope.endswith(":write") and scope != "task:write" for scope in kwargs["posthog_mcp_scopes"])
+            )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
         started, create_calls = self._start(create_side_effect=succeed)
@@ -153,12 +165,28 @@ class TestOnboardingSessionIdempotency(TestCase):
             started, _ = self._start(create_side_effect=succeed)
 
         self.assertEqual(started, task_id)
-        capture.assert_called_once()
-        self.assertEqual(capture.call_args.kwargs["event"], "Onboarding prompt fallback used")
-        self.assertEqual(capture.call_args.kwargs["properties"]["reason"], "missing_placeholders")
+        fallback = next(
+            call for call in capture.call_args_list if call.kwargs["event"] == "Onboarding prompt fallback used"
+        )
+        self.assertEqual(fallback.kwargs["properties"]["reason"], "missing_placeholders")
         self.assertEqual(
-            capture.call_args.kwargs["properties"]["missing_placeholders"],
+            fallback.kwargs["properties"]["missing_placeholders"],
             ("brief", "channel_id", "followup", "homepage"),
+        )
+
+    def test_domain_research_outcome_is_captured_for_the_started_session(self) -> None:
+        task_id = uuid4()
+        created = contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with patch(f"{MODULE}.posthoganalytics.capture") as capture:
+            started, _ = self._start(create_side_effect=lambda **_kwargs: created)
+
+        self.assertEqual(started, task_id)
+        capture.assert_called_once()
+        self.assertEqual(capture.call_args.kwargs["event"], "Onboarding domain research completed")
+        self.assertEqual(
+            capture.call_args.kwargs["properties"],
+            {"task_id": str(task_id), "outcome": "not_configured"},
         )
 
     def test_a_seeded_tour_reaches_the_prompt_with_both_ids(self) -> None:

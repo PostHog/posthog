@@ -5,6 +5,7 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
     SYNC_BUDGET_EXCEEDED_MARKER,
+    UNRESOLVED_REFERENCES_MARKER,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source import CheckoutComSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
@@ -45,6 +46,10 @@ class TestCheckoutComSource:
             # key lacks the reports scope, so a mid-sync re-mint never resolves it.
             "401 Client Error: Unauthorized for url: https://api.checkout.com/reports?limit=100",
             "401 Client Error: Unauthorized for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
+            # A run whose references all lack a fetchable identifier fails identically every
+            # retry, so it pauses with a customer-facing message instead of retrying.
+            f"{UNRESOLVED_REFERENCES_MARKER}: 3 payment(s) in this run reference a customer that "
+            "carries no fetchable identifier, and no customers could be resolved",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

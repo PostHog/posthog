@@ -12,6 +12,7 @@ from posthog.models.organization import AvailableFeature
 from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.models import (
     FeatureRequest,
     FeatureRequestAccountLink,
@@ -20,8 +21,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductArea,
 )
 from products.customer_analytics.backend.test.factories import create_account
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class _EvidenceResponse(TypedDict):

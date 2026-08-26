@@ -16,6 +16,7 @@ export function ReportsTab() {
         teammateTitle: "No reports for this reviewer yet",
         description:
           "Reports are what agents surface when there's something worth your judgment but no clean code change to draft.",
+        noun: "reports",
       }}
     />
   );

@@ -25,7 +25,12 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from .. import logic
-from ..constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
+from ..constants import (
+    BK_DRILLDOWN_DEFAULT_RADIUS,
+    BK_DRILLDOWN_MAX_RADIUS,
+    BK_SEARCH_DEFAULT_LIMIT,
+    BK_SEARCH_MAX_LIMIT,
+)
 from ..file_parse import FileParseError
 from ..models import GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
@@ -452,7 +457,10 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Maximum number of ranked chunks to return. Defaults to 10, capped at 20.",
+                description=(
+                    f"Maximum number of ranked chunks to return. "
+                    f"Defaults to {BK_SEARCH_DEFAULT_LIMIT}, capped at {BK_SEARCH_MAX_LIMIT}."
+                ),
             ),
             OpenApiParameter(
                 "rerank",
@@ -478,12 +486,16 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query = request.query_params.get("query")
         if not query or not query.strip():
             raise exceptions.ValidationError({"query": "This query parameter is required."})
-        limit = self._parse_int_param(request, "limit", required=False, default=10)
+        limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
+        limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
         search_limit = limit * 2 if rerank else limit
         results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit)
         if rerank:
             results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit)
+        # `search_knowledge` expands each anchor with its ordinal neighbours, so it
+        # can return up to ~3x the anchor limit. Trim to honor the requested bound.
+        results = results[:limit]
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
 
     def _parse_bool_param(self, request: Request, name: str, *, default: bool) -> bool:

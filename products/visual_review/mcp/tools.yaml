@@ -19,6 +19,9 @@ tools:
     visual-review-repos-create:
         operation: visual_review_repos_create
         enabled: false
+    visual-review-repos-flakiness-retrieve:
+        operation: visual_review_repos_flakiness_retrieve
+        enabled: false
     visual-review-repos-list:
         operation: visual_review_repos_list
         enabled: true

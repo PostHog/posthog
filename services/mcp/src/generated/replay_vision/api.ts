@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 29 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -471,7 +471,8 @@ export const VisionActionsRunsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock.
+ * A session's observations across every scanner the caller can read, plus the team-level semantic
+ * `search` action, which resolves its own scanner scope instead of this queryset.
  */
 export const VisionObservationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -608,6 +609,55 @@ export const VisionObservationsLabelDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Rank observations by semantic similarity to the search text, optionally filtered by exact outcome
+ * (verdict, score, tags).
+ */
+export const VisionObservationsSearchRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionObservationsSearchRetrieveQueryLimitDefault = 20
+export const visionObservationsSearchRetrieveQueryLimitMax = 50
+
+export const visionObservationsSearchRetrieveQueryQMax = 2000
+
+export const VisionObservationsSearchRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionObservationsSearchRetrieveQueryLimitMax)
+        .default(visionObservationsSearchRetrieveQueryLimitDefault)
+        .describe('Maximum number of results (default 20, at most 50).'),
+    max_score: zod.number().optional().describe('Keep only scorer observations with a score at or below this value.'),
+    min_score: zod.number().optional().describe('Keep only scorer observations with a score at or above this value.'),
+    q: zod
+        .string()
+        .min(1)
+        .max(visionObservationsSearchRetrieveQueryQMax)
+        .describe("Natural-language description of what to find, e.g. 'users confused by the pricing page'."),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Search a single scanner's observations. Defaults to every scanner you can read."),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.'
+        ),
+    verdict: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.'),
 })
 
 export const EnvironmentVisionQuotaRetrieveParams = /* @__PURE__ */ zod.object({

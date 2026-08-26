@@ -22,15 +22,18 @@ import {
 } from "@posthog/ui/features/canvas/components/railDestinations";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
 import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
-import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import {
@@ -48,8 +51,6 @@ import {
   type ReactNode,
   useState,
 } from "react";
-
-const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
 const ICON_BADGE_CLASS =
   "-top-1 -right-1 absolute h-3.5 min-w-3.5 w-auto px-1 font-semibold text-[9px] ring-2 ring-chrome";
@@ -81,7 +82,7 @@ function NavIcon({
             aria-label={label}
             data-selected={isActive || undefined}
             onClick={onClick}
-            className="group relative shrink-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+            className="group relative shrink-0 pl-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
           >
             {icon}
             {badge}
@@ -170,6 +171,7 @@ function ActivityNavItem({
       isActive={isActive}
       onClick={onClick}
       badge={badge}
+      className="pl-0"
     />
   );
 
@@ -185,33 +187,43 @@ export function NavRail() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
   const contextEnabled = useContextLayerFlag();
+  const channelReportsEnabled = useChannelReportsEnabled();
+  const reportsInboxEnabled = useReportsInboxEnabled();
   const tabsEnabled = useSpacesTabs();
   const openBrowserTab = useOpenBrowserTab();
+  const mentionsEnabled = useActivityFilterStore(
+    (state) => state.mentionsEnabled,
+  );
 
-  const { counts: inboxCounts } = useInboxAllReports({
-    ignoreFilters: true,
-    refetchIntervalMs: INBOX_REFETCH_INTERVAL_MS,
+  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
+  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
+  const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
+  const destinations = visibleRailDestinations({
+    overrides: navItemOverrides,
+    order: navItemOrder,
+    home: homeEnabled,
+    inbox: inboxAvailable,
+    loops: loopsEnabled,
+    context: contextEnabled,
   });
-  const { unreadCount: unseenActivity } = useTaskActivity();
+  const inboxVisible = destinations.some(({ pane }) => pane === "inbox");
+  const inboxDecisionCount = useInboxDecisionCount({
+    enabled: inboxVisible,
+    ignoreFilters: true,
+  });
+  const { unreadCount: unseenActivity } = useTaskActivity({
+    enabled: mentionsEnabled,
+  });
   const commandCenterCount = useCommandCenterActiveCount();
   const counts: RailCounts = {
-    inbox: inboxCounts.pulls,
-    activity: unseenActivity,
+    inbox: inboxDecisionCount,
+    activity: mentionsEnabled ? unseenActivity : 0,
     commandCenter: commandCenterCount,
   };
   // The route is the only thing that says where you are, so the rail cannot
   // light a destination the screen isn't on.
   const railPane = useRailPane();
   const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
-  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
-  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
-  const destinations = visibleRailDestinations({
-    overrides: navItemOverrides,
-    order: navItemOrder,
-    home: homeEnabled,
-    loops: loopsEnabled,
-    context: contextEnabled,
-  });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 
   const pick =
@@ -278,7 +290,13 @@ export function NavRail() {
           return (
             <NavIcon
               key={pane}
-              icon={<Icon size={16} weight={isActive ? "fill" : "regular"} />}
+              icon={
+                <Icon
+                  className={pane === "spaces" ? "size-5" : undefined}
+                  size={pane === "spaces" ? 20 : 16}
+                  weight={isActive ? "fill" : "regular"}
+                />
+              }
               label={label}
               shortcut={destination.shortcut}
               isActive={isActive}

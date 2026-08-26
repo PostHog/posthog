@@ -42,6 +42,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
@@ -92,6 +93,26 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
+
+# The id reaches the ClickHouse query id and every query_log row for the request, so bound it.
+# Cancelling matches on `query_id LIKE '<team_id>_<client_query_id>%'`, which makes an id holding
+# `%` or `_` reach the team's other queries. The cancel endpoint takes any id with or without this
+# param, so restricting the charset here would buy nothing and would reject ids like `req_1`.
+CLIENT_QUERY_ID_MAX_LENGTH = 128
+
+# Nginx's "Client Closed Request". Django and DRF have no name for it.
+HTTP_CLIENT_CLOSED_REQUEST = 499
+
+
+def tag_client_query_id(client_query_id: str | None) -> None:
+    """Name this request's ClickHouse queries so the caller can cancel them by that id."""
+    if not client_query_id:
+        return
+    if len(client_query_id) > CLIENT_QUERY_ID_MAX_LENGTH:
+        raise ValidationError({"client_query_id": f"Must be at most {CLIENT_QUERY_ID_MAX_LENGTH} characters."})
+    tag_queries(client_query_id=client_query_id)
+
+
 # Sync with .../lib/constants.tsx and .../cdp/utils.ts
 # It's almost certainly wrong to add more properties to this list, instead convince the user to send data to use with
 # these properties, or use e.g. a CDP transformation to rewrite their events.
@@ -543,11 +564,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 OpenApiTypes.STR,
                 description="Search persons, either by email (full text search) or distinct_id (exact match).",
             ),
+            OpenApiParameter(
+                "client_query_id",
+                OpenApiTypes.STR,
+                description=(
+                    "Names the ClickHouse query this request runs. Send the same id to "
+                    "`DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still "
+                    "running. Up to 128 characters."
+                ),
+            ),
             PersonPropertiesSerializer(required=False),
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
+        client_query_id = request.GET.get("client_query_id")
+        tag_client_query_id(client_query_id)
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -608,6 +640,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "has_search": bool(filter.search),
             "has_properties": bool(person_properties),
             "has_distinct_id": bool(filter.distinct_id),
+            # Only a caller that can cancel sends an id, which is what separates the command
+            # palette's searches from the persons page's on the dashboard.
+            "has_client_query_id": bool(client_query_id),
             "include_total": include_total,
             "is_csv": is_csv_request,
             "limit": filter.limit,
@@ -628,34 +663,50 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
             actors_runner = ActorsQueryRunner(team=team, query=actors_query)
-            actor_ids = [row[0] for row in actors_runner.calculate().results]
-            with personhog_caller_tag("persons/list"):
-                serialized_actors = get_serialized_people(team, actor_ids)
+            # A cancel kills every ClickHouse query the request has in flight, so both queries below
+            # sit inside one handler. Anything that is not a cancellation is re-raised untouched.
+            try:
+                actor_ids = [row[0] for row in actors_runner.calculate().results]
 
-            restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
-            if restricted_person_properties:
-                for person_dict in serialized_actors:
-                    properties = person_dict.get("properties")
-                    if isinstance(properties, dict):
-                        person_dict["properties"] = {
-                            k: v for k, v in properties.items() if k not in restricted_person_properties
-                        }
+                with personhog_caller_tag("persons/list"):
+                    serialized_actors = get_serialized_people(team, actor_ids)
 
-            _should_paginate = len(actor_ids) >= filter.limit
+                restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
+                if restricted_person_properties:
+                    for person_dict in serialized_actors:
+                        properties = person_dict.get("properties")
+                        if isinstance(properties, dict):
+                            person_dict["properties"] = {
+                                k: v for k, v in properties.items() if k not in restricted_person_properties
+                            }
 
-            # If the undocumented include_total param is set to true, we'll return the total count of people
-            # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
-            # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
-            total_count: Optional[int] = None
-            if include_total:
-                count_inner = actors_runner.to_query()
-                count_inner.limit = None
-                count_inner.offset = None
-                count_query = ast.SelectQuery(
-                    select=[ast.Call(name="count", args=[])],
-                    select_from=ast.JoinExpr(table=count_inner),
-                )
-                total_count = execute_hogql_query(count_query, team=team).results[0][0]
+                _should_paginate = len(actor_ids) >= filter.limit
+
+                # If the undocumented include_total param is set to true, we'll return the total count of people
+                # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
+                # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
+                total_count: Optional[int] = None
+                if include_total:
+                    count_inner = actors_runner.to_query()
+                    count_inner.limit = None
+                    count_inner.offset = None
+                    count_query = ast.SelectQuery(
+                        select=[ast.Call(name="count", args=[])],
+                        select_from=ast.JoinExpr(table=count_inner),
+                    )
+                    total_count = execute_hogql_query(count_query, team=team).results[0][0]
+            except Exception as err:
+                if classify_query_error(err) is not QueryErrorCategory.CANCELLED:
+                    raise
+                # The caller killed this search, so there is no body to return and nothing went
+                # wrong. Raising would report a server error for every cancelled search.
+                #
+                # Returning also leaves the SLO block without an exception, so it records a
+                # success with however long the kill took. A cancel is not a failure, so the
+                # outcome stays as it is and this tag is what keeps an abandoned search from
+                # reading as a fast one in the latency percentiles.
+                slo.tag(cancelled=True)
+                return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
 
             slo.tag(result_count=len(actor_ids))
 
