@@ -269,6 +269,31 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
+    describe('percent stack option gating', () => {
+        function getPercentStackCheckbox(): HTMLInputElement {
+            const item = screen.getAllByText('Show as % of total')[0].closest('li')!
+            return within(item).getByRole('checkbox') as HTMLInputElement
+        }
+
+        it('disables "Show as % of total" for a single series with no breakdown', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsBar))
+            await openOptionsMenu()
+
+            // One value per interval always stacks to 100%, so the option is offered but disabled.
+            expect(getPercentStackCheckbox()).toBeDisabled()
+        })
+
+        it('enables "Show as % of total" once a breakdown splits the series', async () => {
+            setupAndRender({
+                ...makeTrendsQuery(ChartDisplayType.ActionsBar),
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+            })
+            await openOptionsMenu()
+
+            expect(getPercentStackCheckbox()).toBeEnabled()
+        })
+    })
+
     describe('section header tooltips', () => {
         it('renders an info tooltip on tooltip-backed headers but not on plain ones', async () => {
             setupAndRender(makeRetentionQuery())

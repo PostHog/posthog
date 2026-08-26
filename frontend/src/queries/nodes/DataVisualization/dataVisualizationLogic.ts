@@ -185,8 +185,10 @@ export const formatDataWithSettings = (
         dataAsString = `${settings.formatting.prefix}${dataAsString}`
     }
 
-    if (settings?.formatting?.suffix) {
-        dataAsString = `${dataAsString}${settings.formatting.suffix}`
+    // The percent style already appends "%", so a "%" suffix on top would double it.
+    const suffix = settings?.formatting?.suffix
+    if (suffix && !(settings?.formatting?.style === 'percent' && suffix === '%')) {
+        dataAsString = `${dataAsString}${suffix}`
     }
 
     return dataAsString

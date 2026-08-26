@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import { DataVisualizationLogicProps, dataVisualizationLogic, formatDataWithSettings } from './dataVisualizationLogic'
 
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
@@ -611,5 +611,20 @@ describe('dataVisualizationLogic', () => {
         })
 
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
+    })
+
+    describe('formatDataWithSettings', () => {
+        it.each([
+            // The percent style already appends "%", so a "%" suffix must not double it.
+            ['percent style with a "%" suffix', 47.3, 'percent', '%', '47.3%'],
+            ['percent style keeps a non-"%" suffix', 47.3, 'percent', ' pts', '47.3% pts'],
+            ['non-percent style keeps a "%" suffix', 47.3, 'number', '%', '47.3%'],
+        ])('%s', (_name, data, style, suffix, expected) => {
+            expect(
+                formatDataWithSettings(data, {
+                    formatting: { style: style as 'percent' | 'number', suffix },
+                })
+            ).toEqual(expected)
+        })
     })
 })
