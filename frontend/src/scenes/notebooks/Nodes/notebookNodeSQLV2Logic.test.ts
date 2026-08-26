@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -9,7 +10,12 @@ import { initKeaTests } from '~/test/init'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
-import { collectSqlV2Refs, notebookNodeSQLV2Logic, pollIntervalMs } from './notebookNodeSQLV2Logic'
+import {
+    collectSqlV2Refs,
+    notebookNodeSQLV2Logic,
+    pollIntervalMs,
+    sqlV2RunErrorMessage,
+} from './notebookNodeSQLV2Logic'
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -35,6 +41,30 @@ describe('notebookNodeSQLV2Logic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    describe('sqlV2RunErrorMessage', () => {
+        // The browser endpoints render every 404 as DRF's generic {"detail": "Not found."}, so the
+        // message must come from the caller's notFoundKind, not from matching the backend string.
+        const notFound = new ApiError(undefined, 404, undefined, { detail: 'Not found.' })
+
+        it('names the notebook for a 404 on a notebook-addressed request', () => {
+            expect(sqlV2RunErrorMessage(notFound, 'fallback', 'notebook')).toBe(
+                'This notebook could not be found. It may have been deleted.'
+            )
+        })
+
+        it('points at a rerun for a 404 on a result-addressed request', () => {
+            // The result/page call sites rely on the default kind.
+            expect(sqlV2RunErrorMessage(notFound, 'fallback')).toBe(
+                'This query result is no longer available. Run the cell again.'
+            )
+        })
+
+        it('keeps the original message for non-404 failures', () => {
+            // A syntax error carries the detail the user needs; the not-found mapping must not swallow it.
+            expect(sqlV2RunErrorMessage(new ApiError('Unexpected token', 400), 'fallback')).toBe('Unexpected token')
+        })
     })
 
     describe('collectSqlV2Refs', () => {
@@ -223,6 +253,18 @@ describe('notebookNodeSQLV2Logic', () => {
         // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
         // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
         expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
+    })
+
+    it('shows the notebook-gone message when the run dispatch 404s', async () => {
+        // A deleted or inaccessible notebook 404s the dispatch as a generic "Not found."; the cell
+        // must say the notebook is gone, not send the user into a rerun loop for a result that
+        // never existed.
+        runSpy.mockRejectedValue(new ApiError(undefined, 404, undefined, { detail: 'Not found.' }))
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.runError).toBe('This notebook could not be found. It may have been deleted.')
+        expect(logic.values.isRunning).toBe(false)
     })
 
     it('dispatches a run against the cell’s connection', async () => {
