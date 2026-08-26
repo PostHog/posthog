@@ -85,6 +85,48 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    @parameterized.expand(
+        [
+            ("partial search", "?search=another@gm", True, "clickhouse", "person"),
+            ("no search", "", False, "clickhouse", "person"),
+            ("exact identifier", "?search=someone@gmail.com", True, "exact_identifier", None),
+        ]
+    )
+    def test_person_list_emits_slo_event(
+        self,
+        _name: str,
+        query: str,
+        expected_has_search: bool,
+        expected_answered_by: str,
+        expected_actor_type: Optional[str],
+    ) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "another@gmail.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        with mock.patch("posthog.slo.events.posthoganalytics.capture") as capture:
+            response = self.client.get(f"/api/person/{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        completed = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "slo_operation_completed"
+            and call.kwargs["properties"]["operation"] == "persons_list"
+        ]
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0]["has_search"], expected_has_search)
+        self.assertEqual(completed[0]["answered_by"], expected_answered_by)
+        self.assertEqual(completed[0]["outcome"], "success")
+        self.assertEqual(completed[0]["result_count"], 1)
+        self.assertGreater(completed[0]["duration_ms"], 0)
+        # Only the ClickHouse path runs the actors query runner, which is what tags the actor type.
+        self.assertEqual(completed[0].get("actor_type"), expected_actor_type)
+
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_search_person_id(self) -> None:

@@ -6,6 +6,8 @@ import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional, Union, cast  # noqa: UP035
 
+from django.conf import settings
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -70,6 +72,8 @@ from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
+from posthog.slo.context import JsonValue, SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.split_person import split_person
 from posthog.utils import (
     format_query_params_absolute_url,
@@ -630,59 +634,93 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # already the whole first page, and a ClickHouse scan would add nothing.
         can_answer_from_identifier = not person_properties and filter.offset == 0
 
-        if filter.distinct_id:
-            # Exact match on any of the person's distinct IDs; no matching person => no results.
-            matched = get_person_by_distinct_id(team.pk, filter.distinct_id, distinct_id_limit=0)
-            if matched is None:
-                # Return early: a constant-false predicate can't be pushed into the persons
-                # lazy table, so ClickHouse would still aggregate every person row for the
-                # team before filtering everything out.
-                return self._person_list_response(request, [], filter, total_count=0 if include_total else None)
-            if can_answer_from_identifier and not search:
-                return self._person_list_response(
-                    request, [str(matched.uuid)], filter, total_count=1 if include_total else None
-                )
-            person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
-        elif search:
-            exact_uuids = _exact_identifier_person_uuids(team.pk, search) if can_answer_from_identifier else []
-            API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by="exact_identifier" if exact_uuids else "clickhouse").inc()
-            if exact_uuids:
-                return self._person_list_response(
-                    request,
-                    exact_uuids[: filter.limit],
-                    filter,
-                    total_count=len(exact_uuids) if include_total else None,
-                )
+        # This endpoint bypasses `QueryRunner.run()`, so nothing else measures how long it takes.
+        # The search path is the slow one, so the shape of the request is recorded alongside the
+        # duration. The search term itself is never recorded - it is user data.
+        slo_properties: dict[str, JsonValue] = {
+            "query_type": "ActorsQuery",
+            "has_search": bool(filter.search),
+            "has_properties": bool(person_properties),
+            "has_distinct_id": bool(filter.distinct_id),
+            "include_total": include_total,
+            "is_csv": is_csv_request,
+            "limit": filter.limit,
+            "offset": filter.offset,
+        }
+        # The block wraps the identifier fast paths too, not just the ClickHouse one. Measuring
+        # only the slow path would drop every fast answer out of the sample, so the endpoint would
+        # look slower the more requests it answers without ClickHouse. `answered_by` separates them.
+        with slo_operation(
+            spec=SloSpec(
+                # `User.distinct_id` is nullable, so fall back to the team like the query service does.
+                distinct_id=request.user.distinct_id or str(team.uuid),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.PERSONS_LIST,
+                team_id=team.pk,
+                sample_rate=settings.PERSONS_LIST_SLO_SAMPLE_RATE,
+            ),
+            properties=slo_properties,
+        ) as slo:
+            if filter.distinct_id:
+                # Exact match on any of the person's distinct IDs; no matching person => no results.
+                matched = get_person_by_distinct_id(team.pk, filter.distinct_id, distinct_id_limit=0)
+                if matched is None:
+                    # Return early: a constant-false predicate can't be pushed into the persons
+                    # lazy table, so ClickHouse would still aggregate every person row for the
+                    # team before filtering everything out.
+                    slo.tag(answered_by="exact_identifier", result_count=0)
+                    return self._person_list_response(request, [], filter, total_count=0 if include_total else None)
+                if can_answer_from_identifier and not search:
+                    slo.tag(answered_by="exact_identifier", result_count=1)
+                    return self._person_list_response(
+                        request, [str(matched.uuid)], filter, total_count=1 if include_total else None
+                    )
+                person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
+            elif search:
+                exact_uuids = _exact_identifier_person_uuids(team.pk, search) if can_answer_from_identifier else []
+                API_PERSON_LIST_SEARCH_COUNTER.labels(
+                    answered_by="exact_identifier" if exact_uuids else "clickhouse"
+                ).inc()
+                if exact_uuids:
+                    page = exact_uuids[: filter.limit]
+                    slo.tag(answered_by="exact_identifier", result_count=len(page))
+                    return self._person_list_response(
+                        request,
+                        page,
+                        filter,
+                        total_count=len(exact_uuids) if include_total else None,
+                    )
 
-        actors_query = ActorsQuery(
-            select=["id"],
-            properties=person_properties,
-            search=filter.search or None,
-            orderBy=["created_at DESC", "id DESC"],
-            limit=filter.limit,
-            offset=filter.offset,
-        )
-        # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
-        # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
-        # we still hydrate the person objects ourselves via get_serialized_people.
-        actors_runner = ActorsQueryRunner(team=team, query=actors_query)
-        actor_ids = [row[0] for row in actors_runner.calculate().results]
-
-        # If the undocumented include_total param is set to true, we'll return the total count of people
-        # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
-        # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
-        total_count: Optional[int] = None
-        if include_total:
-            count_inner = actors_runner.to_query()
-            count_inner.limit = None
-            count_inner.offset = None
-            count_query = ast.SelectQuery(
-                select=[ast.Call(name="count", args=[])],
-                select_from=ast.JoinExpr(table=count_inner),
+            actors_query = ActorsQuery(
+                select=["id"],
+                properties=person_properties,
+                search=filter.search or None,
+                orderBy=["created_at DESC", "id DESC"],
+                limit=filter.limit,
+                offset=filter.offset,
             )
-            total_count = execute_hogql_query(count_query, team=team).results[0][0]
+            # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
+            # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
+            # we still hydrate the person objects ourselves via get_serialized_people.
+            actors_runner = ActorsQueryRunner(team=team, query=actors_query)
+            actor_ids = [row[0] for row in actors_runner.calculate().results]
 
-        return self._person_list_response(request, actor_ids, filter, total_count=total_count)
+            # If the undocumented include_total param is set to true, we'll return the total count of people
+            # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
+            # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
+            total_count: Optional[int] = None
+            if include_total:
+                count_inner = actors_runner.to_query()
+                count_inner.limit = None
+                count_inner.offset = None
+                count_query = ast.SelectQuery(
+                    select=[ast.Call(name="count", args=[])],
+                    select_from=ast.JoinExpr(table=count_inner),
+                )
+                total_count = execute_hogql_query(count_query, team=team).results[0][0]
+
+            slo.tag(answered_by="clickhouse", result_count=len(actor_ids))
+            return self._person_list_response(request, actor_ids, filter, total_count=total_count)
 
     def _person_list_response(
         self,
