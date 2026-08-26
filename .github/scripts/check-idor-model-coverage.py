@@ -353,6 +353,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LLMSkillFile",  # via LLMSkill
         "LogsAlertCheck",  # via LogsAlertConfiguration
         "LogsAlertEvent",  # via LogsAlertConfiguration
+        "VisionAlertEvent",  # via VisionAlertConfiguration
         "NotificationReadState",  # via NotificationEvent
         "NotificationArchiveState",  # via NotificationEvent
         "PluginStorage",  # via PluginConfig
