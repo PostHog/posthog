@@ -119,9 +119,6 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
                 return dayjs(currentOrganization.created_at).isBefore(horizon)
             },
         ],
-        // Whether retention can affect this account's results at all, independent of the snooze. Passive indicators
-        // (the dashboard tile icon) key off this so dismissing the banner once doesn't hide them for the whole
-        // snooze window; only the banner itself, which actively interrupts, respects the snooze.
         retentionApplies: [
             (s) => [s.retentionEnforced, s.accountAgeEligible],
             (retentionEnforced: boolean, accountAgeEligible: boolean): boolean =>

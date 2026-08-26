@@ -196,8 +196,6 @@ export function InsightMeta({
     // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
-    // Keyed off the same effective date the heading prints, so the icon can't claim a range the tile isn't querying.
-    // Shared or exported views give the viewer no way to act.
     const showsDataRetentionWarning =
         retentionApplies &&
         placement !== DashboardPlacement.Public &&
@@ -753,11 +751,8 @@ export function InsightMetaContent({
     compact?: boolean
     showDescription?: boolean
     infoPopover?: JSX.Element | null
-    /** Tooltip text for the data retention indicator. When set, a warning icon is shown after the title. */
     dataRetentionWarning?: string | null
 }): JSX.Element {
-    // Sits next to the title rather than the card's top heading, which compact tiles hide below 14rem and lay out as
-    // a lone flex item in a space-between row, so an icon added there would drift to the far edge or vanish.
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
             <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />

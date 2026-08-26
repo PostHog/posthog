@@ -132,21 +132,13 @@ export const PlanComparison = ({
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
 
-    // Events data retention is a product analytics entitlement, so the platform product's own plans never carry it.
-    // Surface it here anyway: the platform comparison is where the free-versus-paid decision gets made, and the
-    // retention window is one of the differences between those tiers. Comparisons for a specific product already
-    // list their own retention feature row, so this is limited to the platform table to avoid a duplicate row.
     const productAnalyticsPlans = billing?.products?.find((product) => product.type === 'product_analytics')?.plans
     const eventsRetentionOf = (plan?: BillingPlanType): BillingFeatureType | undefined =>
         plan?.features?.find((feature) => feature.key === AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION)
-    // Unlike the platform plans below, product analytics plans leave included_if unset, so the free tier is picked
-    // out by having a free allocation instead of usage tiers.
     const freeEventsRetention = eventsRetentionOf(
         productAnalyticsPlans?.find((plan) => !!plan.free_allocation && !plan.tiers)
     )
     const paidEventsRetention = eventsRetentionOf(productAnalyticsPlans?.at(-1))
-    // Both sides or neither: PlanIcon draws a missing feature as a red cross, which would read as "no retention at
-    // all" on a tier that does have some.
     const showEventsRetention =
         product.type === 'platform_and_support' && !!freeEventsRetention && !!paidEventsRetention
 
