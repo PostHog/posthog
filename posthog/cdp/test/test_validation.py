@@ -1240,5 +1240,5 @@ class TestReservedFunctionsUsed(SimpleTestCase):
             ("does_not_parse", "let res := sendEmail(", set()),
         ]
     )
-    def test_reserved_functions_used(self, _name, hog, expected):
+    def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
         assert reserved_functions_used(hog) == expected

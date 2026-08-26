@@ -369,16 +369,16 @@ class HyphenatedPropertyDetector(TraversingVisitor):
 class ReservedFunctionDetector(TraversingVisitor):
     names: set[str]
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.names = set()
 
-    def visit_call(self, node: ast.Call):
+    def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
         if node.name in RESERVED_ASYNC_FUNCTIONS:
             self.names.add(node.name)
 
-    def visit_field(self, node: ast.Field):
+    def visit_field(self, node: ast.Field) -> None:
         # A bare reference is caught as well as a direct call. `let f := sendEmail` followed by
         # `f()` compiles to the same global dispatch, so the name alone is refused.
         super().visit_field(node)

@@ -406,7 +406,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("send_push_notification", "return sendPushNotification(inputs.message)"),
         ]
     )
-    def test_create_calling_reserved_function_is_blocked(self, _name, hog):
+    def test_create_calling_reserved_function_is_blocked(self, _name: str, hog: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={"type": "destination", "name": "Sneaky", "hog": hog, "inputs": {}},
@@ -425,7 +425,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("post_hog_update_account", "return postHogUpdateAccount({'external_id': '1', 'updates': {}})"),
         ]
     )
-    def test_create_with_supported_function_is_allowed(self, _name, hog):
+    def test_create_with_supported_function_is_allowed(self, _name: str, hog: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={"type": "destination", "name": f"Fine {_name}", "hog": hog, "inputs": {}},
@@ -445,7 +445,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ),
         ]
     )
-    def test_function_from_template_may_only_keep_the_templates_reserved_calls(self, _name, hog, expected):
+    def test_function_from_template_may_only_keep_the_templates_reserved_calls(
+        self, _name: str, hog: str, expected: int
+    ) -> None:
         self._create_email_template()
         fn = HogFunction.objects.create(
             team=self.team,
@@ -462,6 +464,37 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"hog": hog},
         )
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            # The template carve-out keeps the reserved call a hidden template makes, so a function
+            # built from one stays disableable and deletable. It must never yield a function that
+            # RUNS, because only a running one can wedge a worker. Two independent rules close that:
+            # the hidden-template rule refuses any save leaving it enabled, and an existing
+            # function's type is immutable, so it cannot be re-typed into a plain destination while
+            # keeping the call.
+            ("enable_blocked", {"enabled": True}, "enabled"),
+            ("retype_blocked", {"type": "transformation"}, "type"),
+        ]
+    )
+    def test_template_carve_out_cannot_yield_a_runnable_function(self, _name: str, patch: dict, attr: str) -> None:
+        self._create_email_template()
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Workflow email step",
+            type="destination",
+            template_id="template-email-test",
+            enabled=False,
+            inputs_schema=[],
+            inputs={},
+            hog="let res := sendEmail(inputs.email)",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data={**patch, "hog": "let res := sendEmail(inputs.email)"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == attr
 
     @parameterized.expand(
         [
