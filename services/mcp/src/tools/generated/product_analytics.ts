@@ -70,10 +70,10 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     style: z
         .enum(['none', 'number', 'short', 'percent'])
         .describe(
-            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.'
+            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.'
         )
         .optional(),
-    suffix: z.string().describe('Text appended to each value (e.g. `%` or ` ms`).').optional(),
+    suffix: z.string().describe('Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.').optional(),
 })
 
 const AssistantDataVisualizationAxisSettings = z.object({
