@@ -335,13 +335,17 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
+            // Client-side navigation adds a /project/:id prefix, so match these lockout paths by suffix.
             // Redirect to pending deletion page if organization deletion is in progress
-            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
+            if (
+                values.currentOrganization?.is_pending_deletion &&
+                !pathname.endsWith(urls.organizationPendingDeletion())
+            ) {
                 router.actions.replace(urls.organizationPendingDeletion())
                 return
             }
             // Redirect to deactivated page if organization is inactive (client-side navigation)
-            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
+            if (values.currentOrganization?.is_active === false && !pathname.endsWith(urls.organizationDeactivated())) {
                 router.actions.replace(urls.organizationDeactivated())
             }
         },

@@ -1,11 +1,13 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
 import { AppContext } from '../types'
 import { organizationLogic } from './organizationLogic'
+import { urls } from './urls'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
@@ -58,6 +60,32 @@ describe('organizationLogic', () => {
             await expectLogic(logic).toMatchValues({
                 currentOrganization: { ...MOCK_DEFAULT_ORGANIZATION },
             })
+        })
+    })
+
+    describe('pending deletion lockout redirect', () => {
+        beforeEach(async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: { id: 'WXYZ', is_pending_deletion: true } },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+        })
+
+        it('redirects to the lockout screen from another route', async () => {
+            router.actions.push(urls.settings('organization'))
+            await expectLogic(router).toDispatchActions(['replace'])
+            expect(router.values.location.pathname.endsWith(urls.organizationPendingDeletion())).toBe(true)
+        })
+
+        it('does not redirect when already on the prefixed lockout screen', async () => {
+            // Client-side navigation adds a /project/:id prefix; the guard must match by suffix or it loops.
+            const prefixedPath = `/project/121874${urls.organizationPendingDeletion()}`
+            router.actions.push(prefixedPath)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.location.pathname).toEqual(prefixedPath)
         })
     })
 
