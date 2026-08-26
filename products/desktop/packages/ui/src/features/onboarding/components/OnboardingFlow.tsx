@@ -162,20 +162,31 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     track(ANALYTICS_EVENTS.ONBOARDING_STARTED);
   }, []);
 
-  const viewedStepRef = useRef<OnboardingStep | null>(null);
-  // Recorded once the step can no longer be taken away, which covers the two
-  // paths that had no correct one: a step shown before its gate answers, and a
-  // step entered by the self-heal in useOnboardingFlow.
+  // Entry is when the person arrives on the step, which is not always when the
+  // view is recorded: a pending gate delays the view but not the reading.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentStep is the trigger, not a value the body reads
   useEffect(() => {
-    if (currentIndex < 0 || currentStepPending) return;
-    if (viewedStepRef.current === currentStep) return;
+    stepEnteredAtRef.current = Date.now();
+  }, [currentStep]);
+
+  const viewedStepRef = useRef<OnboardingStep | null>(null);
+  const recordStepViewed = () => {
+    if (currentIndex < 0 || viewedStepRef.current === currentStep) return;
     viewedStepRef.current = currentStep;
     track(ANALYTICS_EVENTS.ONBOARDING_STEP_VIEWED, {
       step_id: currentStep,
       step_index: currentIndex,
       total_steps: activeSteps.length,
     });
-    stepEnteredAtRef.current = Date.now();
+  };
+
+  // The ordinary path: the step settles while the person is reading it. This
+  // also covers a step entered by the self-heal in useOnboardingFlow, which
+  // reaches the person without passing through handleNext.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recordStepViewed reads the same values these deps carry
+  useEffect(() => {
+    if (currentStepPending) return;
+    recordStepViewed();
   }, [currentStep, currentIndex, currentStepPending, activeSteps.length]);
 
   useEffect(() => {
@@ -218,6 +229,9 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     // into capture properties poisons the whole analytics batch.
     const safeContext =
       context && "nativeEvent" in context ? undefined : context;
+    // A person can leave a step before its gate answers, which the effect above
+    // skips. Record the view first, so a completion never arrives without one.
+    recordStepViewed();
     trackStepCompleted(safeContext);
     next();
   };
@@ -237,6 +251,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   useHotkeys("left", handleBack, { enableOnFormTags: false }, [handleBack]);
 
   const handleComplete = (repoSkipped: boolean) => {
+    recordStepViewed();
     if (repoSkipped) {
       track(ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED, {
         step_id: currentStep,
