@@ -136,12 +136,19 @@ def _resolve_baselines_with_merge_base(
     rewrites the full file, and git rebase replays it destructively).
 
     Branch entries win on conflict so approvals are preserved.
-    Healing is limited to identifiers this run rendered. An entry missing
-    from the branch baseline whose story still renders is the rebase loss
-    above. An entry missing from both is one the branch deleted on purpose,
-    and restoring it only manufactures a REMOVED — on a merge-queue branch
-    nobody can approve that away, so it reds the batch until the deleting
-    PR lands.
+    On a merge-queue branch, healing is limited to identifiers this run
+    rendered. An entry missing from the branch baseline whose story still
+    renders is the rebase loss above. An entry missing from both is one the
+    branch deleted on purpose, and restoring it only manufactures a REMOVED
+    that no one on a queue branch can approve, so it reds the batch and every
+    pull request sharing it until the deleting one lands.
+
+    Ordinary branches keep healing everything, because there the REMOVED is
+    the review gate: it is how a reviewer is asked to confirm that a story
+    should go. The queue signal is the server-verified source PR rather than
+    the branch name, which is client-supplied — matching the name alone would
+    let any caller skip that gate. When verification fails the filter stays
+    off, so a GitHub blip costs a red batch rather than a silent removal.
 
     Identifiers previously approved as REMOVED on this branch are
     tombstoned — healing would otherwise resurrect them from master
@@ -194,10 +201,11 @@ def _resolve_baselines_with_merge_base(
         github, repo.repo_full_name, branch, head_ref=baseline_ref
     )
     tombstoned = _tombstoned_identifiers(repo, run_type, branch, source_pr_number=source_pr_number)
+    on_merge_queue_branch = source_pr_number is not None
     healable_merge_base = {
         identifier: baseline_hash
         for identifier, baseline_hash in merge_base_baseline.items()
-        if identifier not in tombstoned and identifier in rendered_identifiers
+        if identifier not in tombstoned and (not on_merge_queue_branch or identifier in rendered_identifiers)
     }
 
     healed = set(healable_merge_base) - set(branch_baseline)

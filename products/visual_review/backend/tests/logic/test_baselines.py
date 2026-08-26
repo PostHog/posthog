@@ -213,18 +213,66 @@ class TestMergeBaseBaselineHealing:
         assert merged == {"A": "h1", "C": "h3"}
         assert healed == 1
 
-    def test_does_not_heal_what_the_run_did_not_render(self, repo, mocker):
-        # A story the branch deleted stays deleted. Healing it back invents a removal.
-        branch_baseline = {"kept": "h1"}
-        merge_base_baseline = {"kept": "h1", "deleted-story": "h2"}
-        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+    def test_queue_branch_does_not_heal_what_the_run_did_not_render(self, repo, mocker):
+        # A story the batch deleted stays deleted. Healing it back invents a removal
+        # that nobody on a queue branch can approve away.
+        self._mock_github(
+            mocker,
+            branch_baseline={"kept": "h1"},
+            merge_base_baseline={"kept": "h1", "deleted-story": "h2"},
+            pr_head_sha="source-pr-head",
+            commit_sha_baselines={"batch-sha": {"kept": "h1"}},
+        )
+
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo,
+            "storybook",
+            "trunk-merge/pr-4242/0c2f75d8",
+            rendered_identifiers={"kept"},
+            commit_sha="batch-sha",
+        )
+
+        assert merged == {"kept": "h1"}
+        assert healed == 0
+
+    def test_ordinary_branch_still_heals_a_deleted_story(self, repo, mocker):
+        # Outside the queue the REMOVED is the review gate: it is how a reviewer is
+        # asked to confirm the story should go. Healing has to keep raising it.
+        self._mock_github(
+            mocker,
+            branch_baseline={"kept": "h1"},
+            merge_base_baseline={"kept": "h1", "deleted-story": "h2"},
+        )
 
         merged, healed = baselines._resolve_baselines_with_merge_base(
             repo, "storybook", "my-branch", rendered_identifiers={"kept"}
         )
 
-        assert merged == {"kept": "h1"}
-        assert healed == 0
+        assert merged == {"kept": "h1", "deleted-story": "h2"}
+        assert healed == 1
+
+    def test_unverified_queue_branch_keeps_the_removal_gate(self, repo, mocker):
+        # The branch name is client-supplied. Without GitHub confirming the source
+        # PR is an ancestor, the filter stays off rather than granting a bypass.
+        self._mock_github(
+            mocker,
+            branch_baseline={"kept": "h1"},
+            merge_base_baseline={"kept": "h1", "deleted-story": "h2"},
+            pr_head_sha="source-pr-head",
+            pr_head_is_ancestor=False,
+            commit_sha_baselines={"batch-sha": {"kept": "h1"}},
+        )
+
+        merged, healed = baselines._resolve_baselines_with_merge_base(
+            repo,
+            "storybook",
+            "trunk-merge/pr-4242/0c2f75d8",
+            rendered_identifiers={"kept"},
+            commit_sha="batch-sha",
+        )
+
+        assert merged == {"kept": "h1", "deleted-story": "h2"}
+        assert healed == 1
 
     def test_heals_what_the_run_still_renders(self, repo, mocker):
         # Same missing entry, but the story renders: the rebase loss healing exists for.
@@ -451,6 +499,7 @@ class TestMergeBaseBaselineHealing:
             branch_baseline=batch_baseline,
             merge_base_baseline=master_baseline,
             commit_sha_baselines={"batch-sha": batch_baseline},
+            pr_head_sha="source-pr-head",
         )
 
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
