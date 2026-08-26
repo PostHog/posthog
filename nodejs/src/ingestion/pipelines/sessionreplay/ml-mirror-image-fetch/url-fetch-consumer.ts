@@ -13,6 +13,7 @@ import {
     HOPS_EXHAUSTED,
     isTransientOutcome,
 } from './fetch-runner'
+import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 
@@ -29,7 +30,8 @@ export class UrlFetchConsumer {
         private readonly crawlHistory: CrawlHistoryStore,
         private readonly publisher: FrontierPublisher,
         private readonly options: UrlFetchConsumerOptions,
-        private readonly runner?: FetchPass
+        private readonly runner?: FetchPass,
+        private readonly deadLetters: FrontierDeadLetterSink | null = null
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -56,10 +58,17 @@ export class UrlFetchConsumer {
             for (const message of messages) {
                 const parsed = this.parse(message)
                 if (!parsed.ok) {
+                    await this.parkRejectedRecord(message, [parsed.reason])
                     drops.set(parsed.reason, (drops.get(parsed.reason) ?? 0) + 1)
                     continue
                 }
                 ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
+                if (parsed.rejected.length > 0) {
+                    await this.parkRejectedRecord(
+                        message,
+                        parsed.rejected.map((rejected) => rejected.reason)
+                    )
+                }
                 for (const rejected of parsed.rejected) {
                     drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
                 }
@@ -169,6 +178,25 @@ export class UrlFetchConsumer {
             })
             return { ok: false, reason: 'malformed' }
         }
+    }
+
+    private async parkRejectedRecord(message: Message, reasons: UrlDropReason[]): Promise<void> {
+        if (!this.deadLetters) {
+            return
+        }
+        const reason = this.deadLetterReason(reasons)
+        try {
+            await this.deadLetters.park(message, reason)
+        } catch (error) {
+            ImageFetchConsumerMetrics.incDeadLetterFailed(reason)
+            throw error
+        }
+        ImageFetchConsumerMetrics.incDeadLettered(reason)
+    }
+
+    private deadLetterReason(reasons: UrlDropReason[]): FrontierDeadLetterReason {
+        const distinctReasons = new Set(reasons)
+        return distinctReasons.size === 1 ? reasons[0] : 'multiple'
     }
 
     private async runCrawlHistoryOperation<T>(

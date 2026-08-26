@@ -20,6 +20,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/configuration-policy'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
 import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
+import { KafkaFrontierDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-dead-letter-sink'
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
@@ -208,10 +209,13 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         // Built even in dry run, so the wiring is exercised by every start rather than only by the
         // one that clears the flag.
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const producer = this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER)
         const publisher = buildFrontierPublisher(
-            this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER),
+            producer,
             this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES
         )
+        const deadLetterTopic = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC
+        const deadLetters = deadLetterTopic ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic) : null
 
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,
@@ -220,7 +224,8 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
                 seenTtlSeconds: this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
                 dryRun,
             },
-            buildFetchRunner(this.config, publisher)
+            buildFetchRunner(this.config, publisher),
+            deadLetters
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
