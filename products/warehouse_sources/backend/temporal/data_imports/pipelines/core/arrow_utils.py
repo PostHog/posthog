@@ -613,6 +613,28 @@ def _is_id_like_column(column_name: str, primary_keys: Sequence[str] | None) -> 
     return any(lowered == key.lower() for key in (primary_keys or []))
 
 
+def _hex_array_or_report(
+    values: Any,
+    column_name: str,
+    binary_reporter: Optional[BinaryColumnReporter],
+) -> Optional[pa.Array]:
+    """Lowercase-hex strings for one binary column, or None when the values can't be converted.
+
+    Callers decide what None means: the row path drops the column, the Arrow path leaves it
+    binary. Both report the same way.
+    """
+    try:
+        hex_array = pa.array([None if value is None else value.hex() for value in values], type=pa.string())
+    except (AttributeError, TypeError, ValueError) as e:
+        if binary_reporter:
+            binary_reporter.conversion_failed(column_name, e)
+        return None
+
+    if binary_reporter:
+        binary_reporter.converted(column_name)
+    return hex_array
+
+
 class BinaryColumnReporter:
     """Logs each binary column's outcome once per instance lifetime (one sync), because
     `_process_batch` runs per batch and logging there directly would repeat the same line
@@ -665,19 +687,11 @@ def hex_encode_id_binary_columns(
         if not _is_id_like_column(field.name, primary_keys):
             continue
 
-        try:
-            hex_array = pa.array(
-                [None if value is None else value.hex() for value in table.column(field.name).to_pylist()],
-                type=pa.string(),
-            )
-        except (AttributeError, TypeError, ValueError) as e:
-            if binary_reporter:
-                binary_reporter.conversion_failed(field.name, e)
+        hex_array = _hex_array_or_report(table.column(field.name).to_pylist(), field.name, binary_reporter)
+        if hex_array is None:
             continue
 
         table = table.set_column(index, field.with_type(pa.string()), hex_array)
-        if binary_reporter:
-            binary_reporter.converted(field.name)
 
     return table
 
@@ -1169,13 +1183,10 @@ def _process_batch(
             # and incremental merges on the synced table.
             if pa.types.is_binary(field.type):
                 if _is_id_like_column(str(field_name), primary_keys):
-                    try:
-                        hex_array = pa.array(
-                            [None if s is None else s.hex() for s in _to_list_array(columnar_table_data[field_name])]
-                        )
-                    except (AttributeError, TypeError, ValueError) as e:
-                        if binary_reporter:
-                            binary_reporter.conversion_failed(str(field_name), e)
+                    hex_array = _hex_array_or_report(
+                        _to_list_array(columnar_table_data[field_name]), str(field_name), binary_reporter
+                    )
+                    if hex_array is None:
                         drop_column_names.add(field_name)
                     else:
                         columnar_table_data[field_name] = hex_array
@@ -1184,8 +1195,6 @@ def _process_batch(
                         arrow_schema = arrow_schema.set(
                             field_index, arrow_schema.field(field_index).with_type(pa.string())
                         )
-                        if binary_reporter:
-                            binary_reporter.converted(str(field_name))
                 else:
                     if binary_reporter:
                         binary_reporter.dropped(str(field_name))
@@ -1427,13 +1436,10 @@ def _process_batch(
         # schemas, or a declared type the values don't match).
         if issubclass(py_type, bytes):
             if _is_id_like_column(str(field_name), primary_keys):
-                try:
-                    hex_array = pa.array(
-                        [None if s is None else s.hex() for s in _to_list_array(columnar_table_data[field_name])]
-                    )
-                except (AttributeError, TypeError, ValueError) as e:
-                    if binary_reporter:
-                        binary_reporter.conversion_failed(str(field_name), e)
+                hex_array = _hex_array_or_report(
+                    _to_list_array(columnar_table_data[field_name]), str(field_name), binary_reporter
+                )
+                if hex_array is None:
                     drop_column_names.add(field_name)
                 else:
                     columnar_table_data[field_name] = hex_array
@@ -1442,8 +1448,6 @@ def _process_batch(
                         arrow_schema = arrow_schema.set(
                             field_index, arrow_schema.field(field_index).with_type(pa.string())
                         )
-                    if binary_reporter:
-                        binary_reporter.converted(str(field_name))
             else:
                 if binary_reporter:
                     binary_reporter.dropped(str(field_name))
