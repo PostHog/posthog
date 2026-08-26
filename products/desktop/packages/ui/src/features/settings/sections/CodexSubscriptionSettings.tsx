@@ -7,6 +7,7 @@ import {
   shouldShowCodexSubscriptionControls,
   useCodexSubscription,
 } from "@posthog/ui/features/settings/useCodexSubscription";
+import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { registerCodexSubscription } from "@posthog/ui/shell/posthogAnalyticsImpl";
@@ -51,6 +52,12 @@ export function CodexSubscriptionSettings() {
       setAwaitingLogin(true);
       setLaunching(true);
     },
+    // Without this a failed spawn/handshake is silent: the button just reverts
+    // to "Connect ChatGPT account" and reads as broken. Leave it clickable.
+    onError: (error) =>
+      toast.error("Couldn't start ChatGPT sign-in", {
+        description: error.message,
+      }),
   });
   const [launching, setLaunching] = useState(false);
   useEffect(() => {
@@ -82,6 +89,10 @@ export function CodexSubscriptionSettings() {
         connected: false,
       });
     },
+    onError: (error) =>
+      toast.error("Couldn't sign out of ChatGPT", {
+        description: error.message,
+      }),
     onSettled: () => {
       setAwaitingLogin(false);
       void queryClient.invalidateQueries({ queryKey: statusQuery.queryKey });
