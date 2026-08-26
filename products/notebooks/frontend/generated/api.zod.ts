@@ -208,67 +208,6 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const NotebooksGenuiCancelBody = /* @__PURE__ */ zod.object({
-    generation_id: zod.uuid().describe('Identifier of the generation request to cancel.'),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksGenuiGenerateBodyPromptMax = 20000
-
-export const notebooksGenuiGenerateBodyModelDefault = `claude-sonnet-4-6`
-export const notebooksGenuiGenerateBodyOperationDefault = `regenerate`
-
-export const NotebooksGenuiGenerateBody = /* @__PURE__ */ zod.object({
-    prompt: zod
-        .string()
-        .max(notebooksGenuiGenerateBodyPromptMax)
-        .describe('Instructions for the generated visualization.'),
-    generation_id: zod.uuid().describe('Unique identifier used to cancel this generation request.'),
-    model: zod
-        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-opus-5'])
-        .describe(
-            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
-        )
-        .default(notebooksGenuiGenerateBodyModelDefault)
-        .describe(
-            'AI model used to generate the visualization.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
-        ),
-    operation: zod
-        .enum(['initial', 'regenerate', 'improve'])
-        .describe('\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve')
-        .default(notebooksGenuiGenerateBodyOperationDefault)
-        .describe(
-            'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
-        ),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const NotebooksGenuiRevertBody = /* @__PURE__ */ zod.object({
-    version_id: zod.uuid().describe('Historical source version to restore.'),
-    expected_current_version_id: zod.uuid().describe('Current version observed before requesting the restore.'),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksGenuiSaveSourceBodyPromptMax = 20000
-
-export const NotebooksGenuiSaveSourceBody = /* @__PURE__ */ zod.object({
-    source: zod.string().describe('Complete replacement src\/canvas.tsx source.'),
-    prompt: zod
-        .string()
-        .max(notebooksGenuiSaveSourceBodyPromptMax)
-        .describe('Change note stored with the new source version.'),
-    expected_current_version_id: zod.uuid().describe('Current version the source edit is based on.'),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const notebooksHogqlExecuteCreateBodyTitleMax = 256
 
 export const notebooksHogqlExecuteCreateBodyVersionMin = -2147483648
@@ -488,4 +427,59 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Send the code to the selected connection verbatim instead of compiling it from HogQL first. Ignored without connection_id, and incompatible with references to other cells.'
         ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetCancelBody = /* @__PURE__ */ zod.object({
+    generation_id: zod.uuid().describe('Generation job to cancel.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetGenerateBodyPromptMax = 20000
+
+export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`
+export const notebooksWidgetGenerateBodyOperationDefault = `regenerate`
+
+export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
+    prompt: zod.string().max(notebooksWidgetGenerateBodyPromptMax).describe('Instructions for the generated widget.'),
+    generation_id: zod.uuid().describe('Idempotency key for this generation job.'),
+    model: zod
+        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-opus-5'])
+        .describe(
+            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        )
+        .default(notebooksWidgetGenerateBodyModelDefault)
+        .describe(
+            'AI model used to generate the widget.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
+        ),
+    operation: zod
+        .enum(['initial', 'regenerate', 'improve'])
+        .describe('\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve')
+        .default(notebooksWidgetGenerateBodyOperationDefault)
+        .describe(
+            'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
+        ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetRevertBody = /* @__PURE__ */ zod.object({
+    version_id: zod.uuid().describe('Earlier version to restore as a new version.'),
+    expected_current_version_id: zod.uuid().describe('Current version used for optimistic concurrency.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSaveSourceBodyPromptMax = 20000
+
+export const NotebooksWidgetSaveSourceBody = /* @__PURE__ */ zod.object({
+    source: zod.string().describe('Complete replacement source.'),
+    prompt: zod.string().max(notebooksWidgetSaveSourceBodyPromptMax).describe('Description of the change.'),
+    expected_current_version_id: zod.uuid().describe('Version the edit is based on.'),
 })

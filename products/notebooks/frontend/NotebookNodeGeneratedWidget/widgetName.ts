@@ -1,9 +1,9 @@
 const GENERATED_NAME_MAX_LENGTH = 80
 
-export function getGenUIName(prompt: string): string {
+export function getWidgetName(prompt: string): string {
     const normalized = prompt.trim().replace(/\s+/g, ' ')
     if (!normalized) {
-        return 'Custom visualization'
+        return 'Generated widget'
     }
     if (normalized.length <= GENERATED_NAME_MAX_LENGTH) {
         return normalized

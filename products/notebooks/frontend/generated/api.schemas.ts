@@ -8,6 +8,18 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `private` - private
+ * * `team` - team
+ */
+export type WidgetCatalogVisibilityEnumApi =
+    (typeof WidgetCatalogVisibilityEnumApi)[keyof typeof WidgetCatalogVisibilityEnumApi]
+
+export const WidgetCatalogVisibilityEnumApi = {
+    Private: 'private',
+    Team: 'team',
+} as const
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -62,6 +74,31 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface WidgetCatalogApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly visibility: WidgetCatalogVisibilityEnumApi
+    /** @nullable */
+    readonly current_version_id: string | null
+    /** Immutable versions retained for this widget. */
+    readonly version_count: number
+    /** Notebook instances linked to this widget. */
+    readonly usage_count: number
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedWidgetCatalogListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WidgetCatalogApi[]
 }
 
 export interface NotebookMinimalApi {
@@ -272,260 +309,6 @@ export interface NotebookCollabSaveApi {
      * @nullable
      */
     cursor_head?: number | null
-}
-
-export interface GenUICancelRequestApi {
-    /** Identifier of the generation request to cancel. */
-    generation_id: string
-}
-
-export interface GenUIErrorApi {
-    /** Stable machine-readable error code. */
-    code: string
-    /** Error detail with a next action. */
-    detail: string
-}
-
-export interface GenUIInputColumnApi {
-    /** Dataframe column name. */
-    name: string
-    /** Dataframe column type reported by the notebook run. */
-    type: string
-}
-
-export interface GenUIFrameApi {
-    /** Dataframe name. */
-    name: string
-    /** Dataframe columns and types. */
-    columns: GenUIInputColumnApi[]
-    /** Bounded, JSON-safe preview rows from the latest successful cell run. */
-    rows: unknown[][]
-    /**
-     * Total rows reported by the notebook run.
-     * @minimum 0
-     */
-    totalRowCount: number
-    /**
-     * Rows included in this response.
-     * @minimum 0
-     */
-    includedRowCount: number
-    /** Whether rows were omitted from this response. */
-    truncated: boolean
-}
-
-/**
- * * `claude-haiku-4-5` - claude-haiku-4-5
- * * `claude-sonnet-4-6` - claude-sonnet-4-6
- * * `claude-sonnet-5` - claude-sonnet-5
- * * `claude-opus-5` - claude-opus-5
- */
-export type GenUIGenerateRequestModelEnumApi =
-    (typeof GenUIGenerateRequestModelEnumApi)[keyof typeof GenUIGenerateRequestModelEnumApi]
-
-export const GenUIGenerateRequestModelEnumApi = {
-    ClaudeHaiku45: 'claude-haiku-4-5',
-    ClaudeSonnet46: 'claude-sonnet-4-6',
-    ClaudeSonnet5: 'claude-sonnet-5',
-    ClaudeOpus5: 'claude-opus-5',
-} as const
-
-/**
- * * `initial` - initial
- * * `regenerate` - regenerate
- * * `improve` - improve
- */
-export type GenUIGenerateRequestOperationEnumApi =
-    (typeof GenUIGenerateRequestOperationEnumApi)[keyof typeof GenUIGenerateRequestOperationEnumApi]
-
-export const GenUIGenerateRequestOperationEnumApi = {
-    Initial: 'initial',
-    Regenerate: 'regenerate',
-    Improve: 'improve',
-} as const
-
-export interface GenUIGenerateRequestApi {
-    /**
-     * Instructions for the generated visualization.
-     * @maxLength 20000
-     */
-    prompt: string
-    /** Unique identifier used to cancel this generation request. */
-    generation_id: string
-    /** AI model used to generate the visualization.
-     *
-     * * `claude-haiku-4-5` - claude-haiku-4-5
-     * * `claude-sonnet-4-6` - claude-sonnet-4-6
-     * * `claude-sonnet-5` - claude-sonnet-5
-     * * `claude-opus-5` - claude-opus-5 */
-    model?: GenUIGenerateRequestModelEnumApi
-    /** Whether to generate from scratch or improve the current source.
-     *
-     * * `initial` - initial
-     * * `regenerate` - regenerate
-     * * `improve` - improve */
-    operation?: GenUIGenerateRequestOperationEnumApi
-}
-
-/**
- * * `awaiting_generation` - awaiting_generation
- * * `generating` - generating
- * * `building` - building
- * * `ready` - ready
- * * `failed` - failed
- */
-export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
-
-export const LifecycleStatusEnumApi = {
-    AwaitingGeneration: 'awaiting_generation',
-    Generating: 'generating',
-    Building: 'building',
-    Ready: 'ready',
-    Failed: 'failed',
-} as const
-
-/**
- * * `initial` - initial
- * * `regenerate` - regenerate
- * * `improve` - improve
- * * `source_edit` - source_edit
- */
-export type GenUIVersionOperationEnumApi =
-    (typeof GenUIVersionOperationEnumApi)[keyof typeof GenUIVersionOperationEnumApi]
-
-export const GenUIVersionOperationEnumApi = {
-    Initial: 'initial',
-    Regenerate: 'regenerate',
-    Improve: 'improve',
-    SourceEdit: 'source_edit',
-} as const
-
-/**
- * * `queued` - queued
- * * `building` - building
- * * `ready` - ready
- * * `failed` - failed
- */
-export type BuildStatusEnumApi = (typeof BuildStatusEnumApi)[keyof typeof BuildStatusEnumApi]
-
-export const BuildStatusEnumApi = {
-    Queued: 'queued',
-    Building: 'building',
-    Ready: 'ready',
-    Failed: 'failed',
-} as const
-
-export interface GenUIVersionApi {
-    /** Canvas source version identifier. */
-    id: string
-    /**
-     * Canvas source version this version was based on.
-     * @nullable
-     */
-    parent_version_id: string | null
-    /**
-     * One-based version number within this visualization.
-     * @minimum 1
-     */
-    version: number
-    /** Action that created this version.
-     *
-     * * `initial` - initial
-     * * `regenerate` - regenerate
-     * * `improve` - improve
-     * * `source_edit` - source_edit */
-    operation: GenUIVersionOperationEnumApi
-    /** Prompt or change note entered for this version. */
-    prompt: string
-    /** Complete prompt represented by this version. */
-    effective_prompt: string
-    /**
-     * AI model used for this version, or null for imported and manually edited versions.
-     * @nullable
-     */
-    model: string | null
-    /** When this version was created. */
-    created_at: string
-    /** Latest Canvas build state for this source version.
-     *
-     * * `queued` - queued
-     * * `building` - building
-     * * `ready` - ready
-     * * `failed` - failed */
-    build_status: BuildStatusEnumApi | null
-    /**
-     * Short-lived artifact URL for previewing this version when a retained build is available.
-     * @nullable
-     */
-    artifact_url: string | null
-}
-
-export interface GenUIStatusApi {
-    /** Current visualization state derived from its Canvas build.
-     *
-     * * `awaiting_generation` - awaiting_generation
-     * * `generating` - generating
-     * * `building` - building
-     * * `ready` - ready
-     * * `failed` - failed */
-    lifecycle_status: LifecycleStatusEnumApi
-    /**
-     * Actionable detail when visualization generation or building failed.
-     * @nullable
-     */
-    error_detail?: string | null
-    /**
-     * Short-lived URL for the current visualization artifact.
-     * @nullable
-     */
-    artifact_url?: string | null
-    /** Dataframes the current visualization may read. */
-    frame_names: string[]
-    /**
-     * When the active or most recent generation started.
-     * @nullable
-     */
-    generation_started_at: string | null
-    /**
-     * Cancelable generation identifier while model generation is active.
-     * @nullable
-     */
-    generation_id: string | null
-    /**
-     * Canvas source version currently selected as the visualization head.
-     * @nullable
-     */
-    current_version_id: string | null
-    /** Complete source-version history, oldest first. */
-    versions: GenUIVersionApi[]
-}
-
-export interface GenUIRevertRequestApi {
-    /** Historical source version to restore. */
-    version_id: string
-    /** Current version observed before requesting the restore. */
-    expected_current_version_id: string
-}
-
-export interface GenUISourceSaveRequestApi {
-    /** Complete replacement src/canvas.tsx source. */
-    source: string
-    /**
-     * Change note stored with the new source version.
-     * @maxLength 20000
-     */
-    prompt: string
-    /** Current version the source edit is based on. */
-    expected_current_version_id: string
-}
-
-export interface GenUISourceResponseApi {
-    /** Source version returned by this response. */
-    version_id: string
-    /** Current source version used for optimistic concurrency. */
-    current_version_id: string
-    /** Complete editable src/canvas.tsx source for this version. */
-    source: string
 }
 
 export interface NotebookKernelConfigApi {
@@ -852,6 +635,332 @@ export interface NotebookSQLV2StateResponseApi {
     cells: NotebookCellStateApi[]
 }
 
+export interface WidgetCancelRequestApi {
+    /** Generation job to cancel. */
+    generation_id: string
+}
+
+export interface WidgetErrorApi {
+    /** Stable machine-readable error code. */
+    code: string
+    /** Actionable error detail. */
+    detail: string
+}
+
+export interface WidgetFrameColumnApi {
+    name: string
+    type: string
+}
+
+export interface WidgetFrameApi {
+    name: string
+    columns: WidgetFrameColumnApi[]
+    rows: unknown[][]
+    /** @minimum 0 */
+    totalRowCount: number
+    /** @minimum 0 */
+    includedRowCount: number
+    /** @minimum 0 */
+    offset: number
+    /**
+     * @minimum 0
+     * @nullable
+     */
+    nextOffset: number | null
+    truncated: boolean
+}
+
+/**
+ * * `claude-haiku-4-5` - claude-haiku-4-5
+ * * `claude-sonnet-4-6` - claude-sonnet-4-6
+ * * `claude-sonnet-5` - claude-sonnet-5
+ * * `claude-opus-5` - claude-opus-5
+ */
+export type WidgetGenerateRequestModelEnumApi =
+    (typeof WidgetGenerateRequestModelEnumApi)[keyof typeof WidgetGenerateRequestModelEnumApi]
+
+export const WidgetGenerateRequestModelEnumApi = {
+    ClaudeHaiku45: 'claude-haiku-4-5',
+    ClaudeSonnet46: 'claude-sonnet-4-6',
+    ClaudeSonnet5: 'claude-sonnet-5',
+    ClaudeOpus5: 'claude-opus-5',
+} as const
+
+/**
+ * * `initial` - initial
+ * * `regenerate` - regenerate
+ * * `improve` - improve
+ */
+export type WidgetGenerateRequestOperationEnumApi =
+    (typeof WidgetGenerateRequestOperationEnumApi)[keyof typeof WidgetGenerateRequestOperationEnumApi]
+
+export const WidgetGenerateRequestOperationEnumApi = {
+    Initial: 'initial',
+    Regenerate: 'regenerate',
+    Improve: 'improve',
+} as const
+
+export interface WidgetGenerateRequestApi {
+    /**
+     * Instructions for the generated widget.
+     * @maxLength 20000
+     */
+    prompt: string
+    /** Idempotency key for this generation job. */
+    generation_id: string
+    /** AI model used to generate the widget.
+     *
+     * * `claude-haiku-4-5` - claude-haiku-4-5
+     * * `claude-sonnet-4-6` - claude-sonnet-4-6
+     * * `claude-sonnet-5` - claude-sonnet-5
+     * * `claude-opus-5` - claude-opus-5 */
+    model?: WidgetGenerateRequestModelEnumApi
+    /** Whether to generate from scratch or improve the current source.
+     *
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve */
+    operation?: WidgetGenerateRequestOperationEnumApi
+}
+
+/**
+ * * `awaiting_generation` - awaiting_generation
+ * * `generating` - generating
+ * * `building` - building
+ * * `ready` - ready
+ * * `failed` - failed
+ * * `incompatible` - incompatible
+ */
+export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
+
+export const LifecycleStatusEnumApi = {
+    AwaitingGeneration: 'awaiting_generation',
+    Generating: 'generating',
+    Building: 'building',
+    Ready: 'ready',
+    Failed: 'failed',
+    Incompatible: 'incompatible',
+} as const
+
+/**
+ * * `queued` - queued
+ * * `generating` - generating
+ * * `publishing` - publishing
+ */
+export type WidgetJobStatusEnumApi = (typeof WidgetJobStatusEnumApi)[keyof typeof WidgetJobStatusEnumApi]
+
+export const WidgetJobStatusEnumApi = {
+    Queued: 'queued',
+    Generating: 'generating',
+    Publishing: 'publishing',
+} as const
+
+export interface WidgetJobApi {
+    /** Generation job identifier. */
+    id: string
+    /** Current durable job state.
+     *
+     * * `queued` - queued
+     * * `generating` - generating
+     * * `publishing` - publishing */
+    status: WidgetJobStatusEnumApi
+    /** Current generation phase. */
+    phase: string
+    /** AI model processing the job. */
+    model: string
+    /** When the job was queued. */
+    created_at: string
+    /**
+     * When a worker started the job.
+     * @nullable
+     */
+    started_at: string | null
+}
+
+export interface WidgetStatusApi {
+    /** Current widget and preview state.
+     *
+     * * `awaiting_generation` - awaiting_generation
+     * * `generating` - generating
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     * * `incompatible` - incompatible */
+    lifecycle_status: LifecycleStatusEnumApi
+    /**
+     * Actionable failure detail.
+     * @nullable
+     */
+    error_detail?: string | null
+    /**
+     * Short-lived URL for the selected widget version's preview.
+     * @nullable
+     */
+    artifact_url?: string | null
+    /** Logical dataframe slots available to the selected version. */
+    frame_names: string[]
+    /**
+     * Selected immutable widget version.
+     * @nullable
+     */
+    current_version_id: string | null
+    /**
+     * Reusable widget identity.
+     * @nullable
+     */
+    widget_id: string | null
+    /**
+     * Placement in this notebook.
+     * @nullable
+     */
+    instance_id: string | null
+    /** Whether the widget has generated history. */
+    has_versions: boolean
+    /** Active generation job, if any. */
+    active_job: WidgetJobApi | null
+}
+
+export interface WidgetRevertRequestApi {
+    /** Earlier version to restore as a new version. */
+    version_id: string
+    /** Current version used for optimistic concurrency. */
+    expected_current_version_id: string
+}
+
+export interface WidgetSourceSaveRequestApi {
+    /** Complete replacement source. */
+    source: string
+    /**
+     * Description of the change.
+     * @maxLength 20000
+     */
+    prompt: string
+    /** Version the edit is based on. */
+    expected_current_version_id: string
+}
+
+export interface WidgetSourceResponseApi {
+    /** Version returned by this response. */
+    version_id: string
+    /** Current version used for optimistic concurrency. */
+    current_version_id: string
+    /** Complete editable src/canvas.tsx source. */
+    source: string
+    /** Instructions materialized from this version's lineage. */
+    effective_prompt: string
+}
+
+/**
+ * * `initial` - initial
+ * * `regenerate` - regenerate
+ * * `improve` - improve
+ * * `source_edit` - source_edit
+ * * `revert` - revert
+ */
+export type WidgetVersionOperationEnumApi =
+    (typeof WidgetVersionOperationEnumApi)[keyof typeof WidgetVersionOperationEnumApi]
+
+export const WidgetVersionOperationEnumApi = {
+    Initial: 'initial',
+    Regenerate: 'regenerate',
+    Improve: 'improve',
+    SourceEdit: 'source_edit',
+    Revert: 'revert',
+} as const
+
+/**
+ * * `queued` - queued
+ * * `building` - building
+ * * `ready` - ready
+ * * `failed` - failed
+ */
+export type BuildStatusEnumApi = (typeof BuildStatusEnumApi)[keyof typeof BuildStatusEnumApi]
+
+export const BuildStatusEnumApi = {
+    Queued: 'queued',
+    Building: 'building',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+export interface WidgetVersionApi {
+    /** Immutable widget version identifier. */
+    id: string
+    /**
+     * Version this one was based on.
+     * @nullable
+     */
+    parent_version_id: string | null
+    /**
+     * One-based version number.
+     * @minimum 1
+     */
+    version: number
+    /** Action that created this version.
+     *
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     * * `source_edit` - source_edit
+     * * `revert` - revert */
+    operation: WidgetVersionOperationEnumApi
+    /** Instructions added by this version. */
+    prompt_delta: string
+    /**
+     * AI model, or null for manual changes.
+     * @nullable
+     */
+    model: string | null
+    /** When this version was created. */
+    created_at: string
+    /** Preview build state.
+     *
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    build_status: BuildStatusEnumApi | null
+    /**
+     * Preview URL when retained and ready.
+     * @nullable
+     */
+    artifact_url: string | null
+    /** Logical dataframe slots available to this version. */
+    frame_names: string[]
+    /** Whether this notebook instance currently displays this version. */
+    is_current: boolean
+}
+
+export interface WidgetVersionPageApi {
+    /** Versions ordered newest first. */
+    results: WidgetVersionApi[]
+    /**
+     * Total versions.
+     * @minimum 0
+     */
+    count: number
+    /**
+     * Offset for the next page.
+     * @nullable
+     */
+    next_offset: number | null
+}
+
+export type NotebookWidgetsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter widgets by name or description.
+     */
+    search?: string
+}
+
 export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.
@@ -885,9 +994,20 @@ export type NotebooksListParams = {
     user?: string
 }
 
-export type NotebooksGenuiSourceParams = {
+export type NotebooksWidgetFrameParams = {
+    limit?: number
+    offset?: number
+    version_id?: string
+}
+
+export type NotebooksWidgetSourceParams = {
     /**
      * Historical source version to return instead of the current version.
      */
     version_id?: string
+}
+
+export type NotebooksWidgetVersionsParams = {
+    limit?: number
+    offset?: number
 }

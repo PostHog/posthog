@@ -1,4 +1,4 @@
-import type { GenUIFrameApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { WidgetFrameApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 const CANVAS_CHANNEL = 'posthog-canvas'
 export const NOTEBOOK_FRAME_KEY_PREFIX = '__posthog_notebook_frame__:'
@@ -15,31 +15,38 @@ type ArtifactMessage = {
     message?: unknown
 }
 
-export async function readGenUIFrame(
+export async function readWidgetFrame(
     allowedFrames: string[],
-    loadFrame: (name: string) => Promise<GenUIFrameApi>,
+    loadFrame: (name: string, offset: number, limit: number) => Promise<WidgetFrameApi>,
     payload: unknown
-): Promise<GenUIFrameApi> {
+): Promise<WidgetFrameApi> {
     const key =
         typeof payload === 'object' && payload !== null && typeof (payload as { key?: unknown }).key === 'string'
             ? (payload as { key: string }).key
             : ''
-    const name = key.startsWith(NOTEBOOK_FRAME_KEY_PREFIX) ? key.slice(NOTEBOOK_FRAME_KEY_PREFIX.length) : ''
+    const encodedRequest = key.startsWith(NOTEBOOK_FRAME_KEY_PREFIX) ? key.slice(NOTEBOOK_FRAME_KEY_PREFIX.length) : ''
+    const [encodedName = '', rawOffset = '0', rawLimit = '100'] = encodedRequest.split(':')
+    const name = decodeURIComponent(encodedName)
+    const offset = Number(rawOffset)
+    const limit = Number(rawLimit)
     if (!name || !allowedFrames.includes(name)) {
-        throw new Error('This dataframe is not available to the visualization')
+        throw new Error('This dataframe is not available to the widget')
     }
-    return await loadFrame(name)
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+        throw new Error('The dataframe page is invalid')
+    }
+    return await loadFrame(name, offset, limit)
 }
 
-export type GenUIHostCallbacks = {
+export type WidgetHostCallbacks = {
     onDataRequest: (method: string, payload: unknown) => Promise<unknown> | unknown
     onError?: () => void
     onRendered?: () => void
 }
 
-export function createGenUIHostMessageRouter(
+export function createWidgetHostMessageRouter(
     post: (message: Record<string, unknown>) => void,
-    callbacks: () => GenUIHostCallbacks
+    callbacks: () => WidgetHostCallbacks
 ): (message: unknown) => Promise<void> {
     let activeRequests = 0
 
@@ -68,7 +75,7 @@ export function createGenUIHostMessageRouter(
                 type: 'data-response',
                 id: message.id,
                 ok: false,
-                error: 'This Canvas method is not available in notebook visualizations',
+                error: 'This Canvas method is not available in notebook widgets',
             })
             return
         }
@@ -85,7 +92,7 @@ export function createGenUIHostMessageRouter(
                 type: 'data-response',
                 id: message.id,
                 ok: false,
-                error: 'Visualization data request exceeds runtime limits',
+                error: 'Widget data request exceeds runtime limits',
             })
             return
         }
@@ -97,10 +104,7 @@ export function createGenUIHostMessageRouter(
             const result = await Promise.race([
                 request,
                 new Promise<never>((_, reject) => {
-                    timeoutId = setTimeout(
-                        () => reject(new Error('Visualization data request timed out')),
-                        REQUEST_TIMEOUT_MS
-                    )
+                    timeoutId = setTimeout(() => reject(new Error('Widget data request timed out')), REQUEST_TIMEOUT_MS)
                 }),
             ])
             post({ channel: CANVAS_CHANNEL, type: 'data-response', id: message.id, ok: true, result })
@@ -110,7 +114,7 @@ export function createGenUIHostMessageRouter(
                 type: 'data-response',
                 id: message.id,
                 ok: false,
-                error: error instanceof Error ? error.message : 'Visualization data request failed',
+                error: error instanceof Error ? error.message : 'Widget data request failed',
             })
         } finally {
             if (timeoutId !== undefined) {

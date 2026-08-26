@@ -60,32 +60,21 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
-from products.notebooks.backend.genui import (
-    GenUIConflictError,
-    GenUIError,
-    GenUIRateLimitError,
-    cancel_genui_generation,
-    generate_genui,
-    get_genui_source,
-    get_genui_status,
-    infer_genui_inputs,
-    inspect_genui_inputs,
-    read_genui_frame,
-    revert_genui_version,
-    save_genui_source,
-)
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
-from products.notebooks.backend.presentation.genui_serializers import (
-    GenUICancelRequestSerializer,
-    GenUIErrorSerializer,
-    GenUIFrameSerializer,
-    GenUIGenerateRequestSerializer,
-    GenUIRevertRequestSerializer,
-    GenUISourceQuerySerializer,
-    GenUISourceResponseSerializer,
-    GenUISourceSaveRequestSerializer,
-    GenUIStatusSerializer,
+from products.notebooks.backend.presentation.widget_serializers import (
+    WidgetCancelRequestSerializer,
+    WidgetErrorSerializer,
+    WidgetFrameQuerySerializer,
+    WidgetFrameSerializer,
+    WidgetGenerateRequestSerializer,
+    WidgetRevertRequestSerializer,
+    WidgetSourceQuerySerializer,
+    WidgetSourceResponseSerializer,
+    WidgetSourceSaveRequestSerializer,
+    WidgetStatusSerializer,
+    WidgetVersionPageSerializer,
+    WidgetVersionQuerySerializer,
 )
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -119,6 +108,21 @@ from products.notebooks.backend.sql_v2_serializers import (
 from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
+from products.notebooks.backend.widgets import (
+    WidgetConflictError,
+    WidgetError,
+    WidgetRateLimitError,
+    cancel_widget_generation,
+    get_widget_source,
+    get_widget_status,
+    infer_widget_inputs,
+    inspect_widget_inputs,
+    list_widget_versions,
+    read_widget_frame,
+    revert_widget_version,
+    save_widget_source,
+    start_widget_generation,
+)
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -707,10 +711,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
         return Response(serializer.data)
 
-    def _genui_error_response(self, error: GenUIError) -> Response:
-        if isinstance(error, GenUIRateLimitError):
+    def _widget_error_response(self, error: WidgetError) -> Response:
+        if isinstance(error, WidgetRateLimitError):
             response_status = 429
-        elif isinstance(error, GenUIConflictError):
+        elif isinstance(error, WidgetConflictError):
             response_status = 409
         elif error.code == "frame_not_allowed":
             response_status = 403
@@ -718,145 +722,175 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             response_status = 404
         else:
             response_status = 400
-        return Response(GenUIErrorSerializer({"code": error.code, "detail": error.detail}).data, status=response_status)
+        return Response(
+            WidgetErrorSerializer({"code": error.code, "detail": error.detail}).data, status=response_status
+        )
 
-    def _authorize_genui_run(self, run: NotebookNodeRun) -> None:
+    def _authorize_widget_run(self, run: NotebookNodeRun) -> None:
         self._require_run_connection_access(run, self._current_user())
 
     @extend_schema(
-        operation_id="notebooks_genui_generate",
-        request=GenUIGenerateRequestSerializer,
+        operation_id="notebooks_widget_generate",
+        request=WidgetGenerateRequestSerializer,
         responses={
-            200: GenUIStatusSerializer,
-            400: GenUIErrorSerializer,
-            404: GenUIErrorSerializer,
-            409: GenUIErrorSerializer,
-            429: GenUIErrorSerializer,
+            202: WidgetStatusSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
         },
         parameters=[
             OpenApiParameter(
                 "node_id",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated visualization node.",
+                description="Stable identifier of the generated widget node.",
             )
         ],
     )
     @action(
         methods=["POST"],
-        url_path="genui/(?P<node_id>[^/.]+)/generate",
+        url_path="widgets/(?P<node_id>[^/.]+)/generate",
         detail=True,
         required_scopes=["notebook:write", "query:read"],
     )
-    def genui_generate(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+    def widget_generate(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
         user = self._current_user()
         if user is None:
-            raise PermissionDenied("A user is required to generate a visualization.")
-        serializer = GenUIGenerateRequestSerializer(data=request.data)
+            raise PermissionDenied("A user is required to generate a widget.")
+        serializer = WidgetGenerateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self.get_object()
         self._require_query_access()
         try:
-            input_candidates = infer_genui_inputs(notebook, node_id)
-            inspection = inspect_genui_inputs(
+            input_candidates = infer_widget_inputs(notebook, node_id)
+            inspection = inspect_widget_inputs(
                 notebook,
                 input_candidates,
-                self._authorize_genui_run,
+                self._authorize_widget_run,
                 node_id=node_id,
                 require_all=False,
             )
-            inputs = [resolved.name for resolved in inspection.resolved_inputs]
-            result = generate_genui(
+            result = start_widget_generation(
                 notebook=notebook,
                 node_id=node_id,
                 prompt=serializer.validated_data["prompt"],
-                inputs=inputs,
                 user_id=user.id,
                 inspection=inspection,
                 model=serializer.validated_data["model"],
                 generation_id=serializer.validated_data["generation_id"],
                 operation=serializer.validated_data["operation"],
             )
-        except GenUIError as error:
-            return self._genui_error_response(error)
-        return Response(GenUIStatusSerializer(result).data)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data, status=202)
 
     @extend_schema(
-        operation_id="notebooks_genui_cancel",
-        request=GenUICancelRequestSerializer,
-        responses={204: None, 400: GenUIErrorSerializer, 404: GenUIErrorSerializer},
+        operation_id="notebooks_widget_cancel",
+        request=WidgetCancelRequestSerializer,
+        responses={204: None, 400: WidgetErrorSerializer, 404: WidgetErrorSerializer},
         parameters=[
             OpenApiParameter(
                 "node_id",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated visualization node.",
+                description="Stable identifier of the generated widget node.",
             )
         ],
     )
     @action(
         methods=["POST"],
-        url_path="genui/(?P<node_id>[^/.]+)/cancel",
+        url_path="widgets/(?P<node_id>[^/.]+)/cancel",
         detail=True,
         required_scopes=["notebook:write"],
     )
-    def genui_cancel(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+    def widget_cancel(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
         user = self._current_user()
         if user is None:
-            raise PermissionDenied("A user is required to cancel visualization generation.")
-        serializer = GenUICancelRequestSerializer(data=request.data)
+            raise PermissionDenied("A user is required to cancel widget generation.")
+        serializer = WidgetCancelRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            cancel_genui_generation(
+            cancel_widget_generation(
                 notebook=self.get_object(),
                 node_id=node_id,
                 generation_id=serializer.validated_data["generation_id"],
-                user_id=user.id,
             )
-        except GenUIError as error:
-            return self._genui_error_response(error)
+        except WidgetError as error:
+            return self._widget_error_response(error)
         return Response(status=204)
 
     @extend_schema(
-        operation_id="notebooks_genui_status",
-        responses={200: GenUIStatusSerializer, 404: GenUIErrorSerializer},
+        operation_id="notebooks_widget_status",
+        responses={200: WidgetStatusSerializer, 404: WidgetErrorSerializer},
         parameters=[
             OpenApiParameter(
                 "node_id",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated visualization node.",
+                description="Stable identifier of the generated widget node.",
             )
         ],
     )
     @action(
         methods=["GET"],
-        url_path="genui/(?P<node_id>[^/.]+)/status",
+        url_path="widgets/(?P<node_id>[^/.]+)/status",
         detail=True,
         required_scopes=["notebook:read"],
     )
-    def genui_status(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+    def widget_status(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
         try:
-            result = get_genui_status(notebook=self.get_object(), node_id=node_id)
-        except GenUIError as error:
-            return self._genui_error_response(error)
-        return Response(GenUIStatusSerializer(result).data)
+            result = get_widget_status(notebook=self.get_object(), node_id=node_id)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data)
 
     @extend_schema(
-        operation_id="notebooks_genui_source",
-        responses={200: GenUISourceResponseSerializer, 400: GenUIErrorSerializer, 404: GenUIErrorSerializer},
+        operation_id="notebooks_widget_versions",
+        responses={200: WidgetVersionPageSerializer, 404: WidgetErrorSerializer},
+        parameters=[
+            OpenApiParameter("node_id", OpenApiTypes.STR, OpenApiParameter.PATH, description="Widget node identifier."),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widgets/(?P<node_id>[^/.]+)/versions",
+        detail=True,
+        required_scopes=["notebook:read"],
+    )
+    def widget_versions(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        query = WidgetVersionQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            result = list_widget_versions(
+                notebook=self.get_object(),
+                node_id=node_id,
+                offset=query.validated_data["offset"],
+                limit=query.validated_data["limit"],
+            )
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetVersionPageSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_widget_source",
+        responses={200: WidgetSourceResponseSerializer, 400: WidgetErrorSerializer, 404: WidgetErrorSerializer},
         parameters=[
             OpenApiParameter(
                 "node_id",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated visualization node.",
+                description="Stable identifier of the generated widget node.",
             ),
             OpenApiParameter(
                 "version_id",
@@ -869,157 +903,151 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     @action(
         methods=["GET"],
-        url_path="genui/(?P<node_id>[^/.]+)/source",
+        url_path="widgets/(?P<node_id>[^/.]+)/source",
         detail=True,
         required_scopes=["notebook:read"],
     )
-    def genui_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+    def widget_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
-        query = GenUISourceQuerySerializer(data=request.query_params)
+        query = WidgetSourceQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         try:
-            result = get_genui_source(
+            result = get_widget_source(
                 notebook=self.get_object(),
                 node_id=node_id,
                 version_id=query.validated_data.get("version_id"),
             )
-        except GenUIError as error:
-            return self._genui_error_response(error)
-        return Response(GenUISourceResponseSerializer(result).data)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetSourceResponseSerializer(result).data)
 
     @extend_schema(
-        operation_id="notebooks_genui_save_source",
-        request=GenUISourceSaveRequestSerializer,
+        operation_id="notebooks_widget_save_source",
+        request=WidgetSourceSaveRequestSerializer,
         responses={
-            200: GenUIStatusSerializer,
-            400: GenUIErrorSerializer,
-            404: GenUIErrorSerializer,
-            409: GenUIErrorSerializer,
-            429: GenUIErrorSerializer,
+            200: WidgetStatusSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
         },
         parameters=[
             OpenApiParameter(
                 "node_id",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated visualization node.",
+                description="Stable identifier of the generated widget node.",
             )
         ],
     )
     @action(
         methods=["POST"],
-        url_path="genui/(?P<node_id>[^/.]+)/save-source",
+        url_path="widgets/(?P<node_id>[^/.]+)/save-source",
         detail=True,
         required_scopes=["notebook:write", "query:read"],
     )
-    def genui_save_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+    def widget_save_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
         user = self._current_user()
         if user is None:
-            raise PermissionDenied("A user is required to edit visualization source.")
-        serializer = GenUISourceSaveRequestSerializer(data=request.data)
+            raise PermissionDenied("A user is required to edit widget source.")
+        serializer = WidgetSourceSaveRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self.get_object()
         self._require_query_access()
         try:
-            input_candidates = infer_genui_inputs(notebook, node_id)
-            inspection = inspect_genui_inputs(
-                notebook,
-                input_candidates,
-                self._authorize_genui_run,
-                node_id=node_id,
-                require_all=False,
-            )
-            result = save_genui_source(
+            result = save_widget_source(
                 notebook=notebook,
                 node_id=node_id,
                 source=serializer.validated_data["source"],
                 prompt=serializer.validated_data["prompt"],
                 expected_current_version_id=serializer.validated_data["expected_current_version_id"],
-                inputs=[resolved.name for resolved in inspection.resolved_inputs],
                 user_id=user.id,
             )
-        except GenUIError as error:
-            return self._genui_error_response(error)
-        return Response(GenUIStatusSerializer(result).data)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data)
 
     @extend_schema(
-        operation_id="notebooks_genui_revert",
-        request=GenUIRevertRequestSerializer,
+        operation_id="notebooks_widget_revert",
+        request=WidgetRevertRequestSerializer,
         responses={
-            200: GenUIStatusSerializer,
-            400: GenUIErrorSerializer,
-            404: GenUIErrorSerializer,
-            409: GenUIErrorSerializer,
-            429: GenUIErrorSerializer,
+            200: WidgetStatusSerializer,
+            400: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
+            429: WidgetErrorSerializer,
         },
         parameters=[
             OpenApiParameter(
                 "node_id",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated visualization node.",
+                description="Stable identifier of the generated widget node.",
             )
         ],
     )
     @action(
         methods=["POST"],
-        url_path="genui/(?P<node_id>[^/.]+)/revert",
+        url_path="widgets/(?P<node_id>[^/.]+)/revert",
         detail=True,
         required_scopes=["notebook:write"],
     )
-    def genui_revert(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+    def widget_revert(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
         if node_id is None:
             raise Http404()
         user = self._current_user()
         if user is None:
-            raise PermissionDenied("A user is required to restore a visualization version.")
-        serializer = GenUIRevertRequestSerializer(data=request.data)
+            raise PermissionDenied("A user is required to restore a widget version.")
+        serializer = WidgetRevertRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            result = revert_genui_version(
+            result = revert_widget_version(
                 notebook=self.get_object(),
                 node_id=node_id,
                 version_id=serializer.validated_data["version_id"],
                 expected_current_version_id=serializer.validated_data["expected_current_version_id"],
                 user_id=user.id,
             )
-        except GenUIError as error:
-            return self._genui_error_response(error)
-        return Response(GenUIStatusSerializer(result).data)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetStatusSerializer(result).data)
 
     @extend_schema(
-        operation_id="notebooks_genui_frame",
+        operation_id="notebooks_widget_frame",
         responses={
-            200: GenUIFrameSerializer,
-            403: GenUIErrorSerializer,
-            404: GenUIErrorSerializer,
-            409: GenUIErrorSerializer,
+            200: WidgetFrameSerializer,
+            403: WidgetErrorSerializer,
+            404: WidgetErrorSerializer,
+            409: WidgetErrorSerializer,
         },
         parameters=[
             OpenApiParameter(
                 "node_id",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated visualization node.",
+                description="Stable identifier of the generated widget node.",
             ),
             OpenApiParameter(
                 "frame_name",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.PATH,
-                description="Allowed dataframe name requested by the visualization.",
+                description="Allowed dataframe slot requested by the widget.",
             ),
+            OpenApiParameter("version_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
         ],
     )
     @action(
         methods=["GET"],
-        url_path="genui/(?P<node_id>[^/.]+)/frames/(?P<frame_name>[^/.]+)",
+        url_path="widgets/(?P<node_id>[^/.]+)/frames/(?P<frame_name>[^/.]+)",
         detail=True,
         required_scopes=["notebook:read", "query:read"],
     )
-    def genui_frame(
+    def widget_frame(
         self,
         request: Request,
         node_id: str | None = None,
@@ -1028,17 +1056,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     ) -> Response:
         if node_id is None or frame_name is None:
             raise Http404()
+        query = WidgetFrameQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         self._require_query_access()
         try:
-            result = read_genui_frame(
+            result = read_widget_frame(
                 notebook=self.get_object(),
                 node_id=node_id,
                 frame_name=frame_name,
-                authorize_run=self._authorize_genui_run,
+                authorize_run=self._authorize_widget_run,
+                user=self._current_user(),
+                version_id=query.validated_data.get("version_id"),
+                offset=query.validated_data["offset"],
+                limit=query.validated_data["limit"],
             )
-        except GenUIError as error:
-            return self._genui_error_response(error)
-        return Response(GenUIFrameSerializer(result.frame).data)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+        return Response(WidgetFrameSerializer(result.frame).data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):

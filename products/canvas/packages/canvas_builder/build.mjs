@@ -23,6 +23,8 @@ const htmlAttribute = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 const forbiddenHtml = /(?:src|href)\s*=\s*["']\s*(javascript|data:text\/html|vbscript)/i
 const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.css', '.json', '.svg', '.txt']
 const runtimePath = 'assets/canvas-runtime.js'
+const notebookBridgeRuntimePath = 'assets/notebook-widget-bridge.js'
+const notebookBridgeRuntime = `(()=>{const channel="posthog-canvas",bridge=new MessageChannel();dispatchEvent(new MessageEvent("message",{data:{channel,type:"connect"},source:parent,ports:[bridge.port1]}));parent.postMessage({channel,type:"notebook-connect"},"*",[bridge.port2])})();`
 // The host only delivers the MessagePort after the artifact iframe's load
 // event, which fires after the app's module scripts have already run, so any
 // ph.* call issued during mount lands before the port exists. Those messages
@@ -543,10 +545,15 @@ async function buildCanvas(project) {
     const cssPath = `assets/canvas-platform-${sha256(platformCss).slice(0, 10)}.css`
     files.push(artifact(cssPath, platformCss))
     files.push(artifact(runtimePath, `${runtime}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`))
+    const usesNotebookBridge = project.capabilities?.posthog?.notebookFrames === true
+    if (usesNotebookBridge) {
+        files.push(artifact(notebookBridgeRuntimePath, notebookBridgeRuntime))
+    }
     const networkOrigins = project.capabilities?.network?.origins ?? []
     const connectSources = networkOrigins.length ? networkOrigins.join(' ') : "'none'"
     const projectCsp = csp.replace("connect-src 'none'", `connect-src ${connectSources}`)
-    const head = `<meta http-equiv="Content-Security-Policy" content="${projectCsp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
+    const notebookBridgeScript = usesNotebookBridge ? `<script src="./${notebookBridgeRuntimePath}"></script>` : ''
+    const head = `<meta http-equiv="Content-Security-Policy" content="${projectCsp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>${notebookBridgeScript}`
     html = html.includes('<head>') ? html.replace('<head>', `<head>${head}`) : `${head}${html}`
     files.unshift(artifact(project.entryHtml, html))
     const manifest = {

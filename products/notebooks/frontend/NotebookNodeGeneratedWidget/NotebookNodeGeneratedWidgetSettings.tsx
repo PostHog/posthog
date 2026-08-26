@@ -1,30 +1,30 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCollapse, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import type { NotebookNodeAttributeProperties } from 'scenes/notebooks/types'
 
-import { NotebookNodeAttributeProperties } from '../../types'
-import { notebookNodeLogic } from '../notebookNodeLogic'
-import { DEFAULT_GENUI_MODEL, GENUI_MODEL_OPTIONS } from './genUIModels'
-import type { NotebookNodeGenUIAttributes } from './NotebookNodeGenUI'
-import { formatGenUIElapsed, notebookNodeGenUILogic } from './notebookNodeGenUILogic'
+import type { NotebookNodeGeneratedWidgetAttributes } from './NotebookNodeGeneratedWidget'
+import { formatWidgetElapsed, notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
+import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS } from './widgetModels'
 
-export function NotebookNodeGenUISettings({
+export function NotebookNodeGeneratedWidgetSettings({
     attributes,
     updateAttributes,
-}: NotebookNodeAttributeProperties<NotebookNodeGenUIAttributes>): JSX.Element {
+}: NotebookNodeAttributeProperties<NotebookNodeGeneratedWidgetAttributes>): JSX.Element {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { isEditable, notebookLogic } = useValues(nodeLogic)
-    const logic = notebookNodeGenUILogic({
+    const logic = notebookNodeGeneratedWidgetLogic({
         notebookShortId: notebookLogic.props.shortId,
         nodeId: attributes.nodeId,
         prompt: attributes.prompt ?? '',
-        model: attributes.model ?? DEFAULT_GENUI_MODEL,
+        model: attributes.model ?? DEFAULT_WIDGET_MODEL,
         isEditable,
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
@@ -36,11 +36,12 @@ export function NotebookNodeGenUISettings({
     const {
         cancellationInFlight,
         elapsedSeconds,
-        error,
+        generationDraftLoading,
         generationDraftModel,
         generationDraftPrompt,
-        generationInFlight,
+        generationError,
         generationModalOperation,
+        generationRequestLoading,
         isWorking,
         restoreInFlight,
         selectedVersion,
@@ -52,13 +53,18 @@ export function NotebookNodeGenUISettings({
         sourceNote,
         sourceSaving,
         status,
+        versions,
+        versionsCount,
+        versionsLoading,
+        versionsNextOffset,
         workingStatus,
     } = useValues(logic)
     const {
         cancelGeneration,
         closeGenerationModal,
         closeSourceEditor,
-        generateVisualization,
+        generateWidget,
+        loadMoreVersions,
         openGenerationModal,
         openSourceEditor,
         refreshData,
@@ -70,25 +76,32 @@ export function NotebookNodeGenUISettings({
         setSourceDraft,
         setSourceNote,
     } = useActions(logic)
-    const promptId = `genui-prompt-${attributes.nodeId}`
-    const modelId = `genui-model-${attributes.nodeId}`
-    const modalPromptId = `genui-change-prompt-${attributes.nodeId}`
-    const modalModelId = `genui-change-model-${attributes.nodeId}`
-    const sourceNoteId = `genui-source-note-${attributes.nodeId}`
-    const hasVersions = Boolean(status?.versions.length)
+    const promptId = `widget-prompt-${attributes.nodeId}`
+    const modelId = `widget-model-${attributes.nodeId}`
+    const versionId = `widget-version-${attributes.nodeId}`
+    const modalPromptId = `widget-change-prompt-${attributes.nodeId}`
+    const modalModelId = `widget-change-model-${attributes.nodeId}`
+    const sourceNoteId = `widget-source-note-${attributes.nodeId}`
+    const hasVersions = Boolean(status?.has_versions)
     const isCurrentVersion = selectedVersionId === status?.current_version_id
     const initialPrompt = attributes.prompt ?? ''
-    const modalTitle = generationModalOperation === 'improve' ? 'Improve visualization' : 'Regenerate visualization'
+    const modalTitle = generationModalOperation === 'improve' ? 'Improve widget' : 'Regenerate widget'
     const modalDescription =
         generationModalOperation === 'improve'
             ? 'Describe one change. The generator will update the current source and preserve everything else.'
-            : 'Edit the complete prompt below. This creates a new visualization from scratch and keeps the existing versions.'
+            : 'Edit the complete instructions below. This creates a new widget from scratch and keeps the existing versions.'
     const sourceIsEditable = isEditable && isCurrentVersion
     const submitGenerationDraft = (prompt: string): void => {
-        if (!generationModalOperation || !prompt.trim() || generationInFlight) {
+        if (
+            !generationModalOperation ||
+            !prompt.trim() ||
+            generationRequestLoading ||
+            generationDraftLoading ||
+            isWorking
+        ) {
             return
         }
-        generateVisualization(prompt, generationDraftModel, generationModalOperation)
+        generateWidget(prompt, generationDraftModel, generationModalOperation)
     }
 
     return (
@@ -96,12 +109,12 @@ export function NotebookNodeGenUISettings({
             {!hasVersions ? (
                 <>
                     <div>
-                        <LemonLabel htmlFor={promptId}>Prompt</LemonLabel>
+                        <LemonLabel htmlFor={promptId}>Instructions</LemonLabel>
                         <LemonTextArea
                             id={promptId}
                             value={initialPrompt}
                             onChange={(value) => updateAttributes({ prompt: value || undefined })}
-                            placeholder="Describe the visualization you want to generate."
+                            placeholder="Describe the widget you want to generate."
                             minRows={5}
                             autoFocus={wasNotebookNodeJustInserted(attributes.nodeId)}
                             disabled={!isEditable || isWorking}
@@ -109,66 +122,64 @@ export function NotebookNodeGenUISettings({
                         />
                     </div>
                     <div className="text-xs text-muted">
-                        Results from SQL and Python cells in this notebook are included automatically.
+                        Results from SQL and Python cells in this notebook are available automatically.
                     </div>
                     <div>
                         <LemonLabel htmlFor={modelId}>Model</LemonLabel>
                         <LemonSelect
                             id={modelId}
-                            value={attributes.model ?? DEFAULT_GENUI_MODEL}
-                            options={GENUI_MODEL_OPTIONS}
+                            value={attributes.model ?? DEFAULT_WIDGET_MODEL}
+                            options={WIDGET_MODEL_OPTIONS}
                             onChange={(model) => updateAttributes({ model })}
                             fullWidth
                             disabled={!isEditable || isWorking}
                             className="mt-1"
-                            data-attr="genui-model-select"
+                            data-attr="widget-model-select"
                         />
                     </div>
                 </>
             ) : (
                 <>
                     <div>
-                        <LemonLabel>Version history</LemonLabel>
+                        <LemonLabel htmlFor={versionId}>Version history</LemonLabel>
                         <LemonSelect
+                            id={versionId}
                             value={selectedVersionId ?? undefined}
-                            options={[...(status?.versions ?? [])].reverse().map((version) => ({
+                            options={versions.map((version) => ({
                                 value: version.id,
                                 label: `Version ${version.version}${
-                                    version.id === status?.current_version_id ? ' (current)' : ''
+                                    version.is_current ? ' (current)' : ''
                                 } · ${humanFriendlyDetailedTime(version.created_at)}`,
                             }))}
                             onChange={selectVersion}
                             fullWidth
+                            loading={versionsLoading}
                             className="mt-1"
-                            data-attr="genui-version-select"
+                            data-attr="widget-version-select"
                         />
+                        <div className="mt-1 flex items-center justify-between text-xs text-muted">
+                            <span>
+                                {versions.length} of {versionsCount} versions loaded
+                            </span>
+                            {versionsNextOffset !== null ? (
+                                <LemonButton size="xsmall" onClick={loadMoreVersions} loading={versionsLoading}>
+                                    Load older versions
+                                </LemonButton>
+                            ) : null}
+                        </div>
                     </div>
                     {selectedVersion ? (
                         <div className="rounded border bg-surface-primary p-3">
-                            {selectedVersion.operation === 'improve' && selectedVersion.prompt ? (
-                                <div className="mb-3">
-                                    <div className="mb-1 text-xs font-semibold text-secondary">Change made</div>
-                                    <div className="ph-no-capture whitespace-pre-wrap text-sm">
-                                        {selectedVersion.prompt}
-                                    </div>
-                                </div>
-                            ) : null}
-                            <LemonCollapse
-                                embedded
-                                size="small"
-                                panels={[
-                                    {
-                                        key: 'prompt',
-                                        header: 'Prompt for this version',
-                                        content: (
-                                            <div className="ph-no-capture max-h-48 overflow-auto whitespace-pre-wrap text-sm text-secondary">
-                                                {selectedVersion.effective_prompt ||
-                                                    'No prompt was recorded for this version.'}
-                                            </div>
-                                        ),
-                                    },
-                                ]}
-                            />
+                            <div className="mb-1 text-xs font-semibold text-secondary">
+                                {selectedVersion.operation === 'improve'
+                                    ? 'Change made'
+                                    : selectedVersion.operation === 'source_edit'
+                                      ? 'Source change'
+                                      : 'Instructions for this version'}
+                            </div>
+                            <div className="ph-no-capture max-h-48 overflow-auto whitespace-pre-wrap text-sm">
+                                {selectedVersion.prompt_delta || 'No instructions were recorded for this version.'}
+                            </div>
                         </div>
                     ) : null}
                 </>
@@ -177,12 +188,18 @@ export function NotebookNodeGenUISettings({
             <div className="flex flex-wrap items-start gap-2">
                 {isWorking && workingStatus ? (
                     <>
-                        <div className="flex min-w-0 flex-1 flex-col gap-1" role="status" aria-live="polite">
+                        <div className="flex min-w-0 flex-1 flex-col gap-1">
                             <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
-                                <Spinner />
-                                <span>{workingStatus.label}</span>
-                                <span className="font-mono tabular-nums" data-attr="genui-elapsed-time">
-                                    Elapsed {formatGenUIElapsed(elapsedSeconds)}
+                                <span className="flex items-center gap-2" role="status" aria-live="polite">
+                                    <Spinner />
+                                    <span>{workingStatus.label}</span>
+                                </span>
+                                <span
+                                    className="font-mono tabular-nums"
+                                    aria-hidden="true"
+                                    data-attr="widget-elapsed-time"
+                                >
+                                    {formatWidgetElapsed(elapsedSeconds)}
                                 </span>
                             </div>
                             <span className="text-xs text-muted">{workingStatus.detail}</span>
@@ -192,7 +209,7 @@ export function NotebookNodeGenUISettings({
                                 {workingStatus.timing}
                             </span>
                         </div>
-                        {status?.generation_id || generationInFlight ? (
+                        {status?.active_job ? (
                             <LemonButton onClick={cancelGeneration} loading={cancellationInFlight}>
                                 Cancel
                             </LemonButton>
@@ -202,7 +219,7 @@ export function NotebookNodeGenUISettings({
                     <>
                         {!isCurrentVersion && isEditable ? (
                             <LemonButton onClick={restoreSelectedVersion} loading={restoreInFlight}>
-                                Restore this version
+                                Restore as new version
                             </LemonButton>
                         ) : null}
                         {isCurrentVersion && isEditable ? (
@@ -211,12 +228,12 @@ export function NotebookNodeGenUISettings({
                             </LemonButton>
                         ) : null}
                         {isEditable ? (
-                            <LemonButton onClick={() => openGenerationModal('regenerate')}>Regenerate</LemonButton>
+                            <LemonButton onClick={() => openGenerationModal('regenerate')}>Regenerate…</LemonButton>
                         ) : null}
                         <LemonButton onClick={openSourceEditor}>
                             {sourceIsEditable ? 'View or edit source' : 'View source'}
                         </LemonButton>
-                        <LemonButton onClick={refreshData} data-attr="genui-reload-data">
+                        <LemonButton onClick={refreshData} data-attr="widget-reload-data">
                             Reload data
                         </LemonButton>
                     </>
@@ -224,17 +241,17 @@ export function NotebookNodeGenUISettings({
                     <LemonButton
                         type="primary"
                         onClick={() =>
-                            generateVisualization(initialPrompt, attributes.model ?? DEFAULT_GENUI_MODEL, 'initial')
+                            generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
                         }
-                        disabledReason={!initialPrompt.trim() ? 'Add a prompt first' : undefined}
-                        loading={generationInFlight}
+                        disabledReason={!initialPrompt.trim() ? 'Add instructions first' : undefined}
+                        loading={generationRequestLoading}
                     >
-                        Generate visualization
+                        Generate widget
                     </LemonButton>
                 )}
             </div>
-            {error || status?.error_detail ? (
-                <div className="text-xs text-danger">{error || status?.error_detail}</div>
+            {generationError || status?.error_detail ? (
+                <div className="text-xs text-danger">{generationError || status?.error_detail}</div>
             ) : null}
 
             <LemonModal
@@ -249,8 +266,14 @@ export function NotebookNodeGenUISettings({
                         <LemonButton
                             type="primary"
                             onClick={() => submitGenerationDraft(generationDraftPrompt)}
-                            disabledReason={!generationDraftPrompt.trim() ? 'Add instructions first' : undefined}
-                            loading={generationInFlight}
+                            disabledReason={
+                                generationDraftLoading
+                                    ? 'Loading the current instructions'
+                                    : !generationDraftPrompt.trim()
+                                      ? 'Add instructions first'
+                                      : undefined
+                            }
+                            loading={generationRequestLoading}
                         >
                             {generationModalOperation === 'improve' ? 'Improve' : 'Regenerate'}
                         </LemonButton>
@@ -260,7 +283,7 @@ export function NotebookNodeGenUISettings({
                 <div className="flex flex-col gap-4">
                     <div>
                         <LemonLabel htmlFor={modalPromptId}>
-                            {generationModalOperation === 'improve' ? 'Change to make' : 'Full prompt'}
+                            {generationModalOperation === 'improve' ? 'Change to make' : 'Full instructions'}
                         </LemonLabel>
                         <LemonTextArea
                             id={modalPromptId}
@@ -269,11 +292,12 @@ export function NotebookNodeGenUISettings({
                             onPressCmdEnter={submitGenerationDraft}
                             minRows={6}
                             autoFocus
+                            disabled={generationDraftLoading}
                             className="mt-1 ph-no-capture"
                             placeholder={
                                 generationModalOperation === 'improve'
                                     ? 'For example, make the colors lighter and increase the label contrast.'
-                                    : 'Describe the complete visualization.'
+                                    : 'Describe the complete widget.'
                             }
                         />
                     </div>
@@ -282,7 +306,7 @@ export function NotebookNodeGenUISettings({
                         <LemonSelect
                             id={modalModelId}
                             value={generationDraftModel}
-                            options={GENUI_MODEL_OPTIONS}
+                            options={WIDGET_MODEL_OPTIONS}
                             onChange={setGenerationDraftModel}
                             fullWidth
                             className="mt-1"
@@ -298,7 +322,9 @@ export function NotebookNodeGenUISettings({
                 description={
                     sourceIsEditable
                         ? 'Saving source creates a new version. The previous source remains in history.'
-                        : 'Restore this version before editing its source.'
+                        : isEditable
+                          ? 'Restore this version before editing its source.'
+                          : 'This source is read-only.'
                 }
                 width={960}
                 footer={
@@ -336,7 +362,7 @@ export function NotebookNodeGenUISettings({
                             value={sourceDraft}
                             onChange={(value) => setSourceDraft(value ?? '')}
                             height="55vh"
-                            path={`notebook-genui/${attributes.nodeId}/${selectedVersionId ?? 'current'}.tsx`}
+                            path={`notebook-widget/${attributes.nodeId}/${selectedVersionId ?? 'current'}.tsx`}
                             options={{ readOnly: !sourceIsEditable, minimap: { enabled: false } }}
                         />
                     )}

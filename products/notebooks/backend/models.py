@@ -258,81 +258,154 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class NotebookGenUI(TeamScopedRootMixin, UUIDModel):
-    class LifecycleStatus(models.TextChoices):
-        AWAITING_INPUTS = "awaiting_inputs", "awaiting_inputs"
-        AWAITING_GENERATION = "awaiting_generation", "awaiting_generation"
-        GENERATING = "generating", "generating"
-        BUILDING = "building", "building"
-        READY = "ready", "ready"
-        STALE = "stale", "stale"
-        INCOMPATIBLE = "incompatible", "incompatible"
-        FAILED = "failed", "failed"
+class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
+    class Visibility(models.TextChoices):
+        PRIVATE = "private", "private"
+        TEAM = "team", "team"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="genui_nodes")
-    node_id = models.CharField(max_length=128)
-    prompt = models.TextField(blank=True, default="")
-    inputs: JSONField = JSONField(default=list)
-    generator_version = models.CharField(max_length=32)
-    generation_hash = models.CharField(max_length=64)
-    generated_hash = models.CharField(max_length=64, blank=True, default="")
-    generated_schema_hash = models.CharField(max_length=64, blank=True, default="")
-    pending_generation_hash = models.CharField(max_length=64, blank=True, default="")
-    pending_schema_hash = models.CharField(max_length=64, blank=True, default="")
-    lifecycle_status = models.CharField(choices=LifecycleStatus, default=LifecycleStatus.AWAITING_INPUTS, max_length=32)
-    last_error_code = models.CharField(max_length=64, null=True, blank=True)
-    last_error = models.TextField(null=True, blank=True)
-    canvas_id = models.UUIDField(null=True, blank=True)
-    generation_task_id = models.UUIDField(null=True, blank=True)
-    source_version_id = models.UUIDField(null=True, blank=True)
-    build_id = models.UUIDField(null=True, blank=True)
-    snapshot_object_key = models.TextField(null=True, blank=True)
-    snapshot_hash = models.CharField(max_length=64, blank=True, default="")
-    snapshot_metadata: JSONField = JSONField(default=dict)
-    pending_snapshot_object_key = models.TextField(null=True, blank=True)
-    pending_snapshot_hash = models.CharField(max_length=64, blank=True, default="")
-    pending_snapshot_metadata: JSONField = JSONField(default=dict)
+    name = models.CharField(max_length=400)
+    description = models.TextField(blank=True, default="")
+    visibility = models.CharField(choices=Visibility, default=Visibility.PRIVATE, max_length=16)
+    canvas_id = models.UUIDField(unique=True)
+    current_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    forked_from_version_id = models.UUIDField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    generation_started_at = models.DateTimeField(null=True, blank=True)
-    generated_at = models.DateTimeField(null=True, blank=True)
-    snapshot_updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        db_table = "posthog_notebookgenui"
-        constraints = [
-            models.UniqueConstraint(fields=["team", "notebook", "node_id"], name="notebook_genui_node_unique"),
-        ]
+        db_table = "posthog_generated_widget"
         indexes = [
-            models.Index(fields=["team", "notebook", "lifecycle_status"], name="notebook_genui_lifecycle"),
+            models.Index(fields=["team", "-updated_at"], name="generated_widget_team_recent"),
+            models.Index(fields=["team", "created_by", "-updated_at"], name="generated_widget_owner_recent"),
         ]
 
 
-class NotebookGenUIVersion(TeamScopedRootMixin, UUIDModel):
+class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     class Operation(models.TextChoices):
         INITIAL = "initial", "initial"
         REGENERATE = "regenerate", "regenerate"
         IMPROVE = "improve", "improve"
         SOURCE_EDIT = "source_edit", "source_edit"
+        REVERT = "revert", "revert"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    genui = models.ForeignKey("notebooks.NotebookGenUI", on_delete=models.CASCADE, related_name="version_metadata")
+    widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="versions")
     canvas_source_version_id = models.UUIDField()
+    parent_version = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    reverted_from_version = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     operation = models.CharField(choices=Operation, max_length=16)
-    prompt = models.TextField()
-    effective_prompt = models.TextField()
+    prompt_delta = models.TextField()
     model = models.CharField(max_length=64, blank=True, default="")
+    generator_version = models.CharField(max_length=32)
+    input_contract: JSONField = JSONField(default=list)
+    schema_hash = models.CharField(max_length=64)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "posthog_notebookgenui_version"
+        db_table = "posthog_generated_widget_version"
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "genui", "canvas_source_version_id"],
-                name="notebook_genui_canvas_version_unique",
+                fields=["team", "widget", "canvas_source_version_id"],
+                name="generated_widget_canvas_uniq",
             ),
         ]
         indexes = [
-            models.Index(fields=["team", "genui", "-created_at"], name="notebook_genui_version_recency"),
+            models.Index(fields=["team", "widget", "-created_at"], name="generated_widget_ver_recent"),
+        ]
+
+
+class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
+    class VersionPolicy(models.TextChoices):
+        PINNED = "pinned", "pinned"
+        FOLLOW_LATEST = "follow_latest", "follow_latest"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="widget_instances")
+    node_id = models.CharField(max_length=128)
+    widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="notebook_instances")
+    version_policy = models.CharField(choices=VersionPolicy, default=VersionPolicy.PINNED, max_length=16)
+    pinned_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pinned_instances",
+    )
+    bindings: JSONField = JSONField(default=dict)
+    settings: JSONField = JSONField(default=dict)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_notebook_widget_instance"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "notebook", "node_id"], name="notebook_widget_instance_node_unique"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "widget"], name="nb_widget_instance_widget"),
+        ]
+
+
+class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "queued"
+        GENERATING = "generating", "generating"
+        PUBLISHING = "publishing", "publishing"
+        COMPLETED = "completed", "completed"
+        FAILED = "failed", "failed"
+        CANCELED = "canceled", "canceled"
+
+    ACTIVE_STATUSES = (Status.QUEUED, Status.GENERATING, Status.PUBLISHING)
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="generation_jobs")
+    instance = models.ForeignKey(
+        "notebooks.NotebookWidgetInstance", on_delete=models.CASCADE, related_name="generation_jobs"
+    )
+    requested_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
+    operation = models.CharField(choices=GeneratedWidgetVersion.Operation, max_length=16)
+    prompt = models.TextField()
+    model = models.CharField(max_length=64)
+    base_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="based_jobs"
+    )
+    result_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="result_jobs"
+    )
+    status = models.CharField(choices=Status, default=Status.QUEUED, max_length=16)
+    phase = models.CharField(max_length=32, blank=True, default="queued")
+    input_contract: JSONField = JSONField(default=list)
+    context_manifest: JSONField = JSONField(default=dict)
+    schema_hash = models.CharField(max_length=64)
+    error_code = models.CharField(max_length=64, null=True, blank=True)
+    error_detail = models.TextField(null=True, blank=True)
+    cancel_requested_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_generated_widget_generation_job"
+        indexes = [
+            models.Index(fields=["team", "status", "-created_at"], name="generated_widget_job_status"),
+            models.Index(fields=["team", "instance", "-created_at"], name="generated_widget_job_inst"),
         ]

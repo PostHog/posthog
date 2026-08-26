@@ -82,11 +82,11 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
-        it('offers custom visualizations in the insert menu', () => {
+        it('offers generated widgets in the insert menu', () => {
             expect(
-                getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Custom visualization')
-            ).toEqual([{ key: 'component-GenUI', category: 'Code' }])
-            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GenUI.fullscreenable).toBe(true)
+                getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Generated widget')
+            ).toEqual([{ key: 'component-GeneratedWidget', category: 'Code' }])
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.fullscreenable).toBe(true)
         })
 
         // The panel visibility resolver is the notebook shell's public behavior. Testing through it
@@ -94,7 +94,7 @@ describe('markdownNotebookRegistry', () => {
         it.each([
             ['SQL', 'component-SQLV2'],
             ['Python', 'component-PythonV2'],
-            ['Custom visualization', 'component-GenUI'],
+            ['Generated widget', 'component-GeneratedWidget'],
         ])('inserts a %s block with its input panel open', (_label, commandKey) => {
             const insertedNodes: NotebookComponentBlockNode[] = []
             const noop = (): void => {}
@@ -300,20 +300,20 @@ describe('markdownNotebookRegistry', () => {
         expect(fields[1].textContent).toContain('View')
     })
 
-    it('hides the backing canvas ID from custom visualization settings', () => {
+    it('hides the backing canvas ID from generated widget settings', () => {
         const { container } = render(
             <RealNotebookNodeIdentityAndViewEdit
                 node={{
-                    id: 'genui-node',
+                    id: 'generated-widget-node',
                     type: 'component',
-                    tagName: 'GenUI',
+                    tagName: 'GeneratedWidget',
                     props: { id: 'canvas-id' },
                 }}
                 mode="edit"
                 updateProps={jest.fn()}
                 deleteNode={jest.fn()}
-                notebookNodeType={NotebookNodeType.GenUI}
-                options={KNOWN_NODES[NotebookNodeType.GenUI]}
+                notebookNodeType={NotebookNodeType.GeneratedWidget}
+                options={KNOWN_NODES[NotebookNodeType.GeneratedWidget]}
             />
         )
 

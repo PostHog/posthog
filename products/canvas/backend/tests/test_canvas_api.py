@@ -145,6 +145,24 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
 
+    def test_notebook_widget_canvas_is_hidden_from_the_canvas_api(self):
+        with team_scope(self.team.id):
+            notebook_canvas = Canvas.objects.create(
+                team=self.team,
+                channel=self.channel,
+                name="Notebook widget",
+                created_by=self.user,
+                source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
+            )
+        base = f"/api/projects/{self.team.id}/canvases/{notebook_canvas.id}"
+
+        listed_ids = {row["id"] for row in self.client.get(f"/api/projects/{self.team.id}/canvases/").json()["results"]}
+
+        assert str(notebook_canvas.id) not in listed_ids
+        assert self.client.get(f"{base}/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{base}/source/").status_code == status.HTTP_404_NOT_FOUND
+        assert self._publish(str(notebook_canvas.id)).status_code == status.HTTP_404_NOT_FOUND
+
     def test_can_file_canvas_to_another_visible_channel(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):

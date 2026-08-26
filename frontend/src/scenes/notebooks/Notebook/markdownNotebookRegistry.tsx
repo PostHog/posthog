@@ -11,7 +11,6 @@ import '../Nodes/NotebookNodeFlag'
 import '../Nodes/NotebookNodeFlagCodeExample'
 import '../Nodes/NotebookNodeGroup'
 import '../Nodes/NotebookNodeGroupProperties'
-import '../Nodes/NotebookNodeGenUI/NotebookNodeGenUI'
 import '../Nodes/NotebookNodeHogQL'
 import '../Nodes/NotebookNodeImage'
 import '../Nodes/NotebookNodeIssues'
@@ -75,6 +74,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -170,7 +171,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
-    GenUI: NotebookNodeType.GenUI,
+    GeneratedWidget: NotebookNodeType.GeneratedWidget,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -291,13 +292,13 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         },
     },
     {
-        tagName: 'GenUI',
+        tagName: 'GeneratedWidget',
         category: 'Code',
-        label: 'Custom visualization',
+        label: 'Generated widget',
         insertCommand: {
-            aliases: ['genui', 'visualization', '3d'],
+            aliases: ['genui', 'visualization', 'widget', '3d'],
             defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.GenUI),
+                ...getDefaultPropsForNodeType(NotebookNodeType.GeneratedWidget),
                 ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),

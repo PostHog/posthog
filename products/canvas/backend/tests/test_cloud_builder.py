@@ -32,6 +32,29 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("createRoot", javascript)
         self.assertIn("canvas-runtime", html)
 
+    def test_notebook_widget_build_connects_before_generated_code_runs(self) -> None:
+        payload = synthetic_source_project("export default function Canvas() { return <div>Hello</div> }")
+        payload["capabilities"] = {
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": ["user"],
+                "notebookFrames": True,
+            },
+            "network": {"origins": []},
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        html = next(file["content"] for file in result["files"] if file["path"] == "index.html")
+        bridge = next(file["content"] for file in result["files"] if file["path"] == "assets/notebook-widget-bridge.js")
+        self.assertLess(html.index("notebook-widget-bridge.js"), html.index('type="module"'))
+        self.assertIn("new MessageChannel", bridge)
+        self.assertIn('type:"notebook-connect"', bridge)
+
     def test_legacy_canvas_build_compiles_tailwind_and_quill_styles(self) -> None:
         payload = synthetic_source_project(
             'import { Button } from "@posthog/quill"; '

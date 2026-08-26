@@ -16,9 +16,15 @@ NOTEBOOK_FRAME_KEY_PREFIX = "__posthog_notebook_frame__:"
 
 _READ_FRAME_RE = re.compile(r"\bph\s*\.\s*readFrame\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
+_NAVIGATION_SINK_RE = re.compile(
+    r"\b(?:window\s*\.\s*)?(?:location\s*(?:=|\.|\[)|open\s*\()|\b(?:document\s*\.\s*)?location\b"
+)
 _FRAME_BRIDGE = f"""
 Object.assign(ph, {{
-    readFrame: (name) => ph.state.get(`{NOTEBOOK_FRAME_KEY_PREFIX}${{name}}`, {{ scope: "user" }}),
+    readFrame: (name, options = {{}}) => ph.state.get(
+        `{NOTEBOOK_FRAME_KEY_PREFIX}${{encodeURIComponent(name)}}:${{options.offset ?? 0}}:${{options.limit ?? 100}}`,
+        {{ scope: "user" }}
+    ),
 }})
 """.strip()
 
@@ -75,13 +81,14 @@ def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name
         name=name,
         context=context,
         created_by_id=user_id,
+        source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
     ).id
 
 
 def update_notebook_canvas(*, team_id: int, canvas_id: UUID, context: str) -> bool:
     return bool(
         Canvas.objects.for_team(team_id)
-        .filter(id=canvas_id, deleted=False)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
         .update(context=context, generation_task_id=None)
     )
 
@@ -94,6 +101,7 @@ def _source_project(source: str) -> dict[str, Any]:
             "inlineQueries": False,
             "captureEvents": [],
             "state": ["user"],
+            "notebookFrames": True,
         },
         "network": {"origins": []},
     }
@@ -107,6 +115,14 @@ def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list
         {**diagnostic, "severity": "error"} if diagnostic.get("code") in _NETWORK_DIAGNOSTICS else diagnostic
         for diagnostic in diagnostics
     ]
+    if _NAVIGATION_SINK_RE.search(source):
+        diagnostics.append(
+            {
+                "severity": "error",
+                "code": "notebook_navigation_not_allowed",
+                "message": "Notebook widgets cannot navigate or open browser windows.",
+            }
+        )
     for match in _READ_FRAME_RE.finditer(source):
         frame_name = match.group(1)
         if frame_name is None:
@@ -139,7 +155,11 @@ def publish_notebook_canvas_source(
     name: str,
     expected_current_version_id: UUID | None,
 ) -> tuple[UUID, UUID]:
-    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    canvas = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .first()
+    )
     user = User.objects.filter(id=user_id).first()
     if canvas is None or user is None:
         raise NotebookCanvasNotFoundError
@@ -166,14 +186,23 @@ def publish_notebook_canvas_source(
     return version.id, build.id
 
 
-def list_notebook_canvas_versions(*, team_id: int, canvas_id: UUID) -> list[NotebookCanvasVersion]:
-    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+def list_notebook_canvas_versions(
+    *, team_id: int, canvas_id: UUID, version_ids: list[UUID] | None = None
+) -> list[NotebookCanvasVersion]:
+    canvas = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .first()
+    )
     if canvas is None:
         raise NotebookCanvasNotFoundError
-    versions = list(
-        CanvasSourceVersion.objects.for_team(team_id).filter(canvas_id=canvas.id, draft=False).order_by("created_at")
-    )
-    builds = CanvasBuild.objects.for_team(team_id).filter(canvas_id=canvas.id).order_by("-created_at")
+    versions_queryset = CanvasSourceVersion.objects.for_team(team_id).filter(canvas_id=canvas.id, draft=False)
+    builds_queryset = CanvasBuild.objects.for_team(team_id).filter(canvas_id=canvas.id)
+    if version_ids is not None:
+        versions_queryset = versions_queryset.filter(id__in=version_ids)
+        builds_queryset = builds_queryset.filter(source_version_id__in=version_ids)
+    versions = list(versions_queryset.order_by("created_at"))
+    builds = builds_queryset.order_by("-created_at")
     latest_builds: dict[UUID, CanvasBuild] = {}
     latest_ready_builds: dict[UUID, CanvasBuild] = {}
     for build_record in builds:
@@ -209,7 +238,11 @@ def list_notebook_canvas_versions(*, team_id: int, canvas_id: UUID) -> list[Note
 def get_notebook_canvas_source(
     *, team_id: int, canvas_id: UUID, version_id: UUID | None = None
 ) -> NotebookCanvasSource:
-    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    canvas = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .first()
+    )
     if canvas is None:
         raise NotebookCanvasNotFoundError
     resolved_version_id = version_id or canvas.current_source_version_id
@@ -240,7 +273,11 @@ def get_notebook_canvas_source(
 def revert_notebook_canvas(
     *, team_id: int, canvas_id: UUID, version_id: UUID, expected_current_version_id: UUID | None, user_id: int
 ) -> UUID:
-    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    canvas = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .first()
+    )
     user = User.objects.filter(id=user_id).first()
     if canvas is None or user is None:
         raise NotebookCanvasNotFoundError
@@ -264,7 +301,7 @@ def get_canvas_generation_state(*, team_id: int, canvas_id: UUID) -> CanvasGener
     canvas = (
         Canvas.objects.for_team(team_id)
         .select_related("published_build", "published_build__source_version")
-        .filter(id=canvas_id, deleted=False)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
         .first()
     )
     if canvas is None:

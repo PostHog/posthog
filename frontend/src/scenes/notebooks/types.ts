@@ -48,7 +48,7 @@ export enum NotebookNodeType {
     DuckSQL = 'ph-duck-sql',
     HogQLSQL = 'ph-hogql-sql',
     SQLV2 = 'ph-sql-v2',
-    GenUI = 'ph-gen-ui',
+    GeneratedWidget = 'ph-generated-widget',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
