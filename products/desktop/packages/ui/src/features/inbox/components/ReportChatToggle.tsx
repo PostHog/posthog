@@ -43,6 +43,7 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
             className={HEADER_ACTION_CLASS}
             aria-label={accessibleLabel}
             aria-pressed={chatOpen}
+            data-attr="report-chat-toggle"
             onClick={() => setChatOpen(!chatOpen)}
           />
         }
