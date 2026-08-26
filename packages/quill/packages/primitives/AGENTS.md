@@ -87,7 +87,6 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 | Drawer      | Mobile-first slide-up sheet; touch contexts                                                                                             |
 | Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
-| HoverSafeArea | Invisible pointer corridor between a hover trigger and a portaled popup. Dropdown menus include it automatically.                      |
 | Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
 
 ### Status and labels
@@ -501,9 +500,7 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
 </DropdownMenu>
 ```
 
-`DropdownMenuContent` includes a safe pointer corridor between its trigger and popup. This keeps the open menu active during diagonal pointer movement. Use `HoverSafeArea` directly for a custom hover surface that portals away from its trigger.
-
-Destructive items (`variant="destructive"` on DropdownMenuItem/ContextMenuItem/MenubarItem) forward straight to Button's `destructive` variant, so a delete row in a menu reads exactly like a standalone destructive Button: a red fill at rest, brighter on hover or keyboard highlight. The item owns that mapping. Don't pass a Button variant through `render` to restyle a menu item.
+Destructive items (`variant="destructive"` on DropdownMenuItem/ContextMenuItem/MenubarItem) forward straight to Button's `destructive` variant, so a delete row in a menu reads exactly like a standalone destructive Button: a red fill at rest, brighter on hover or keyboard highlight. The item owns that mapping — don't pass a Button variant through `render` to restyle a menu item.
 
 Checkbox/radio items:
 

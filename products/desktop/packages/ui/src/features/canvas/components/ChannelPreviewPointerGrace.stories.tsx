@@ -9,38 +9,42 @@ import {
 } from "@posthog/quill";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useRef } from "react";
-import { ChannelHoverSafeArea } from "./ChannelHoverSafeArea";
+import { ChannelPreviewPointerGrace } from "./ChannelPreviewPointerGrace";
 
 const meta = {
-  title: "Canvas/ChannelHoverSafeArea",
-  component: ChannelHoverSafeArea,
-} satisfies Meta<typeof ChannelHoverSafeArea>;
+  title: "Canvas/ChannelPreviewPointerGrace",
+  component: ChannelPreviewPointerGrace,
+} satisfies Meta<typeof ChannelPreviewPointerGrace>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const PreviewCardCorridor: Story = {
   render: () => {
-    const anchorRef = useRef<HTMLElement | null>(null);
+    const triggerRef = useRef<HTMLElement | null>(null);
     const positionerRef = useRef<HTMLDivElement | null>(null);
 
     return (
       <PreviewCard.Root>
         <div className="flex w-48 flex-col items-stretch gap-1">
           <PreviewCard.Trigger
-            ref={anchorRef}
+            ref={triggerRef}
             delay={0}
             closeDelay={0}
-            render={<Button variant="outline" />}
+            render={<Button variant="outline" data-channel-preview-trigger />}
           >
             Hover for details
           </PreviewCard.Trigger>
-          <Button variant="default">Nearby row</Button>
-          <Button variant="default">Another nearby row</Button>
+          <Button variant="default" data-channel-preview-trigger>
+            Nearby row
+          </Button>
+          <Button variant="default" data-channel-preview-trigger>
+            Another nearby row
+          </Button>
         </div>
         <PreviewCard.Portal>
-          <ChannelHoverSafeArea
-            anchorRef={anchorRef}
+          <ChannelPreviewPointerGrace
+            triggerRef={triggerRef}
             floatingRef={positionerRef}
           />
           <PreviewCard.Positioner

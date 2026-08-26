@@ -1,11 +1,11 @@
 import { PreviewCard } from "@base-ui/react/preview-card";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { Card } from "@posthog/quill";
-import { ChannelHoverSafeArea } from "@posthog/ui/features/canvas/components/ChannelHoverSafeArea";
 import {
   ChannelItemPreview,
   type ChannelItemPreviewPayload,
 } from "@posthog/ui/features/canvas/components/ChannelItemPreview";
+import { ChannelPreviewPointerGrace } from "@posthog/ui/features/canvas/components/ChannelPreviewPointerGrace";
 import {
   SpacePreview,
   type SpacePreviewPayload,
@@ -147,8 +147,8 @@ export function ChannelItemPreviewCardProvider({
         {({ payload }) =>
           payload ? (
             <PreviewCard.Portal>
-              <ChannelHoverSafeArea
-                anchorRef={payload.triggerRef}
+              <ChannelPreviewPointerGrace
+                triggerRef={payload.triggerRef}
                 floatingRef={positionerRef}
               />
               <PreviewCard.Positioner
@@ -263,6 +263,7 @@ export function ChannelItemHoverCard({
     // keyboard opened it on stops trying to close it.
     <div
       ref={triggerRef}
+      data-channel-preview-trigger
       className="flex min-w-0"
       onPointerEnter={card?.releaseKeyboard}
     >
@@ -319,6 +320,7 @@ export function SpaceHoverCard({
   const row = (
     <div
       ref={triggerRef}
+      data-channel-preview-trigger
       className="flex min-w-0"
       onPointerEnter={card?.releaseKeyboard}
     >

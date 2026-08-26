@@ -205,8 +205,6 @@ export {
     FieldTitle,
 } from './field'
 export { Heading, headingVariants } from './heading'
-export { HoverSafeArea } from './hover-safe-area'
-export type { HoverSafeAreaProps } from './hover-safe-area'
 export { Input } from './input'
 export {
     NumberFieldRoot,
