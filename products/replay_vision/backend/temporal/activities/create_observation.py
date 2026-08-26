@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.db import IntegrityError, OperationalError, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.utils import timezone
 
 import psycopg.errors
@@ -15,8 +15,8 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds, quota_state
-from products.replay_vision.backend.temporal.constants import SCANNER_ADMISSION_BUSY_ERROR_TYPE
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import SCANNER_ADMISSION_BUSY_ERROR_TYPE
 from products.replay_vision.backend.temporal.metrics import (
     record_consent_skip,
     record_quota_exhausted_skip,
@@ -31,35 +31,27 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
     return ScannerSnapshot.from_scanner(scanner).model_dump(mode="json")
 
 
-def _is_admission_busy(e: BaseException) -> bool:
-    return isinstance(e, ApplicationError) and e.type == SCANNER_ADMISSION_BUSY_ERROR_TYPE
-
-
 @activity.defn
 @track_activity()
 def create_observation_activity(inputs: CreateObservationInputs) -> CreateObservationOutput:
     """Snapshot the full scanner state and INSERT the row in `pending`; UNIQUE conflicts return `was_created=False` unless the row is this workflow's own lost-result insert, which is reclaimed."""
+    release_claim = True
     try:
-        result = _create_observation(inputs)
+        return _create_observation(inputs)
     except BaseException as e:
         # A busy admission keeps its claim: the retry lands in seconds, and decaying the claim here
         # would let dispatchers admit more applies into the very contention being backed off from.
-        if not _is_admission_busy(e):
-            # Every other exit resolves the row's existence, so the claim is done; TTL covers a crash.
+        release_claim = not (isinstance(e, ApplicationError) and e.type == SCANNER_ADMISSION_BUSY_ERROR_TYPE)
+        raise
+    finally:
+        # Every non-busy exit resolves the row's existence, so the claim is done; TTL covers a crash.
+        if release_claim:
             release_enqueue_claim(
                 team_id=inputs.team_id,
                 scanner_id=inputs.scanner_id,
                 workflow_id=inputs.workflow_id,
                 backfill_id=inputs.backfill_id,
             )
-        raise
-    release_enqueue_claim(
-        team_id=inputs.team_id,
-        scanner_id=inputs.scanner_id,
-        workflow_id=inputs.workflow_id,
-        backfill_id=inputs.backfill_id,
-    )
-    return result
 
 
 def _reclaim_own_pending_insert(inputs: CreateObservationInputs) -> CreateObservationOutput | None:
@@ -188,14 +180,20 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             # Capped scanners serialize admissions on the row lock so concurrent applies cannot overshoot
             # the cap; uncapped scanners keep the lock-free path. The limit is re-read under the lock.
             if scanner.credit_limit is not None:
-                # nowait: a contended admission fails fast and re-runs on the activity's own backoff
-                # instead of camping in Postgres's lock queue, where every waiter holds an open
-                # transaction and an attempt killed at start_to_close leaves its statement waiting
-                # server-side. Admissions stay fully serialized; only where contenders wait changes.
+                # A short lock_timeout instead of NOWAIT: a contended admission fails fast into the
+                # activity's own backoff instead of camping in Postgres's lock queue, where every
+                # waiter holds an open transaction and an attempt killed at start_to_close leaves its
+                # statement waiting server-side. The 2s grace absorbs the brief blocking holders of
+                # this row (scanner save(), prompt-suggestion apply), which NOWAIT would turn into
+                # instant admission failures. Admissions stay fully serialized.
+                with connection.cursor() as cursor:
+                    # SET LOCAL reverts when the transaction ends; lock_timeout raises the same
+                    # LockNotAvailable the handler below maps to the retryable busy error.
+                    cursor.execute("SET LOCAL lock_timeout = '2s'")
                 locked = (
                     # By-pk, so it must resolve whatever origin the row is; `objects` would lock
                     # nothing for an inline scanner and silently skip its budget check.
-                    ReplayScanner.all_origins.select_for_update(nowait=True, of=("self",))
+                    ReplayScanner.all_origins.select_for_update(of=("self",))
                     .filter(pk=scanner.pk)
                     .only("pk", "credit_limit")
                     .first()
@@ -246,7 +244,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     except OperationalError as e:
         if not isinstance(e.__cause__, psycopg.errors.LockNotAvailable):
             raise
-        record_scanner_admission_busy()
+        record_scanner_admission_busy(scanner.scanner_type)
         activity.logger.info(
             "Scanner admission lock busy; deferring to activity retry",
             extra={
