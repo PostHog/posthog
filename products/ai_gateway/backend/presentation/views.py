@@ -18,7 +18,7 @@ from ..facade import api
 from .serializers import SpendLimitErrorSerializer, SpendLimitSerializer, SpendLimitWriteSerializer
 
 _GATEWAY_ERROR = {502: OpenApiResponse(response=SpendLimitErrorSerializer)}
-# Only a write fails when the gateway holds no limits; a read reports enforced=False.
+# Only a write fails when the gateway holds no limits; a read reports available=False.
 _WRITE_ERRORS = {**_GATEWAY_ERROR, 503: OpenApiResponse(response=SpendLimitErrorSerializer)}
 
 

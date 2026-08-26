@@ -18,6 +18,7 @@ from posthog.llm.gateway_internal_client import (
     clear_user_budget,
     get_user_budget,
     set_user_budget,
+    user_spend_node,
 )
 from posthog.models.user import User
 
@@ -41,7 +42,7 @@ class SpendLimitsRejected(Exception):
 def read_spend_limit(team_id: int, user: User) -> SpendLimit:
     try:
         with _gateway_call("read", team_id):
-            budget = get_user_budget(team_id, _spend_node(user))
+            budget = get_user_budget(team_id, user_spend_node(user))
     except SpendLimitsUnsupported:
         # A read can report that limits are unavailable here, where a write has to fail.
         return _unavailable()
@@ -52,13 +53,13 @@ def read_spend_limit(team_id: int, user: User) -> SpendLimit:
 
 def write_spend_limit(team_id: int, user: User, *, limit_usd: str, window_seconds: int) -> SpendLimit:
     with _gateway_call("write", team_id):
-        budget = set_user_budget(team_id, _spend_node(user), limit_usd, window_seconds)
+        budget = set_user_budget(team_id, user_spend_node(user), limit_usd, window_seconds)
     return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, available=True)
 
 
 def remove_spend_limit(team_id: int, user: User) -> SpendLimit:
     with _gateway_call("clear", team_id):
-        clear_user_budget(team_id, _spend_node(user))
+        clear_user_budget(team_id, user_spend_node(user))
     return _no_limit()
 
 
@@ -70,14 +71,6 @@ def _unavailable() -> SpendLimit:
     return SpendLimit(limit_usd=None, window_seconds=None, available=False)
 
 
-def _spend_node(user: User) -> str:
-    # The gateway meters spend per user node, so this has to be the node a cloud
-    # run's token asserts. `get_actor_distinct_id` in products/tasks derives the
-    # run side the same way; if the two drift, the gateway counts spend against a
-    # node nothing configured and the limit silently does nothing.
-    return user.distinct_id or f"user_{user.id}"
-
-
 @contextmanager
 def _gateway_call(operation: str, team_id: int) -> Iterator[None]:
     try:
@@ -87,6 +80,7 @@ def _gateway_call(operation: str, team_id: int) -> Iterator[None]:
     except AIGatewayInternalError as exc:
         # A 404 means this gateway serves no budgets route, not that the user has none.
         if exc.status_code == HTTPStatus.NOT_FOUND:
+            logger.info("ai_gateway_user_spend_limit_unsupported", operation=operation, team_id=team_id)
             raise SpendLimitsUnsupported from exc
         logger.warning(
             "ai_gateway_user_spend_limit_gateway_error",
@@ -95,9 +89,8 @@ def _gateway_call(operation: str, team_id: int) -> Iterator[None]:
             status_code=exc.status_code,
             error=str(exc),
         )
-        # A 4xx means the gateway understood and refused the request, which points
-        # at drift between its validation and ours; anything else means the call
-        # never completed cleanly.
-        if exc.status_code is not None and 400 <= exc.status_code < 500:
+        # A 409 heals on retry; any other 4xx means the gateway refused the request;
+        # anything else means the call never completed.
+        if exc.status_code is not None and 400 <= exc.status_code < 500 and exc.status_code != HTTPStatus.CONFLICT:
             raise SpendLimitsRejected from exc
         raise SpendLimitsUnavailable from exc

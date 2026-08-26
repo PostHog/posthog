@@ -87,6 +87,7 @@ class TestScopeSets(BaseTest):
     def test_privileged_scopes_subset_of_all_scopes(self) -> None:
         self.assertTrue(PRIVILEGED_SCOPES.issubset(ALL_SCOPES))
         self.assertIn("llm_gateway:read", PRIVILEGED_SCOPES)
+        self.assertIn("ai_gateway:write", PRIVILEGED_SCOPES)
 
     def test_unprivileged_scopes_excludes_privileged_and_hidden(self) -> None:
         self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(PRIVILEGED_SCOPES))

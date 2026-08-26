@@ -95,6 +95,7 @@ class TestUserSpendLimit(APIBaseTest):
         [
             ("gateway_down", 500, "spend_limits_unavailable"),
             ("request_refused", 422, "spend_limits_rejected"),
+            ("lost_a_concurrent_write_race", 409, "spend_limits_unavailable"),
         ]
     )
     def test_write_surfaces_a_gateway_failure_with_its_kind(self, _name, gateway_status, expected_code):

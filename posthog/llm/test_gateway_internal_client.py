@@ -8,6 +8,7 @@ from posthog.llm.gateway_internal_client import (
     IDEMPOTENCY_KEY_HEADER,
     INTERNAL_ACTOR_HEADER,
     USER_ACTOR,
+    USER_SCOPE_TYPE,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
     add_credit,
@@ -168,18 +169,24 @@ class TestAddCredit:
 
 
 class TestUserBudgets:
+    ROW = {"team_id": 42, "scope_type": "user", "scope_value": "u1", "limit_usd": "5", "window_seconds": 3600}
+
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_get_reads_one_user_budget_from_a_bounded_path(self, mock_settings):
+    def test_get_matches_only_this_users_row_in_the_collection(self, mock_settings):
         _configured(mock_settings)
-        payload = {"budget": {"limit_usd": "5", "window_seconds": 3600}}
+        rows = [
+            {**self.ROW, "scope_type": "product"},
+            {**self.ROW, "scope_value": "someone-else"},
+            self.ROW,
+        ]
         with patch(
-            "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, payload)
+            "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, {"budgets": rows})
         ) as mock_request:
             budget = get_user_budget(42, "u1")
 
         method, url = mock_request.call_args.args
         assert method == "GET"
-        assert url == "http://gw/internal/teams/42/budgets/users/u1"
+        assert url == "http://gw/internal/teams/42/budgets"
         assert budget is not None
         assert budget.limit_usd == "5"
         assert budget.window_seconds == 3600
@@ -187,11 +194,8 @@ class TestUserBudgets:
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_get_returns_none_when_the_user_has_no_budget(self, mock_settings):
         _configured(mock_settings)
-        with patch(
-            "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, {"budget": None})
-        ) as mock_request:
+        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, {"budgets": []})):
             assert get_user_budget(42, "u1") is None
-        assert mock_request.call_args.args[0] == "GET"
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_get_surfaces_a_route_missing_404_with_its_status(self, mock_settings):
@@ -204,18 +208,22 @@ class TestUserBudgets:
         assert exc.value.status_code == 404
 
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_set_puts_the_budget_at_the_per_user_path(self, mock_settings):
+    def test_set_puts_the_node_addressed_budget_on_the_collection(self, mock_settings):
         _configured(mock_settings)
-        payload = {"budget": {"limit_usd": "5", "window_seconds": 3600}}
         with patch(
-            "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, payload)
+            "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, self.ROW)
         ) as mock_request:
             budget = set_user_budget(42, "u1", "5", 3600)
 
         method, url = mock_request.call_args.args
         assert method == "PUT"
-        assert url == "http://gw/internal/teams/42/budgets/users/u1"
-        assert mock_request.call_args.kwargs["json"] == {"limit_usd": "5", "window_seconds": 3600}
+        assert url == "http://gw/internal/teams/42/budgets"
+        assert mock_request.call_args.kwargs["json"] == {
+            "scope_type": USER_SCOPE_TYPE,
+            "scope_value": "u1",
+            "limit_usd": "5",
+            "window_seconds": 3600,
+        }
         assert mock_request.call_args.kwargs["headers"][INTERNAL_ACTOR_HEADER] == USER_ACTOR
         assert budget.limit_usd == "5"
 
@@ -230,33 +238,34 @@ class TestUserBudgets:
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_set_wraps_a_malformed_budget_row_in_the_error_contract(self, mock_settings, row):
         _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, {"budget": row})):
+        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, row)):
             with pytest.raises(AIGatewayInternalError):
                 set_user_budget(42, "u1", "5", 3600)
 
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_clear_deletes_the_budget_at_the_per_user_path(self, mock_settings):
+    def test_clear_deletes_the_budget_by_query_params(self, mock_settings):
         _configured(mock_settings)
         with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(204)) as mock_request:
             clear_user_budget(42, "u1")
 
         method, url = mock_request.call_args.args
         assert method == "DELETE"
-        assert url == "http://gw/internal/teams/42/budgets/users/u1"
+        assert url == "http://gw/internal/teams/42/budgets"
+        assert mock_request.call_args.kwargs["params"] == {"scope_type": USER_SCOPE_TYPE, "scope_value": "u1"}
         assert mock_request.call_args.kwargs["headers"][INTERNAL_ACTOR_HEADER] == USER_ACTOR
 
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_clear_succeeds_when_the_user_had_no_budget(self, mock_settings):
+    def test_clear_treats_the_gateways_row_missing_404_as_cleared(self, mock_settings):
         _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, {"budget": None})):
+        body = {"status": 404, "code": "not_found", "message": "no budget set for that node"}
+        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(404, body)):
             clear_user_budget(42, "u1")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_clear_treats_a_route_missing_404_as_an_error(self, mock_settings):
         _configured(mock_settings)
-        with patch(
-            "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(404, {"error": "not found"})
-        ):
+        router_404 = httpx.Response(404, text="404 page not found", request=httpx.Request("DELETE", "http://gw"))
+        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=router_404):
             with pytest.raises(AIGatewayInternalError) as exc:
                 clear_user_budget(42, "u1")
         assert exc.value.status_code == 404
@@ -267,18 +276,20 @@ class TestUserBudgets:
         redirect = httpx.Response(
             302,
             headers={"location": "http://gw/other"},
-            request=httpx.Request("DELETE", "http://gw/internal/teams/42/budgets/users/u1"),
+            request=httpx.Request("DELETE", "http://gw/internal/teams/42/budgets"),
         )
         with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=redirect):
             with pytest.raises(AIGatewayInternalError):
                 clear_user_budget(42, "u1")
 
     @patch("posthog.llm.gateway_internal_client.settings")
-    def test_clear_raises_on_other_errors(self, mock_settings):
+    def test_clear_surfaces_a_conflict_with_its_status(self, mock_settings):
         _configured(mock_settings)
-        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(500, {"error": "boom"})):
-            with pytest.raises(AIGatewayInternalError, match="boom"):
+        body = {"status": 409, "code": "version_conflict", "message": "a concurrent update set a newer budget"}
+        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(409, body)):
+            with pytest.raises(AIGatewayInternalError) as exc:
                 clear_user_budget(42, "u1")
+        assert exc.value.status_code == 409
 
 
 class TestNotConfigured:

@@ -1,9 +1,12 @@
 import dataclasses
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
 import httpx
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 INTERNAL_API_TIMEOUT_SECONDS = 5.0
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
@@ -177,6 +180,12 @@ def _error_detail(response: httpx.Response) -> str:
 
 # Must match the X-PostHog-User node used for gateway spend attribution.
 USER_ACTOR = "posthog-user"
+USER_SCOPE_TYPE = "user"
+
+
+def user_spend_node(user: "User") -> str:
+    """The node the gateway attributes this user's spend to; budgets must key the same node."""
+    return user.distinct_id or f"user_{user.id}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -196,40 +205,53 @@ def _user_budget(row: dict[str, Any]) -> UserBudget:
     return UserBudget(limit_usd=str(limit_usd), window_seconds=window_seconds)
 
 
-# Gateway contract: 404 = no budgets route, 2xx with no budget row = no budget, idempotent delete.
-
-
-def _user_budget_path(team_id: int, scope_value: str) -> str:
-    return f"/internal/teams/{team_id}/budgets/users/{scope_value}"
+def _budgets_path(team_id: int) -> str:
+    return f"/internal/teams/{team_id}/budgets"
 
 
 def get_user_budget(team_id: int, scope_value: str) -> UserBudget | None:
-    response = _request("GET", _user_budget_path(team_id, scope_value), what="budget read")
+    # The gateway serves no single-node read; one row per person keeps the scan small.
+    response = _request("GET", _budgets_path(team_id), what="budget read")
     data = _json_body(response, "budget")
-    row = data.get("budget")
-    return _user_budget(row) if row else None
+    for row in data.get("budgets") or []:
+        if row.get("scope_type") == USER_SCOPE_TYPE and row.get("scope_value") == scope_value:
+            return _user_budget(row)
+    return None
 
 
 def set_user_budget(team_id: int, scope_value: str, limit_usd: str, window_seconds: int) -> UserBudget:
-    # Replacing a budget does not move ledger funds, so it needs no idempotency key.
     response = _request(
         "PUT",
-        _user_budget_path(team_id, scope_value),
+        _budgets_path(team_id),
         what="budget write",
         extra_headers={INTERNAL_ACTOR_HEADER: USER_ACTOR},
-        json={"limit_usd": limit_usd, "window_seconds": window_seconds},
+        json={
+            "scope_type": USER_SCOPE_TYPE,
+            "scope_value": scope_value,
+            "limit_usd": limit_usd,
+            "window_seconds": window_seconds,
+        },
     )
-    data = _json_body(response, "budget")
-    row = data.get("budget")
-    if not row:
-        raise AIGatewayInternalError("budget response missing required fields (limit_usd/window_seconds)")
-    return _user_budget(row)
+    return _user_budget(_json_body(response, "budget"))
 
 
 def clear_user_budget(team_id: int, scope_value: str) -> None:
-    _request(
+    response = _request(
         "DELETE",
-        _user_budget_path(team_id, scope_value),
+        _budgets_path(team_id),
         what="budget delete",
         extra_headers={INTERNAL_ACTOR_HEADER: USER_ACTOR},
+        params={"scope_type": USER_SCOPE_TYPE, "scope_value": scope_value},
+        tolerated_statuses=frozenset({404}),
     )
+    # The gateway's not_found envelope means the row was already gone (cleared); a bare router 404 means no budgets route.
+    if response.status_code == 404 and _error_code(response) != "not_found":
+        raise AIGatewayInternalError(_error_detail(response), status_code=404)
+
+
+def _error_code(response: httpx.Response) -> str | None:
+    try:
+        body: Any = response.json()
+    except ValueError:
+        return None
+    return body.get("code") if isinstance(body, dict) else None
