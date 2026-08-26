@@ -65,6 +65,8 @@ describe('AccountMeetingsExpansion', () => {
 
         const button = await screen.findByText('Open in Gong')
         expect(button.closest('a')).toHaveAttribute('href', meeting.gong_url)
+        expect(button.closest('td')).toHaveTextContent('Quarterly review')
+        expect(screen.queryByText('Gong')).not.toBeInTheDocument()
 
         fireEvent.click(button)
         expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.GongCallOpened)

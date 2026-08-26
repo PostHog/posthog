@@ -174,36 +174,30 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
         {
             title: 'Meeting',
             key: 'title',
-            render: (_, meeting) =>
-                meeting.title ? (
-                    <span className="font-medium line-clamp-1">{meeting.title}</span>
-                ) : (
-                    <span className="text-muted italic">Untitled meeting</span>
-                ),
+            render: (_, meeting) => (
+                <div className="flex items-center justify-between gap-2">
+                    {meeting.title ? (
+                        <span className="font-medium line-clamp-1">{meeting.title}</span>
+                    ) : (
+                        <span className="text-muted italic">Untitled meeting</span>
+                    )}
+                    {meeting.gong_url && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            to={meeting.gong_url}
+                            targetBlank
+                            sideIcon={<img src={gongIcon} alt="" className="size-4 object-contain" />}
+                            className="shrink-0"
+                            data-attr="open-meeting-in-gong"
+                            onClick={() => posthog.capture(AccountsEvents.GongCallOpened)} // [PostHog] Event: dynamic event name
+                        >
+                            Open in Gong
+                        </LemonButton>
+                    )}
+                </div>
+            ),
         },
-        ...(meetings?.some((meeting) => meeting.gong_url)
-            ? [
-                  {
-                      title: 'Gong',
-                      key: 'gong_url',
-                      width: 150,
-                      render: (_: unknown, meeting: MeetingApi) =>
-                          meeting.gong_url ? (
-                              <LemonButton
-                                  type="secondary"
-                                  size="xsmall"
-                                  to={meeting.gong_url}
-                                  targetBlank
-                                  sideIcon={<img src={gongIcon} alt="" className="size-4 object-contain" />}
-                                  data-attr="open-meeting-in-gong"
-                                  onClick={() => posthog.capture(AccountsEvents.GongCallOpened)} // [PostHog] Event: dynamic event name
-                              >
-                                  Open in Gong
-                              </LemonButton>
-                          ) : null,
-                  },
-              ]
-            : []),
         {
             title: 'When',
             key: 'start_time',
