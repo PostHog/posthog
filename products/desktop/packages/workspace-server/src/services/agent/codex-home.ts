@@ -193,6 +193,19 @@ export async function writeBackSubscriptionLogin(options: {
       `.auth.json.${process.pid}.tmp`,
     );
     await fs.promises.writeFile(tempLogin, refreshed, { mode: 0o600 });
+    // The codex login process writes the store outside our queue. Recheck the
+    // generation before the rename so a finished sign-in is never overwritten.
+    const current = await fs.promises
+      .readFile(storedLogin)
+      .catch(() => undefined);
+    if (current === undefined || sha256(current) !== seedHash) {
+      await fs.promises.rm(tempLogin, { force: true });
+      options.log.info(
+        "Skipping subscription login write-back: the stored login changed during the write",
+        { taskRunId: options.taskRunId },
+      );
+      return;
+    }
     await fs.promises.rename(tempLogin, storedLogin);
   } catch (err) {
     options.log.warn("Failed to write back refreshed subscription login", {

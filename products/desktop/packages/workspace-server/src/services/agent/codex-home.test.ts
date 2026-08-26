@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import {
   chmod,
@@ -479,6 +480,53 @@ describe("prepareCodexHome", () => {
 
     await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
     expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":1}');
+  });
+
+  it("writeBackSubscriptionLogin skips the rename when the store changes mid-write", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    const storedLogin = path.join(subscriptionHome, "auth.json");
+    await writeFile(storedLogin, '{"token":1}');
+
+    const codexHome = await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+    await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
+
+    // The recheck reads the store a second time; answer it with a new login,
+    // as if a browser sign-in landed between the first read and the rename.
+    const realReadFile = fs.promises.readFile;
+    const readFileSpy = vi.spyOn(fs.promises, "readFile");
+    let storeReads = 0;
+    readFileSpy.mockImplementation(async (file, opts) => {
+      if (
+        String(file).endsWith(
+          path.join("codex-home-subscription", "auth.json"),
+        )
+      ) {
+        storeReads += 1;
+        if (storeReads === 2) {
+          return Buffer.from('{"token":"fresh-login"}') as never;
+        }
+      }
+      return realReadFile.call(fs.promises, file as never, opts as never);
+    });
+    try {
+      await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
+    } finally {
+      readFileSpy.mockRestore();
+    }
+
+    expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":1}');
+    expect(
+      existsSync(
+        path.join(subscriptionHome, `.auth.json.${process.pid}.tmp`),
+      ),
+    ).toBe(false);
   });
 
   it("writeBackSubscriptionLogin does not resurrect a login after sign-out", async () => {
