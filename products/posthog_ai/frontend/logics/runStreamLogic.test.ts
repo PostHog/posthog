@@ -2832,17 +2832,17 @@ describe('runStreamLogic', () => {
             expect(captureSpy.mock.calls.filter((c) => lifecycleEvents.includes(c[0] as string))).toEqual([])
         })
 
-        it('emits one `chat with ai` per turn, and again after a follow-up', async () => {
+        it('counts a turn at its first agent output, once, and again after a follow-up', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', traceId: 'trace-1' })
 
+            // The turn is counted here, not at completion — a turn whose reader navigates away
+            // mid-generation still counts.
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
-                // One turn, two frames: the agent-server broadcasts a turn_complete and Django injects
-                // its own after a synchronous follow-up delivery. Counting both would inflate every
-                // usage series built on this event.
-                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
-                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { source: 'posthog' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } })
+                )
             }).toFinishAllListeners()
 
             let chats = captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')
@@ -2860,16 +2860,56 @@ describe('runStreamLogic', () => {
                 })
             )
 
+            // More output, then completion. A turn carries two turn_complete frames: the agent-server
+            // broadcasts one and Django injects its own after a synchronous follow-up delivery. None
+            // of this counts the turn a second time.
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' there' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { source: 'posthog' }))
+            }).toFinishAllListeners()
+
+            expect(captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')).toHaveLength(1)
+
             // The next human message reopens the turn — a latch that never reopened would silently
             // stop counting every turn after the first.
             await expectLogic(logic, () => {
                 logic.actions.pushHumanMessage('and again')
-                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'sure' } })
+                )
             }).toFinishAllListeners()
 
             chats = captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')
             expect(chats).toHaveLength(2)
+            // `turn_index` is not asserted here: it tracks the fold's separator count, which the
+            // duplicate frame above also inflates. The two agreeing is the point, not the value.
             expect(chats[1][1]).toEqual(expect.objectContaining({ is_new_conversation: false }))
+        })
+
+        it('does not recount a turn whose agent output arrived before a reload', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            // An in-progress run, replayed from the top: this turn was already counted in the session
+            // that started it, so resuming its live frames must not count it again.
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'wor' } }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'king' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            }).toFinishAllListeners()
+
+            expect(captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')).toEqual([])
         })
 
         it.each([
