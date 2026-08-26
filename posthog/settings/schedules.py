@@ -34,7 +34,9 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
     "COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS", 1800, type_cast=int
 )
 
-# If updating this, need to look into adding more values to S3 TTLs (see query_cache_s3.py)
+# The query-cache buckets' lifecycle rule (posthog-cloud-infra) garbage-collects S3 blobs after
+# this many days. Raising this value needs the bucket rule raised first, or blobs get deleted
+# while their Redis pointers still live (see docs/internal/workflows/s3-query-cache-setup.md).
 CACHED_RESULTS_TTL_DAYS = 7
 CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 

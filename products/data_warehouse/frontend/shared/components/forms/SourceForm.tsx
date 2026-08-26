@@ -7,6 +7,7 @@ import {
     LemonDivider,
     LemonFileInput,
     LemonInput,
+    LemonInputSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -37,7 +38,7 @@ import { CDC_SOURCE_TYPES } from '../../cdc'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
-import { IntegrationAccountSelector } from './IntegrationAccountSelector'
+import { IntegrationAccountSelector, findOauthBranch } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
@@ -230,6 +231,31 @@ export const sourceFieldToElement = (
         )
     }
 
+    if (field.type === 'select' && field.multiple) {
+        // A config saved before the field became multiple still holds a bare string.
+        const toArray = (value: any): string[] => (Array.isArray(value) ? value : value ? [value] : [])
+
+        return (
+            <LemonField
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            >
+                {({ value, onChange }) => (
+                    <LemonInputSelect
+                        mode="multiple"
+                        data-attr={field.name}
+                        placeholder={`Select ${field.label.toLowerCase()}`}
+                        options={field.options.map((option) => ({ key: option.value, label: option.label }))}
+                        value={toArray(value === undefined || value === null ? lastValue?.[field.name] : value)}
+                        onChange={onChange}
+                    />
+                )}
+            </LemonField>
+        )
+    }
+
     if (field.type === 'select') {
         const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
@@ -342,6 +368,7 @@ export const sourceFieldToElement = (
                 caption={field.caption}
                 multiple={field.multiple}
                 legacySingleField={legacySingleField}
+                oauthBranch={findOauthBranch(sourceConfig.fields, field.integrationField)}
             />
         )
     }

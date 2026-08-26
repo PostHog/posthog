@@ -2,21 +2,24 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
-import { IconArrowLeft, IconBug } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CardSkeleton } from './components/cards/CardSkeleton'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
+import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
+import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
+import { InboxWelcomeRedesign } from './components/onboarding/InboxWelcomeRedesign'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
@@ -94,6 +97,8 @@ function ActiveTabBody({
             return <NotActionableTab />
         case 'archived':
             return <ArchivedTab />
+        case 'scouts':
+            return <ScoutsRoster />
         case 'runs':
             return <RunsTab runs={signalRuns} loading={signalRunsLoading} />
         case 'config':
@@ -111,7 +116,7 @@ function ActiveTabBody({
  */
 function InboxListView(): JSX.Element {
     const { activeTab, signalRuns, signalRunsLoading } = useValues(inboxSceneLogic)
-    const { onboardingMode } = useValues(inboxOnboardingLogic)
+    const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
         { initialSize: 'wide' }
@@ -121,7 +126,12 @@ function InboxListView(): JSX.Element {
     // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
     // is dropped too, so the onboarding is the whole story – just run the one command.
     const onboarding = onboardingMode === 'takeover'
-    const showRail = wide && !onboarding
+    // The takeover verdict is still settling: commit to neither UI. Rendering the tab bar or the
+    // rail here is what caused the normal inbox to flash in and get replaced by the welcome page.
+    const pending = onboardingMode === 'pending'
+    // The Scouts tab is a full-width table, and the rail's own scout widget just links here — so
+    // the rail would be both redundant and the reason the table has nowhere to breathe.
+    const showRail = wide && !onboarding && !pending && activeTab !== 'scouts'
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
@@ -152,17 +162,29 @@ function InboxListView(): JSX.Element {
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
                 {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above;
                     pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
-                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
-                    <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
-                    {!onboarding && isReportListTab(effectiveTab) && (
-                        <div className="pb-1.5">
-                            <InboxScopeSelect />
-                        </div>
-                    )}
-                </div>
+                {/* The redesigned welcome (experiment test arm) is a full-pane page with no tab
+                    row at all; control keeps the locked "Welcome" tab over the disabled real tabs. */}
+                {!isWelcomeRedesign && !pending && (
+                    <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
+                        <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
+                        {!onboarding && isReportListTab(effectiveTab) && (
+                            <div className="pb-1.5">
+                                <InboxScopeSelect />
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div className="flex-1 overflow-auto min-h-0">
-                    {onboarding ? (
-                        <InboxOnboardingTakeover />
+                    {pending ? (
+                        <div className="mx-auto max-w-4xl px-6 py-4">
+                            <CardSkeleton count={4} variant="cards" />
+                        </div>
+                    ) : onboarding ? (
+                        isWelcomeRedesign ? (
+                            <InboxWelcomeRedesign />
+                        ) : (
+                            <InboxOnboardingTakeover />
+                        )
                     ) : (
                         <ActiveTabBody
                             tab={effectiveTab}
@@ -188,9 +210,21 @@ function InboxListView(): JSX.Element {
  */
 function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
+    const { reportDetailScrolled } = useActions(inboxSceneLogic)
+    // Report only the first scroll per report to the logic (which fires `Inbox report scrolled` once),
+    // so a fast native scroll doesn't dispatch an action on every frame.
+    const scrolledReportRef = useRef<string | null>(null)
 
     return (
-        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+        <div
+            className="flex flex-col min-h-0 flex-1 overflow-auto"
+            onScroll={() => {
+                if (scrolledReportRef.current !== report.id) {
+                    scrolledReportRef.current = report.id
+                    reportDetailScrolled()
+                }
+            }}
+        >
             {/* Key on the report so per-report detail state (e.g. the active diff tab) resets on navigation. */}
             <ReportDetail key={report.id} report={report} tab={activeTab} />
         </div>
@@ -223,7 +257,6 @@ function InboxPanelView({ onBack, children }: { onBack: () => void; children: JS
 export function InboxScene(): JSX.Element {
     const {
         activeTab,
-        isRunningSessionAnalysis,
         selectedReportId,
         selectedReport,
         selectedReportLoading,
@@ -231,9 +264,8 @@ export function InboxScene(): JSX.Element {
         isScratchpadOpen,
         isFindingsOpen,
     } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
-    const { onboardingMode } = useValues(inboxOnboardingLogic)
-    const { isDev } = useValues(preflightLogic)
+    const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
+    const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
     const { searchParams } = useValues(router)
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
@@ -268,27 +300,26 @@ export function InboxScene(): JSX.Element {
                     name="Inbox"
                     // The description explains the active tab so new users can orient themselves.
                     // In the onboarding takeover the tabs are locked, so keep the overall pitch.
+                    // The redesigned welcome leads with its own full-size pitch, so a description
+                    // here would say the same thing twice. While the verdict is pending neither
+                    // description is safe to show – either would flash and swap.
                     description={
-                        onboardingMode === 'takeover'
-                            ? 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
-                            : INBOX_TAB_DESCRIPTION[activeTab]
+                        onboardingMode === 'pending'
+                            ? null
+                            : onboardingMode === 'takeover'
+                              ? isWelcomeRedesign
+                                  ? null
+                                  : 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
+                              : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
+                    // Creating a scout is the Scouts tab's primary action, so it sits in the scene
+                    // header rather than inside the roster — one predictable place, and it stays
+                    // reachable when the roster is filtered down to nothing. Not while onboarding
+                    // has the tab locked (or is still deciding): the roster isn't reachable then.
                     actions={
-                        isDev ? (
-                            <Tooltip title="Analyze the last 7 days of sessions">
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => runSessionAnalysis()}
-                                    loading={isRunningSessionAnalysis}
-                                    size="small"
-                                    data-attr="run-session-analysis-button"
-                                    tooltip="DEBUG-only"
-                                    icon={<IconBug />}
-                                >
-                                    Run session analysis
-                                </LemonButton>
-                            </Tooltip>
+                        activeTab === 'scouts' && onboardingMode !== 'takeover' && onboardingMode !== 'pending' ? (
+                            <ScoutsRosterActions />
                         ) : undefined
                     }
                 />

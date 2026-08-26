@@ -106,7 +106,16 @@ _FORBIDDEN_MESSAGE = (
 )
 _ORGANIZATION_NOT_FOUND_MESSAGE = "Azure DevOps organization not found. Please check the organization name."
 _UNREACHABLE_MESSAGE = "Couldn't reach Azure DevOps to validate your credentials. Please try again in a few minutes."
-_GENERIC_INVALID_MESSAGE = "Invalid Azure DevOps credentials"
+
+
+def _unexpected_status_message(status_code: int) -> str:
+    # Any status the probe doesn't map explicitly (a 429, a 5xx, an unexpected redirect) lands here.
+    # Name the status and point at both inputs rather than asserting the credentials are invalid,
+    # which misdirects the user when the real cause is throttling or an Azure-side error.
+    return (
+        f"Azure DevOps returned an unexpected response (HTTP {status_code}). "
+        "Check your organization name and personal access token, then try again."
+    )
 
 
 def validate_credentials(organization: str, personal_access_token: str, api_version: str) -> tuple[bool, str | None]:
@@ -139,7 +148,7 @@ def validate_credentials(organization: str, personal_access_token: str, api_vers
         return False, _FORBIDDEN_MESSAGE
     if status_code == 404:
         return False, _ORGANIZATION_NOT_FOUND_MESSAGE
-    return False, _GENERIC_INVALID_MESSAGE
+    return False, _unexpected_status_message(status_code)
 
 
 def get_rows(

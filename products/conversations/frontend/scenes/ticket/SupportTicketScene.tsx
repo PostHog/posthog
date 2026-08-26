@@ -376,6 +376,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
+                            {ticket?.channel_source === 'email' && ticket?.email_to && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">To</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
+                                        {ticket.email_to}
+                                    </span>
+                                </div>
+                            )}
                             {ticket?.channel_source === 'email' &&
                                 ticket?.cc_participants &&
                                 ticket.cc_participants.length > 0 && (
@@ -524,8 +532,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     }}
                                 />
                             </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted-alt">Tags</span>
+                            <div className="flex justify-between items-start gap-2">
+                                <span className="text-muted-alt shrink-0">Tags</span>
                                 <TicketTags
                                     tags={tags}
                                     onChange={setTags}

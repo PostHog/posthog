@@ -50,7 +50,9 @@ class TaxonomyAgentNode(
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team, user=user)
-        self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
+        state_classes = self._get_state_class(TaxonomyAgentNode)
+        self._state_class = state_classes.state_class
+        self._partial_state_class = state_classes.partial_state_class
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -108,7 +110,9 @@ class TaxonomyAgentNode(
         Generate the output format for events. Can be overridden by subclasses.
         Default implementation uses YAML format but it can be overridden to use XML format.
         """
-        return format_events_yaml(events_in_context, self._team, self._user)
+        return format_events_yaml(
+            events_in_context, self._team, self._user, event_source=self.context_manager.event_source
+        )
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
@@ -168,7 +172,9 @@ class TaxonomyAgentToolsNode(
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team, user=user)
-        self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
+        state_classes = self._get_state_class(TaxonomyAgentToolsNode)
+        self._state_class = state_classes.state_class
+        self._partial_state_class = state_classes.partial_state_class
 
     async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []

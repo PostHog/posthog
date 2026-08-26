@@ -13,6 +13,7 @@ import { CommentType } from '~/types'
 
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
+import { playerCommentModel } from './playerCommentModel'
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
 
 jest.mock('../snapshot-processing/DecompressionWorkerManager')
@@ -90,7 +91,7 @@ describe('playerFrameCommentOverlayLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.submitRecordingComment()
-        }).toDispatchActions(['submitRecordingCommentSuccess'])
+        }).toDispatchActions([playerCommentModel.actionTypes.commentEdited, 'submitRecordingCommentSuccess'])
 
         expect(createSpy).toHaveBeenCalledTimes(1)
         expect(createSpy.mock.calls[0][0].item_context).toMatchObject({

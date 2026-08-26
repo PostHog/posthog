@@ -15,7 +15,7 @@ Use this reference to decide where code belongs before editing it.
 
 `products/logs` is the reference adopter for fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
 
-Logs and insight alerts both adapt their product state to the shared lifecycle engine. Insight alerts are also the reference adopter for shared calendar anchors, schedule restrictions, weekend skipping, and email delivery. Their model, API, query evaluation, and Django scheduling adapters live in `products/alerts/backend/` and `posthog/tasks/alerts/`. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
+Logs and insight alerts both adapt their product state to the shared lifecycle engine. Insight alerts are the reference adopter for calendar anchors, weekend skipping, and email delivery. Both products use shared schedule restrictions for quiet hours. Each product keeps its model, due query, and scheduling persistence. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
 
 ## Frontend contract
 
@@ -24,6 +24,7 @@ Shared product alert UI lives in `products/alerts/frontend/components/`. It is p
 - `AlertEditor`, `AlertEditorFormDetails`, and `AlertEditorSection` provide the container-agnostic form shell.
 - `AlertDefinition*` components provide composable definition, schedule, next-evaluation, and timezone presentation.
 - `AlertAdvancedOptions` owns shared collapse and enabled-count behavior.
+- `QuietHoursFields` renders shared quiet-hour inputs from a normalized restriction, cadence, and project timezone.
 - `AlertNotificationDestinationEditor` renders normalized saved and pending destinations.
 - `AlertEvaluationHistoryChart` renders normalized evaluation points and current thresholds.
 
@@ -65,9 +66,10 @@ Product-facing destination setup is exported from `products.alerts.backend.facad
 - `soft_delete_all_alert_destinations`
 - `send_alert_email`
 
-`EventKindSpec` describes destination-neutral content for one event kind. The shared builder converts it into Slack, Discord, webhook, or Microsoft Teams HogFunction payloads. Products own event IDs, event properties, wording, actions, and their allowed destination list.
+`EventKindSpec` describes destination-neutral content for one event kind. The shared builder converts it into a HogFunction payload through `DESTINATION_SPECS`, the registry where each destination type owns its template ID, required fields, input building, read-back, and read redaction. Adding a destination type means adding one entry there. Products own event IDs, event properties, wording, actions, and their allowed destination list.
 
 Deletion is fail-closed. Always scope it with `team_id`, `alert_id`, and the product's allowed event IDs.
+`create_alert_destination_hog_functions` refuses any destination in the call that the alert already has, so call it with the alert row locked.
 
 ## Delivery contract
 

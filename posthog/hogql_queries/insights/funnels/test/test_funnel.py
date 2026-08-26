@@ -13,6 +13,7 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -47,6 +48,7 @@ from posthog.schema import (
     StepOrderValue,
 )
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.api.instance_settings import get_instance_setting
@@ -898,6 +900,24 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(results[1]["name"], "paid")
         self.assertEqual(results[1]["count"], 1)
+
+    def test_builds_database_once_per_run(self):
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+            series=[
+                EventsNode(event="user signed up", name="user signed up"),
+                EventsNode(event="paid", name="paid"),
+            ],
+        )
+
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_event(team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z")
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as mock_create_for:
+            results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        assert len(results) == 2
+        assert mock_create_for.call_count == 1
 
     def test_basic_funnel_with_person_id_override_properties_joined_modifier_and_person_breakdown(self):
         query = FunnelsQuery(

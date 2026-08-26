@@ -18,6 +18,10 @@ import type {
   Rect,
   WindowListSampler,
 } from "../services/mission-control/window-list";
+import {
+  getMissionControlOverlayEnabled,
+  setMissionControlOverlayEnabled,
+} from "../services/settingsStore";
 import { logger } from "../utils/logger";
 
 const log = logger.scope("mission-control");
@@ -39,12 +43,34 @@ export class MissionControlService extends TypedEventEmitter<MissionControlServi
   private active = false;
   private forced = false;
   private consecutiveErrors = 0;
+  private enabled = getMissionControlOverlayEnabled();
 
   getState(): MissionControlState {
     return { active: this.active };
   }
 
+  // Only macOS has Mission Control, and the overlay is the only thing the
+  // detection drives, so elsewhere the setting has nothing to control.
+  isSupported(): boolean {
+    return process.platform === "darwin";
+  }
+
+  getEnabled(): boolean {
+    return this.enabled;
+  }
+
+  setEnabled(enabled: boolean): void {
+    if (enabled === this.enabled) return;
+    this.enabled = enabled;
+    setMissionControlOverlayEnabled(enabled);
+    // The user turns this on or off from a visible settings window, so arming
+    // here matches the window state without waiting for the next show event.
+    if (enabled) this.arm();
+    else this.disarm();
+  }
+
   arm(): void {
+    if (!this.enabled) return;
     if (this.timer || !this.resolveSampler()) return;
     this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
   }

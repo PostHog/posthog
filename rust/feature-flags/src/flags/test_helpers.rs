@@ -46,7 +46,7 @@ pub async fn get_flags_from_redis(
                 team_id,
                 e
             );
-            FlagError::DataParsingErrorWithContext(format!(
+            FlagError::flag_data_parsing(format!(
                 "Failed to deserialize pickle data for team {team_id}: {}",
                 simplify_serde_error(&e.to_string())
             ))
@@ -59,7 +59,7 @@ pub async fn get_flags_from_redis(
             team_id,
             e
         );
-        FlagError::DataParsingErrorWithContext(format!(
+        FlagError::flag_data_parsing(format!(
             "Failed to parse hypercache JSON for team {team_id}: {}",
             simplify_serde_error(&e.to_string())
         ))
@@ -108,7 +108,7 @@ pub async fn update_flags_in_hypercache(
             team_id,
             e
         );
-        FlagError::DataParsingErrorWithContext(format!(
+        FlagError::flag_data_parsing(format!(
             "Failed to serialize flags for team {team_id}: {}",
             simplify_serde_error(&e.to_string())
         ))
@@ -121,7 +121,7 @@ pub async fn update_flags_in_hypercache(
             team_id,
             e
         );
-        FlagError::DataParsingErrorWithContext(format!(
+        FlagError::flag_data_parsing(format!(
             "Failed to pickle flags for team {team_id}: {}",
             simplify_serde_error(&e.to_string())
         ))
@@ -142,7 +142,7 @@ pub async fn update_flags_in_hypercache(
         .await
         .map_err(|e| {
             tracing::error!("Failed to update hypercache for project {}: {}", team_id, e);
-            FlagError::Internal(format!("Failed to update cache: {e}"))
+            FlagError::internal(anyhow::anyhow!("Failed to update cache: {e}"))
         })?;
 
     // Mirror Django's `HyperCache._set_cache_value_redis` (enable_etag=True),
@@ -160,7 +160,7 @@ pub async fn update_flags_in_hypercache(
             team_id,
             e
         );
-        FlagError::Internal(format!("Failed to write etag: {e}"))
+        FlagError::internal(anyhow::anyhow!("Failed to write etag: {e}"))
     })?;
 
     Ok(())

@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ApplySetupOpsApi,
+    ApplySetupOpsResponseApi,
     ConversionGoalWriteApi,
     ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
@@ -18,14 +20,37 @@ import type {
     MarketingAnalyticsDataSourcesRetrieveParams,
     MarketingAnalyticsDiagnoseRetrieveParams,
     MarketingAnalyticsExplainConversionGoalRetrieveParams,
+    MarketingAnalyticsSetupPlanRetrieveParams,
     MarketingAnalyticsSuggestConversionGoalsRetrieveParams,
     MarketingAnalyticsSuggestUtmMappingsRetrieveParams,
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
     PatchedConversionGoalUpdateApi,
+    SetupPlanResponseApi,
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
+
+export const getMarketingAnalyticsApplySetupOpsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/apply_setup_ops/`
+}
+
+/**
+ * Apply one or more setup operations from the setup plan, atomically. Either every operation lands or none does — a partially-applied batch has no well-defined undo. Returns `undo_ops`, computed from the pre-change state, which can be POSTed back to reverse the batch. Only send `apply` payloads returned by setup_plan.
+ * @summary Apply setup operations
+ */
+export const marketingAnalyticsApplySetupOpsCreate = async (
+    projectId: string,
+    applySetupOpsApi: ApplySetupOpsApi,
+    options?: RequestInit
+): Promise<ApplySetupOpsResponseApi> => {
+    return apiMutator<ApplySetupOpsResponseApi>(getMarketingAnalyticsApplySetupOpsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applySetupOpsApi),
+    })
+}
 
 export const getMarketingAnalyticsConversionGoalsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/marketing_analytics/conversion_goals/`
@@ -213,6 +238,40 @@ export const marketingAnalyticsExplainConversionGoalRetrieve = async (
     options?: RequestInit
 ): Promise<GoalExplanationApi> => {
     return apiMutator<GoalExplanationApi>(getMarketingAnalyticsExplainConversionGoalRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsSetupPlanRetrieveUrl = (
+    projectId: string,
+    params?: MarketingAnalyticsSetupPlanRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/marketing_analytics/setup_plan/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/setup_plan/`
+}
+
+/**
+ * Rank everything wrong with a team's marketing analytics setup into concrete suggestions, each carrying the evidence behind it and — where one exists — an `apply` operation to pass straight to apply_setup_ops, plus a `readiness` block saying which capabilities (cost, ROAS, cost per customer, retention by channel) are unlocked and which suggestion is blocking each. Prefer this over `diagnose` when the question is 'what should I fix next': diagnose explains what is wrong, setup_plan says what to do about it in a form you can act on. Read-only.
+ * @summary Get the marketing analytics setup plan
+ */
+export const marketingAnalyticsSetupPlanRetrieve = async (
+    projectId: string,
+    params?: MarketingAnalyticsSetupPlanRetrieveParams,
+    options?: RequestInit
+): Promise<SetupPlanResponseApi> => {
+    return apiMutator<SetupPlanResponseApi>(getMarketingAnalyticsSetupPlanRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

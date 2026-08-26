@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verifies capture-ai -> Kafka -> ingestion-ai (blob offload) -> ClickHouse ai_events.
+# Verifies capture-ai -> Kafka -> combined ingestion's AI consumer (blob offload) -> ClickHouse ai_events.
 set -euo pipefail
 
 PROXY="${PROXY:-http://localhost:8010}"

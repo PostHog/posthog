@@ -434,9 +434,9 @@ export const getExperimentsActivityRetrieveUrl = (
 /**
  * Change history for this experiment.
  *
- * Returns a paginated audit trail of changes to the experiment and its holdouts
- * and shared metrics: who made each change, what changed (field-level before/after
- * values), and when. Ordered newest first.
+ * Returns a paginated audit trail of changes to the experiment, its holdouts and
+ * shared metrics, and its linked feature flag: who made each change, what changed
+ * (field-level before/after values), and when. Ordered newest first.
  */
 export const experimentsActivityRetrieve = async (
     projectId: string,
@@ -913,11 +913,12 @@ export const getExperimentsSessionEventDeltasCreateUrl = (projectId: string, id:
  * take the same throttle and cache posture as the other reads in this family rather than
  * because it carries a body: it takes no parameters, and it only reads.
  *
- * It reports no effect size. The experiment's own metric events never enter the comparison,
- * and cards carry a direction and a band rather than a rate, a ratio or a person count: the
- * experiment's results already state magnitudes, computed per person over the whole run
- * window, and this reads one session per person over a clamped one. Two numbers for the same
- * event would read as a contradiction, so this surface states none.
+ * It reports no effect size. Cards carry a direction and a band rather than a rate, a ratio
+ * or a person count: the experiment's results already state magnitudes, computed per person
+ * over the whole run window, and this reads one session per person over a clamped one. Two
+ * numbers for the same event would read as a contradiction, so this surface states none. That
+ * is what lets a card sit on one of the experiment's own metric events, which it names, so a
+ * reader is sent to the results rather than given a second answer.
  */
 export const experimentsSessionEventDeltasCreate = async (
     projectId: string,

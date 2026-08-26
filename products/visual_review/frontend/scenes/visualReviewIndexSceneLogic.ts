@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, path, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -15,6 +15,7 @@ export interface visualReviewIndexSceneLogicValues {
     currentProjectId: number | string // teamLogic
     breadcrumbs: Breadcrumb[]
     repos: RepoApi[]
+    reposLoadFailed: boolean
     reposLoading: boolean
 }
 
@@ -42,10 +43,11 @@ export type visualReviewIndexSceneLogicType = MakeLogicType<
     visualReviewIndexSceneLogicActions
 >
 
-// Index scene logic. Loads the team's repos and forwards to the first repo's
-// Runs page. The header-bar repo switcher handles the multi-repo case, so
-// the index URL itself never needs to render a picker — only the empty state
-// when no repos are connected yet.
+// Index scene logic. Loads the team's repos and forwards to the first repo's Runs page, or to
+// Settings when none are connected. The header-bar repo switcher handles the multi-repo case.
+// Forwarding from the success action rather than from the loaded list keeps a failed load
+// distinguishable from an empty one: on failure `repos` is also `[]`, so a component deciding
+// from the list alone would send a team with repos to the connect-a-repo page.
 export const visualReviewIndexSceneLogic = kea<visualReviewIndexSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewIndexSceneLogic']),
     connect(() => ({
@@ -62,16 +64,26 @@ export const visualReviewIndexSceneLogic = kea<visualReviewIndexSceneLogicType>(
             },
         ],
     })),
+    reducers({
+        reposLoadFailed: [
+            false,
+            {
+                loadRepos: () => false,
+                loadReposFailure: () => true,
+            },
+        ],
+    }),
     selectors({
         breadcrumbs: [() => [], (): Breadcrumb[] => [{ key: 'visual_review', name: 'Visual review' }]],
     }),
-    afterMount(({ values, actions }) => {
+    listeners(({ values }) => ({
+        loadReposSuccess: () => {
+            router.actions.replace(
+                values.repos.length >= 1 ? urls.visualReviewRepoRuns(values.repos[0].id) : urls.visualReviewSettings()
+            )
+        },
+    })),
+    afterMount(({ actions }) => {
         actions.loadRepos()
-        // If we navigated here while on /visual_review and the repo list is
-        // already cached (back/forward navigation re-entering the scene),
-        // forward straight away.
-        if (values.repos.length >= 1) {
-            router.actions.replace(urls.visualReviewRepoRuns(values.repos[0].id))
-        }
     }),
 ])

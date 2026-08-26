@@ -43,7 +43,7 @@ echo "==> downloading signed builds from CI"
 gh run download "$RUN_ID" -n update-old-build-1.0.0 -D "$TMP/old"
 gh run download "$RUN_ID" -n update-new-build-2.0.0 -D "$TMP/new"
 
-OLD_ZIP="$(find "$TMP/old" -name 'PostHog-Code-*-arm64-mac.zip' | head -1)"
+OLD_ZIP="$(find "$TMP/old" -name 'PostHog-Desktop-*-arm64-mac.zip' | head -1)"
 FEED_YML="$(find "$TMP/new" -name latest-mac.yml | head -1)"
 [[ -n "$OLD_ZIP" ]] || {
   echo "old build zip not found in artifact" >&2

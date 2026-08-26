@@ -12,12 +12,13 @@ import {
     fetchTrunkQuarantined,
     flakyTestsUrl,
     REPORT_RUNNERS,
-    repoPathResolver,
     selectReportCandidates,
     tableRows,
     testStatusFor,
-    trackedTestPaths,
 } from './weekly-flaky-report.mjs'
+import { repoPathResolver, trackedTestPaths } from './weekly-report-common.mjs'
+
+const onMasterResolver = (path) => [path]
 
 describe('weekly flaky report', () => {
     it('builds runner-specific endpoint URLs before the endpoint limit', () => {
@@ -120,18 +121,38 @@ describe('weekly flaky report', () => {
         ]
 
         assert.deepEqual(
-            selectReportCandidates(items, 'pytest').map((candidate) => candidate.selector),
+            selectReportCandidates(items, 'pytest', onMasterResolver).map((candidate) => candidate.selector),
             ['test_proved.py::test_proved']
         )
         assert.deepEqual(
-            selectReportCandidates(items, 'jest').map((candidate) => candidate.selector),
+            selectReportCandidates(items, 'jest', onMasterResolver).map((candidate) => candidate.selector),
             ['test_report.ts']
+        )
+    })
+
+    it('drops a test whose file only exists on the branch that added it', () => {
+        const common = {
+            classification: 'suspected_regression',
+            failed_run_count: 6,
+            failed_pr_count: 3,
+            master_failed_run_count: 0,
+            quarantined_failed_run_count: 0,
+        }
+        const items = [
+            { ...common, runner: 'jest', selector: 'frontend/src/shared.test.tsx::shared flakes' },
+            { ...common, runner: 'jest', selector: 'products/new/frontend/Unmerged.test.tsx::Unmerged explains itself' },
+        ]
+        const toRepoPaths = (path) => (path === 'frontend/src/shared.test.tsx' ? [path] : [])
+
+        assert.deepEqual(
+            selectReportCandidates(items, 'jest', toRepoPaths).map((candidate) => candidate.selector),
+            ['frontend/src/shared.test.tsx::shared flakes']
         )
     })
 
     it('fetches each runner into its own candidate pool', async () => {
         const requestedRunners = []
-        const pools = await fetchCandidatePools(['pytest', 'jest'], async (runner) => {
+        const pools = await fetchCandidatePools(['pytest', 'jest'], onMasterResolver, async (runner) => {
             requestedRunners.push(runner)
             return {
                 items: [
@@ -291,7 +312,7 @@ describe('weekly flaky report', () => {
         assert.equal(trunkFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_other' }), null)
     })
 
-    it('treats both quarantine systems as parked, but keeps a Trunk flag that still fails CI', () => {
+    it('drops both quarantine systems from the queue, but keeps a Trunk flag that still fails CI', () => {
         const quarantineFile = { runner: 'pytest', selector: 'file.py::test_file', classification: 'quarantined' }
         // Quarantined earlier in the window, un-quarantined since, and failing on its own now.
         const unparked = {
@@ -311,11 +332,9 @@ describe('weekly flaky report', () => {
         const masked = buildQueue(items, testStatusFor(trunkFor, true))
         const unmasked = buildQueue(items, testStatusFor(trunkFor, false))
 
-        assert.deepEqual(selectors(masked.queue), [unparked.selector, plain.selector])
-        assert.deepEqual(selectors(masked.parked), [quarantineFile.selector, trunked.selector])
+        assert.deepEqual(selectors(masked), [unparked.selector, plain.selector])
         // Masking off leaves Trunk's failure reddening CI, so only the quarantine file parks.
-        assert.deepEqual(selectors(unmasked.queue), [unparked.selector, trunked.selector, plain.selector])
-        assert.deepEqual(selectors(unmasked.parked), [quarantineFile.selector])
+        assert.deepEqual(selectors(unmasked), [unparked.selector, trunked.selector, plain.selector])
         const [ownerCell] = tableRows(
             [trunked],
             () => ({ owner: 'team-devex', repoPath: null }),
@@ -333,13 +352,12 @@ describe('weekly flaky report', () => {
             failed_run_count: 2,
         }))
 
-        const { queue, parked } = buildQueue(
+        const queue = buildQueue(
             items,
             testStatusFor(() => ({ quarantinedAt: '2026-07-13T17:12:22.000Z' }), true)
         )
 
         assert.deepEqual(queue, [])
-        assert.equal(parked.length, CLUSTER_MIN_TESTS)
     })
 
     it('matches a Jest selector reported from the package root against Trunk', async () => {
@@ -365,25 +383,4 @@ describe('weekly flaky report', () => {
         )
     })
 
-    it('keeps parked tests visible below the table instead of dropping them', () => {
-        const blocks = buildBlocks(
-            new Date('2026-07-27T00:00:00Z'),
-            [],
-            [{ selector: 'masked.py::test_masked', park: { since: '2026-07-13T17:12:22.000Z' } }]
-        )
-        // Actions always sets GITHUB_WORKFLOW_REF, which appends a block after the parked note,
-        // so find the note by content rather than by position.
-        const note = blocks
-            .filter((block) => block.type === 'context')
-            .map((block) => block.elements[0].text)
-            .find((text) => text.includes('quarantined'))
-
-        assert.equal(
-            blocks.find((block) => block.type === 'table'),
-            undefined
-        )
-        assert.match(note, /1 test is quarantined/)
-        assert.match(note, /test_masked/)
-        assert.match(note, /Oldest parked 2026-07-13\./)
-    })
 })

@@ -20,11 +20,12 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 
 from products.error_tracking.backend.facade import (
     api as facade_api,
+    contracts,
     issues as issues_facade,
 )
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
-    ErrorTrackingExternalReferenceSerializer,
+    ErrorTrackingExternalReferenceResultSerializer,
 )
 
 IssueNotFoundError = facade_api.IssueNotFoundError
@@ -34,6 +35,14 @@ logger = structlog.get_logger(__name__)
 # Statuses a client may set. Deprecated archived/pending_release values are rejected
 # by being absent from the choices; reads of legacy rows still pass through.
 WRITABLE_ISSUE_STATUSES = ["active", "resolved", "suppressed"]
+
+
+@extend_schema_field(
+    {"type": "string", "enum": list(contracts.ERROR_TRACKING_ISSUE_SEVERITIES)},
+    component_name="ErrorTrackingIssueSeverity",
+)
+class ErrorTrackingIssueSeverityField(serializers.ChoiceField):
+    pass
 
 
 class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
@@ -58,11 +67,16 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
 
     id = serializers.UUIDField()
     status = serializers.CharField()
+    severity = ErrorTrackingIssueSeverityField(
+        choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,
+        allow_null=True,
+        help_text="Issue severity, or null when no severity is assigned.",
+    )
     name = serializers.CharField(allow_null=True)
     description = serializers.CharField(allow_null=True)
     first_seen = serializers.DateTimeField(allow_null=True)
     assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
-    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
+    external_issues = ErrorTrackingExternalReferenceResultSerializer(many=True)
     cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
 
 
@@ -71,6 +85,12 @@ class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
         choices=WRITABLE_ISSUE_STATUSES,
         required=False,
         help_text="Issue status to set. Deprecated archived and pending_release values are rejected.",
+    )
+    severity = ErrorTrackingIssueSeverityField(
+        choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,
+        required=False,
+        allow_null=True,
+        help_text="Issue severity to set, or null to remove the assigned severity.",
     )
     name = serializers.CharField(
         required=False,

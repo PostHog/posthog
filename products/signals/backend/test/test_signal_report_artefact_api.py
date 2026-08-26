@@ -18,6 +18,8 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
@@ -1131,15 +1133,32 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert drift.status_code == status.HTTP_400_BAD_REQUEST
 
-        # Editing other fields while keeping the same task_id is fine.
+        # Relabeling the run's purpose is rejected too — the (product, type) pair feeds the
+        # per-report task cap, so an edit relabeling a discussion as pipeline work would free
+        # its slot in the count.
+        for relabel in (
+            {"task_id": str(task.id), "product": "signals", "type": "implementation"},
+            {"task_id": str(task.id), "product": "tasks", "type": "research"},
+        ):
+            response = self.client.patch(
+                self._detail_url(str(report.id), str(artefact.id)),
+                data=json.dumps({"content": relabel}),
+                content_type="application/json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+        # Editing other fields while keeping the association and purpose is fine.
+        run_id = str(uuid.uuid4())
         ok = self.client.patch(
             self._detail_url(str(report.id), str(artefact.id)),
-            data=json.dumps({"content": {"task_id": str(task.id), "product": "signals", "type": "implementation"}}),
+            data=json.dumps(
+                {"content": {"task_id": str(task.id), "product": "signals", "type": "research", "run_id": run_id}}
+            ),
             content_type="application/json",
         )
         assert ok.status_code == status.HTTP_200_OK, ok.json()
         artefact.refresh_from_db()
-        assert json.loads(artefact.content)["type"] == "implementation"
+        assert json.loads(artefact.content)["run_id"] == run_id
         assert str(artefact.task_id) == str(task.id)
 
     def test_patch_other_team_returns_404(self):
@@ -1174,6 +1193,64 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalReportArtefact.objects.filter(id=artefact.id).exists()
 
+    @parameterized.expand([("exact", "signals"), ("padded", " signals ")])
+    def test_create_task_run_cannot_assert_the_signals_product(self, _name: str, asserted_product: str):
+        # `signals` is what the per-report task cap counts, so a client that could assert it
+        # would fill another report's discussion allowance with its own tasks — permanently,
+        # since the log is append-only. The padded case is the one a raw comparison misses:
+        # content validation strips the value before it is stored, so it lands as `signals`.
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "artefact_type": "task_run",
+                    "content": {"task_id": str(task.id), "product": asserted_product, "type": "discussion"},
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        ).exists()
+
+        # The default namespace still associates the task, which is what agents actually need.
+        allowed = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "task_run", "content": {"task_id": str(task.id)}}),
+            content_type="application/json",
+        )
+        assert allowed.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), allowed.json()
+        assert (
+            json.loads(
+                SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).content
+            )["product"]
+            == "tasks"
+        )
+
+    def test_delete_task_run_artefact_is_rejected(self):
+        # The work log is what the per-report task cap counts; a deletable log would let a
+        # client at the cap free its own slots.
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        artefact = SignalReportArtefact.append(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=TaskRunArtefact(task_id=str(task.id), product="signals", type="discussion"),
+            attribution=ArtefactAttribution.from_task(str(task.id)),
+        )
+
+        response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
+
     def test_delete_latest_status_artefact_reverts_canonical_to_previous(self):
         report = self._create_report()
         for priority, explanation in (("P3", "initial"), ("P1", "escalated")):
@@ -1194,6 +1271,33 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert report_response.status_code == status.HTTP_200_OK
         assert report_response.json()["priority"] == "P3"
+
+    def test_delete_latest_reviewers_artefact_re_emits_surviving_state(self):
+        # A deleted reviewers row reverts the canonical set to the previous row; without a fresh
+        # event, latest-per-report telemetry keeps describing the deleted list forever.
+        report = self._create_report()
+        for login in ("first-reviewer", "second-reviewer"):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login)]),
+                attribution=ArtefactAttribution.system(),
+            )
+        latest = SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        ).order_by("-created_at")[0]
+
+        with (
+            patch("products.signals.backend.views.capture_suggested_reviewers_resolved") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.delete(self._detail_url(str(report.id), str(latest.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert mock_capture.call_count == 1
+        kwargs = mock_capture.call_args.kwargs
+        assert kwargs["github_logins"] == ["first-reviewer"]
+        assert kwargs["source"] == "api"
 
     def test_delete_other_team_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

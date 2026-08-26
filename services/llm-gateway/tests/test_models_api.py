@@ -24,6 +24,10 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "litellm_provider": "openai",
         "max_input_tokens": 200000,
         "supports_vision": True,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 2.5e-6,
+        "output_cost_per_token": 10e-6,
+        "cache_read_input_token_cost": 0.25e-6,
         "mode": "chat",
     },
     "gpt-5-mini": {
@@ -54,6 +58,11 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 5e-6,
+        "output_cost_per_token": 25e-6,
+        "cache_read_input_token_cost": 0.5e-6,
+        "cache_creation_input_token_cost": 6.25e-6,
         "mode": "chat",
     },
     "claude-opus-4-6": {
@@ -96,6 +105,24 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "litellm_provider": "fireworks_ai",
         "max_input_tokens": 131072,
         "supports_vision": False,
+        "mode": "chat",
+    },
+    "cloudflare/@cf/zai-org/glm-5.2": {
+        "litellm_provider": "cloudflare",
+        "max_input_tokens": 128000,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 1.4e-6,
+        "output_cost_per_token": 4.4e-6,
+        "cache_read_input_token_cost": 0.14e-6,
+        "mode": "chat",
+    },
+    "baseten/deepseek-ai/deepseek-v4-flash-0731": {
+        "litellm_provider": "baseten",
+        "max_input_tokens": 1048000,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0.13e-6,
+        "output_cost_per_token": 0.26e-6,
+        "cache_read_input_token_cost": 0.028e-6,
         "mode": "chat",
     },
 }
@@ -199,6 +226,36 @@ class TestListModelsForProductEndpoint:
         assert "gpt-4o" not in model_ids
         assert "o1" not in model_ids
 
+    def test_posthog_code_returns_effective_pricing(self, client: TestClient):
+        response = client.get("/posthog_code/v1/models")
+        assert response.status_code == 200
+        models = {model["id"]: model for model in response.json()["data"]}
+
+        assert models["gpt-5.2"]["pricing"] == {
+            "prompt": "0.0000025",
+            "completion": "0.00001",
+            "input_cache_read": "0.00000025",
+            "input_cache_write": "0.0000025",
+        }
+        assert models["claude-opus-4-5"]["pricing"] == {
+            "prompt": "0.000005",
+            "completion": "0.000025",
+            "input_cache_read": "0.0000005",
+            "input_cache_write": "0.00000625",
+        }
+        assert models["@cf/zai-org/glm-5.2"]["pricing"] == {
+            "prompt": "0.0000014",
+            "completion": "0.0000044",
+            "input_cache_read": "0.00000014",
+            "input_cache_write": "0.0000014",
+        }
+        assert models["deepseek-ai/deepseek-v4-flash-0731"]["pricing"] == {
+            "prompt": "0.00000013",
+            "completion": "0.00000026",
+            "input_cache_read": "0.000000028",
+            "input_cache_write": "0.00000013",
+        }
+
     @pytest.mark.parametrize("alias", ["twig", "array"])
     def test_legacy_alias_routes_to_posthog_code(self, client: TestClient, alias: str):
         response = client.get(f"/{alias}/v1/models")
@@ -263,15 +320,6 @@ def _wire_authenticated_user(mock_db_pool, distinct_id: str):
 
 
 class TestFreeTierModelListing:
-    @pytest.fixture(autouse=True)
-    def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
-        get_settings.cache_clear()
-        yield
-        get_settings.cache_clear()
-
     def test_anonymous_caller_gets_full_unrestricted_list(self, client: TestClient):
         # an unidentifiable caller may be a billed org; never mark for those
         response = client.get("/posthog_code/v1/models")
@@ -280,7 +328,6 @@ class TestFreeTierModelListing:
         assert "claude-opus-4-5" in {m["id"] for m in models}
         assert all(m["allowed"] for m in models)
 
-    @pytest.mark.parametrize("gate_flag", ["true", "false"], ids=["gate_on", "gate_off"])
     @pytest.mark.parametrize(
         "error,expected_status",
         [
@@ -294,12 +341,7 @@ class TestFreeTierModelListing:
         monkeypatch: pytest.MonkeyPatch,
         error: Exception,
         expected_status: int,
-        gate_flag: str,
     ):
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", gate_flag)
-        get_settings.cache_clear()
         auth_service = MagicMock()
         auth_service.authenticate_request = AsyncMock(side_effect=error)
 
@@ -323,23 +365,6 @@ class TestFreeTierModelListing:
 
         assert response.status_code == 403
 
-    def test_gate_off_valid_project_scope_returns_unrestricted_list(self, app, monkeypatch: pytest.MonkeyPatch):
-        from llm_gateway.config import get_settings
-
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "false")
-        get_settings.cache_clear()
-        auth_service = MagicMock()
-        auth_service.authenticate_request = AsyncMock(return_value=MagicMock(team_id=123, is_staff=False))
-
-        with patch("llm_gateway.api.models.get_auth_service", return_value=auth_service), TestClient(app) as client:
-            response = client.get(
-                "/posthog_code/v1/models",
-                headers={"Authorization": "Bearer pha_scoped_models", "X-PostHog-Project-Id": "123"},
-            )
-
-        assert response.status_code == 200
-        assert all(m["allowed"] for m in response.json()["data"])
-
     def test_unbilled_org_gets_full_list_with_premium_models_marked(self, app, mock_db_pool):
         from unittest.mock import AsyncMock
 
@@ -361,7 +386,10 @@ class TestFreeTierModelListing:
         assert premium["restriction_reason"] == "paid_plan_required"
         # exact, not subset: the default free model must survive the allowlist
         # and the annotation, or free-tier callers have no usable model
-        assert {m["id"] for m in body["data"] if m["allowed"]} == {"@cf/zai-org/glm-5.2"}
+        assert {m["id"] for m in body["data"] if m["allowed"]} == {
+            "@cf/zai-org/glm-5.2",
+            "deepseek-ai/deepseek-v4-flash-0731",
+        }
         # codex reads the `models` mirror; the marks must be there too
         assert body["models"] == body["data"]
 

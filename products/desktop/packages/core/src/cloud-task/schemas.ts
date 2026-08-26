@@ -73,6 +73,7 @@ export const sendCommandInput = z.object({
     "pi/rpc",
     "queue_get",
     "queue_clear",
+    "side_question",
   ]),
   params: z.record(z.string(), z.unknown()).optional(),
 });

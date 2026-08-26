@@ -1,6 +1,7 @@
 // Shared Vitest test options for Trunk Flaky Tests uploads. Imported and spread
 // into each package's `test` block so the junit reporter and retry policy stay
-// defined in one place. See the upload steps in .github/workflows/test.yml.
+// defined in one place. See the upload steps in the monorepo root's
+// .github/workflows/desktop-test.yml.
 //
 // `outputFile` is relative, so each config writes ./junit.xml next to itself;
 // CI globs apps/*/junit.xml and packages/*/junit.xml. The explicit type keeps

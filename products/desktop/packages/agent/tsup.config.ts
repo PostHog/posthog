@@ -48,9 +48,33 @@ function copyAssets() {
   const distDir = resolve(import.meta.dirname, "dist");
   const templatesDir = resolve(distDir, "templates");
   const claudeCliDir = resolve(distDir, "claude-cli");
+  const productEngineerResourcesSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/product-engineer",
+  );
+  const productEngineerResourcesTarget = resolve(
+    distDir,
+    "pi/product-engineer",
+  );
+  const enricherGrammarsSource = resolve(
+    import.meta.dirname,
+    "../enricher/grammars",
+  );
+  const enricherGrammarsTarget = resolve(distDir, "grammars");
 
   mkdirSync(templatesDir, { recursive: true });
   mkdirSync(claudeCliDir, { recursive: true });
+  if (!existsSync(productEngineerResourcesSource)) {
+    throw new Error(
+      `Missing product engineer resources at ${productEngineerResourcesSource}`,
+    );
+  }
+  cpSync(productEngineerResourcesSource, productEngineerResourcesTarget, {
+    recursive: true,
+  });
+  cpSync(enricherGrammarsSource, enricherGrammarsTarget, {
+    recursive: true,
+  });
 
   const srcTemplatesDir = resolve(import.meta.dirname, "src/templates");
   if (existsSync(srcTemplatesDir)) {
@@ -77,6 +101,9 @@ function copyAssets() {
     JSON.stringify({ type: "module" }, null, 2),
   );
 }
+
+const nodeEsmBanner =
+  'import { createRequire as __createRequire } from "node:module"; import { fileURLToPath as __fileURLToPath } from "node:url"; import { dirname as __pathDirname } from "node:path"; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __pathDirname(__filename);';
 
 const sharedOptions = {
   sourcemap: true,
@@ -131,6 +158,7 @@ export default defineConfig([
       "src/pr-url-detector.ts",
       "src/pi/rpc-client.ts",
       "src/pi/runtime.ts",
+      "src/pi/task-system-prompt.ts",
       "src/pi/types.ts",
       "src/pi/conversation/translatePiConversation.ts",
       "src/resume.ts",
@@ -158,9 +186,7 @@ export default defineConfig([
     // dynamic `require(...)` calls throw in ESM output unless a real require
     // exists. Entries spawned directly by node (local-tools-mcp-server.js)
     // crash at import time without this shim.
-    banner: {
-      js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-    },
+    banner: { js: nodeEsmBanner },
     ...sharedOptions,
     onSuccess: async () => {
       copyAssets();
@@ -187,9 +213,7 @@ export default defineConfig([
     format: ["esm"],
     dts: false,
     clean: false,
-    banner: {
-      js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-    },
+    banner: { js: nodeEsmBanner },
     ...sharedOptions,
     noExternal: [/^(?!node:)/],
     external: [...builtinModules, ...builtinModules.map((m) => `node:${m}`)],

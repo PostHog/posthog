@@ -76,11 +76,15 @@ export interface onboardingEventUsageLogicActions {
     reportOnboardingGoalSelected: (goal: string) => {
         goal: string
     }
-    reportOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => {
-        mode: 'cloud' | 'local'
+    reportOnboardingInstallModeSelected: (mode: 'cloud' | 'local' | 'manual') => {
+        mode: 'cloud' | 'local' | 'manual'
     }
+    reportOnboardingInstallVerified: () => {}
     reportOnboardingPlanSelected: (plan: 'free' | 'pay_as_you_go') => {
         plan: 'free' | 'pay_as_you_go'
+    }
+    reportOnboardingSelfDrivingExplainerClicked: (stepKey: SelfDrivingOnboardingStepId) => {
+        stepKey: SelfDrivingOnboardingStepId
     }
     reportOnboardingStepViewed: (stepId: SelfDrivingOnboardingStepId) => {
         stepId: SelfDrivingOnboardingStepId
@@ -164,7 +168,9 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             recommendedProducts,
             properties,
         }),
-        reportOnboardingInstallModeSelected: (mode: 'cloud' | 'local') => ({ mode }),
+        reportOnboardingInstallModeSelected: (mode: 'cloud' | 'local' | 'manual') => ({ mode }),
+        reportOnboardingSelfDrivingExplainerClicked: (stepKey: SelfDrivingOnboardingStepId) => ({ stepKey }),
+        reportOnboardingInstallVerified: () => ({}),
         reportOnboardingPlanSelected: (plan: 'free' | 'pay_as_you_go') => ({ plan }),
         reportOnboardingCloudRunQueued: (props: { taskId: string; runId: string; repository: string }) => props,
         reportOnboardingCloudRunCompleted: (props: {
@@ -221,6 +227,18 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             posthog.capture('onboarding install mode selected', {
                 mode,
                 ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportOnboardingSelfDrivingExplainerClicked: ({ stepKey }) => {
+            posthog.capture('onboarding self-driving explainer clicked', {
+                step_key: stepKey,
+                ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
+            })
+        },
+        reportOnboardingInstallVerified: () => {
+            posthog.capture('onboarding installation verified', {
+                step_key: 'install',
+                ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingPlanSelected: ({ plan }) => {

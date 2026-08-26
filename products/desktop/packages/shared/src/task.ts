@@ -10,6 +10,7 @@ export type {
 
 export interface PostHogAPIConfig {
   apiUrl: string;
+  publicApiUrl?: string;
   getApiKey: () => string | Promise<string>;
   refreshApiKey?: () => string | Promise<string>;
   projectId: number;

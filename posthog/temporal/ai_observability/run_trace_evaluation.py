@@ -29,7 +29,7 @@ from posthog.schema import DateRange, LLMTrace, QueryLogTags, TraceQuery
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.api.capture import CaptureInternalError, capture_internal
+from posthog.api.capture import CaptureInternalError
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
@@ -67,6 +67,7 @@ from posthog.temporal.ai_observability.run_evaluation import (
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -342,10 +343,10 @@ def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
     input_preview = ""
     output_preview = ""
     for event in trace.events or []:
-        input_raw, output_raw = extract_event_io(event.event, event.properties)
+        io = extract_event_io(event.event, event.properties)
         if not input_preview:
-            input_preview = extract_text_from_messages(input_raw)[:200]
-        output_text = extract_text_from_messages(output_raw)[:200]
+            input_preview = extract_text_from_messages(io.input_raw)[:200]
+        output_text = extract_text_from_messages(io.output_raw)[:200]
         if output_text:
             output_preview = output_text
     return input_preview, output_preview
@@ -585,7 +586,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     if skip_reason or result is None:
         return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found")
 
-    return finalize_hog_eval_result(result, allows_na=allows_na, unit_label="trace")
+    return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="trace")
 
 
 @dataclass
@@ -615,12 +616,6 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     """Emit the $ai_evaluation event for a trace-level run, targeting the trace id."""
 
     def _emit():
-        try:
-            team = Team.objects.get(id=inputs.team_id)
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=inputs.team_id)
-            raise ValueError(f"Team {inputs.team_id} not found")
-
         # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
         # linkage copied in the generation path) intentionally does not apply here.
         properties = build_evaluation_event_properties(inputs.evaluation, inputs.result, inputs.start_time)
@@ -647,16 +642,14 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
                 }
             )
 
-        capture_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=inputs.team_id,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=inputs.distinct_id,
             timestamp=datetime.now(UTC),
             properties=properties,
-            process_person_profile=True,
         )
-        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()

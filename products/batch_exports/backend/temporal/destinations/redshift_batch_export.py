@@ -18,6 +18,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.integration import TLS, Authority, Credentials
 from posthog.temporal.common.base import PostHogWorkflow
@@ -61,7 +62,11 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    cast_record_batch_schema_json_columns,
+    handle_non_retryable_errors,
+)
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
@@ -641,10 +646,10 @@ class CopyParameters:
     authorization: IAMRole | AWSCredentials
 
 
-@dataclasses.dataclass
+@frozen
 class ConnectionParameters:
     user: str
-    password: str
+    password: str = dataclasses.field(repr=False)
     host: str
     port: int
     database: str
@@ -789,6 +794,7 @@ def _get_table_schemas(
             ("ip", "VARCHAR(200)"),
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ("person_properties", properties_type),
         ]
 
     else:
@@ -1060,9 +1066,7 @@ async def upload_manifest_file(
     """
 
     async with s3_client(
-        credentials.aws_access_key_id,
-        credentials.aws_secret_access_key,
-        credentials.aws_session_token,
+        credentials,
         region=region_name,
         # Required for unit tests which run against a local bucket, otherwise always None.
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT if settings.TEST else None,
@@ -1148,9 +1152,7 @@ async def delete_uploaded_files(
     this fails.
     """
     async with s3_client(
-        credentials.aws_access_key_id,
-        credentials.aws_secret_access_key,
-        credentials.aws_session_token,
+        credentials,
         region=region_name,
     ) as client:
 
@@ -1184,9 +1186,7 @@ async def is_s3_read_access_denied(
     """
     try:
         async with s3_client(
-            credentials.aws_access_key_id,
-            credentials.aws_secret_access_key,
-            credentials.aws_session_token,
+            credentials,
             region=region_name,
         ) as client:
             for key in keys:
@@ -1395,10 +1395,30 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             else inputs.table.name
         )
 
+        if not merge_settings.requires_merge:
+            # Without a stage table, Parquet files are copied directly into the final
+            # table, and the COPY column list names every column in the files. Pre-set
+            # the transformer's schema to drop columns missing from an existing table,
+            # as COPY would otherwise fail on them.
+            try:
+                async with RedshiftClient.from_inputs(
+                    inputs.connection, database=inputs.connection.database
+                ).connect() as redshift_client:
+                    existing_columns = set(
+                        await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
+                    )
+            except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
+                pass
+            else:
+                filtered_fields = [field for field in record_batch_schema if field.name in existing_columns]
+
+                if 0 < len(filtered_fields) < len(record_batch_schema):
+                    transformer.schema = cast_record_batch_schema_json_columns(
+                        pa.schema(filtered_fields), json_columns=table_schemas.super_columns
+                    )
+
         async with s3_client(
-            credentials.aws_access_key_id,
-            credentials.aws_secret_access_key,
-            credentials.aws_session_token,
+            credentials,
             region=inputs.copy.s3_bucket.region_name,
         ) as client:
             consumer = ConcurrentS3Consumer(

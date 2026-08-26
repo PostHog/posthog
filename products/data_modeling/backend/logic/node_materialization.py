@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from django.conf import settings
 
@@ -71,6 +72,32 @@ def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:
     team can be schedule-migrated without being flagged.
     """
     return saved_query.id in get_v2_saved_query_ids([saved_query.id])
+
+
+class SavedQueryNotFoundError(Exception):
+    """Raised by ``run_saved_query_materialization`` when the saved query no longer resolves."""
+
+
+class SavedQueryNotOnV2ScheduleError(Exception):
+    """Raised by ``run_saved_query_materialization`` when the saved query still runs on the older
+    per-query schedule, whose frozen workflow lacks what the caller needs from a materialization."""
+
+
+def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) -> None:
+    """Materialize one saved query now, for a caller outside this product.
+
+    Restricted to the v2 workflow, and raising rather than falling back, because a caller reaching
+    here wants what only a v2 materialization does. Keeps the saved-query model inside this product:
+    the caller passes ids and handles the two errors above.
+    """
+    saved_query = (
+        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(id=saved_query_id, team_id=team_id).first()
+    )
+    if saved_query is None:
+        raise SavedQueryNotFoundError(f"Saved query {saved_query_id} not found for team {team_id}")
+    if not is_saved_query_on_v2_schedule(saved_query):
+        raise SavedQueryNotOnV2ScheduleError(f"Saved query {saved_query_id} is not on the v2 schedule")
+    materialize_saved_query(saved_query)
 
 
 def materialize_saved_query(saved_query: DataWarehouseSavedQuery) -> None:

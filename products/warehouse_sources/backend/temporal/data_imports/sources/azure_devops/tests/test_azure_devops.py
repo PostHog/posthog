@@ -113,6 +113,23 @@ class TestValidateCredentials:
 
         assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2) == expected
 
+    @pytest.mark.parametrize("status_code", [429, 500, 503])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_validate_credentials_unexpected_status_names_the_status(self, mock_session, status_code):
+        # A throttled or Azure-side failure must not be reported as invalid credentials; the message
+        # names the status and stays actionable.
+        response = mock.MagicMock()
+        response.status_code = status_code
+        mock_session.return_value.get.return_value = response
+
+        is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+
+        assert is_valid is False
+        assert str(status_code) in (error or "")
+        assert "Invalid Azure DevOps credentials" not in (error or "")
+
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )

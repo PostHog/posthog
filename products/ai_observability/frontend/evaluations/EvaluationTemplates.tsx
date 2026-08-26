@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -5,12 +6,12 @@ import posthog from 'posthog-js'
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
 import {
     IconArrowLeft,
+    IconChevronRight,
     IconCode,
     IconEmoji,
     IconEye,
     IconPlus,
     IconSearch,
-    IconSparkles,
     IconTarget,
     IconThumbsUp,
     IconWarning,
@@ -19,11 +20,10 @@ import {
 import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-
-import { useOpenAi } from '~/scenes/max/useOpenAi'
 
 import { getEvaluationBackTarget, getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
 import { EvaluationTemplate, defaultEvaluationTemplates } from './templates'
@@ -97,7 +97,7 @@ interface PickerRowProps {
 function PickerRow({ dataAttr, description, icon, onClick, tag, title }: PickerRowProps): JSX.Element {
     return (
         <button
-            className="flex items-center gap-4 w-full text-left px-4 py-3 hover:bg-fill-highlight-50 focus:bg-fill-highlight-50 focus:outline-none transition-colors cursor-pointer"
+            className="group flex items-center gap-4 w-full text-left px-4 py-3 hover:bg-fill-highlight-50 focus:bg-fill-highlight-50 focus:outline-none transition-colors cursor-pointer"
             data-attr={dataAttr}
             onClick={onClick}
         >
@@ -106,7 +106,7 @@ function PickerRow({ dataAttr, description, icon, onClick, tag, title }: PickerR
             </div>
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                    <h3 className="text-base font-semibold text-default mb-0">{title}</h3>
+                    <h3 className="text-base font-semibold text-default mb-0 group-hover:text-primary-3000">{title}</h3>
                     {tag && (
                         <LemonTag type={tag.type} size="small">
                             {tag.label}
@@ -115,6 +115,7 @@ function PickerRow({ dataAttr, description, icon, onClick, tag, title }: PickerR
                 </div>
                 <p className="text-sm text-secondary mb-0">{description}</p>
             </div>
+            <IconChevronRight className="size-5 flex-shrink-0 text-secondary transition-transform group-hover:translate-x-0.5 group-hover:text-primary-3000" />
         </button>
     )
 }
@@ -144,28 +145,6 @@ function TemplateRow({ template }: TemplateRowProps): JSX.Element {
     )
 }
 
-function StartWithAiRow(): JSX.Element {
-    const { openAi } = useOpenAi()
-
-    const handleClick = (): void => {
-        posthog.capture('llm evaluation template selected', { template_key: 'start_with_ai' })
-        openAi(
-            'Create an online evaluation for me. First explore my recent AI traces to find failure modes worth evaluating, then set one up to catch the most important one.'
-        )
-    }
-
-    return (
-        <PickerRow
-            dataAttr="start-with-ai-evaluation-template"
-            description="Let PostHog AI explore your traces and build an evaluation for you"
-            icon={<IconSparkles className="w-5 h-5 text-primary-3000" />}
-            onClick={handleClick}
-            tag={{ label: 'Beta', type: 'completion' }}
-            title="Start with AI"
-        />
-    )
-}
-
 interface TemplatePickerProps {
     title: string
     description: string
@@ -186,46 +165,54 @@ function TemplatePicker({
     const showStartWithAi = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]
 
     return (
-        <div className="flex flex-col items-center justify-center py-8" style={{ minHeight }}>
-            <div className="w-full max-w-5xl px-4">
-                {showBackButton && (
-                    <div className="mb-6">
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconArrowLeft />}
-                            onClick={() => router.actions.push(getEvaluationBackTarget(false, searchParams).path)}
-                            size="small"
-                        >
-                            Back to Evaluations
-                        </LemonButton>
+        // Capped on the wrapper rather than on an inner child so the picker collects no clicks in the
+        // empty space beside the card on wide viewports.
+        <div
+            className={clsx(
+                'flex flex-col shrink-0 justify-center w-full max-w-5xl mx-auto px-4 py-8',
+                minHeight === '80vh' ? 'min-h-[80vh]' : 'min-h-[60vh]'
+            )}
+        >
+            {showBackButton && (
+                <div className="mb-6">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconArrowLeft />}
+                        onClick={() => router.actions.push(getEvaluationBackTarget(false, searchParams).path)}
+                        size="small"
+                    >
+                        Back to Evaluations
+                    </LemonButton>
+                </div>
+            )}
+            <div className="space-y-8">
+                <div className="text-center space-y-3">
+                    <div className="flex justify-center mb-4">
+                        <HedgehogJudge className="w-32 h-32" />
                     </div>
-                )}
-                <div className="space-y-8">
-                    <div className="text-center space-y-3">
-                        <div className="flex justify-center mb-4">
-                            <HedgehogJudge className="w-32 h-32" />
-                        </div>
-                        <h1 className="text-3xl font-bold">{title}</h1>
-                        <p className="text-base text-secondary max-w-2xl mx-auto">
-                            {description}
-                            {learnMoreUrl && (
-                                <>
-                                    {' '}
-                                    <Link to={learnMoreUrl} target="_blank">
-                                        Learn more
-                                    </Link>
-                                </>
-                            )}
-                        </p>
-                    </div>
+                    <h1 className="text-3xl font-bold">{title}</h1>
+                    <p className="text-base text-secondary max-w-2xl mx-auto">
+                        {description}
+                        {learnMoreUrl && (
+                            <>
+                                {' '}
+                                <Link to={learnMoreUrl} target="_blank">
+                                    Learn more
+                                </Link>
+                            </>
+                        )}
+                    </p>
+                </div>
 
-                    <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
-                        {showStartWithAi && <StartWithAiRow />}
-                        <TemplateRow template="blank" />
-                        {defaultEvaluationTemplates.map((template) => (
-                            <TemplateRow key={template.key} template={template} />
-                        ))}
-                    </div>
+                {showStartWithAi && (
+                    <MCPUseCaseCard surfaceKey="ai_observability_evaluations.create" className="!mt-0" />
+                )}
+
+                <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
+                    <TemplateRow template="blank" />
+                    {defaultEvaluationTemplates.map((template) => (
+                        <TemplateRow key={template.key} template={template} />
+                    ))}
                 </div>
             </div>
         </div>

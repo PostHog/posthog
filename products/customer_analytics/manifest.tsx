@@ -53,6 +53,8 @@ export const manifest: ProductManifest = {
         '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
         '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
         '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+        '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
+        '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
         '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
         '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
         '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
@@ -79,6 +81,8 @@ export const manifest: ProductManifest = {
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
         customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
         customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+        customerAnalyticsFeatureRequests: (requestId?: string): string =>
+            `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
         customerAnalyticsConfiguration: (tab?: string): string =>
             `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,

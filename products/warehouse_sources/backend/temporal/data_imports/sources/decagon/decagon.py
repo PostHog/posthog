@@ -38,6 +38,11 @@ TIMESTAMP_FILTER_BY_FIELD: dict[str, str] = {
     "last_message_at": "last_message_time",
 }
 
+# Fallback window value for endpoints whose incremental bound is mandatory. Used when a
+# walk has no natural window (a full refresh, or an incremental sync's first run), so it
+# fetches full history instead of omitting the param the endpoint requires.
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
 
 class DecagonRetryableError(Exception):
     pass
@@ -192,6 +197,12 @@ def get_rows(
                 # that same second after the walk read it is the rarer failure, and a full
                 # refresh trues the table up.
                 window_value += 1
+
+    if window_value is None and config.incremental_param and config.incremental_param_required:
+        # No prior state and no watermark left the window unset, but this endpoint 400s
+        # on a request that omits the bound entirely. The epoch keeps a full walk honest
+        # (every row is included) while still satisfying the requirement.
+        window_value = _incremental_window_value(config, _EPOCH)
 
     @retry(
         retry=retry_if_exception_type((DecagonRetryableError, requests.ReadTimeout, requests.ConnectionError)),

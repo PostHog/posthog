@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     ANTHROPIC_VERSION,
     DEFAULT_CLAUDE_CODE_START,
     MAX_RETRY_ATTEMPTS,
+    REPORT_MAX_RETRY_ATTEMPTS,
     AnthropicResumeConfig,
     ClaudeCodeDayPaginator,
     _claude_code_start_day,
@@ -500,6 +501,25 @@ class TestWorkspaceMembersFanOut:
 
         assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_1", "u1")]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_workspace_that_does_not_serve_the_sub_resource_is_skipped(self, MockSession) -> None:
+        # A workspace can 404 on the fan-out child (it does not serve that sub-resource, or was
+        # archived between enumeration and the fetch). Skip only that workspace instead of failing
+        # the whole schema, and still deliver the workspaces that do serve it.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
+                _response({"error": "not_found"}, status=404),
+                _entity_page([{"id": "sa_2", "workspace_id": "wrkspc_2"}], has_more=False, last_id="sa_2"),
+            ],
+        )
+
+        rows = _rows(_source("service_accounts", _make_manager()))
+
+        assert [(r["workspace_id"], r["id"]) for r in rows] == [("wrkspc_2", "sa_2")]
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
@@ -561,6 +581,26 @@ class TestRetries:
 
         assert [r["id"] for r in rows] == ["user_1"]
         assert session.send.call_count == MAX_RETRY_ATTEMPTS
+
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_endpoint_gets_a_wider_retry_budget(self, MockSession, _mock_sleep) -> None:
+        # The report endpoints share one organization rate limit and 429 without a Retry-After, so
+        # they need more attempts than the entity lists to outlast the window. A burst that would
+        # exhaust the entity budget still resolves for a report endpoint.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                *[_response({}, status=429) for _ in range(REPORT_MAX_RETRY_ATTEMPTS - 1)],
+                _report_page([{"starting_at": "2024-01-01", "results": []}], has_more=False, next_page=None),
+            ],
+        )
+
+        _rows(_source("cost_report", _make_manager()))
+
+        assert session.send.call_count == REPORT_MAX_RETRY_ATTEMPTS
+        assert REPORT_MAX_RETRY_ATTEMPTS > MAX_RETRY_ATTEMPTS
 
 
 class TestUsageReportGroupByFallback:

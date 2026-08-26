@@ -4,12 +4,12 @@ from typing import Any, cast
 from django.db.models import Count
 
 from drf_spectacular.utils import extend_schema_field
-from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import APIException, ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.facade.api import tiered_schedules_enabled
+from products.data_modeling.backend.facade.api import delete_dag_schedules, tiered_schedules_enabled
 from products.data_modeling.backend.facade.models import DAG, RESERVED_DAG_NAMES
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
@@ -18,6 +18,11 @@ from products.warehouse_sources.backend.facade.models import (
 
 # C0 controls, DEL, C1 controls, and the Unicode line/paragraph separators.
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+class ScheduleTeardownUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Couldn't remove this DAG's schedules, so it wasn't deleted. Try again in a few minutes."
 
 
 class DAGSerializer(serializers.ModelSerializer):
@@ -141,4 +146,7 @@ class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("The default DAG cannot be deleted.")
         if instance.is_managed:
             raise ValidationError("System-managed DAGs cannot be deleted.")
+        # Keep the DAG row when teardown fails: it is the only handle left for finding the schedules.
+        if not delete_dag_schedules(str(instance.id)).ok:
+            raise ScheduleTeardownUnavailable()
         instance.delete()

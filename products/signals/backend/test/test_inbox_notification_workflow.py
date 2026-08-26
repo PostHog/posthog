@@ -13,7 +13,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalReportTask
-from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_DISCUSSION, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     InboxNotificationState,
@@ -31,13 +31,20 @@ def _make_report(team: Team, status: str = SignalReport.Status.READY) -> SignalR
     )
 
 
-def _link_implementation_task(team: Team, report: SignalReport, *, pr_url: str | None, run_status: str) -> None:
+def _link_implementation_task(
+    team: Team,
+    report: SignalReport,
+    *,
+    pr_url: str | None,
+    run_status: str,
+    relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
+) -> None:
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
     )
-    SignalReportTask.objects.create(team=team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
+    SignalReportTask.objects.create(team=team, report=report, task=task, relationship=relationship)
     TaskRun.objects.create(team=team, task=task, status=run_status, output={"pr_url": pr_url})
 
 
@@ -71,6 +78,24 @@ def test_state_task_running_no_pr(team):
     TaskRun = apps.get_model("tasks", "TaskRun")
     report = _make_report(team)
     _link_implementation_task(team, report, pr_url=None, run_status=TaskRun.Status.IN_PROGRESS)
+    state = _compute_inbox_notification_state(team.id, str(report.id))
+    assert state == InboxNotificationState(has_implementation_task=True, pr_available=False, task_terminal=False)
+
+
+@pytest.mark.django_db
+def test_state_discussion_pr_does_not_end_the_implementation_wait(team):
+    # The wait buys the implementation task time to open its PR. A PR from a discuss task is a
+    # different PR, so it must not end the wait and send the card early.
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    report = _make_report(team)
+    _link_implementation_task(team, report, pr_url=None, run_status=TaskRun.Status.IN_PROGRESS)
+    _link_implementation_task(
+        team,
+        report,
+        pr_url="https://github.com/o/r/pull/1",
+        run_status=TaskRun.Status.COMPLETED,
+        relationship=TASK_RUN_TYPE_DISCUSSION,
+    )
     state = _compute_inbox_notification_state(team.id, str(report.id))
     assert state == InboxNotificationState(has_implementation_task=True, pr_available=False, task_terminal=False)
 

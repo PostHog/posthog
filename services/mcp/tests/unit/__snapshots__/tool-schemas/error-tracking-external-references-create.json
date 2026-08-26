@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Payload for creating a new provider issue and linking it to an error tracking issue.",
     "properties": {
         "config": {
             "additionalProperties": {

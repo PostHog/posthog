@@ -1,9 +1,11 @@
 import Placeholder from "@tiptap/extension-placeholder";
 import StarterKit from "@tiptap/starter-kit";
+import { BlockShortcuts } from "./blockShortcuts";
 import { createCommandMention } from "./CommandMention";
 import { createFileMention } from "./FileMention";
 import { createIssueMention } from "./IssueMention";
 import { MentionChipNode } from "./MentionChipNode";
+import { MarkdownLineStartRules } from "./markdownInputRules";
 
 export interface EditorExtensionsOptions {
   sessionId: string;
@@ -26,17 +28,14 @@ export function getEditorExtensions(options: EditorExtensionsOptions) {
     StarterKit.configure({
       heading: false,
       blockquote: false,
-      codeBlock: false,
-      bulletList: false,
-      orderedList: false,
-      listItem: false,
       horizontalRule: false,
       bold: false,
       italic: false,
       strike: false,
-      code: false,
     }),
     Placeholder.configure({ placeholder }),
+    BlockShortcuts,
+    MarkdownLineStartRules,
     MentionChipNode,
   ];
 

@@ -57,7 +57,6 @@ export interface experimentWizardLogicValues {
     featureFlagKeyValidation: FeatureFlagKeyValidation | null // createExperimentLogic
     featureFlagKeyValidationLoading: boolean // createExperimentLogic
     isExperimentSubmitting: boolean // createExperimentLogic
-    replayVisionEnabled: boolean // createExperimentLogic
     sharedMetrics: {
         primary: ExperimentMetric[]
         secondary: ExperimentMetric[]
@@ -223,7 +222,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 'featureFlagKeyValidation',
                 'featureFlagKeyValidationLoading',
                 'createReplayVisionScanner',
-                'replayVisionEnabled',
             ],
         ],
         actions: [
@@ -480,13 +478,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         afterMount: () => {
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
-            // Re-validate the feature flag key if one is already set.
-            // variantsPanelLogic unmounts when leaving the form, so validation
-            // state is lost and needs to be re-checked on remount.
-            const key = values.experiment?.feature_flag_key
-            if (key) {
-                actions.validateFeatureFlagKey(key)
-            }
         },
     })),
 ])

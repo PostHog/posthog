@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-import requests
 import structlog
+
+from posthog.egress.slack.transport import slack_request
 
 logger = structlog.get_logger(__name__)
 
@@ -186,8 +187,12 @@ def _download_slack_file(url: str, bot_token: str) -> bytes | None:
             logger.warning("slack_attachment_download_rejected_host", host=parsed.hostname)
             return None
 
-        response = requests.get(
+        response = slack_request(
+            "GET",
             next_url,
+            source="slack_app_attachments",
+            endpoint="files.download",
+            app_id="posthog",
             headers={"Authorization": f"Bearer {bot_token}"},
             timeout=SLACK_DOWNLOAD_TIMEOUT_SECONDS,
             allow_redirects=False,

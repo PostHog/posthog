@@ -21,6 +21,46 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+
+@dataclass(frozen=True)
+class RevenueViewSyncInput:
+    team_id: int
+    source_id: UUID
+    source_type: str
+    schema_name: str
+
+
+@dataclass(frozen=True)
+class RevenueSourceTable:
+    id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
+class RevenueSourceSchema:
+    name: str
+    table: RevenueSourceTable | None
+
+
+@dataclass(frozen=True)
+class RevenueSource:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    enabled: bool
+    include_invoiceless_charges: bool
+    schemas: tuple[RevenueSourceSchema, ...]
+
+
+@dataclass(frozen=True)
+class RevenueSourceSettings:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    deleted: bool
+    enabled: bool
+
+
 # --- Source ---
 
 
@@ -97,6 +137,14 @@ class DataWarehouseTable:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class TableSourceLocation:
+    """Where a synced table is administered: the source and schema its detail page hangs off."""
+
+    source_id: UUID
+    schema_id: UUID
+
+
 # --- Job ---
 
 
@@ -138,6 +186,24 @@ class WarehouseColumnAnnotation:
     ai_model: str | None
     created_at: datetime
     updated_at: datetime
+
+
+# --- Column statistics ---
+
+
+@dataclass(frozen=True)
+class ColumnStatistics:
+    """The per-column data profile core reads when describing a warehouse table.
+
+    Narrower than the model on purpose: this carries only what schema description consumes.
+    Row counts, provenance and the Delta version stay product-side.
+    """
+
+    table_id: UUID
+    column_name: str
+    null_fraction: float | None
+    min_value: str | None
+    max_value: str | None
 
 
 # --- Credential (read-only metadata; secrets are never exposed) ---

@@ -3947,6 +3947,9 @@ function MarkdownNotebookEditor({
         })
 
         markNotebookNodeFreshlyInserted(commentNode.id)
+        // Open the composer through the transient panel cache instead of a persisted prop, so the
+        // open state stays local to this session and never leaks into the shared document markdown.
+        setLocalComponentPanels(commentNode.id, { filters: true, results: true })
         floatingToolbarPositionLockRef.current = null
         setFloatingToolbar(null)
         window.getSelection()?.removeAllRanges()
@@ -4061,6 +4064,9 @@ function MarkdownNotebookEditor({
             props: { replies: [] },
         }
         markNotebookNodeFreshlyInserted(commentNode.id)
+        // Open the composer through the transient panel cache instead of a persisted prop, so the
+        // open state stays local to this session and never leaks into the shared document markdown.
+        setLocalComponentPanels(commentNode.id, { filters: true, results: true })
         commitDocument({
             ...currentDocument,
             nodes: [...nodes.slice(0, insertIndex), commentNode, ...nodes.slice(insertIndex)],
@@ -5745,9 +5751,7 @@ function MarkdownNotebookEditor({
         const componentDefinition =
             node.type === 'component' ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName) : undefined
         const componentPanelCacheEntry = node.type === 'component' ? componentPanelCache[node.id] : undefined
-        // Only edit mode persists panel visibility to the document. Persisting encodes "open" as
-        // the ABSENCE of hide* props, which a canvas fallback of filters-closed would immediately
-        // override — opening filters would round-trip to closed. View-mode toggles stay local.
+        // View-mode toggles stay local so interacting with a read-only canvas does not edit the document.
         const persistComponentPanelVisibility =
             mode === 'edit' && node.type === 'component'
                 ? shouldPersistComponentPanelProps(node, componentDefinition)

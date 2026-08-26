@@ -3,16 +3,20 @@ import {
   BRAINROT_CELL,
   clampZoom,
   countActiveTaskCells,
+  getCanvasCellId,
   getCellCount,
   getCellSessionId,
   getExpandedLayout,
   getExpansionCellIndex,
   getGridDimensions,
+  getLayoutToFit,
   getOptimalLayout,
   getTerminalCellCwd,
   getTerminalCellId,
   isBrainrotCell,
+  isCanvasCell,
   isTerminalCell,
+  makeCanvasCellValue,
   makeTerminalCellValue,
   reflowCells,
   resizeCells,
@@ -67,6 +71,39 @@ describe("getOptimalLayout", () => {
   ] as const)("fits %i tiles in %s", (count, expected) => {
     expect(getOptimalLayout(count)).toBe(expected);
   });
+});
+
+describe("getLayoutToFit", () => {
+  it.each([
+    { current: "2x2", needed: 4, expected: "2x2" },
+    { current: "2x2", needed: 2, expected: "2x2" },
+    { current: "2x2", needed: 5, expected: "3x2" },
+    { current: "1x1", needed: 4, expected: "2x2" },
+    { current: "1x1", needed: 2, expected: "2x1" },
+    { current: "3x1", needed: 5, expected: "3x2" },
+    { current: "2x2", needed: 20, expected: "3x3" },
+  ] as const)(
+    "grows $current to $expected for $needed tiles",
+    ({ current, needed, expected }) => {
+      expect(getLayoutToFit(current, needed)).toBe(expected);
+    },
+  );
+
+  // getOptimalLayout(5) is 3x2, which would cost 1x3 its third row on reflow.
+  it.each([
+    { current: "1x3", needed: 5, expected: "2x3" },
+    { current: "1x2", needed: 5, expected: "3x2" },
+  ] as const)(
+    "never shrinks an axis: $current for $needed tiles",
+    ({ current, needed, expected }) => {
+      const result = getLayoutToFit(current, needed);
+      expect(result).toBe(expected);
+      const before = getGridDimensions(current);
+      const after = getGridDimensions(result);
+      expect(after.cols).toBeGreaterThanOrEqual(before.cols);
+      expect(after.rows).toBeGreaterThanOrEqual(before.rows);
+    },
+  );
 });
 
 describe("getExpandedLayout", () => {
@@ -154,6 +191,24 @@ describe("isBrainrotCell", () => {
   });
 });
 
+describe("canvas cells", () => {
+  it("round-trips a canvas id through the cell value", () => {
+    const value = makeCanvasCellValue("canvas-1");
+    expect(isCanvasCell(value)).toBe(true);
+    expect(getCanvasCellId(value)).toBe("canvas-1");
+  });
+
+  it.each([
+    { value: "some-task-uuid", expected: false },
+    { value: BRAINROT_CELL, expected: false },
+    { value: makeTerminalCellValue("abc123"), expected: false },
+    { value: null, expected: false },
+  ])("isCanvasCell($value) -> $expected", ({ value, expected }) => {
+    expect(isCanvasCell(value)).toBe(expected);
+    if (!expected) expect(getCanvasCellId(value)).toBeNull();
+  });
+});
+
 describe("terminal cells", () => {
   it("round-trips a terminal id through the cell value", () => {
     const value = makeTerminalCellValue("abc123");
@@ -202,6 +257,7 @@ describe("countActiveTaskCells", () => {
     { name: "empty cells", cells: [null, null] },
     { name: "the brainrot sentinel", cells: [BRAINROT_CELL] },
     { name: "terminal cells", cells: [makeTerminalCellValue("abc123")] },
+    { name: "canvas cells", cells: [makeCanvasCellValue("canvas-1")] },
   ])("does not count $name", ({ cells }) => {
     expect(countActiveTaskCells(cells, live)).toBe(0);
   });
@@ -209,7 +265,14 @@ describe("countActiveTaskCells", () => {
   it("counts a mixed grid correctly", () => {
     expect(
       countActiveTaskCells(
-        [null, BRAINROT_CELL, "task-1", "deleted", makeTerminalCellValue("t")],
+        [
+          null,
+          BRAINROT_CELL,
+          "task-1",
+          "deleted",
+          makeTerminalCellValue("t"),
+          makeCanvasCellValue("canvas-1"),
+        ],
         live,
       ),
     ).toBe(1);

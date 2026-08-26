@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { createStreamConnection } from 'lib/api-stream'
+import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,7 +32,7 @@ import {
     TrendsQueryResponse,
     WebAnalyticsPropertyFilter,
 } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BaseMathType, LiveEvent, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, BaseMathType, LiveEvent, PathCleaningFilter, PropertyOperator } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
@@ -60,7 +61,6 @@ import {
 } from './recentUsersByLastSeen'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
-const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const PARTIAL_FAILURE_TOAST_ID = 'live-pageviews-partial-failure'
 const BUCKET_WINDOW_MINUTES = 30
 const FLUSH_INTERVAL_MS = 300
@@ -73,6 +73,7 @@ const LIVE_QUERY_CONCURRENCY = 4
 const LIVE_QUERY_MAX_ATTEMPTS = 3
 const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
+const PAUSE_GRACE_MS = 2000
 const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
 
 // Bound live-dashboard query fan-out to protect ClickHouse capacity.
@@ -129,6 +130,7 @@ export interface liveWebAnalyticsMetricsLogicValues {
     rawLiveFilters: WebAnalyticsPropertyFilter[] // webAnalyticsFilterLogic
     rawLiveStreamFilters: WebAnalyticsPropertyFilter[] // webAnalyticsFilterLogic
     rawSelectedHost: string | null // webAnalyticsFilterLogic
+    isPathCleaningEnabled: boolean // webAnalyticsLogic
     productTab: ProductTab // webAnalyticsLogic
     shouldFilterTestAccounts: boolean // webAnalyticsLogic
     botBreakdown: BotBreakdownItem[]
@@ -141,8 +143,10 @@ export interface liveWebAnalyticsMetricsLogicValues {
     geoVersion: number
     hasActiveFilters: boolean
     isLoading: boolean
+    isRefreshing: boolean
     liveFilters: WebAnalyticsPropertyFilter[]
     liveUserCount: number
+    pathCleaningFilters: PathCleaningFilter[]
     recentEvents: LiveEvent[]
     recentUsersByLastSeen: Map<string, number>
     selectedHost: string | null
@@ -165,10 +169,12 @@ export interface liveWebAnalyticsMetricsLogicValues {
 export interface liveWebAnalyticsMetricsLogicActions {
     addEvents: (
         events: LiveEvent[],
-        newerThan: Date
+        newerThan: Date,
+        pathCleaningFilters?: PathCleaningFilter[]
     ) => {
         events: LiveEvent[]
         newerThan: Date
+        pathCleaningFilters: PathCleaningFilter[]
     }
     addGeoEvents: (events: LiveGeoEvent[]) => {
         events: LiveGeoEvent[]
@@ -179,8 +185,8 @@ export interface liveWebAnalyticsMetricsLogicActions {
     clearRecentEvents: () => {
         value: true
     }
-    loadInitialData: () => {
-        value: true
+    loadInitialData: (isBackground?: boolean) => {
+        isBackground: boolean
     }
     pauseStream: () => {
         value: true
@@ -206,6 +212,9 @@ export interface liveWebAnalyticsMetricsLogicActions {
     }
     setIsLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setIsRefreshing: (refreshing: boolean) => {
+        refreshing: boolean
     }
     tickCurrentMinute: () => {
         value: true
@@ -242,6 +251,10 @@ export interface liveWebAnalyticsMetricsLogicMeta {
         liveUserCount: (recentUsersByLastSeen: Map<string, number>) => number
         selectedHost: (rawSelectedHost: string | null, productTab: ProductTab) => string | null
         liveFilters: (rawLiveFilters: WebAnalyticsPropertyFilter[]) => WebAnalyticsPropertyFilter[]
+        pathCleaningFilters: (
+            currentTeam: TeamPublicType | TeamType | null,
+            isPathCleaningEnabled: boolean
+        ) => PathCleaningFilter[]
         testAccountFilters: (
             currentTeam: TeamPublicType | TeamType | null,
             shouldFilterTestAccounts: boolean
@@ -277,18 +290,23 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 'liveStreamFilters as rawLiveStreamFilters',
             ],
             webAnalyticsLogic,
-            ['productTab', 'shouldFilterTestAccounts'],
+            ['productTab', 'shouldFilterTestAccounts', 'isPathCleaningEnabled'],
         ],
     })),
     actions(() => ({
-        addEvents: (events: LiveEvent[], newerThan: Date) => ({ events, newerThan }),
+        addEvents: (events: LiveEvent[], newerThan: Date, pathCleaningFilters: PathCleaningFilter[] = []) => ({
+            events,
+            newerThan,
+            pathCleaningFilters,
+        }),
         addGeoEvents: (events: LiveGeoEvent[]) => ({ events }),
         setInitialData: (
             buckets: { timestamp: number; bucket: SlidingWindowBucket }[],
             recentUsersByLastSeen: [string, number][]
         ) => ({ buckets, recentUsersByLastSeen }),
         setIsLoading: (loading: boolean) => ({ loading }),
-        loadInitialData: true,
+        setIsRefreshing: (refreshing: boolean) => ({ refreshing }),
+        loadInitialData: (isBackground: boolean = false) => ({ isBackground }),
         scheduleReload: true,
         updateConnection: true,
         updateGeoConnection: true,
@@ -311,13 +329,19 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     freshWindow.prune()
                     return freshWindow
                 },
-                addEvents: (window, { events, newerThan }) => {
+                addEvents: (window, { events, newerThan, pathCleaningFilters }) => {
                     for (const event of events) {
                         const eventTs = new Date(event.timestamp).getTime() / 1000
                         const newerThanTs = newerThan.getTime() / 1000
 
                         if (eventTs > newerThanTs) {
-                            const pathname = event.properties?.$pathname
+                            // Streamed events arrive raw, so the same cleaning the backfill query
+                            // does server-side has to happen here for both to land on one key.
+                            const rawPathname = event.properties?.$pathname
+                            const pathname =
+                                typeof rawPathname === 'string'
+                                    ? applyPathCleaning(rawPathname, pathCleaningFilters)
+                                    : rawPathname
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
                             const browser = event.properties?.$browser
@@ -425,6 +449,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             true,
             {
                 setIsLoading: (_, { loading }) => loading,
+            },
+        ],
+        isRefreshing: [
+            false,
+            {
+                setIsRefreshing: (_, { refreshing }) => refreshing,
             },
         ],
         recentEvents: [
@@ -564,6 +594,16 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.rawLiveFilters],
             (rawLiveFilters: WebAnalyticsPropertyFilter[]): WebAnalyticsPropertyFilter[] => rawLiveFilters,
         ],
+        pathCleaningFilters: [
+            (s) => [s.currentTeam, s.isPathCleaningEnabled],
+            (currentTeam: TeamPublicType | TeamType | null, isPathCleaningEnabled: boolean): PathCleaningFilter[] => {
+                if (!isPathCleaningEnabled || !currentTeam || !('path_cleaning_filters' in currentTeam)) {
+                    return []
+                }
+                return currentTeam.path_cleaning_filters ?? []
+            },
+            { resultEqualityCheck: equal },
+        ],
         testAccountFilters: [
             (s) => [s.currentTeam, s.shouldFilterTestAccounts],
             (currentTeam: TeamPublicType | TeamType | null, shouldFilterTestAccounts: boolean): AnyPropertyFilter[] =>
@@ -592,33 +632,46 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
             cache.isPaused = true
-            cache.loadAbortController?.abort()
-            cache.eventsConnection?.abort()
-            cache.geoConnection?.abort()
-            cache.batch = []
-            cache.geoBatch = []
-            stopFlushInterval(cache as FlushCache)
-            cache.disposables.dispose('liveUserCountInterval')
+            cache.disposables.add(
+                () => {
+                    const timeoutId = setTimeout(() => {
+                        cache.loadAbortController?.abort()
+                        cache.eventsConnection?.abort()
+                        cache.geoConnection?.abort()
+                        cache.batch = []
+                        cache.geoBatch = []
+                        stopFlushInterval(cache as FlushCache)
+                        cache.disposables.dispose('liveUserCountInterval')
+                        cache.isTornDown = true
+                    }, PAUSE_GRACE_MS)
+                    return () => clearTimeout(timeoutId)
+                },
+                'pauseGrace',
+                { pauseOnPageHidden: false }
+            )
         },
         resumeStream: () => {
             cache.isPaused = false
-            if (cache.hasInitialized) {
-                lemonToast.info('Refreshing live data...', {
-                    toastId: RECONNECT_TOAST_ID,
-                    autoClose: 2000,
-                })
+            cache.disposables.dispose('pauseGrace')
+            if (!cache.isTornDown) {
+                return
             }
+            cache.isTornDown = false
             startFlushInterval(cache as FlushCache, actions as FlushActions)
             startLiveUserCountInterval(cache as FlushCache, actions as FlushActions)
-            actions.loadInitialData()
+            actions.loadInitialData(true)
         },
-        loadInitialData: async () => {
+        loadInitialData: async ({ isBackground }) => {
             cache.loadAbortController?.abort()
             const abortController = new AbortController()
             cache.loadAbortController = abortController
             const { signal } = abortController
 
-            actions.setIsLoading(true)
+            if (!cache.hasLoadedData || !isBackground) {
+                actions.setIsLoading(true)
+            } else {
+                actions.setIsRefreshing(true)
+            }
 
             try {
                 const now = Date.now()
@@ -639,6 +692,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     filterTestAccounts: values.shouldFilterTestAccounts,
                     includeCity: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN],
                     filtersEnabled: true,
+                    doPathCleaning: values.pathCleaningFilters.length > 0,
                     abortController,
                 })
 
@@ -666,6 +720,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
                     data.recentUsers ? getRecentUsersByLastSeenEntries(data.recentUsers) : []
                 )
+                cache.hasLoadedData = true
 
                 if (data.failedQueries.length > 0) {
                     lemonToast.warning(`Some live metrics failed to load: ${data.failedQueries.join(', ')}`, {
@@ -683,8 +738,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 }
                 if (!signal.aborted) {
                     actions.setIsLoading(false)
+                    actions.setIsRefreshing(false)
                 }
                 cache.hasInitialized = true
+                // A filter change that arrived mid-load was queued rather than dropped:
+                // this load captured the old filters, so run one more with the new ones.
+                if (!signal.aborted && cache.reloadQueuedDuringInit) {
+                    cache.reloadQueuedDuringInit = false
+                    resetStreamStateAndReload(cache as FlushCache, actions)
+                }
             }
         },
         scheduleReload: async (_, breakpoint) => {
@@ -786,23 +848,23 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     subscriptions(({ actions, cache }) => {
         const reloadForFilterChange = (): void => {
             if (!cache.hasInitialized) {
+                cache.reloadQueuedDuringInit = true
                 return
             }
-            cache.batch = []
-            cache.geoBatch = []
-            actions.clearRecentEvents()
-            actions.clearFilteredLiveUsers()
-            actions.scheduleReload()
+            resetStreamStateAndReload(cache as FlushCache, actions)
         }
         return {
             liveFilters: reloadForFilterChange,
             shouldFilterTestAccounts: reloadForFilterChange,
+            // The window holds already-cleaned paths, so new rules only apply once it's rebuilt.
+            pathCleaningFilters: reloadForFilterChange,
         }
     }),
-    events(({ actions, cache }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             cache.batch = [] as LiveEvent[]
             cache.geoBatch = [] as LiveGeoEvent[]
+            cache.getPathCleaningFilters = () => values.pathCleaningFilters
 
             actions.loadInitialData()
             startFlushInterval(cache as FlushCache, actions as FlushActions)
@@ -825,6 +887,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             startLiveUserCountInterval(cache as FlushCache, actions as FlushActions)
         },
         beforeUnmount: () => {
+            cache.disposables.dispose('pauseGrace')
             cache.loadAbortController?.abort()
             cache.eventsConnection?.abort()
             cache.geoConnection?.abort()
@@ -836,17 +899,35 @@ interface FlushCache {
     batch: LiveEvent[]
     geoBatch: LiveGeoEvent[]
     newerThan: Date
+    // Read at flush time rather than captured, so a rule change reaches the next batch.
+    getPathCleaningFilters: () => PathCleaningFilter[]
     disposables: DisposablesManager
 }
 
 interface FlushActions {
-    addEvents: (events: LiveEvent[], newerThan: Date) => void
+    addEvents: (events: LiveEvent[], newerThan: Date, pathCleaningFilters: PathCleaningFilter[]) => void
     addGeoEvents: (events: LiveGeoEvent[]) => void
     tickLiveUserCount: () => void
 }
 
 const stopFlushInterval = (cache: FlushCache): void => {
     cache.disposables.dispose('flushInterval')
+}
+
+interface ReloadActions {
+    clearRecentEvents: () => void
+    clearFilteredLiveUsers: () => void
+    scheduleReload: () => void
+}
+
+// Drops buffered stream state and schedules a fresh backfill; the window is
+// rebuilt from scratch whenever the filters feeding it change.
+const resetStreamStateAndReload = (cache: Pick<FlushCache, 'batch' | 'geoBatch'>, actions: ReloadActions): void => {
+    cache.batch = []
+    cache.geoBatch = []
+    actions.clearRecentEvents()
+    actions.clearFilteredLiveUsers()
+    actions.scheduleReload()
 }
 
 // Drives the "Users online" count so users drop off within ~5s of leaving the 60s window
@@ -889,7 +970,7 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
     cache.disposables.add(() => {
         const intervalId = setInterval(() => {
             if (cache.batch.length > 0) {
-                actions.addEvents(cache.batch, cache.newerThan)
+                actions.addEvents(cache.batch, cache.newerThan, cache.getPathCleaningFilters())
                 cache.batch = []
             }
             if (cache.geoBatch.length > 0) {
@@ -936,6 +1017,7 @@ const loadQueryData = async ({
     filterTestAccounts,
     includeCity,
     filtersEnabled,
+    doPathCleaning,
     abortController,
 }: {
     dateFrom: Date
@@ -944,6 +1026,7 @@ const loadQueryData = async ({
     filterTestAccounts: boolean
     includeCity: boolean
     filtersEnabled: boolean
+    doPathCleaning: boolean
     abortController: AbortController
 }): Promise<LiveQueryData> => {
     const { signal } = abortController
@@ -1030,6 +1113,9 @@ const loadQueryData = async ({
             breakdown: '$pathname',
             breakdown_limit: 10,
             breakdown_hide_other_aggregation: true,
+            // Cleaning runs before the breakdown is ranked, so a path that only reaches the top
+            // once its ids collapse still makes the list.
+            breakdown_path_cleaning: doPathCleaning,
         },
         dateRange: {
             date_from: dateFrom.toISOString(),

@@ -1,31 +1,23 @@
 import { useValues } from 'kea'
 import React from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils/durations'
-import {
-    SessionRecordingPlayerMode,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { observationsDockLogic } from '../logics/observationsDockLogic'
+import { visionSurfaceShown } from '../utils/visionSurface'
 
 interface ObservationSeekbarMarksProps {
     endTimeMs: number
     onSeek: (timestampMs: number) => void
 }
 
-// Same gate as the observations dock: marks only appear where the dock does, so no player fetches observations that didn't already.
 export const ObservationSeekbarMarks = React.memo(function ObservationSeekbarMarks(
     props: ObservationSeekbarMarksProps
 ): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
-    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const dockShown =
-        hasReplayVision && mode === SessionRecordingPlayerMode.Standard && !logicProps.noMeta && !logicProps.noDock
-    if (!dockShown || !sessionRecordingId) {
+    if (!visionSurfaceShown(logicProps) || !sessionRecordingId) {
         return null
     }
     return <ObservationSeekbarMarksContent sessionId={sessionRecordingId} {...props} />

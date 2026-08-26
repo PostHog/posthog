@@ -820,7 +820,7 @@ export type EvaluationApiEvaluationConfig =
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
@@ -863,6 +863,9 @@ export type EvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -886,7 +889,7 @@ export interface EvaluationApi {
      * @nullable
      */
     readonly status_reason_detail: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -919,6 +922,11 @@ export interface EvaluationApi {
     readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEvaluationListApi {
@@ -949,7 +957,7 @@ export type PatchedEvaluationApiEvaluationConfig =
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
@@ -992,6 +1000,9 @@ export type PatchedEvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface PatchedEvaluationApi {
     readonly id?: string
     /**
@@ -1015,7 +1026,7 @@ export interface PatchedEvaluationApi {
      * @nullable
      */
     readonly status_reason_detail?: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -1048,6 +1059,11 @@ export interface PatchedEvaluationApi {
     readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
@@ -1442,6 +1458,13 @@ export interface EvaluationReportApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1511,6 +1534,13 @@ export interface EvaluationReportUpdateApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1571,6 +1601,13 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count?: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1763,88 +1800,27 @@ export interface PaginatedEvaluationReportRunListApi {
     results: EvaluationReportRunApi[]
 }
 
-/**
- * * `all` - all
- * * `pass` - pass
- * * `fail` - fail
- * * `na` - na
- */
-export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
-
-export const FilterEnumApi = {
-    All: 'all',
-    Pass: 'pass',
-    Fail: 'fail',
-    Na: 'na',
-} as const
-
-/**
- * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
- */
-export interface EvaluationSummaryRequestApi {
-    /** UUID of the evaluation config to summarize */
-    evaluation_id: string
-    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-     *
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na */
-    filter?: FilterEnumApi
-    /**
-     * Optional: specific generation IDs to include in summary (max 250)
-     * @maxItems 250
-     */
-    generation_ids?: string[]
-    /** If true, bypass cache and generate a fresh summary */
-    force_refresh?: boolean
-}
-
-export interface EvaluationPatternApi {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatisticsApi {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummaryResponseApi {
-    overall_assessment: string
-    pass_patterns: EvaluationPatternApi[]
-    fail_patterns: EvaluationPatternApi[]
-    na_patterns: EvaluationPatternApi[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatisticsApi
-}
-
-export interface EvaluationSummaryThrottleResponseApi {
-    /** Error category */
-    type: string
-    /** Machine-readable error code */
-    code: string
-    /** Why the request was throttled */
-    detail: string
-    /**
-     * Related request field, when applicable
-     * @nullable
-     */
-    attr: string | null
-}
-
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
+    /** Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation. */
+    provider: string
+}
+
+export interface LLMProviderModelsSummaryApi {
+    /** Supported provider value, exactly as the `provider` param accepts it. */
+    provider: string
+    /** How many of this provider's models appear in `models`. */
+    model_count: number
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+    requires_provider_key: boolean
 }
 
 export interface LLMModelsListResponseApi {
-    /** Models supported for the requested provider. */
+    /** Models supported for the requested provider, or for every supported provider when `provider` is omitted. */
     models: LLMModelInfoApi[]
+    /** One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed. */
+    providers: LLMProviderModelsSummaryApi[]
 }
 
 export interface OfflineExperimentItemsRequestApi {
@@ -3290,23 +3266,15 @@ export type LlmAnalyticsEvaluationReportsRunsListParams = {
     offset?: number
 }
 
-export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
-
 export type LlmAnalyticsModelsRetrieveParams = {
     /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.
      */
     key_id?: string
     /**
-     * LLM provider to list models for. Must be one of the supported providers.
+     * LLM provider to list models for. Omit it to list every supported provider and its models in one call.
      */
-    provider: LlmAnalyticsModelsRetrieveProvider
+    provider?: LlmAnalyticsModelsRetrieveProvider
 }
 
 export type LlmAnalyticsModelsRetrieveProvider =

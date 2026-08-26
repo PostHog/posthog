@@ -20,8 +20,13 @@
             "@posthog/mcp-ui/*": ["./services/mcp/src/ui-apps/lib/*"],
             "@posthog/replay-shared": ["./common/replay-shared/src/index.ts"],
             "@posthog/replay-shared/*": ["./common/replay-shared/src/*"],
+            "@posthog/llm-normalizer": ["./packages/llm-normalizer/src/index.ts"],
+            "@posthog/llm-normalizer/*": ["./packages/llm-normalizer/src/*"],
             "@posthog/quill-charts": ["./packages/quill/packages/charts/src/index.ts"],
             "@posthog/quill-charts/*": ["./packages/quill/packages/charts/src/*"],
+            // @tiptap/* is installed under frontend/node_modules only, which product files
+            // (products/*/frontend) can't reach by walking up from their own directory.
+            "@tiptap/*": ["./frontend/node_modules/@tiptap/*"],
             // Needed to access the subpath since torph didn't set up types properly
             "torph/react": ["./frontend/node_modules/torph/dist/react/index"],
             // use-debounce@9.0.3 only exposes types under `node`/`browser` conditions,
@@ -65,7 +70,8 @@
         "common/replay-shared/src/**/*",
         "common/storybook/*",
         "docs/onboarding/**/*",
-        "packages/quill/packages/charts/src/**/*"
+        "packages/quill/packages/charts/src/**/*",
+        "packages/llm-normalizer/src/**/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {

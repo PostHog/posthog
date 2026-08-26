@@ -1497,7 +1497,10 @@ class TestAnthropicCountTokensEndpoint:
         self,
         authenticated_client: TestClient,
     ) -> None:
-        with patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count:
+        with (
+            patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count,
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),  # entitle the gated model
+        ):
             response = authenticated_client.post(
                 "/v1/messages/count_tokens",
                 json={

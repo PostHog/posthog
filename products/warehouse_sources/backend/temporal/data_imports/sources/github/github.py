@@ -5,7 +5,7 @@ import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import pyarrow as pa
 import requests
@@ -50,12 +50,14 @@ GITHUB_BASE_URL = "https://api.github.com"
 # source's resolved pin; this constant is only the fallback for callers outside a source instance.
 GITHUB_DEFAULT_API_VERSION = "2022-11-28"
 
-# Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, or the
-# "Repository webhooks: read and write" permission on a fine-grained token. Name both so
-# the error/setup guidance doesn't mislead whichever token type the user connected.
+# Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, the "Repository
+# webhooks: read and write" permission on a fine-grained token, or the same permission on an app
+# installation. Name all three so the guidance doesn't mislead whichever way the user connected —
+# an app installation in particular can't be fixed by editing a token.
 _WEBHOOK_PERMISSION_HINT = (
-    "the `admin:repo_hook` scope (classic token) or the "
-    '"Repository webhooks: read and write" permission (fine-grained token)'
+    "the `admin:repo_hook` scope (classic token), the "
+    '"Repository webhooks: read and write" permission (fine-grained token), '
+    "or repository webhook access on the GitHub app installation"
 )
 
 
@@ -180,6 +182,7 @@ def _build_initial_params(
     params["sort"] = "created"
     params["direction"] = "asc"
 
+    since_capable = endpoint in ("issues", "commits") or config.supports_since_param
     if should_use_incremental_field and db_incremental_field_last_value:
         formatted_value = _format_incremental_value(db_incremental_field_last_value)
         incremental = incremental_field or config.default_incremental_field or "updated_at"
@@ -193,8 +196,18 @@ def _build_initial_params(
             )
         params["sort"] = sort_field_mapping[incremental]
         params["direction"] = config.sort_mode
-        if endpoint in ("issues", "commits") or config.supports_since_param:
+        if since_capable:
             params["since"] = formatted_value
+    elif should_use_incremental_field and config.initial_lookback_days is not None and since_capable:
+        # First incremental sync with no watermark: floor the backfill with a server-side `since`
+        # window instead of walking the endpoint's whole history, the repo-wide counterpart of the
+        # fan-out parent floor in _fan_out_get_rows. Scoped to the first incremental run on
+        # purpose, because an explicit full refresh should still pull everything, and once a
+        # watermark exists the branch above bounds the read with it. History past the window is a
+        # deliberate one-off backfill, not a connect-time cost. `is not None` keeps the field's
+        # zero contract uniform with the fan-out floor: zero floors at now, so the poll backfills
+        # nothing, rather than reading as "no floor" and walking the whole history.
+        params["since"] = _format_incremental_value(_now_utc() - timedelta(days=config.initial_lookback_days))
 
     return params
 
@@ -297,6 +310,12 @@ def _is_repository_too_large_for_code_frequency(response: requests.Response) -> 
     except (ValueError, TypeError):
         message = response.text or ""
     return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
+
+
+def _is_topics_endpoint(page_url: str) -> bool:
+    """The repository topics endpoint (/repos/{owner}/{repo}/topics). Matched on the URL path so a
+    repository literally named `topics`, or a query string, can't be mistaken for it."""
+    return urlsplit(page_url).path.endswith("/topics")
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -867,6 +886,15 @@ def _fetch_page(
 
     if _is_repository_too_large_for_code_frequency(response):
         raise GithubRepositoryTooLargeError()
+
+    # GitHub answers 422 on /repos/{owner}/{repo}/topics for some repositories rather than an empty
+    # {"names": []} body. Topics are optional repository metadata, so one repository's 422 there
+    # must not fail its whole schema the way a generic 422 does — sync zero rows, the same benign
+    # skip as a switched-off feature. A genuinely broken connection still fails loudly on the
+    # repository's other tables (401/403/404), so skipping topics here cannot hide it.
+    if response.status_code == 422 and _is_topics_endpoint(page_url):
+        logger.info(f"Github: topics not available for this repository, syncing zero rows: url={page_url}")
+        raise GithubResourceUnavailableError(_github_error_message(response))
 
     # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
     # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
@@ -1455,9 +1483,11 @@ def github_source(
             # Each event for an id arrives as its own row (queued -> in_progress -> completed);
             # collapse them to the latest per id here, since the delta merge doesn't dedupe a
             # source batch. Same pattern as the Stripe webhook source.
-            # Webhook-capable endpoints all key on a single column; the dedupe transformer
-            # collapses one pk column, so pass the first (only) key. Fan-out children with
-            # composite keys have no version_keys, so this branch never runs for them.
+            # The dedupe transformer collapses on one pk column, so pass the first key. That is
+            # sound only while every endpoint declaring version_keys keys on a single column:
+            # commit_statuses is webhook-capable with a composite ["commit_sha", "id"] key, and
+            # giving it version_keys would collapse a commit's statuses to one row. Guarded by
+            # test_no_composite_key_endpoint_declares_version_keys.
             transformer = (
                 _make_webhook_dedupe_transformer(
                     _normalize_primary_key(endpoint_config.primary_key)[0], endpoint_config.version_keys
@@ -1573,7 +1603,7 @@ def create_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1603,7 +1633,7 @@ def ensure_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1646,7 +1676,7 @@ def ensure_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1733,7 +1763,7 @@ def delete_repo_webhook(
     if error == "permission":
         return WebhookDeletionResult(
             success=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
         )
     if error is not None:
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error}")
@@ -1757,7 +1787,7 @@ def delete_repo_webhook(
     if _is_repo_hook_permission_error(response):
         return WebhookDeletionResult(
             success=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
         )
     return WebhookDeletionResult(
         success=False, error=f"Failed to delete webhook: {response.status_code} {response.text}"
@@ -1768,7 +1798,7 @@ def _webhook_update_permission_result(events: list[str]) -> WebhookSyncResult:
     return WebhookSyncResult(
         success=False,
         error=(
-            f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository "
+            f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository "
             f"webhook. Add it and reconnect, or add these events to the webhook manually: {', '.join(events)}."
         ),
     )
@@ -1853,7 +1883,7 @@ def get_repo_webhook_info(
     if error == "permission":
         return ExternalWebhookInfo(
             exists=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to read repository webhooks.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to read repository webhooks.",
         )
     if error is not None:
         return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error}")

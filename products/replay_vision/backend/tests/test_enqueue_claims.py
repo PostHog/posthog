@@ -30,13 +30,14 @@ class TestEnqueueClaims(SimpleTestCase):
     def _flush(self) -> None:
         get_client().delete(_team_key(self.team_id), _scanner_key(self.scanner_id))
 
-    def _claim(self, workflow_id: str, *, team_rows: int = 0, scanner_rows: int = 0) -> bool:
+    def _claim(self, workflow_id: str, *, team_rows: int = 0, scanner_rows: int = 0, scheduled: bool = False) -> bool:
         return try_claim_enqueue_slot(
             team_id=self.team_id,
             scanner_id=self.scanner_id,
             workflow_id=workflow_id,
             team_in_flight_rows=team_rows,
             scanner_in_flight_rows=scanner_rows,
+            scheduled=scheduled,
         )
 
     @parameterized.expand(
@@ -50,6 +51,16 @@ class TestEnqueueClaims(SimpleTestCase):
         with patch(f"products.replay_vision.backend.enqueue_claims.{cap_constant}", 1):
             assert self._claim("wf-1") is True
             assert self._claim("wf-2") is False
+
+    def test_scheduled_claims_stop_at_the_reserved_ceiling(self) -> None:
+        # Racing scheduled dispatchers must not claim into the on-demand reserve; user claims still may.
+        with (
+            patch("products.replay_vision.backend.enqueue_claims.MAX_IN_FLIGHT_APPLIES_PER_TEAM", 2),
+            patch("products.replay_vision.backend.enqueue_claims.ON_DEMAND_RESERVED_TEAM_SLOTS", 1),
+        ):
+            assert self._claim("wf-1", scheduled=True) is True
+            assert self._claim("wf-2", scheduled=True) is False
+            assert self._claim("wf-2") is True
 
     def test_rows_count_against_the_allowance(self) -> None:
         # Persisted in-flight rows consume cap headroom before any claims do.

@@ -11,6 +11,7 @@ from asgiref.sync import sync_to_async
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
@@ -18,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
+    build_chart_image_urls,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
@@ -31,6 +33,7 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     strip_null_bytes,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -72,23 +75,26 @@ def _snapshot_report(snapshot: dict | None) -> str | None:
     return report if isinstance(report, str) and report else None
 
 
-async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
-    return _snapshot_report(await _load_snapshot(delivery_id))
+@frozen
+class DiagnosticCounts:
+    failed_step_count: int
+    total_step_count: int
+    error_types: list[str]
 
 
-def _tally_diagnostics(steps: list[tuple[bool, str | None]]) -> tuple[int, int, list[str]]:
-    # (failed_step_count, total_step_count, sorted distinct failure types) from (ok, error_type)
+def _tally_diagnostics(steps: list[tuple[bool, str | None]]) -> DiagnosticCounts:
+    # Failed/total step counts plus sorted distinct failure types from (ok, error_type)
     # pairs — shared by the persisted-snapshot and in-memory diagnostic paths.
     failed = [error_type for ok, error_type in steps if not ok]
     error_types = sorted({str(error_type) for error_type in failed if error_type})
-    return (len(failed), len(steps), error_types)
+    return DiagnosticCounts(failed_step_count=len(failed), total_step_count=len(steps), error_types=error_types)
 
 
-def _snapshot_diagnostic_counts(snapshot: dict | None) -> tuple[int, int, list[str]]:
+def _snapshot_diagnostic_counts(snapshot: dict | None) -> DiagnosticCounts:
     # The prior run's failure shape, read back from the persisted diagnostics on Temporal redispatch.
     diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if snapshot else None
     if not isinstance(diagnostics, list):
-        return (0, 0, [])
+        return DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[])
     # Only well-formed dict entries count — a malformed one would inflate the total and mask an
     # all-failed report; `ok is not False` keeps a missing/None ok out of the failed set.
     return _tally_diagnostics(
@@ -96,7 +102,7 @@ def _snapshot_diagnostic_counts(snapshot: dict | None) -> tuple[int, int, list[s
     )
 
 
-def _report_diagnostic_counts(result: AiReportResult) -> tuple[int, int, list[str]]:
+def _report_diagnostic_counts(result: AiReportResult) -> DiagnosticCounts:
     return _tally_diagnostics([(d.ok, d.error_type) for d in result.diagnostics])
 
 
@@ -113,6 +119,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
             AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
+            AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
@@ -217,12 +224,12 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
     snapshot = await _load_snapshot(inputs.delivery_id)
     if _snapshot_report(snapshot) is not None:
         await LOGGER.ainfo("generate_ai_subscription_report.already_generated", subscription_id=subscription.id)
-        failed_count, total_count, error_types = _snapshot_diagnostic_counts(snapshot)
+        counts = _snapshot_diagnostic_counts(snapshot)
         return GenerateAIReportResult(
             aborted=False,
-            failed_step_count=failed_count,
-            total_step_count=total_count,
-            query_error_types=error_types,
+            failed_step_count=counts.failed_step_count,
+            total_step_count=counts.total_step_count,
+            query_error_types=counts.error_types,
             target_type=subscription.target_type,
         )
 
@@ -301,12 +308,12 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         )
 
     await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt)
-    failed_count, total_count, error_types = _report_diagnostic_counts(report_result)
+    counts = _report_diagnostic_counts(report_result)
     return GenerateAIReportResult(
         aborted=False,
-        failed_step_count=failed_count,
-        total_step_count=total_count,
-        query_error_types=error_types,
+        failed_step_count=counts.failed_step_count,
+        total_step_count=counts.total_step_count,
+        query_error_types=counts.error_types,
         target_type=subscription.target_type,
     )
 
@@ -324,7 +331,8 @@ async def _deliver_ai_subscription(
         raise ApplicationError(f"AI delivery for subscription {subscription.id} has no delivery_id", non_retryable=True)
 
     delivery_id = inputs.delivery_id
-    markdown = await _load_ai_report(delivery_id)
+    snapshot = await _load_snapshot(delivery_id)
+    markdown = _snapshot_report(snapshot)
     if markdown is None:
         # Generation persists the report before delivery is scheduled, so a missing report
         # means the row was lost. Non-retryable: re-running *delivery* can't regenerate the
@@ -333,6 +341,10 @@ async def _deliver_ai_subscription(
             f"AI report missing for subscription {subscription.id} (delivery {inputs.delivery_id})",
             non_retryable=True,
         )
+
+    chart_images = await database_sync_to_async(build_chart_image_urls, thread_sensitive=False)(
+        (snapshot or {}).get(AI_REPORT_CHARTS_KEY) or [], team_id=subscription.team_id
+    )
 
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
         # Dedup key for MessagingRecord: stable across this run's retries, unique per run so a re-test re-sends.
@@ -347,6 +359,7 @@ async def _deliver_ai_subscription(
                 markdown=markdown,
                 delivery_run_id=workflow_run_id,
                 delivery_id=delivery_id,
+                charts=chart_images,
             )
 
         return await deliver_email(subscription, inputs, recipient_results, _send_email)
@@ -355,7 +368,11 @@ async def _deliver_ai_subscription(
             subscription,
             recipient_results,
             lambda integration: send_slack_ai_subscription_report(
-                subscription=subscription, markdown=markdown, integration=integration, delivery_id=delivery_id
+                subscription=subscription,
+                markdown=markdown,
+                integration=integration,
+                delivery_id=delivery_id,
+                charts=chart_images,
             ),
         )
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,

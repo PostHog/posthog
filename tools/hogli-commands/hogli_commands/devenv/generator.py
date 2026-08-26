@@ -102,7 +102,7 @@ def _build_docker_compose_shell(profiles: list[str]) -> str:
 # recording-rasterizer wait on `temporal`; personhog-etcd-init docker-execs
 # into `etcd`; session replay needs `replay`) — this reproduces master's
 # unprofiled `docker-compose.dev.yml` service set exactly.
-_STATIC_MPROCS_PROFILES = ["dev_tools", "etcd", "localstack", "observability", "replay", "temporal"]
+_STATIC_MPROCS_PROFILES = ["dev_tools", "dynamodb", "etcd", "observability", "replay", "temporal"]
 
 
 def build_static_docker_compose_shell() -> str:

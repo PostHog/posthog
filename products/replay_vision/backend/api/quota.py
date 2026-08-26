@@ -8,7 +8,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.quota import compute_quota_snapshot
 
 
@@ -76,7 +75,7 @@ class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "replay_scanner"
     # Custom viewsets must declare scopes or personal-API-key callers 403 silently.
     scope_object_read_actions = ["list"]
-    permission_classes = [IsAuthenticated, ReplayVisionEnabledPermission]
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(operation_id="environment_vision_quota_retrieve", responses={200: VisionQuotaSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:

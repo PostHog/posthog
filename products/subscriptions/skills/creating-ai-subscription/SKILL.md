@@ -181,3 +181,8 @@ title: 'Daily onboarding watch'
 `enabled: true`, `next_delivery_date` is in the future, and `prompt` matches what
 you sent. The first scheduled tick will run the planner → HogQL → synthesis
 pipeline and email/Slack the rendered markdown.
+
+## Related skills
+
+- **`managing-subscriptions`** — insight and dashboard subscriptions, including AI summaries attached to them
+- **`building-a-dashboard`** — build the dashboard when the user wants charts rather than a written report

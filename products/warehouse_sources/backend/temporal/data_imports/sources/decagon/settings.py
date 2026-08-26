@@ -55,6 +55,11 @@ class DecagonEndpointConfig:
     # sync should be advertised for it.
     incremental_param: Optional[str] = None
     incremental_param_format: IncrementalParamFormat = "epoch_seconds"
+    # Whether the endpoint 400s on a request that omits incremental_param entirely (as
+    # opposed to treating it as an optional filter). A full refresh, or the first run of
+    # an incremental sync, has no window to send; when this is set, the walker falls back
+    # to the epoch so every such request still carries a bound.
+    incremental_param_required: bool = False
     # Param selecting which timestamp the bounds apply to (/conversation/export only).
     timestamp_filter_param: Optional[str] = None
     # Static query params always sent.
@@ -192,6 +197,72 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
         incremental_fields=[],
         pagination="single",
         extra_params={"get_counts": "true"},
+    ),
+    # /admin_log/get is Decagon's audit trail of configuration changes: who changed what,
+    # when, and the before/after state. Immutable rows paged on limit/offset over a
+    # `total` count. Incremental sync filters server-side via `start`, preferred over
+    # walking the offset history at 1 request/second. The spec types start/end loosely
+    # rather than as the exports' epoch seconds, so the bound is sent as ISO 8601,
+    # matching the ISO created_at column it filters; if that guess is wrong the sync
+    # either fails loudly on a 4xx or degrades to a full walk, and the merge on id keeps
+    # the table correct either way. Append is not offered for the same reason: with the
+    # filter silently ignored, appends would re-add all history every sync.
+    "admin_logs": DecagonEndpointConfig(
+        name="admin_logs",
+        path="/admin_log/get",
+        data_key="admin_logs",
+        primary_keys=["id"],
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        pagination="offset",
+        page_size=100,
+        total_key="total",
+        partition_key="created_at",
+        incremental_param="start",
+        incremental_param_format="iso8601",
+        # Unlike the exports, this endpoint 400s ("At least one of start or end dates is
+        # required") on a bare request, so a full walk cannot omit the bound.
+        incremental_param_required=True,
+        # Ordering is undocumented for this endpoint; desc is the safe declaration (see
+        # the field comment).
+        sort_mode="desc",
+        # Opt-in until what lands in details_before/details_after is confirmed against a
+        # live account; config diffs can carry sensitive settings content.
+        should_sync_default=False,
+    ),
+    # /team/api/members is the roster that resolves the user ids other Decagon tables
+    # reference. One unpaginated request; members carry no timestamp, so the table is
+    # unpartitioned and full refresh only. show_invite_status is requested so pending
+    # invites land too (a complete roster); the `access` param is not sent in case it
+    # filters rather than annotates. Rows are staff email addresses, so the table is a
+    # deliberate opt-in.
+    "team_members": DecagonEndpointConfig(
+        name="team_members",
+        path="/team/api/members",
+        data_key="members",
+        primary_keys=["id"],
+        incremental_fields=[],
+        pagination="single",
+        extra_params={"show_invite_status": "true"},
+        should_sync_default=False,
+    ),
+    # /watchtower/all lists Decagon's QA/evaluation jobs with their rubrics and
+    # configuration, the context needed to interpret any quality scoring. One unpaginated
+    # request, full refresh; rubric/prompt/outputs/config land as free-form JSON.
+    "watchtower_jobs": DecagonEndpointConfig(
+        name="watchtower_jobs",
+        path="/watchtower/all",
+        data_key="jobs",
+        primary_keys=["id"],
+        incremental_fields=[],
+        pagination="single",
+        partition_key="created_at",
     ),
 }
 

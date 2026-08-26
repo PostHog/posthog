@@ -127,6 +127,40 @@ CHATTER_CASES = [
         prompt="yep, same conclusion I came to",
         expected=_routes(False),
     ),
+    # Orders aimed at a person. The @mention that would settle who is being asked is the
+    # first thing people drop once a thread is moving, which leaves the imperative — the
+    # shape the agent reads as its own instruction.
+    BaseEvalCase(
+        name="instruction_to_a_named_human",
+        prompt="sam go ahead and put yourself down as reviewer on that PR too",
+        expected=_routes(False),
+    ),
+    BaseEvalCase(
+        name="request_only_a_person_can_do",
+        prompt="if you could join the call with their eng team tomorrow that would be great too",
+        expected=_routes(False),
+    ),
+    # Someone picking the work up themselves. The agent read this as its own go-ahead and
+    # answered to say it was standing aside, which is itself the interruption.
+    BaseEvalCase(
+        name="colleague_claims_the_work",
+        prompt="ah I see what's going on, let me fix that",
+        expected=_routes(False),
+    ),
+    # A proposal put to colleagues mid-debate. Argued and task-relevant, so it reads far
+    # more like an instruction than the offhand opinions above do.
+    BaseEvalCase(
+        name="proposal_in_a_debate",
+        prompt="hmm, I'd be more inclined to drop the wrapper entirely and handle it at the call site",
+        expected=_routes(False),
+    ),
+    # A thread kept as a running list. The item carries an implicit work item, which is a
+    # sharper lure than a bare link.
+    BaseEvalCase(
+        name="bookkeeping_entry",
+        prompt="https://posthog.slack.com/archives/C123/p456 checkout-button@example.com",
+        expected=_routes(False),
+    ),
 ]
 
 

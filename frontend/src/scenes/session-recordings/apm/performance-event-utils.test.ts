@@ -300,4 +300,28 @@ describe('performance-event-utils', () => {
         })
         expect(result).toEqual([])
     })
+
+    it('skips malformed entries in rrweb/network@1 requests instead of crashing', () => {
+        const snapshot = {
+            windowId: '018d5247-079c-7126-8e43-464605576a62',
+            type: 6,
+            data: {
+                plugin: 'rrweb/network@1',
+                payload: {
+                    requests: [
+                        null,
+                        'not-a-request',
+                        42,
+                        { entryType: 'resource', name: 'https://example.com/a.js', timestamp: 1700000000000 },
+                    ],
+                },
+            },
+            timestamp: 1700000000000,
+        } as any
+
+        const result = getPerformanceEvents({
+            '018d5247-079c-7126-8e43-464605576a62': [snapshot],
+        })
+        expect(result.map((r) => r.name)).toEqual(['https://example.com/a.js'])
+    })
 })

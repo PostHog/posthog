@@ -10,7 +10,7 @@ use sqlx::postgres::PgPool;
 
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
-use crate::cli::GateArgs;
+use crate::cli::{GateArgs, DEFAULT_KEYS_PER_PERSON};
 use crate::client::{HarnessClient, IdentityClient};
 use crate::report::print_report;
 use crate::scenarios::{blast, consistency};
@@ -156,12 +156,9 @@ pub async fn run(args: GateArgs) -> Result<()> {
     {
         bail!("--create-via-identity with --external-router-url needs --external-identity-url");
     }
-    // The identity service writes the real posthog_person table (its distinct
-    // id FKs require it); a stack targeting another table would recover
-    // created persons from a table they were never written to.
-    if args.create_via_identity && args.pg_target_table != "posthog_person" {
-        bail!("--create-via-identity requires --pg-target-table posthog_person");
-    }
+    // The spawned identity derives its whole table set (person, distinct id,
+    // hash-key overrides) from --pg-target-table, so any known table set
+    // works; Stack::up rejects person tables without a known companion set.
     if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
         && args.routers < 3
     {
@@ -282,7 +279,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 duration,
                 concurrency,
                 None,
-                "harness_gate_",
+                &blast::PropertyPlan::new(
+                    "harness_gate_".to_string(),
+                    DEFAULT_KEYS_PER_PERSON,
+                    concurrency,
+                ),
                 &collector,
                 &state,
                 Arc::new(AtomicBool::new(false)),
@@ -519,6 +520,20 @@ pub async fn run(args: GateArgs) -> Result<()> {
         &violations,
     );
 
+    // The delete leg of the identity path: persons created through
+    // get-or-create leave through the lifecycle saga, and both the
+    // outcomes and the saga's idempotence are gate assertions — every
+    // created person deletes exactly once, and a second attempt under a
+    // fresh op id answers not_found for all of them.
+    if let Some(url) = &identity_url {
+        if !args.keep_data {
+            println!("Deleting persons through the lifecycle saga...");
+            let lifecycle = crate::client::LifecycleClient::connect(url).await?;
+            verify_lifecycle_delete(&lifecycle, args.team_id, &person_ids).await?;
+            println!("Lifecycle delete verified: all deleted, re-delete answers not_found");
+        }
+    }
+
     if !args.keep_data {
         let persons = seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
         println!("Cleaned up {persons} persons");
@@ -548,6 +563,40 @@ pub async fn run(args: GateArgs) -> Result<()> {
         bail!("no writes were acked; the gate asserted nothing");
     }
     println!("Gate passed: every acked write visible in strong reads and Postgres");
+    Ok(())
+}
+
+/// Delete `person_ids` through the lifecycle saga and hold the answers
+/// to the gate's standard: every id deleted on the first attempt, every
+/// id not_found on a second attempt under a fresh op id (deleting a
+/// tombstone is a no-op, never an error, never a false success).
+async fn verify_lifecycle_delete(
+    lifecycle: &crate::client::LifecycleClient,
+    team_id: i64,
+    person_ids: &[i64],
+) -> Result<()> {
+    use personhog_proto::personhog::lifecycle::v1::DeletePersonOutcome;
+
+    for (attempt, expected) in [
+        (1, DeletePersonOutcome::Deleted),
+        (2, DeletePersonOutcome::NotFound),
+    ] {
+        // The lifecycle service caps batches at 250 person ids.
+        for chunk in person_ids.chunks(200) {
+            let op_id = uuid::Uuid::new_v4();
+            let outcomes = lifecycle
+                .delete_persons(team_id, chunk.to_vec(), &op_id)
+                .await?;
+            for (person_id, outcome) in outcomes {
+                if outcome != expected {
+                    bail!(
+                        "lifecycle delete attempt {attempt}: person {person_id} answered \
+                         {outcome:?}, expected {expected:?}"
+                    );
+                }
+            }
+        }
+    }
     Ok(())
 }
 

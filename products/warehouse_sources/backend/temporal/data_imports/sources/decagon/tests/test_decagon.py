@@ -610,6 +610,104 @@ class TestTags:
         assert response.partition_keys is None
 
 
+class TestAdminLogs:
+    @parameterized.expand(
+        [
+            ("full_refresh", {}),
+            (
+                "first_incremental_run_without_watermark",
+                {"should_use_incremental_field": True, "incremental_field": "created_at"},
+            ),
+        ]
+    )
+    def test_walk_without_a_watermark_still_sends_the_required_start_bound(
+        self, _name: str, incremental_kwargs: dict[str, Any]
+    ) -> None:
+        # /admin_log/get 400s ("At least one of start or end dates is required") on a bare
+        # request, so a full refresh or an incremental sync's first run must not omit it.
+        manager = _fresh_manager()
+        responses = [_make_response({"admin_logs": [{"id": "a1"}], "total": 1})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="admin_logs", **incremental_kwargs)
+
+        assert sent_params == [{"offset": "0", "limit": "100", "start": "1970-01-01T00:00:00+00:00"}]
+        assert [len(b) for b in batches] == [1]
+
+    def test_incremental_walk_sends_iso_start_and_pages_on_offset(self) -> None:
+        # `start` takes a different value format from the exports' epoch min_timestamp;
+        # sending an epoch here is the cross-endpoint confusion the spec warns about.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"admin_logs": [{"id": "a1"}, {"id": "a2"}], "total": 3}),
+            _make_response({"admin_logs": [{"id": "a3"}], "total": 3}),
+        ]
+        sent_params, batches = _drive_rows(
+            manager,
+            responses,
+            endpoint="admin_logs",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, 12, 0, 5, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
+        assert sent_params == [
+            {"offset": "0", "limit": "100", "start": "2026-01-15T12:00:05+00:00"},
+            {"offset": "2", "limit": "100", "start": "2026-01-15T12:00:05+00:00"},
+        ]
+        assert [len(b) for b in batches] == [2, 1]
+
+    def test_response_merges_on_id_partitioned_by_created_at(self) -> None:
+        response = decagon_source(
+            api_key="key",
+            endpoint="admin_logs",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created_at"]
+        assert response.sort_mode == "desc"
+
+
+class TestTeamAndWatchtowerTables:
+    def test_team_members_requests_invite_status_but_never_an_access_filter(self) -> None:
+        # show_invite_status completes the roster with pending invites; sending `access`
+        # could filter the roster down to one level and silently lose members.
+        manager = _fresh_manager()
+        responses = [_make_response({"members": [{"id": 1, "email": "a@example.com", "access": "admin"}]})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="team_members")
+
+        assert sent_params == [{"show_invite_status": "true"}]
+        assert [len(b) for b in batches] == [1]
+
+    def test_team_members_response_is_unpartitioned(self) -> None:
+        # Members carry no timestamp; wiring the datetime partitioning every other stream
+        # uses would fail the sync on a missing column.
+        response = decagon_source(
+            api_key="key",
+            endpoint="team_members",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_mode is None
+
+    def test_watchtower_jobs_is_a_single_request_partitioned_by_created_at(self) -> None:
+        manager = _fresh_manager()
+        responses = [_make_response({"jobs": [{"id": 1, "name": "j", "created_at": "2026-01-01T00:00:00Z"}]})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="watchtower_jobs")
+
+        assert sent_params == [{}]
+        assert [len(b) for b in batches] == [1]
+
+        response = decagon_source(
+            api_key="key",
+            endpoint="watchtower_jobs",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created_at"]
+
+
 class TestToEpochSeconds:
     # The pipeline hands the DateTime watermark back as a datetime, a date, or an epoch
     # number depending on how it round-tripped through storage; the request boundary must

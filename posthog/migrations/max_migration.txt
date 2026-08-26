@@ -1,1 +1,1 @@
-1297_add_instagram_integration_kind
+1320_remove_oauth_scope_trgm

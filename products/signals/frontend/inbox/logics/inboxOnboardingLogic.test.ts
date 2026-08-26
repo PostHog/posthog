@@ -3,7 +3,10 @@ import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/w
 import {
     computeOnboardingDecision,
     InboxOnboardingDecision,
+    InboxOnboardingMode,
+    InboxSettledUiState,
     OnboardingModeInputs,
+    resolveDisplayMode,
     resolveWizardState,
     WizardStateInputs,
 } from './inboxOnboardingLogic'
@@ -18,25 +21,27 @@ describe('inboxOnboardingLogic', () => {
             bannerDismissed: false,
             isWizardRunning: false,
             isWizardStateResolved: true,
+            isRefetching: false,
+            manualSetupRequested: false,
         }
 
         it.each<[string, Partial<OnboardingModeInputs>, InboxOnboardingDecision]>([
-            // Until the config check resolves, stay on the normal inbox (its own skeleton) – never guess
-            // the takeover, which would jolt for a set-up user.
-            ['config still loading', { isSetupLoaded: false }, { mode: 'none', reason: 'setup_loading' }],
+            // Until the config check resolves the takeover is still on the table – commit to neither
+            // UI, or whichever renders first flashes and gets swapped for the other.
+            ['config still loading', { isSetupLoaded: false }, { mode: 'pending', reason: 'setup_loading' }],
             // Config not loaded wins even if the set-up flag is incidentally true – we don't trust it yet.
             [
                 'config still loading, set-up flag ignored',
                 { isSetupLoaded: false, isSelfDrivingSetUp: true },
-                { mode: 'none', reason: 'setup_loading' },
+                { mode: 'pending', reason: 'setup_loading' },
             ],
-            // Not set up, counts still loading → keep the inbox until we can choose takeover vs banner.
+            // Not set up, counts still loading → they decide takeover vs banner, so keep holding.
             [
                 'not set up, counts still loading',
                 { areCountsResolved: false },
-                { mode: 'none', reason: 'counts_loading' },
+                { mode: 'pending', reason: 'counts_loading' },
             ],
-            // Set up (a source or scout is watching) → no onboarding at all, and no wait on counts.
+            // Set up (a source, scout, or scanner is watching) → no onboarding at all, and no wait on counts.
             ['set up, empty inbox', { isSelfDrivingSetUp: true }, { mode: 'none', reason: 'already_set_up' }],
             [
                 'set up, with work',
@@ -46,6 +51,12 @@ describe('inboxOnboardingLogic', () => {
             [
                 'set up, counts unresolved (skipped)',
                 { isSelfDrivingSetUp: true, areCountsResolved: false },
+                { mode: 'none', reason: 'already_set_up' },
+            ],
+            // ...and no wait on the wizard detector either – its answer can't flip a set-up verdict.
+            [
+                'set up, wizard state unknown (skipped)',
+                { isSelfDrivingSetUp: true, isWizardStateResolved: false },
                 { mode: 'none', reason: 'already_set_up' },
             ],
             // Not set up + nothing in the inbox → full-pane takeover (nothing to block).
@@ -82,15 +93,76 @@ describe('inboxOnboardingLogic', () => {
             [
                 'wizard state unknown, would otherwise take over',
                 { isWizardStateResolved: false },
-                { mode: 'none', reason: 'wizard_state_unknown' },
+                { mode: 'pending', reason: 'wizard_state_unknown' },
             ],
+            // Known work rules the takeover out – every remaining outcome renders the normal inbox, so
+            // show it immediately; the banner joins once the remaining checks settle.
             [
                 'wizard state unknown, would otherwise banner',
                 { isWizardStateResolved: false, hasExistingWork: true },
                 { mode: 'none', reason: 'wizard_state_unknown' },
             ],
+            [
+                'with work, config still loading',
+                { isSetupLoaded: false, hasExistingWork: true },
+                { mode: 'none', reason: 'setup_loading' },
+            ],
+            // A refetch in flight (wizard just finished, or the user came back to the tab) means
+            // the loaded values may be stale – never commit to the takeover on them.
+            [
+                'refetch in flight, would otherwise take over',
+                { isRefetching: true },
+                { mode: 'pending', reason: 'refetching' },
+            ],
+            // The refetch hold only guards the takeover; settled inbox verdicts stay put.
+            [
+                'refetch in flight, set up',
+                { isRefetching: true, isSelfDrivingSetUp: true },
+                { mode: 'none', reason: 'already_set_up' },
+            ],
+            [
+                'refetch in flight, with work',
+                { isRefetching: true, hasExistingWork: true },
+                { mode: 'banner', reason: null },
+            ],
+            // "Set up manually" opens the Configuration and Scouts tabs the takeover was covering,
+            // so the whole prompt stands down for the session.
+            [
+                'manual setup requested, would otherwise take over',
+                { manualSetupRequested: true },
+                { mode: 'none', reason: 'manual_setup' },
+            ],
+            // Enabling a source or scout from there is the real end state, so `already_set_up` wins
+            // and the takeover can never come back, session flag or not.
+            [
+                'manual setup requested, now set up',
+                { manualSetupRequested: true, isSelfDrivingSetUp: true },
+                { mode: 'none', reason: 'already_set_up' },
+            ],
+            // A run in flight still outranks it: the progress widget is the more accurate story.
+            [
+                'manual setup requested, wizard running',
+                { manualSetupRequested: true, isWizardRunning: true },
+                { mode: 'none', reason: 'wizard_running' },
+            ],
         ])('%s', (_label, overrides, expected) => {
             expect(computeOnboardingDecision({ ...base, ...overrides })).toEqual(expected)
+        })
+    })
+
+    describe('resolveDisplayMode', () => {
+        it.each<[string, InboxOnboardingMode, InboxSettledUiState | null, InboxOnboardingMode]>([
+            // A settled verdict always wins – the cache must never override live inputs.
+            ['settled none ignores cached takeover', 'none', 'takeover', 'none'],
+            ['settled takeover ignores cached inbox', 'takeover', 'inbox', 'takeover'],
+            ['settled banner ignores cache', 'banner', 'takeover', 'banner'],
+            // While the verdict is settling, paint what this team saw last visit.
+            ['pending falls back to cached takeover', 'pending', 'takeover', 'takeover'],
+            ['pending falls back to cached inbox', 'pending', 'inbox', 'none'],
+            // No history (very first visit) → the neutral skeleton.
+            ['pending with no cache stays pending', 'pending', null, 'pending'],
+        ])('%s', (_label, resolvedMode, lastSettledUiState, expected) => {
+            expect(resolveDisplayMode(resolvedMode, lastSettledUiState)).toBe(expected)
         })
     })
 

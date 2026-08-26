@@ -4,39 +4,38 @@ import {
   CaretRightIcon,
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
-import { Button, ButtonGroup } from "@posthog/quill";
-import {
-  BILLING_FLAG,
-  PROJECT_BLUEBIRD_FLAG,
-  SYNC_CLOUD_TASKS_FLAG,
-} from "@posthog/shared";
+import { Button, ButtonGroup, cn } from "@posthog/quill";
+import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
-import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
-import { useApprovalDeepLink } from "@posthog/ui/features/agent-applications/hooks/useApprovalDeepLink";
 import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
 import { AnnouncementsHost } from "@posthog/ui/features/announcements/AnnouncementsHost";
+import { useServerArchiveSync } from "@posthog/ui/features/archive/useServerArchiveSync";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
-import { BlankTabView } from "@posthog/ui/features/browser-tabs/BlankTabView";
+import { useSpendGuardrails } from "@posthog/ui/features/billing/useSpendGuardrails";
 import { BrowserTabStrip } from "@posthog/ui/features/browser-tabs/BrowserTabStrip";
 import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/BrowserTabsDnd";
 import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
-import { useActiveTabIsBlank } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
+import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
+import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
-import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
 import {
   FeedbackModal,
   type FeedbackModalMode,
 } from "@posthog/ui/features/canvas/components/FeedbackModal";
+import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
+import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
+import { useShellOwnsHeader } from "@posthog/ui/features/canvas/hooks/useShellOwnsHeader";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
-import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
 import { GlobalFilePicker } from "@posthog/ui/features/command/GlobalFilePicker";
 import { KeyboardShortcutsSheet } from "@posthog/ui/features/command/KeyboardShortcutsSheet";
 import { ConnectivityBanner } from "@posthog/ui/features/connectivity/ConnectivityBanner";
@@ -44,11 +43,13 @@ import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDe
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
 import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
+import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -114,15 +115,6 @@ function RootLayout() {
   // Cloud-only hosts (web) run in a real browser tab that already provides
   // native back/forward chrome, so the in-app history buttons are redundant.
   const { localWorkspaces } = useHostCapabilities();
-  // Width of the Channels sidebar below — used to right-align the back/forward
-  // buttons in the title bar with the sidebar's (and project switcher's) right edge.
-  const channelsSidebarWidth = useChannelsSidebarStore((state) => state.width);
-  // Suppress the title-bar width transition during a live drag so it tracks
-  // the sidebar frame-for-frame; when the sidebar toggles open/closed, both
-  // animate with the same curve (see ResizableSidebar).
-  const sidebarIsResizing = useChannelsSidebarStore(
-    (state) => state.isResizing,
-  );
   // Forward availability isn't exposed by the router (and history.length counts
   // pre-app entries, so it can't be compared to __TSR_index). Track the newest
   // index we've reached: only a PUSH wipes the forward stack, so it resets the
@@ -204,21 +196,31 @@ function RootLayout() {
   const queryClient = useQueryClient();
   const reconcilingTaskIds = useRef<Set<string>>(new Set());
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
-  const syncCloudTasksEnabled = useFeatureFlag(SYNC_CLOUD_TASKS_FLAG);
+  useSpendGuardrails();
   // "PostHog Web" is a channels-world affordance — show it only while the user
   // is actually seeing channels (toggle on, which itself requires the flag).
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const channelsToggleOn = useSidebarStore((s) => s.channelsEnabled);
-  const channelsEnabled = channelsToggleOn && bluebirdEnabled;
+  const channelsWorld = useChannelsWorld();
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
+  // Tabs exist in the legacy layout already; the flag gates only bringing them
+  // into the spaces layout.
+  const spacesTabs = useSpacesTabs();
+  const showTabStrip = channelsLayout ? spacesTabs : true;
+  const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
   const sidebarOpen = useSidebarStore((s) => s.open);
+  // On screen, not merely un-collapsed: a destination with no list takes the
+  // column away whatever the open flag says.
+  const sidebarDocked = sidebarOpen && hasSidebar;
+  // The corner belongs to whichever pane starts the framed inset.
+  const framesOwnCorner = channelsLayout ? !sidebarDocked : sidebarDocked;
+
   const toggleSidebar = useSidebarStore((s) => s.toggle);
   const sidebarPeek = useSidebarPeekStore((s) => s.peek);
   // Toggling makes any hover-peek redundant (opening replaces the overlay;
@@ -241,15 +243,15 @@ function RootLayout() {
   useCanvasDeepLink();
   useChannelDeepLink();
   useLoopDeepLink();
-  const approvalDeepLink = useApprovalDeepLink();
+  useShareLinkInterceptor();
   useSetupDiscovery();
   useNewTaskDeepLink();
+  useServerArchiveSync();
 
   // hydrateTask is no longer needed — the URL is the source of truth and the
   // task cache populates the route automatically.
 
   useEffect(() => {
-    if (!syncCloudTasksEnabled) return;
     if (!tasks || !workspaces || !workspacesFetched) return;
     const missing = tasks.filter(
       (t) =>
@@ -277,15 +279,7 @@ function RootLayout() {
         for (const id of missingIds) reconcilingTaskIds.current.delete(id);
         log.warn("Failed to reconcile cloud workspaces", err);
       });
-  }, [
-    syncCloudTasksEnabled,
-    tasks,
-    workspaces,
-    workspacesFetched,
-    queryClient,
-    hostClient,
-    trpc,
-  ]);
+  }, [tasks, workspaces, workspacesFetched, queryClient, hostClient, trpc]);
 
   // Flags resolve asynchronously — flag-gated routes below wait for this
   // before redirecting away from a restored route the user can't access.
@@ -298,35 +292,22 @@ function RootLayout() {
     select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
   });
 
-  // The Bluebird chrome is the app shell for every non-settings route now. The
-  // /website (Channels) routes own their own in-pane header (WebsiteLayout), so
-  // the shared ContentHeader is mounted only outside that space.
-  const onWebsitePath = useRouterState({
-    select: (s) =>
-      s.location.pathname === "/website" ||
-      s.location.pathname.startsWith("/website/"),
-  });
+  // ShellLayout draws the in-pane header under `_shell`, so the shared
+  // ContentHeader is mounted only where that layout isn't.
+  const shellOwnsHeader = useShellOwnsHeader();
 
-  // The /website (Channels) routes stay registered regardless of the flag, so a
-  // stale URL, a restored session, or a persisted channel browser tab could
-  // strand a flag-off user on the channel layout with no way back (the Channels
-  // toggle is hidden and ContentHeader is suppressed on /website). Once flags
-  // resolve, send them back to Code.
+  // The bluebird routes stay registered regardless of the flag, so a stale URL,
+  // a restored session, or a persisted browser tab could strand a flag-off user
+  // on chrome they have no way back out of. Once flags resolve, send them back
+  // to a new task.
+  const onBluebirdOnlyPath = useRouterState({
+    select: (s) => isBluebirdOnlyPath(s.location.pathname),
+  });
   useEffect(() => {
-    if (flagsLoaded && !bluebirdEnabled && onWebsitePath) {
+    if (flagsLoaded && !bluebirdEnabled && onBluebirdOnlyPath) {
       openTaskInput();
     }
-  }, [flagsLoaded, bluebirdEnabled, onWebsitePath]);
-
-  // A blank browser tab (the "+" new-tab page) shows an empty placeholder — but
-  // ONLY on the channels index. Inside a channel (`/website/$channelId…`) the
-  // route owns the content (channel home, inbox, artifacts, a canvas, …), so the
-  // placeholder must never replace it, otherwise channel navigation looks dead.
-  const onChannelsIndex = useRouterState({
-    select: (s) => s.location.pathname === "/website",
-  });
-  const activeTabBlank = useActiveTabIsBlank();
-  const showBlankTab = onChannelsIndex && activeTabBlank;
+  }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
 
   if (isSettingsRoute) {
     return (
@@ -341,8 +322,10 @@ function RootLayout() {
           onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
         />
         <GlobalEventHandlers
+          allTasks={tasks ?? []}
           onToggleCommandMenu={toggleCommandMenu}
           onToggleShortcutsSheet={toggleShortcutsSheet}
+          visualTaskOrder={visualTaskOrder}
         />
         {/* The settings shell has never mounted the tab strip, so nothing here
             was stopping Cmd+W from closing the window. */}
@@ -363,11 +346,10 @@ function RootLayout() {
     <BrowserTabsDndProvider>
       <Flex direction="column" height="100%" className="bg-chrome">
         {/* Full-width title bar: a window-drag region carrying the PostHog
-            mark. The left section matches the sidebar width so the tab strip
-            starts flush with the content pane; its padding clears the macOS
-            stoplights via env(titlebar-area-x), the system-reported right
-            edge of the traffic-light strip (see titleBarOverlay in
-            window.ts). */}
+            mark. The left section sizes to its controls so the tab strip sits
+            beside the history buttons; its padding clears the macOS stoplights
+            via env(titlebar-area-x), the system-reported right edge of the
+            traffic-light strip (see titleBarOverlay in window.ts). */}
         <Flex
           align="center"
           className="drag h-10 shrink-0"
@@ -378,7 +360,7 @@ function RootLayout() {
           <Flex
             id="title-bar-left"
             align="center"
-            justify="between"
+            justify="start"
             gap="3"
             className="shrink-0 pr-2"
             style={{
@@ -386,12 +368,6 @@ function RootLayout() {
               // over- or under-shoots; the env var fallback covers hosts
               // without Window Controls Overlay.
               paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
-              width: sidebarOpen ? channelsSidebarWidth : undefined,
-              // Same curve/duration as ResizableSidebar's SLIDE_EASING so the
-              // title bar tracks the sidebar edge.
-              transition: sidebarIsResizing
-                ? "none"
-                : "width 0.2s cubic-bezier(0, 0, 0.2, 1)",
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
@@ -436,25 +412,18 @@ function RootLayout() {
               </ButtonGroup>
             )}
           </Flex>
-          {/* The new layout has no global tab strip (tabs live inside the
-              task view); inbox/activity live in the sidebar nav. The strip is
-              also the only global owner of Cmd+W, so something has to keep
-              holding that key when it isn't mounted. */}
-          {channelsLayout ? (
-            <>
-              <TabShortcutFallback enabled />
-              <CommandSearchBar onClick={toggleCommandMenu} />
-            </>
-          ) : (
-            <BrowserTabStrip />
-          )}
+          {/* The strip owns the title bar's middle in both layouts. Search
+              moved to the rail to make room for it (see NavRail). The strip is
+              also the only global owner of Cmd+W, so the fallback has to hold
+              that key wherever the strip isn't mounted. */}
+          {showTabStrip ? <BrowserTabStrip /> : <TabShortcutFallback enabled />}
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls
               should drag the window. */}
-          {(billingEnabled || channelsEnabled || channelsLayout) && (
+          {(billingEnabled || channelsWorld) && (
             <Flex align="center" gap="2" className="no-drag ml-auto pr-3">
               <UsageButton />
-              {(channelsEnabled || channelsLayout) && (
+              {channelsWorld && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -476,6 +445,7 @@ function RootLayout() {
           {!sidebarOpen && (
             <Box
               aria-hidden
+              style={{ left: channelsLayout ? NAV_RAIL_WIDTH : 0 }}
               // The radix preset replaces Tailwind's palette, so plain
               // `bg-black/*` doesn't exist — use the radix black-alpha scale
               // (--black-a2 = 10%, --black-a5 = 30%).
@@ -484,25 +454,36 @@ function RootLayout() {
               }`}
             />
           )}
-          <ChannelsSidebar />
+          {/* Outside the sidebar on purpose: collapsing the sidebar (Cmd+B)
+              must not take the destinations with it. */}
+          {channelsLayout && <NavRail />}
+          {hasSidebar && <ChannelsSidebar />}
           {/* Content sits in a bordered, rounded card inset from the window
-              edges — the framed pane from the design. */}
+              edges — the framed pane from the design. The rounded corner
+              belongs to whichever pane starts the inset: the sidebar when it
+              is docked, this pane when it isn't and the rail holds the edge.
+              Without a rail there is nothing to inset from until the sidebar
+              opens, which is the corner this pane kept before. */}
           <Box flexGrow="1" className="overflow-hidden">
             <Box
-              className={`h-full overflow-hidden border-border border-t border-l bg-background ${
-                sidebarOpen ? "rounded-tl-sm" : ""
-              }`}
+              className={cn(
+                "h-full overflow-hidden border-border border-t bg-background",
+                // A docked sidebar already draws this edge; two owners stack
+                // two 1px lines into one seam.
+                !sidebarDocked && "border-l",
+                framesOwnCorner && "rounded-tl-sm",
+              )}
             >
               <Flex direction="column" height="100%">
                 {/* Inside the framed pane, not the app column: announcements
                     overlay the content, never the sidebar. */}
                 <AnnouncementBanner />
-                {/* The /website space renders its own header (WebsiteLayout);
+                {/* The shell renders its own header (ShellLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}
-                {!onWebsitePath && <ContentHeader />}
+                {!shellOwnsHeader && <ContentHeader />}
                 <Box flexGrow="1" overflow="hidden">
-                  {showBlankTab ? <BlankTabView /> : <Outlet />}
+                  <Outlet />
                 </Box>
               </Flex>
             </Box>
@@ -515,13 +496,19 @@ function RootLayout() {
           onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
         />
         <GlobalEventHandlers
+          allTasks={tasks ?? []}
           onToggleCommandMenu={toggleCommandMenu}
           onToggleShortcutsSheet={toggleShortcutsSheet}
+          visualTaskOrder={visualTaskOrder}
         />
         {/* Renders nothing — owns ⌘1-9 under the channels layout. Mounted here
             rather than in the switcher, which only exists once a channel is
             already scoped. */}
         <ChannelHotkeys />
+        {/* Renders nothing — owns which space is scoped. The sidebar used to,
+            but the rail can take that column away and the scoping still has to
+            happen. */}
+        <ChannelRouteSync />
         {/* Renders nothing — wires the ⌥↑/⌥↓ task-cycling shortcuts. */}
         <SpaceSwitcher
           tasks={visualTaskOrder}
@@ -543,12 +530,6 @@ function RootLayout() {
           mode={feedbackMode}
           onFinished={handleFeedbackFinished}
         />
-        {approvalDeepLink.pending ? (
-          <DeepLinkApprovalModal
-            pending={approvalDeepLink.pending}
-            onClose={approvalDeepLink.clear}
-          />
-        ) : null}
         <ExistingWorktreeDialog />
         <HedgehogMode />
       </Flex>

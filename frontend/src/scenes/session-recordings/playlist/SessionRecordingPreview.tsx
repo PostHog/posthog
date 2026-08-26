@@ -4,20 +4,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
-import {
-    IconAIText,
-    IconBug,
-    IconCursorClick,
-    IconHourglass,
-    IconKeyboard,
-    IconLive,
-    IconPlusSmall,
-} from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { selectOutcome } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import { FEATURE_FLAGS, SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -26,7 +17,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -35,7 +25,6 @@ import { urls } from 'scenes/urls'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
-import { sessionSummaryProgressLogic } from '../player/player-meta/sessionSummaryProgressLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
@@ -269,66 +258,6 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     )
 }
 
-const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
-    recording,
-}: {
-    recording: SessionRecordingType
-}): JSX.Element | null {
-    const { loadingBySessionId, summaryBySessionId } = useValues(sessionSummaryProgressLogic)
-    const { startSummarization } = useActions(sessionSummaryProgressLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
-
-    const isSummarizing = !!loadingBySessionId[recording.id]
-    const summaryOutcome = selectOutcome([summaryBySessionId[recording.id]?.session_outcome, recording.summary_outcome])
-    const hasSummary = !!summaryOutcome?.description
-
-    if (isSummarizing) {
-        return (
-            <Tooltip title="Generating summary…">
-                <span className="flex items-center">
-                    <Spinner className="shrink-0 text-lg mb-1" />
-                </span>
-            </Tooltip>
-        )
-    }
-    if (hasSummary && summaryOutcome) {
-        return (
-            <Tooltip title={summaryOutcome.description}>
-                <span className="flex items-center">
-                    <IconAIText
-                        className={clsx(
-                            'shrink-0 text-lg mb-1',
-                            summaryOutcome.success === false ? 'text-danger' : 'text-success'
-                        )}
-                    />
-                </span>
-            </Tooltip>
-        )
-    }
-    // AI summaries are PostHog Cloud only — hide the per-row trigger on self-hosted. The upsell
-    // lives on the replay page dock (PlayerSummaryDock) rather than repeating per list row.
-    if (!isCloudOrDev) {
-        return null
-    }
-    return (
-        <LemonButton
-            type="tertiary"
-            size="xxsmall"
-            noPadding
-            icon={<IconPlusSmall className="text-ai text-lg" />}
-            tooltip="Summarize this recording"
-            aria-label="Summarize this recording"
-            data-attr="summarize-recording-from-list"
-            className="shrink-0 border border-dashed border-ai text-ai hover:bg-ai/10 mb-1"
-            onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                startSummarization(recording.id)
-            }}
-        />
-    )
-})
-
 const SessionRecordingPreviewBase = memo(
     function SessionRecordingPreviewBase({
         recording,
@@ -339,12 +268,6 @@ const SessionRecordingPreviewBase = memo(
         const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-        const { featureFlags } = useValues(featureFlagLogic)
-
-        // Vision teams trigger analysis from the replay-page dock, not the list. Hide the legacy
-        // summarize icon when replay-vision is on so it doesn't surface alongside Vision.
-        const replayVisionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
-
         const recordingProperties = recordingPropertiesById[recording.id]
         const loading = !recordingProperties && recordingPropertiesLoading
         const iconProperties = gatherIconProperties(recordingProperties, recording)
@@ -440,7 +363,6 @@ const SessionRecordingPreviewBase = memo(
 
                         <div className="flex items-center justify-between">
                             <FirstURL startUrl={recording.start_url} />
-                            {!replayVisionEnabled && <RecordingSummaryIcon recording={recording} />}
                         </div>
                     </div>
 

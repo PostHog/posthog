@@ -9,7 +9,7 @@ Read `README.md` first for what the dataset is and how partitions behave. This f
 
 ## Invariants — do not break
 
-- `dt=` partitions are **immutable snapshots** with deterministic object keys; the only mutation ever applied is an idempotent re-run of the same partition.
+- `dt=` partitions are **immutable snapshots** with deterministic object keys; the only mutation ever applied is an idempotent re-run of the same partition. The exception is `inbox_signal_embeddings`, an emission log whose partition holds only that day's inserts — see the README's signal-grain section before touching it. Its re-run must stay **additive** (union with the existing object): the source drops rows it already archived, so a plain overwrite destroys history that exists nowhere else.
 - Label columns are **cumulative from `LABELS_EPOCH`**; never bake a maturity window or a rolling time bound into the SQL (the saved `inbox_ranking_*` views roll 90 days — that is exactly why their SQL is inlined here with explicit bounds instead of reused).
 - `latest/` must stay **monotonic** (snapshot-date metadata stamp); backfills must never overwrite it.
 - Schema changes: additive nullable columns bump `FEATURE_SCHEMA_VERSION`; breaking changes bump the `v1` path segment. The parquet schemas and the row assemblers must stay in exact key agreement — `pa.Table.from_pylist` silently drops unknown keys, and a test guards this.

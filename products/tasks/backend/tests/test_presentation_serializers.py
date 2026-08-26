@@ -6,11 +6,51 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
+    SandboxEnvironmentWriteSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
 )
+
+
+class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("scheme", "https://example.com"),
+            ("path", "example.com/path"),
+            ("port", "example.com:443"),
+            ("ip", "127.0.0.1"),
+            ("malformed_wildcard", "api.*.example.com"),
+        ]
+    )
+    def test_rejects_domains_that_cannot_be_enforced(self, _name: str, domain: str) -> None:
+        serializer = SandboxEnvironmentWriteSerializer(data={"name": "Restricted", "allowed_domains": [domain]})
+
+        assert not serializer.is_valid()
+        assert "allowed_domains" in serializer.errors
+
+    def test_normalizes_valid_domains(self) -> None:
+        serializer = SandboxEnvironmentWriteSerializer(
+            data={"name": "Restricted", "allowed_domains": [" EXAMPLE.com ", "example.com"]}
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["allowed_domains"] == ["example.com"]
+
+    def test_rejects_too_many_allowed_domains(self) -> None:
+        domains = [f"host-{index}.example.com" for index in range(tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS + 1)]
+        serializer = SandboxEnvironmentWriteSerializer(data={"name": "Restricted", "allowed_domains": domains})
+
+        assert not serializer.is_valid()
+        assert serializer.errors["allowed_domains"][0].code == "max_length"
+
+    def test_facade_rejects_too_many_allowed_domains(self) -> None:
+        domains = [f"host-{index}.example.com" for index in range(tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS + 1)]
+
+        with self.assertRaisesRegex(ValueError, "You can allow up to 100 domains"):
+            tasks_facade.normalize_sandbox_allowed_domains(domains)
 
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):

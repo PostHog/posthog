@@ -23,6 +23,15 @@ vi.mock("../services/mission-control/cg-window-list", () => ({
   createWindowListSampler: sampler.create,
 }));
 
+const settings = vi.hoisted(() => ({
+  enabled: true,
+  set: vi.fn<(value: boolean) => void>(),
+}));
+vi.mock("../services/settingsStore", () => ({
+  getMissionControlOverlayEnabled: () => settings.enabled,
+  setMissionControlOverlayEnabled: settings.set,
+}));
+
 vi.mock("electron", () => ({
   screen: {
     getAllDisplays: () => [
@@ -69,6 +78,8 @@ describe("MissionControlService", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     sampler.create.mockReset();
+    settings.enabled = true;
+    settings.set.mockReset();
     pretendPlatform("darwin");
   });
 
@@ -114,6 +125,43 @@ describe("MissionControlService", () => {
     state.windows = [MISSION_CONTROL_BACKING];
     vi.advanceTimersByTime(5000);
     expect(service.getState().active).toBe(false);
+  });
+
+  it("never touches the window list while the setting is off", () => {
+    settings.enabled = false;
+    const { state, impl } = fakeSampler([MISSION_CONTROL_BACKING]);
+    sampler.create.mockReturnValue(impl);
+    const service = new MissionControlService();
+
+    service.arm();
+    state.windows = [MISSION_CONTROL_BACKING];
+    vi.advanceTimersByTime(5000);
+
+    expect(sampler.create).not.toHaveBeenCalled();
+    expect(service.getState().active).toBe(false);
+  });
+
+  it("turning the setting off drops a live overlay, then back on resumes it", () => {
+    const { state, impl } = fakeSampler([MISSION_CONTROL_BACKING]);
+    sampler.create.mockReturnValue(impl);
+    const service = new MissionControlService();
+
+    service.arm();
+    vi.advanceTimersByTime(250);
+    expect(service.getState().active).toBe(true);
+
+    service.setEnabled(false);
+    expect(service.getState().active).toBe(false);
+    expect(settings.set).toHaveBeenLastCalledWith(false);
+
+    state.windows = [MISSION_CONTROL_BACKING];
+    vi.advanceTimersByTime(5000);
+    expect(service.getState().active).toBe(false);
+
+    service.setEnabled(true);
+    vi.advanceTimersByTime(250);
+    expect(settings.set).toHaveBeenLastCalledWith(true);
+    expect(service.getState().active).toBe(true);
   });
 
   it("gives up after repeated sampling failures instead of logging forever", () => {

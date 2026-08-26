@@ -82,7 +82,7 @@ class TestQueryFailureCache(SimpleTestCase):
             assert record is not None
             assert record.open_until == datetime.now(UTC) + BASE_BACKOFF * 2
 
-    @parameterized.expand([("memory_limit",), ("query_size",)])
+    @parameterized.expand([("memory_limit",), ("query_size",), ("too_many_bytes",)])
     def test_deterministic_kinds_open_on_first_failure(self, kind):
         failure_cache = QueryFailureCache(f"cache_key_instant_{kind}")
         with freeze_time("2026-01-01T00:00:00Z"):

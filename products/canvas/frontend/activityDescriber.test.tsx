@@ -96,6 +96,30 @@ describe('canvasActivityDescriber', () => {
         expect(text).not.toContain('capabilities')
     })
 
+    it('summarizes a draft and the capabilities it would add', () => {
+        const text = getTextContent(
+            canvasActivityDescriber(
+                canvasLogItem({
+                    activity: 'drafted',
+                    detail: {
+                        merge: null,
+                        trigger: null,
+                        name: 'Signups board',
+                        changes: [
+                            capabilitiesChange(
+                                { posthog: { insights: [], inlineQueries: false, captureEvents: [] } },
+                                { posthog: { insights: ['abc123'], inlineQueries: false, captureEvents: [] } }
+                            ),
+                        ],
+                    },
+                })
+            )
+        )
+        expect(text).toContain('drafted a new version of canvas Signups board')
+        expect(text).toContain('declared insight abc123')
+        expect(text).not.toContain('published')
+    })
+
     it.each([
         [
             'name',

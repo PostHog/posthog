@@ -161,7 +161,7 @@ describe("ReasoningLevelSelector", () => {
     expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
   });
 
-  it("emits the raw value via onChange once the advanced menu closes", async () => {
+  it("changes reasoning without closing the advanced menu", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
@@ -178,9 +178,11 @@ describe("ReasoningLevelSelector", () => {
     const lowItem = await screen.findByRole("menuitemradio", { name: "Low" });
     fireEvent.click(lowItem);
 
-    await pollUntil(() => onChange.mock.calls.length > 0);
     expect(onChange).toHaveBeenCalledWith("low");
     expect(onChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Reasoning/ }),
+    ).toBeInTheDocument();
   });
 
   it("marks the adapter default level with a Default badge", async () => {
@@ -341,6 +343,73 @@ describe("ReasoningLevelSelector", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps the Back row when a model change moves off the preset ladder", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { rerender } = render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "xhigh" })}
+          modelOption={claudeModelOption("claude-opus-5")}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByRole("button", { name: "Advanced" }));
+    expect(
+      await screen.findByRole("button", { name: "Back" }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "xhigh" })}
+          modelOption={claudeModelOption("claude-sonnet-5")}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
+  });
+
+  it("does not grow a Back row when a model change lands on the ladder", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { rerender } = render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "low" })}
+          modelOption={claudeModelOption("claude-opus-5")}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    expect(
+      await screen.findByRole("menuitem", { name: /^Model/ }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "medium" })}
+          modelOption={claudeModelOption("claude-opus-5")}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Back" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("switches to Pi from the harness submenu", async () => {
     const onHarnessChange = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
@@ -363,9 +432,11 @@ describe("ReasoningLevelSelector", () => {
     await openSub(user, /^Harness/);
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "Pi" }));
 
-    await pollUntil(() => onHarnessChange.mock.calls.length > 0);
     expect(onHarnessChange).toHaveBeenCalledWith("pi");
     expect(onHarnessChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Harness/ }),
+    ).toBeInTheDocument();
   });
 
   it("changes the model from its advanced submenu", async () => {
@@ -391,9 +462,11 @@ describe("ReasoningLevelSelector", () => {
       await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
     );
 
-    await pollUntil(() => onModelChange.mock.calls.length > 0);
     expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
     expect(onModelChange).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("menuitem", { name: /^Model/ }),
+    ).toBeInTheDocument();
   });
 
   it("moves the model and effort together on a ladder notch that changes both", async () => {
@@ -543,9 +616,25 @@ describe("ReasoningLevelSelector", () => {
       </Theme>,
     );
 
-    expect(screen.getByRole("button", { name: /Loading/ })).toHaveAttribute(
-      "aria-disabled",
-      "true",
+    expect(screen.getByRole("button", { name: /Loading/ })).toBeInTheDocument();
+  });
+
+  it("keeps an open menu mounted while a harness switch reloads the config", async () => {
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          isLoading
+          adapter="claude"
+          onHarnessChange={() => {}}
+          includePiHarness
+          menuOpen
+          onMenuOpenChange={() => {}}
+        />
+      </Theme>,
     );
+
+    expect(
+      await screen.findByRole("menuitem", { name: /Harness/ }),
+    ).toBeInTheDocument();
   });
 });

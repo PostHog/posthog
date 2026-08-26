@@ -746,7 +746,7 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
 }
 
 fn cached_person_to_proto(p: &CachedPerson) -> Person {
-    let properties_bytes = serde_json::to_vec(&p.properties).unwrap_or_default();
+    let properties_bytes = p.properties.clone();
     Person {
         id: p.id,
         uuid: p.uuid.clone(),
@@ -1051,13 +1051,19 @@ impl PersonHogLeader for PersonHogLeaderService {
             return Err(Status::not_found("person is destroyed"));
         }
 
+        // One parse per update: the cache stores properties serialized,
+        // and this handler reads them as a map throughout.
+        let person_properties = person
+            .parse_properties()
+            .map_err(|e| Status::internal(format!("cached properties unparseable: {e}")))?;
+
         // Compute property updates
         let updates = compute_event_property_updates(
             &req.event_name,
             &set_properties,
             &set_once_properties,
             &unset_properties,
-            &person.properties,
+            &person_properties,
         );
 
         // OR-merge: identification never reverts through this RPC, so
@@ -1099,7 +1105,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // Slow path: apply diffs and check if the values actually changed
         // (has_changes can be true when $set sends the same value that already exists)
         let (new_properties, actually_updated) =
-            apply_property_updates(&updates, &person.properties);
+            apply_property_updates(&updates, &person_properties);
 
         if !actually_updated && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
@@ -1146,9 +1152,9 @@ impl PersonHogLeader for PersonHogLeaderService {
             // visible outcome where a silent trim would be arbitrary
             // deferred data loss. Warnings and errors carry sizes, never
             // property values.
-            let existing_size = jsonb_column_size(&person.properties);
+            let existing_size = jsonb_column_size(&person_properties);
             if existing_size >= self.size_limits.threshold {
-                match trim_properties_to_fit_size(&person.properties, self.size_limits.trim_target)
+                match trim_properties_to_fit_size(&person_properties, self.size_limits.trim_target)
                 {
                     TrimResult::Trimmed(trimmed) => {
                         counter!("personhog_leader_properties_trimmed_total").increment(1);
@@ -1166,7 +1172,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // the update still cannot apply — keep the stored
                     // state, discarding the update like the arm above.
                     TrimResult::Fits => {
-                        new_properties = person.properties.clone();
+                        new_properties = person_properties.clone();
                     }
                     TrimResult::CannotFit => {
                         counter!(
@@ -1207,7 +1213,9 @@ impl PersonHogLeader for PersonHogLeaderService {
             }
         }
 
-        let approx_bytes = approx_person_bytes(jsonb_column_size(&new_properties));
+        let properties_bytes = serde_json::to_vec(&new_properties)
+            .map_err(|e| Status::internal(format!("serialize updated properties: {e}")))?;
+        let approx_bytes = approx_person_bytes(properties_bytes.len());
         // A version this pod already put on the wire is spent even when
         // it never learned the outcome, so the next one has to clear that
         // floor as well as the state it derived from. Reusing it produces
@@ -1220,7 +1228,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             id: person.id,
             uuid: person.uuid.clone(),
             team_id: person.team_id,
-            properties: new_properties,
+            properties: properties_bytes,
             created_at: person.created_at,
             version: base_version + 1,
             is_identified: identified_now,
@@ -1357,10 +1365,14 @@ impl PersonHogLeader for PersonHogLeaderService {
         // still-absent keys in request order; then the merge event's $set
         // overrides and $set_once fills. All inputs are sanitized, so the
         // merged document is measured in stored form.
-        let mut target_properties = if person.properties.is_object() {
-            person.properties.clone()
-        } else {
-            serde_json::Value::Object(serde_json::Map::new())
+        let mut target_properties = match person.parse_properties() {
+            Ok(value) if value.is_object() => value,
+            Ok(_) => serde_json::Value::Object(serde_json::Map::new()),
+            Err(e) => {
+                return Err(Status::internal(format!(
+                    "cached properties unparseable: {e}"
+                )))
+            }
         };
         // The cached state is an input like any other: rows loaded from
         // Postgres or warmed from records that predate sanitization can
@@ -1538,12 +1550,14 @@ impl PersonHogLeader for PersonHogLeaderService {
             Status::invalid_argument("sealed versions leave no room for the folded version")
         })?;
 
-        let approx_bytes = approx_person_bytes(jsonb_column_size(&folded));
+        let folded_bytes = serde_json::to_vec(&folded)
+            .map_err(|e| Status::internal(format!("serialize folded properties: {e}")))?;
+        let approx_bytes = approx_person_bytes(folded_bytes.len());
         let folded_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
             team_id: person.team_id,
-            properties: folded,
+            properties: folded_bytes,
             created_at,
             version,
             is_identified: true,
@@ -1605,9 +1619,17 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let refence = if let Some(entry) = self.fences.get(&cache_key) {
             if entry.op_id != op_id {
+                let holder = *entry.value();
+                drop(entry);
                 // At most one lifecycle op holds a person; the loser backs
-                // off or aborts.
-                return Err(fenced_status(entry.value()));
+                // off or aborts. The holder may also be a ghost (its op
+                // settled without this leader hearing); kick the lazy heal
+                // like the write paths do, since on a low-traffic person
+                // no other caller will.
+                if let Some(healer) = &self.fence_healer {
+                    healer.maybe_heal(cache_key.clone(), holder);
+                }
+                return Err(fenced_status(&holder));
             }
             true
         } else {
@@ -1826,7 +1848,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     id: req.person_id,
                     uuid: req.person_uuid.clone(),
                     team_id: req.team_id,
-                    properties: serde_json::Value::Object(serde_json::Map::new()),
+                    properties: b"{}".to_vec(),
                     // The sealed value, not the cached one: cold and warm
                     // leaders must produce the same document.
                     created_at: req.created_at,
@@ -1834,9 +1856,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     is_identified: false,
                     is_deleted: true,
                     last_seen_at: None,
-                    approx_bytes: approx_person_bytes(jsonb_column_size(
-                        &serde_json::Value::Object(serde_json::Map::new()),
-                    )),
+                    approx_bytes: approx_person_bytes(2),
                 };
                 self.commit_document(partition, &cache_key, death).await?;
                 // The death document stays in the cache (commit_document
@@ -2127,7 +2147,7 @@ mod tests {
                 id: person_id,
                 uuid: "00000000-0000-0000-0000-000000000007".to_string(),
                 team_id,
-                properties: serde_json::json!({}),
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
                 created_at: 0,
                 version: 1,
                 is_identified: false,
@@ -2193,7 +2213,7 @@ mod tests {
                 id: person_id,
                 uuid: "00000000-0000-0000-0000-000000000007".to_string(),
                 team_id,
-                properties: serde_json::json!({}),
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
                 created_at: 0,
                 version: 1,
                 is_identified: false,
@@ -2295,7 +2315,7 @@ mod tests {
                 id: person_id,
                 uuid: "00000000-0000-0000-0000-000000000007".to_string(),
                 team_id,
-                properties: serde_json::json!({}),
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
                 created_at: 0,
                 version: 1,
                 is_identified: false,
@@ -2341,7 +2361,7 @@ mod tests {
                 id: person_id,
                 uuid: "00000000-0000-0000-0000-000000000007".to_string(),
                 team_id,
-                properties: serde_json::json!({}),
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
                 created_at: 0,
                 version: 1,
                 is_identified: false,
