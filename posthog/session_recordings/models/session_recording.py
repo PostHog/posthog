@@ -128,7 +128,9 @@ class SessionRecording(UUIDTModel):
             self.set_start_url_from_urls(first_url=metadata["first_url"])
             self.mouse_activity_count = metadata["mouse_activity_count"]
             self.active_seconds = metadata["active_seconds"]
-            self.inactive_seconds = metadata["duration"] - metadata["active_seconds"]
+            # An ongoing recording keeps summing active time while end_time still lags real time,
+            # so active_seconds can exceed the elapsed span. Clamp to avoid a negative value.
+            self.inactive_seconds = max(metadata["duration"] - metadata["active_seconds"], 0)
             self.console_log_count = metadata["console_log_count"]
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]
