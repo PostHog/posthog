@@ -8,7 +8,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
@@ -47,7 +46,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
 
     def _calculate(self):
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+        hogql = self.response_hogql(query)
 
         with tags_context(product=Product.MAX_AI):
             self.paginator.execute_hogql_query(
@@ -55,6 +54,7 @@ class TeamTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[TeamTaxon
                 query=query,
                 team=self.team,
                 user=self.user,
+                context=self.build_hogql_context(),
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
