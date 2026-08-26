@@ -1032,10 +1032,10 @@ class TestAnalyticsSnapshotBackfill:
         # dates older than the earliest ongoing instance are kept — later dates belong to the
         # ongoing stream, which is what keeps one report date from landing from both streams.
         assert [(row["app_id"], row["processing_date"], row["_line"], row["date"]) for row in rows] == [
-            ("A1", "2026-08-01", 1, "2026-07-30"),
-            ("A1", "2026-08-02", 1, "2026-07-31"),
-            ("A1", "2026-08-02", -1, "2024-06-01"),
-            ("A1", "2026-08-02", -2, "2026-07-15"),
+            ("A1", date(2026, 8, 1), 1, date(2026, 7, 30)),
+            ("A1", date(2026, 8, 2), 1, date(2026, 7, 31)),
+            ("A1", date(2026, 8, 2), -1, date(2024, 6, 1)),
+            ("A1", date(2026, 8, 2), -2, date(2026, 7, 15)),
         ]
         # The fulfilled snapshot request is reused, never re-created.
         assert api.posts == []
@@ -1047,7 +1047,7 @@ class TestAnalyticsSnapshotBackfill:
 
         first_keys = [(row["app_id"], row["processing_date"], row["_line"]) for row in first]
         second_keys = [(row["app_id"], row["processing_date"], row["_line"]) for row in second]
-        assert ("A1", "2026-08-02", -1) in first_keys
+        assert ("A1", date(2026, 8, 2), -1) in first_keys
         # Identical, collision-free keys: the merge folds a re-run to zero new rows per report date.
         assert first_keys == second_keys
         assert len(set(second_keys)) == len(second_keys)
@@ -1068,8 +1068,8 @@ class TestAnalyticsSnapshotBackfill:
         rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
 
         assert [(row["processing_date"], row["_line"], row["date"]) for row in rows] == [
-            ("2026-08-02", -1, "2024-06-01"),
-            ("2026-08-02", -2, "2026-07-15"),
+            (date(2026, 8, 2), -1, date(2024, 6, 1)),
+            (date(2026, 8, 2), -2, date(2026, 7, 15)),
         ]
 
     def test_duplicate_snapshot_instances_for_one_processing_date_ingest_once(self) -> None:
@@ -1093,7 +1093,7 @@ class TestAnalyticsSnapshotBackfill:
 
         rows = _collect_analytics(api, _FakeManager())
 
-        assert [(row["processing_date"], row["_line"], row["sessions"]) for row in rows] == [("2026-08-02", -1, "3")]
+        assert [(row["processing_date"], row["_line"], row["sessions"]) for row in rows] == [(date(2026, 8, 2), -1, 3)]
         assert _segments_url("IS2") not in [url for url, _ in api.calls]
 
     def test_fresh_incremental_sync_holds_until_the_snapshot_is_ready(self) -> None:
@@ -1128,7 +1128,7 @@ class TestAnalyticsSnapshotBackfill:
 
         rows = _collect_analytics(api, _FakeManager())
 
-        assert [(row["processing_date"], row["_line"]) for row in rows] == [("2026-08-01", 1)]
+        assert [(row["processing_date"], row["_line"]) for row in rows] == [(date(2026, 8, 1), 1)]
 
     def test_fresh_incremental_sync_holds_while_an_ongoing_instance_below_the_snapshot_is_unready(self) -> None:
         # An ongoing instance without files below the snapshot would stop the walk mid-emission,
@@ -1165,10 +1165,10 @@ class TestAnalyticsSnapshotBackfill:
             rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
 
         assert [(row["processing_date"], row["_line"]) for row in rows] == [
-            ("2026-08-01", 1),
-            ("2026-08-02", 1),
-            ("2026-08-02", -1),
-            ("2026-08-02", -2),
+            (date(2026, 8, 1), 1),
+            (date(2026, 8, 2), 1),
+            (date(2026, 8, 2), -1),
+            (date(2026, 8, 2), -2),
         ]
 
     def test_expired_snapshot_is_rerequested_on_a_fresh_table(self) -> None:
@@ -1224,7 +1224,10 @@ class TestAnalyticsSnapshotBackfill:
             db_incremental_field_last_value=date(2026, 8, 1),
         )
 
-        assert [(row["processing_date"], row["_line"]) for row in rows] == [("2026-08-01", 1), ("2026-08-02", 1)]
+        assert [(row["processing_date"], row["_line"]) for row in rows] == [
+            (date(2026, 8, 1), 1),
+            (date(2026, 8, 2), 1),
+        ]
         assert SNAPSHOT_REPORTS_URL not in [url for url, _ in api.calls]
         assert api.posts == []
 
@@ -1243,9 +1246,9 @@ class TestAnalyticsSnapshotBackfill:
         )
 
         assert [(row["processing_date"], row["_line"]) for row in rows] == [
-            ("2026-08-02", 1),
-            ("2026-08-02", -1),
-            ("2026-08-02", -2),
+            (date(2026, 8, 2), 1),
+            (date(2026, 8, 2), -1),
+            (date(2026, 8, 2), -2),
         ]
 
 
@@ -1731,9 +1734,10 @@ class TestForbiddenErrors:
         session = MagicMock()
         session.get.return_value = _json_response(_page(requests_page))
         session.post.return_value = _forbidden_response(code="FORBIDDEN_ERROR", detail="Admin role required")
+        report_requests = [_flatten_resource(resource) for resource in requests_page]
 
         with pytest.raises(AppStoreConnectPermissionError) as exc:
-            _ensure_report_request(session, _FakeTokenProvider(), MagicMock(), "A1")
+            _ensure_report_request(session, _FakeTokenProvider(), MagicMock(), "A1", report_requests)
 
         message = str(exc.value)
         assert expected in message
