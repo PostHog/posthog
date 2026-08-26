@@ -48,12 +48,9 @@ function resolveDateRange(dateFrom: string, dateTo: string | null): ResolvedDate
     }
 }
 
-function stableSeriesId(label: string): number {
-    let hash = 0
-    for (let index = 0; index < label.length; index++) {
-        hash = (Math.imul(31, hash) + label.charCodeAt(index)) | 0
-    }
-    return hash >>> 0
+function seriesLabel(item: FeatureFlagRequestUsageItemApi): string {
+    const evaluationLabel = item.request_type === 'remote_evaluation' ? 'remote' : 'local'
+    return `${item.sdk} (${evaluationLabel})`
 }
 
 function buildDates(dateFrom: string, dateTo: string | null, interval: FeatureFlagRequestUsageInterval): string[] {
@@ -170,6 +167,7 @@ export interface featureFlagRequestUsageLogicMeta {
         dates: (dateFrom: string, dateTo: string | null, interval: FeatureFlagRequestUsageInterval) => string[]
         series: (
             filteredItems: FeatureFlagRequestUsageItemApi[],
+            usageResponse: FeatureFlagRequestUsageResponseApi | null,
             dates: string[],
             metric: FeatureFlagRequestUsageMetric,
             interval: FeatureFlagRequestUsageInterval
@@ -266,17 +264,18 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
                 buildDates(dateFrom, dateTo, interval),
         ],
         series: [
-            (s) => [s.filteredItems, s.dates, s.metric, s.interval],
+            (s) => [s.filteredItems, s.usageResponse, s.dates, s.metric, s.interval],
             (
                 items: FeatureFlagRequestUsageItemApi[],
+                response: FeatureFlagRequestUsageResponseApi | null,
                 dates: string[],
                 metric: FeatureFlagRequestUsageMetric,
                 interval: FeatureFlagRequestUsageInterval
             ): FeatureFlagRequestUsageSeries[] => {
+                const allLabels = Array.from(new Set(response?.results.map(seriesLabel) ?? [])).sort()
                 const seriesByLabel = new Map<string, Map<string, number>>()
                 for (const item of items) {
-                    const evaluationLabel = item.request_type === 'remote_evaluation' ? 'remote' : 'local'
-                    const label = `${item.sdk} (${evaluationLabel})`
+                    const label = seriesLabel(item)
                     const values = seriesByLabel.get(label) ?? new Map<string, number>()
                     const value = metric === 'requests' ? item.request_count : item.billing_units
                     const bucket = dayjs(item.bucket).utc().startOf(interval).toISOString()
@@ -284,7 +283,7 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
                     seriesByLabel.set(label, values)
                 }
                 return Array.from(seriesByLabel.entries()).map(([label, values]) => ({
-                    id: stableSeriesId(label),
+                    id: allLabels.indexOf(label),
                     label,
                     dates,
                     data: dates.map((date) => values.get(date) ?? 0),

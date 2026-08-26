@@ -222,6 +222,7 @@ describe('featureFlagRequestUsageLogic', () => {
                 },
             ],
         })
+        expect(new Set(logic.values.series.map(({ id }) => id)).size).toBe(2)
         const pythonSeriesId = logic.values.series.find(({ label }) => label.startsWith('posthog-python'))?.id
 
         logic.actions.setSelectedSDKs(['posthog-python'])

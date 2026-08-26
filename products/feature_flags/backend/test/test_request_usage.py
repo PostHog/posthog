@@ -94,6 +94,13 @@ class TestFeatureFlagRequestUsageQuery(ClickhouseTestMixin, TestCase):
             team=analytics_team,
             distinct_id="123",
             event="decide usage",
+            timestamp=datetime(2026, 8, 20, 12, 50, tzinfo=UTC),
+            properties={"count": 5, "token": "request-usage-test-token"},
+        )
+        _create_event(
+            team=analytics_team,
+            distinct_id="123",
+            event="decide usage",
             timestamp=datetime(2026, 8, 20, 12, 45, tzinfo=UTC),
             properties={
                 "count": 100,
@@ -118,6 +125,7 @@ class TestFeatureFlagRequestUsageQuery(ClickhouseTestMixin, TestCase):
 
         assert [(item.request_type.value, item.sdk, item.request_count) for item in hourly_results] == [
             ("local_evaluation", "posthog-python", 3),
+            ("remote_evaluation", "other", 5),
             ("remote_evaluation", "posthog-node", 7),
         ]
         assert {item.bucket for item in hourly_results} == {datetime(2026, 8, 20, 12, tzinfo=UTC)}
