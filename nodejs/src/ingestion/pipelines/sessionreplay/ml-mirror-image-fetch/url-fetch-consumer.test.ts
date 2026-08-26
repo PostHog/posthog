@@ -390,9 +390,10 @@ describe('UrlFetchConsumer', () => {
         harness.history.writeError = new Error('write failed')
 
         await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow('write failed')
+        expect(harness.flush).not.toHaveBeenCalled()
     })
 
-    it('keeps publish work before the final history write', async () => {
+    it('writes durable state before it flushes buffered republishes', async () => {
         const harness = build()
         const order: string[] = []
         harness.run.mockImplementation((candidates) => {
@@ -404,10 +405,14 @@ describe('UrlFetchConsumer', () => {
             order.push('history')
             await write(items)
         }
+        harness.flush.mockImplementation(() => {
+            order.push('republished')
+            return Promise.resolve({ failedUrls: 0 })
+        })
 
         await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
 
-        expect(order).toEqual(['published', 'history'])
+        expect(order).toEqual(['published', 'history', 'republished'])
     })
 
     it('throws when the fetch pass reports a lost URL', async () => {

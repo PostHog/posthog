@@ -6,10 +6,12 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import HashIndex
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
+from django.db.models.fields.json import KeyTransform
 from django.db.models.signals import post_delete, post_save
 
 import pytz
@@ -274,6 +276,13 @@ class Team(UUIDTClassicModel):
         # falls back to a bare `Manager()` for related access and re-loads the fat deprecated
         # taxonomy columns on every such fetch — on the hot path that's every authenticated request.
         base_manager_name = "objects"
+        indexes = [
+            HashIndex(
+                KeyTransform("widget_public_token", "conversations_settings"),
+                condition=models.Q(conversations_enabled=True),
+                name="posthog_team_widget_token_idx",
+            ),
+        ]
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
