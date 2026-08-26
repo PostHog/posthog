@@ -1,4 +1,5 @@
 import type { SignalReport, Task } from "@posthog/shared/types";
+import type { ReportTaskData } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -77,20 +78,38 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
 
 import { ReportVerdictBanner } from "./ReportVerdictBanner";
 
-const report = {
+const report: SignalReport = {
   id: "report-1",
+  title: "Some report",
+  summary: "A report summary",
   status: "ready",
+  total_weight: 1,
+  signal_count: 1,
+  created_at: "2026-08-26T00:00:00.000Z",
+  updated_at: "2026-08-26T00:00:00.000Z",
+  artefact_count: 1,
   actionability: "not_actionable",
   implementation_pr_url: null,
   implementation_pr_merged: false,
-} as SignalReport;
+};
+
+const task: Task = {
+  id: "task-1",
+  task_number: 1,
+  slug: "task-1",
+  title: "Discuss report",
+  description: "",
+  created_at: "2026-08-26T00:00:00.000Z",
+  updated_at: "2026-08-26T00:00:00.000Z",
+  origin_product: "signals",
+};
 
 const discussionTask = {
-  task: { id: "task-1" } as Task,
+  task,
   purpose: "discussion",
   purposeLabel: "Discussion",
   startedAt: "2026-08-26T00:00:00.000Z",
-};
+} satisfies ReportTaskData;
 
 describe("ReportVerdictBanner", () => {
   let onDiscussionCreated: ((task: Task) => void) | undefined;

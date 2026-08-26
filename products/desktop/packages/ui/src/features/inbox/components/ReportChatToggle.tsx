@@ -9,6 +9,7 @@ import type { SignalReport } from "@posthog/shared/types";
 import {
   findContinuableImplementationTask,
   findLatestDiscussionTask,
+  findPendingStartedTaskId,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
@@ -21,7 +22,7 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
   );
   const { data: reportTasks } = useReportTasks(report.id, report.status);
   const hasConversation =
-    startedTaskId !== null ||
+    findPendingStartedTaskId(reportTasks, startedTaskId) !== null ||
     findContinuableImplementationTask(reportTasks) !== null ||
     findLatestDiscussionTask(reportTasks) !== null;
   const actionLabel = chatOpen

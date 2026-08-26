@@ -35,6 +35,7 @@ import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useRepo
 import {
   findContinuableImplementationTask,
   findLatestDiscussionTask,
+  findPendingStartedTaskId,
   getTaskPrUrl,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
@@ -127,7 +128,7 @@ export function ReportVerdictBanner({
     (state) => state.startedTaskIdByReport[report.id] ?? null,
   );
   const hasPriorEngagement =
-    startedTaskId !== null ||
+    findPendingStartedTaskId(reportTasks, startedTaskId) !== null ||
     hasExistingPr ||
     findLatestDiscussionTask(reportTasks) !== null;
 
@@ -399,7 +400,9 @@ export function ReportVerdictBanner({
         type="button"
         variant="outline"
         loading={isDiscussing}
-        disabled={isCreatingPr || awaitingChannel || reportTasksLoading}
+        disabled={
+          isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading
+        }
         onClick={handleAsk}
         className={buttonClass}
       >

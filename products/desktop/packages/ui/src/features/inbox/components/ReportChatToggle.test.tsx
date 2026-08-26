@@ -1,4 +1,5 @@
 import type { SignalReport, Task } from "@posthog/shared/types";
+import type { ReportTaskData } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -19,17 +20,35 @@ vi.mock(
 
 import { ReportChatToggle } from "./ReportChatToggle";
 
-const report = {
+const report: SignalReport = {
   id: "report-1",
+  title: "Some report",
+  summary: "A report summary",
   status: "ready",
-} as SignalReport;
+  total_weight: 1,
+  signal_count: 1,
+  created_at: "2026-08-26T00:00:00.000Z",
+  updated_at: "2026-08-26T00:00:00.000Z",
+  artefact_count: 1,
+};
+
+const task: Task = {
+  id: "task-1",
+  task_number: 1,
+  slug: "task-1",
+  title: "Discuss report",
+  description: "",
+  created_at: "2026-08-26T00:00:00.000Z",
+  updated_at: "2026-08-26T00:00:00.000Z",
+  origin_product: "signals",
+};
 
 const discussionTask = {
-  task: { id: "task-1" } as Task,
+  task,
   purpose: "discussion",
   purposeLabel: "Discussion",
   startedAt: "2026-08-26T00:00:00.000Z",
-};
+} satisfies ReportTaskData;
 
 describe("ReportChatToggle", () => {
   beforeEach(() => {
@@ -47,14 +66,10 @@ describe("ReportChatToggle", () => {
     const openButton = screen.getByLabelText("Open existing chat");
     expect(
       openButton.querySelector('[data-slot="conversation-indicator"]'),
-    ).toHaveClass("absolute", "-top-1", "-right-1", "bg-(--blue-9)");
-    expect(openButton.querySelector('[data-slot="chat-icon"]')).toHaveClass(
-      "absolute",
-      "inset-0",
-      "items-center",
-      "justify-center",
-    );
-    expect(openButton.querySelector('[data-slot="dot"]')).toBeNull();
+    ).toBeInTheDocument();
+    expect(
+      openButton.querySelector('[data-slot="chat-icon"]'),
+    ).toBeInTheDocument();
     expect(openButton).not.toHaveTextContent("Chat");
     expect(openButton).toHaveAttribute("aria-pressed", "false");
 

@@ -25,6 +25,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 vi.mock("@posthog/ui/features/inbox/hooks/useReportTasks", () => ({
   findContinuableImplementationTask,
   findLatestDiscussionTask: () => null,
+  findPendingStartedTaskId: () => null,
   useReportTasks,
 }));
 
@@ -54,14 +55,29 @@ vi.mock("@posthog/ui/features/sessions/components/EmbeddedSessionView", () => ({
 
 import { ReportChatSidebar } from "./ReportChatSidebar";
 
-const report = {
+const report: SignalReport = {
   id: "report-1",
   title: "Some report",
+  summary: "A report summary",
   status: "ready",
+  total_weight: 1,
+  signal_count: 1,
+  created_at: "2026-08-26T00:00:00.000Z",
+  updated_at: "2026-08-26T00:00:00.000Z",
+  artefact_count: 1,
   implementation_pr_url: null,
-} as SignalReport;
+};
 
-const task = { id: "task-1" } as Task;
+const task: Task = {
+  id: "task-1",
+  task_number: 1,
+  slug: "task-1",
+  title: "Discuss report",
+  description: "",
+  created_at: "2026-08-26T00:00:00.000Z",
+  updated_at: "2026-08-26T00:00:00.000Z",
+  origin_product: "signals",
+};
 
 const suggestionLabels = [
   "Fix this issue",

@@ -15,6 +15,7 @@ import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useRepo
 import {
   findContinuableImplementationTask,
   findLatestDiscussionTask,
+  findPendingStartedTaskId,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
@@ -54,13 +55,13 @@ export function ReportChatSidebar({ report }: ReportChatSidebarProps) {
   // The durable association arrives via the report's task_run artefacts; a
   // task started seconds ago is bridged by the store until it does. The session
   // bridge wins so a newly started canvas, fix, or discussion takes the dock
-  // over immediately.
+  // over immediately, then expires once the durable association arrives.
   const { data: reportTasks, isLoading: tasksLoading } = useReportTasks(
     report.id,
     report.status,
   );
   const taskId =
-    startedTaskId ??
+    findPendingStartedTaskId(reportTasks, startedTaskId) ??
     findContinuableImplementationTask(reportTasks)?.id ??
     findLatestDiscussionTask(reportTasks)?.id ??
     null;
