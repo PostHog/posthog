@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 from collections.abc import Iterable
 from typing import Any, cast
@@ -74,6 +75,20 @@ class TestAwsSesSource:
     )
     def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    def test_the_caption_and_the_access_denied_message_grant_the_same_iam_actions(self) -> None:
+        # Both surfaces tell the user which IAM actions to grant; if they diverge, the setup
+        # form and the sync error give contradictory instructions.
+        caption = self.source.get_source_config.caption or ""
+        denied_message = next(
+            message for key, message in self.source.get_non_retryable_errors().items() if "AccessDeniedException" in key
+        )
+        assert denied_message is not None
+
+        caption_actions = set(re.findall(r"ses:[A-Za-z0-9]+", caption))
+        message_actions = set(re.findall(r"ses:[A-Za-z0-9]+", denied_message))
+        assert caption_actions == message_actions
+        assert len(caption_actions) >= 16
 
     def test_endpoint_permissions_pass_the_configured_credentials_through(self) -> None:
         with mock.patch.object(source_module, "probe_endpoint_permissions", return_value={"account": None}) as probe:

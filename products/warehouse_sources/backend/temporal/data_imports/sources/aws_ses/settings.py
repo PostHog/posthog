@@ -28,7 +28,7 @@ class AwsSesEndpointConfig:
     # summaries (or bare names), so each item is fetched individually for the full row.
     detail_path: str | None = None
     # Fan-out: key of the item's name in the list response. `None` when list items are plain
-    # name strings (ListConfigurationSets).
+    # name strings (ListConfigurationSets, ListDedicatedIpPools).
     item_name_key: str | None = None
     # Fan-out: column carrying the item name. Set explicitly on every row because detail
     # responses (GetEmailIdentity) do not echo the name back.
@@ -59,6 +59,43 @@ AWS_SES_ENDPOINTS: dict[str, AwsSesEndpointConfig] = {
         name_column="configuration_set_name",
         timestamp_columns=("reputation_options_last_fresh_start",),
     ),
+    "contact_lists": AwsSesEndpointConfig(
+        name="contact_lists",
+        path="/v2/email/contact-lists",
+        primary_key=["contact_list_name"],
+        result_key="ContactLists",
+        page_size=100,
+        detail_path="/v2/email/contact-lists/{name}",
+        item_name_key="ContactListName",
+        name_column="contact_list_name",
+        timestamp_columns=("created_timestamp", "last_updated_timestamp"),
+    ),
+    "custom_verification_email_templates": AwsSesEndpointConfig(
+        name="custom_verification_email_templates",
+        path="/v2/email/custom-verification-email-templates",
+        primary_key=["template_name"],
+        result_key="CustomVerificationEmailTemplates",
+        page_size=100,
+        detail_path="/v2/email/custom-verification-email-templates/{name}",
+        item_name_key="TemplateName",
+        name_column="template_name",
+    ),
+    "dedicated_ip_pools": AwsSesEndpointConfig(
+        name="dedicated_ip_pools",
+        path="/v2/email/dedicated-ip-pools",
+        primary_key=["pool_name"],
+        result_key="DedicatedIpPools",
+        page_size=100,
+        detail_path="/v2/email/dedicated-ip-pools/{name}",
+        name_column="pool_name",
+    ),
+    "dedicated_ips": AwsSesEndpointConfig(
+        name="dedicated_ips",
+        path="/v2/email/dedicated-ips",
+        primary_key=["ip"],
+        result_key="DedicatedIps",
+        page_size=100,
+    ),
     "email_identities": AwsSesEndpointConfig(
         name="email_identities",
         path="/v2/email/identities",
@@ -74,6 +111,27 @@ AWS_SES_ENDPOINTS: dict[str, AwsSesEndpointConfig] = {
             "verification_info_last_success_timestamp",
         ),
         raw_keys=frozenset({"Policies"}),
+    ),
+    "email_templates": AwsSesEndpointConfig(
+        name="email_templates",
+        path="/v2/email/templates",
+        primary_key=["template_name"],
+        result_key="TemplatesMetadata",
+        page_size=100,
+        detail_path="/v2/email/templates/{name}",
+        item_name_key="TemplateName",
+        name_column="template_name",
+        timestamp_columns=("created_timestamp",),
+    ),
+    "multi_region_endpoints": AwsSesEndpointConfig(
+        name="multi_region_endpoints",
+        path="/v2/email/multi-region-endpoints",
+        primary_key=["endpoint_id"],
+        result_key="MultiRegionEndpoints",
+        # ListMultiRegionEndpoints bounds PageSize at 1000 (shape PageSizeV2); the other list
+        # operations take an unbounded MaxItems.
+        page_size=1000,
+        timestamp_columns=("created_timestamp", "last_updated_timestamp"),
     ),
     "suppressed_destinations": AwsSesEndpointConfig(
         name="suppressed_destinations",
@@ -104,6 +162,12 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "account": "Sending status, quota, and reputation enforcement for the connected AWS Region. One row per sync.",
     "configuration_sets": "Configuration sets with their tracking, delivery, reputation, sending, and suppression options.",
+    "contact_lists": "Contact lists that store your contacts, with their topics, description, and timestamps.",
+    "custom_verification_email_templates": "Custom verification email templates, with their sender, subject, content, and redirect URLs.",
+    "dedicated_ip_pools": "Dedicated IP pools in the account, with the scaling mode of each pool.",
+    "dedicated_ips": "Dedicated IP addresses assigned to the account, with their warm-up progress and pool assignment.",
     "email_identities": "Verified email identities (domains and addresses) with DKIM, MAIL FROM, and verification details.",
+    "email_templates": "Email templates stored in SES, with their subject line and HTML and plain-text bodies.",
+    "multi_region_endpoints": "Multi-region endpoints (global endpoints), with their status and the AWS Regions they route sending to.",
     "suppressed_destinations": "Email addresses on the account-level suppression list, with the reason and time they were added.",
 }
