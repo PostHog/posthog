@@ -284,6 +284,7 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS_JOURNEYS: 'customer-analytics-journeys', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_TRACK_RULES: 'customer-analytics-track-rules', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_PROFILE_CONFIG_BUTTON: 'customer-profile-config-button', // owner: @arthurdedeus #team-customer-analytics
+    CUSTOM_FACET_PINNING: 'custom-facet-pinning', // owner: #team-logs — gates pinning custom facets to the logs/tracing facet rails
     DASHBOARD_AI_PROMPT_COMPOSER: 'dashboard-ai-prompt-composer', // owner: @mattp #team-analytics-platform multivariate=control,copy,composer
     DASHBOARD_AUTO_PREVIEW_LIMIT: 'dashboard-auto-preview-limit', // owner: @pauldambra #team-product-analytics
     DASHBOARD_CUSTOMIZATION: 'dashboard-customization', // owner: @MattPua #team-analytics-platform
