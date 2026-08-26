@@ -1,15 +1,15 @@
 import traceback
 from datetime import date, datetime, timedelta
-from typing import Union
 from zoneinfo import ZoneInfo
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
+from posthog.schema import ExperimentQuery
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
+from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS, build_metric
 
 
 class Command(BaseCommand):
@@ -64,15 +64,9 @@ class Command(BaseCommand):
             raise ValueError(f"Metric {metric_uuid} not found in experiment {experiment_id}")
 
         metric_type = metric.get("metric_type")
-        metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-        if metric_type == "mean":
-            metric_obj = ExperimentMeanMetric(**metric)
-        elif metric_type == "funnel":
-            metric_obj = ExperimentFunnelMetric(**metric)
-        elif metric_type == "ratio":
-            metric_obj = ExperimentRatioMetric(**metric)
-        else:
+        if metric_type not in METRIC_BUILDERS:
             raise ValueError(f"Unknown metric type: {metric_type}")
+        metric_obj = build_metric(metric)
 
         # Determine project timezone for display purposes
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")

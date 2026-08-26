@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import close_old_connections
@@ -8,7 +8,7 @@ from django.db.models import Q
 import structlog
 import temporalio.activity
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
+from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -34,6 +34,7 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
 )
+from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS, build_metric
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
@@ -155,14 +156,7 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     metric_type = metric_dict.get("metric_type")
-    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-    if metric_type == "mean":
-        metric_obj = ExperimentMeanMetric(**metric_dict)
-    elif metric_type == "funnel":
-        metric_obj = ExperimentFunnelMetric(**metric_dict)
-    elif metric_type == "ratio":
-        metric_obj = ExperimentRatioMetric(**metric_dict)
-    else:
+    if metric_type not in METRIC_BUILDERS:
         return ExperimentRegularMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -170,6 +164,7 @@ def _calculate_experiment_regular_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
+    metric_obj = build_metric(metric_dict)
 
     if not experiment.start_date:
         return ExperimentRegularMetricResult(
@@ -460,14 +455,7 @@ def _calculate_experiment_saved_metric_sync(
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
-    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-    if metric_type == "mean":
-        metric_obj = ExperimentMeanMetric(**query)
-    elif metric_type == "funnel":
-        metric_obj = ExperimentFunnelMetric(**query)
-    elif metric_type == "ratio":
-        metric_obj = ExperimentRatioMetric(**query)
-    else:
+    if metric_type not in METRIC_BUILDERS:
         return ExperimentSavedMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -475,6 +463,7 @@ def _calculate_experiment_saved_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
+    metric_obj = build_metric(query)
 
     if not experiment.start_date:
         return ExperimentSavedMetricResult(
