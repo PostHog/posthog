@@ -163,6 +163,8 @@ from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 from posthog.week_start_day import WeekStartDay
 
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
+
 # The Django ORM / products models below are imported lazily inside the functions that build a
 # Database (Database._fetch_sources / _build_from_sources / serialize and their helpers) so this
 # module — and the HogQL resolver/printer that import it — load without django.setup(). The
@@ -1239,7 +1241,7 @@ class Database(BaseModel):
             )
             if (
                 dual_source is not None
-                and dual_source.access_method != ExternalDataSource.AccessMethod.DIRECT
+                and dual_source.access_method != ExternalDataSourceAccessMethod.DIRECT
                 and is_direct_capable(dual_source)
             ):
                 latest_completed_job = (
@@ -1489,7 +1491,7 @@ class Database(BaseModel):
                     .first()
                 )
                 if direct_source is not None and (
-                    direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    direct_source.access_method == ExternalDataSourceAccessMethod.DIRECT
                     or is_direct_capable(direct_source)
                 ):
                     if direct_source.has_managed_warehouse_prefix:
@@ -1501,7 +1503,7 @@ class Database(BaseModel):
                         is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
-                    if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+                    if direct_source.access_method != ExternalDataSourceAccessMethod.DIRECT:
                         virtual_source = direct_source
                         # Dual-mode live queries run under warehouse table-level access control. The
                         # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
@@ -1641,7 +1643,7 @@ class Database(BaseModel):
                         tables_query = tables_query.filter(external_data_source_id=connection_id)
                     else:
                         tables_query = tables_query.exclude(
-                            external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+                            external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
                         )
 
                     warehouse_tables = list(tables_query)
@@ -1755,10 +1757,7 @@ class Database(BaseModel):
         # Lazy imports keep the Django ORM / products models off this module's import path.
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.data_warehouse.backend.facade.hogql import get_warehouse_sync_warnings  # noqa: PLC0415
-        from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
-            DataWarehouseTable,
-            ExternalDataSource,
-        )
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType  # noqa: PLC0415
 
         team = sources.team
@@ -1974,7 +1973,7 @@ class Database(BaseModel):
                     if (
                         not database._is_direct_query()
                         and table.external_data_source
-                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                        and table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
                     ):
                         continue
 
@@ -2016,7 +2015,7 @@ class Database(BaseModel):
                                     if database._is_direct_query()
                                     and table.external_data_source
                                     and table.external_data_source.access_method
-                                    == ExternalDataSource.AccessMethod.DIRECT
+                                    == ExternalDataSourceAccessMethod.DIRECT
                                     else "ignore"
                                 )
 
@@ -2038,7 +2037,7 @@ class Database(BaseModel):
                                 joined_table_chain = ".".join(table_chain)
                                 table_for_key.name = joined_table_chain
                                 warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                                if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                if table.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT:
                                     database._direct_access_warehouse_table_names.add(joined_table_chain)
                                 if index == 0:
                                     primary_table = table_for_key
@@ -2407,12 +2406,11 @@ class Database(BaseModel):
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
 
     if source is None:
         return table_name
 
-    if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+    if source.access_method == ExternalDataSourceAccessMethod.DIRECT:
         return table_name
 
     source_type = source.source_type.lower()
@@ -2773,10 +2771,9 @@ def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -
 
 
 def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
 
     source = warehouse_table.external_data_source
-    if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT and direct_query:
+    if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT and direct_query:
         return [warehouse_table.name]
 
     return [get_data_warehouse_table_name(source, warehouse_table.name)]
@@ -2787,10 +2784,9 @@ def _should_include_connection_table(
     *,
     connection_id: str,
 ) -> bool:
-    from products.warehouse_sources.backend.facade.models import ExternalDataSource  # noqa: PLC0415
 
     source = warehouse_table.external_data_source
-    if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+    if source is None or source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return False
 
     if str(warehouse_table.external_data_source_id) != connection_id:
