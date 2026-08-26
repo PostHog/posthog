@@ -81,6 +81,8 @@ One scrape is one credit, so those numbers cap a bill as much as a rate; they ar
 Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
 `FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
 
+Public-web probes (`public_web/`) read small, user-selected public resources such as a homepage, `robots.txt`, or sitemap. Budgets are keyed by the external hostname, with defaults of 30 requests per minute and 300 per hour (`PUBLIC_WEB_EGRESS_PER_MINUTE_BUDGET` and `PUBLIC_WEB_EGRESS_HOURLY_BUDGET`). Calls use a sheddable lane, DNS pinning, redirect revalidation, caller-supplied byte caps, and low-cardinality endpoint labels. Hostnames are deliberately omitted from Prometheus labels.
+
 ### Priority lanes
 
 Priority (`CRITICAL` / `NORMAL` / `BATCH`) controls how sheddable a call is when the budget gets tight.
@@ -138,6 +140,8 @@ Raw `requests` calls against `api.github.com` are blocked by the `github-api-cal
 
 Firecrawl callers go through `firecrawl/client.py` rather than `firecrawl_request` directly: `scrape(url, source=...)` returns a typed `FirecrawlScrape` (markdown, summary, plus the page title, description, status code and credits used) and raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including the 200 responses that carry `success: false`.
 Only `POST /v2/scrape` is wired up, and the client reads `FIRECRAWL_API_KEY` from settings so the transport stays token-agnostic like the others.
+
+Public-web callers use `public_web_get` with a fixed endpoint label and a hard response-size cap. The helper validates and pins the target before connecting and never follows redirects automatically; callers that accept redirects must validate each same-origin hop through the helper again.
 
 Slack Web API calls use `SlackWebClient` (and `SlackAsyncWebClient` where needed) from `slack/` so
 request volume, method, status, source, and workspace are recorded consistently. Slack applies Web API
