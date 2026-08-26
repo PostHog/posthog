@@ -215,7 +215,9 @@ export function InboxOnboardingTakeover(): JSX.Element {
         if (!el) {
             return
         }
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        // Jump instead of animating the scroll when the user asked for reduced motion.
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
         // Restart the pulse on repeat clicks: drop the class, force a reflow, then add it back.
         el.classList.remove('InboxOnboarding__commandPulse')
         void el.offsetWidth

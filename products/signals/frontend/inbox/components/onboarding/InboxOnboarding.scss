@@ -41,7 +41,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+    // No pulse, but keep the ring as a static highlight so the click still has a visible answer.
     .InboxOnboarding__commandPulse {
         animation: none;
+        box-shadow: 0 0 0 4px var(--color-accent);
     }
 }
