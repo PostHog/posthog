@@ -214,6 +214,15 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             if (values.currentProjectId == null || values.warmLease?.key === key) {
                 return
             }
+            // Route on the payload, not on `props.taskId`: the request shape is what each endpoint
+            // accepts, and only a resume request names a source run. The scene composer mounts this logic
+            // under the `/tasks/:taskId` route param, so `props.taskId` can be the `new` sentinel — a
+            // fresh-task body posted to `tasks/new/warm/` is rejected for the missing `resume_from_run_id`
+            // and that composer never warms at all.
+            const resumeRequest = 'resume_from_run_id' in request ? request : null
+            if (resumeRequest && !props.taskId) {
+                return
+            }
             if (cache.warming) {
                 // Only one warm POST runs at a time. A newer selection that arrives mid-flight must not
                 // be dropped, or the completing POST installs a lease on the stale selection and the
@@ -235,11 +244,11 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.pendingWarmRequest = null
             cache.consumedWhileWarming = false
             try {
-                const warm = props.taskId
+                const warm = resumeRequest
                     ? await tasksWarmResumeCreate(
                           String(values.currentProjectId),
-                          props.taskId,
-                          request as WarmTaskResumeRequestApi
+                          props.taskId as string,
+                          resumeRequest
                       )
                     : await tasksWarmCreate(String(values.currentProjectId), request as WarmTaskRequestApi)
                 if (cache.consumedWhileWarming) {
