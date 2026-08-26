@@ -10117,9 +10117,15 @@ export namespace Schemas {
        * * `USR` - user
        * * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
-      /** @nullable */
+      /**
+         * Optional insight ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_item?: number | null;
-      /** @nullable */
+      /**
+         * Optional dashboard ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_id?: number | null;
       /** @nullable */
       readonly dashboard_name: string | null;
@@ -34903,6 +34909,7 @@ export namespace Schemas {
       readonly access_method?: string;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
+      readonly requires_exact_column_metadata?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
       /** @nullable */
@@ -35087,6 +35094,8 @@ export namespace Schemas {
       row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
       /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
+      /** Whether exact source-side column metadata is available for safe source-query projection. */
+      readonly source_column_metadata_available: boolean;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -58290,9 +58299,15 @@ export namespace Schemas {
        * * `USR` - user
        * * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
-      /** @nullable */
+      /**
+         * Optional insight ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_item?: number | null;
-      /** @nullable */
+      /**
+         * Optional dashboard ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_id?: number | null;
       /** @nullable */
       readonly dashboard_name?: string | null;
@@ -60485,6 +60500,7 @@ export namespace Schemas {
       readonly access_method?: string;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
+      readonly requires_exact_column_metadata?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
       /** @nullable */
@@ -60587,6 +60603,8 @@ export namespace Schemas {
       row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
       /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
+      /** Whether exact source-side column metadata is available for safe source-query projection. */
+      readonly source_column_metadata_available?: boolean;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
