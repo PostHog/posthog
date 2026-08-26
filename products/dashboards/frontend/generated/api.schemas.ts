@@ -5795,6 +5795,13 @@ export interface PersonsNodeApi {
     version?: number | null
 }
 
+export type ActorsQuerySearchModeApi = (typeof ActorsQuerySearchModeApi)[keyof typeof ActorsQuerySearchModeApi]
+
+export const ActorsQuerySearchModeApi = {
+    Contains: 'contains',
+    IdPrefix: 'id_prefix',
+} as const
+
 export interface FunnelsActorsQueryApi {
     /** When the source funnel has compare-to-previous enabled, scopes the actors to a single period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset) uses the source's own date range. */
     compare?: CompareApi | null
@@ -6555,6 +6562,8 @@ export interface ActorsQueryApi {
         | null
     response?: ActorsQueryResponseApi | null
     search?: string | null
+    /** How `search` matches. Only persons honor this; groups and sessions always match anywhere. */
+    searchMode?: ActorsQuerySearchModeApi | null
     select?: string[] | null
     source?:
         | InsightActorsQueryApi

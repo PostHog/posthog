@@ -87,6 +87,7 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                search_mode: params.search_mode,
             },
         })
         const filtered = {

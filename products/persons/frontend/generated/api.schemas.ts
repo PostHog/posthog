@@ -435,6 +435,10 @@ export type PersonsListParams = {
      * Search persons, either by email (full text search) or distinct_id (exact match).
      */
     search?: string
+    /**
+     * How `search` matches. `contains` (the default) matches the term anywhere. `id_prefix` needs distinct IDs and person UUIDs to match from the start, which is much faster on large projects; email and name still match anywhere.
+     */
+    search_mode?: PersonsListSearchMode
 }
 
 export type PersonsListFormat = (typeof PersonsListFormat)[keyof typeof PersonsListFormat]
@@ -442,6 +446,13 @@ export type PersonsListFormat = (typeof PersonsListFormat)[keyof typeof PersonsL
 export const PersonsListFormat = {
     Csv: 'csv',
     Json: 'json',
+} as const
+
+export type PersonsListSearchMode = (typeof PersonsListSearchMode)[keyof typeof PersonsListSearchMode]
+
+export const PersonsListSearchMode = {
+    Contains: 'contains',
+    IdPrefix: 'id_prefix',
 } as const
 
 export type PersonsRetrieveParams = {

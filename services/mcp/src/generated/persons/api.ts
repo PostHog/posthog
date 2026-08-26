@@ -143,6 +143,12 @@ export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Search persons, either by email (full text search) or distinct_id (exact match).'),
+    search_mode: zod
+        .enum(['contains', 'id_prefix'])
+        .optional()
+        .describe(
+            'How `search` matches. `contains` (the default) matches the term anywhere. `id_prefix` needs distinct IDs and person UUIDs to match from the start, which is much faster on large projects; email and name still match anywhere.'
+        ),
 })
 
 /**
