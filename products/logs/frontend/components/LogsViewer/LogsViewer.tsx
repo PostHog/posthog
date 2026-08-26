@@ -120,9 +120,8 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
-        useValues(logsViewerConfigLogic)
-    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
+    const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
+    const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
         parsedLogs,
@@ -309,8 +308,6 @@ function LogsViewerContent({
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
-                breakdownBy={sparklineBreakdownBy}
-                onBreakdownByChange={setSparklineBreakdownBy}
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}

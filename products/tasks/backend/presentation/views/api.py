@@ -85,7 +85,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_resume_gap,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
+from products.tasks.backend.facade.run_config import WARMABLE_ORIGIN_PRODUCTS, TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
@@ -181,6 +181,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
+    WarmTaskResumeRequestSerializer,
+    WarmTaskResumeResponseSerializer,
     WizardCloudRunSerializer,
 )
 
@@ -219,6 +221,19 @@ def _pi_cloud_runtime_disabled_response() -> Response:
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
+
+# One rollout per origin product — the Code app and PostHog AI reach different populations, so a shared
+# flag would drag one to 100% while rolling out the other.
+WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
+    tasks_facade.TaskOriginProduct.USER_CREATED: TASKS_PREWARM_SANDBOX_FLAG,
+}
+
+# Origins that warm for every user, with no flag left to evaluate.
+WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        tasks_facade.TaskOriginProduct.POSTHOG_AI,
+    }
+)
 
 # Detail-route lookup pattern for viewsets keyed on a UUID primary key. Keeps the router from
 # matching an unknown collection path as a pk and passing a non-UUID string to the ORM.
@@ -551,6 +566,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=TaskCreateSerializer,
         responses={
             201: TaskSerializer,
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access is required for a create that can activate a warm sandbox",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -558,10 +577,31 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "task limit (code `signal_report_task_cap`), or the per-user creation rate limit fired"
                 ),
             ),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="PostHog Desktop access could not be verified",
+            ),
         },
     )
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
+
+        # A create that carries warm-reuse hints can activate an idling sandbox in place, which starts
+        # the agent without the client ever calling the run endpoint — so the gates that endpoint puts
+        # in front of a cloud run have to be applied here too. Without this, a warm booted while the
+        # caller was entitled still runs after Desktop access or the usage limit turns against them.
+        # Scoped to warmable origins, which is what a warm can ever be reused for; the code-access
+        # exempt Inbox shapes are not among them, matching how the warm endpoint gates.
+        # `origin_product` is optional on the wire; `create_task` defaults it the same way.
+        if (
+            "branch" in serializer.validated_data
+            and serializer.validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
+            in WARMABLE_ORIGIN_PRODUCTS
+        ):
+            if access_response := code_access_required_response(request, self.organization):
+                return access_response
+            if limit_response := usage_limit_response(request.user, self.team_id):
+                return limit_response
 
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")
@@ -1052,15 +1092,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._task_error_response(result.error)
         return Response(TaskSerializer(result.task).data)
 
-    def _warm_enabled(self) -> bool:
-        """Person + org level gate for the sandbox-warming feature. Fail-closed on any error."""
+    def _warm_enabled(self, origin_product: str) -> bool:
+        """Person + org level gate for the sandbox-warming feature. Fail-closed on any error.
+
+        An origin in neither the ungated set nor the flag map cannot warm, which keeps the endpoint
+        fail-closed for products that never opted in.
+        """
+        if origin_product in WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS:
+            return True
+        flag = WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT.get(origin_product)
+        if flag is None:
+            return False
         user = self.request.user
         distinct_id = getattr(user, "distinct_id", None) or str(getattr(user, "uuid", ""))
         organization_id = str(getattr(self.team, "organization_id", "") or "")
         try:
             return bool(
                 posthoganalytics.feature_enabled(
-                    TASKS_PREWARM_SANDBOX_FLAG,
+                    flag,
                     distinct_id,
                     groups={"organization": organization_id},
                     group_properties={"organization": {"id": organization_id}},
@@ -1069,7 +1118,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             )
         except Exception:
-            logger.exception("tasks-prewarm-sandbox flag check failed; treating as disabled")
+            logger.exception("%s flag check failed; treating as disabled", flag)
             return False
 
     @validated_request(
@@ -1092,7 +1141,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Warm a task sandbox",
         description=(
-            "Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, "
+            "Warm a full idling Run for a cloud task while the user composes: boot a sandbox, "
             "clone the repo, check out the branch, and start the agent, then idle awaiting the first "
             "message. On submit the normal create+run path transparently reuses and activates this Run; "
             "abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty "
@@ -1103,10 +1152,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["post"], url_path="warm", required_scopes=["task:write"])
     def warm(self, request, **kwargs):
-        if not self._warm_enabled():
+        origin_product = request.validated_data["origin_product"]
+        if not self._warm_enabled(origin_product):
             return Response(status=status.HTTP_200_OK)
 
-        # Warming is a Desktop-composer feature with no Inbox caller, so no exemption applies.
+        # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
+        # `task_exempt_from_code_access`, only the Inbox shapes are — so warming applies it flat. A
+        # caller who can't run the task must not be able to provision a sandbox for it either.
         if access_response := code_access_required_response(request, self.organization):
             return access_response
 
@@ -1136,10 +1188,67 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
             client_provenance=get_task_client_provenance(request),
+            origin_product=request.validated_data["origin_product"],
+            initial_permission_mode=request.validated_data.get("initial_permission_mode"),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
         return Response(WarmTaskResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
+
+    @extend_schema(operation_id="tasks_warm_resume_create")
+    @validated_request(
+        request_serializer=WarmTaskResumeRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=WarmTaskResumeResponseSerializer,
+                description="Successor Run provisioned, or an empty body when warming is unavailable or the source run changed.",
+            ),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="PostHog Desktop access is required"
+            ),
+            404: OpenApiResponse(description="Task not found"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
+        },
+        summary="Warm a resumed task sandbox",
+        description=(
+            "Warm an idling successor for the task's latest terminal Run while the user composes the next "
+            "message. The successor restores the prior snapshot when compatible and waits for the normal "
+            "run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, "
+            "or the task advanced to another Run."
+        ),
+        include_serializer_context=True,
+    )
+    @action(detail=True, methods=["post"], url_path="warm", url_name="warm-resume", required_scopes=["task:write"])
+    def warm_resume(self, request, pk=None, **kwargs):
+        gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
+        if gate is None:
+            raise NotFound()
+        if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(gate.origin_product):
+            return Response(status=status.HTTP_200_OK)
+        if access_response := code_access_required_response(request, self.organization, task_id=pk):
+            return access_response
+
+        user_id = self._user_id()
+        if user_id is None:
+            return Response(status=status.HTTP_200_OK)
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
+
+        result = tasks_facade.warm_task_resume_sandbox(
+            pk,
+            self.team_id,
+            user_id,
+            resume_from_run_id=request.validated_data["resume_from_run_id"],
+            runtime_adapter=request.validated_data.get("runtime_adapter"),
+            model=request.validated_data.get("model"),
+            reasoning_effort=request.validated_data.get("reasoning_effort"),
+            initial_permission_mode=request.validated_data.get("initial_permission_mode"),
+        )
+        if result is None:
+            return Response(status=status.HTTP_200_OK)
+        return Response(WarmTaskResumeResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
 
     @staticmethod
     def _task_error_response(error: tasks_contracts.TaskValidationError) -> Response:
@@ -1487,7 +1596,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=TaskRunCancelRequestSerializer,
         responses={
             200: OpenApiResponse(
-                response=TaskRunDetailSerializer, description="Run already finished; returned unchanged"
+                response=TaskRunDetailSerializer,
+                description=(
+                    "Run already finished, or `only_if_awaiting_first_message` was set and the run has "
+                    "since received its first message; returned unchanged"
+                ),
             ),
             202: OpenApiResponse(response=TaskRunDetailSerializer, description="Cancellation accepted"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Run is not a cloud run"),
@@ -1514,10 +1627,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source="api",
             requested_by_user_id=request.user.id,
             requested_by_distinct_id=request.user.distinct_id,
+            only_if_awaiting_first_message=request.validated_data.get("only_if_awaiting_first_message", False),
         )
         if outcome == "not_found" or run is None:
             raise NotFound()
-        if outcome == "already_terminal":
+        if outcome in ("already_terminal", "already_activated"):
             return Response(TaskRunDetailSerializer(run).data)
         if outcome == "not_cloud":
             return Response(
@@ -2967,6 +3081,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(
                 TaskRunErrorResponseSerializer(
                     {"error": "This run belongs to a previous task owner. Start a new run instead."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "invalid_origin":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "type": "validation_error",
+                        "code": "invalid_input",
+                        "detail": "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                        "attr": "origin_product",
+                    }
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
