@@ -56,6 +56,12 @@ const AI_BYTES_REDIS_KEY_PREFIX: &str = "@ph/grl/capture/ai_bytes";
 /// Named fields rather than positional arguments: several are same-typed (two
 /// `&str`, two `bool`) and a swap would silently misconfigure a limiter.
 struct LimiterSpec<'a> {
+    /// Sliding window this limiter counts over. Sets Redis epoch numbering, so
+    /// limiters that share a key prefix must agree on it.
+    window_secs: u64,
+    /// Env var that supplied `window_secs`, so a zero window names the knob the
+    /// operator has to fix rather than the limiter that noticed.
+    window_env_var: &'a str,
     /// Default budget per window for keys with no custom override.
     threshold: u64,
     /// Static `key=value` CSV seeding the custom-key map.
@@ -98,6 +104,8 @@ impl GlobalRateLimiter {
             config,
             redis_instances,
             LimiterSpec {
+                window_secs: config.global_rate_limit_window_interval_secs,
+                window_env_var: "GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS",
                 threshold: config.global_rate_limit_token_distinctid_threshold,
                 custom_keys_csv: config
                     .global_rate_limit_token_distinctid_overrides_csv
@@ -126,6 +134,8 @@ impl GlobalRateLimiter {
             config,
             redis_instances,
             LimiterSpec {
+                window_secs: config.global_rate_limit_window_interval_secs,
+                window_env_var: "GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS",
                 threshold: config.global_rate_limit_token_threshold,
                 custom_keys_csv: config.global_rate_limit_token_overrides_csv.as_ref(),
                 custom_key_scale: 1,
@@ -158,12 +168,20 @@ impl GlobalRateLimiter {
     ) -> anyhow::Result<Self> {
         // `build` refuses to boot on a zero window, so this scaling never
         // divides a budget down to nothing.
-        let window_secs = config.global_rate_limit_window_interval_secs;
+        let (window_secs, window_env_var) = match config.ai_byte_limit_window_interval_secs {
+            Some(secs) => (secs, "AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS"),
+            None => (
+                config.global_rate_limit_window_interval_secs,
+                "GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS",
+            ),
+        };
         let metrics_scope = format!("{}_ai_bytes", config.capture_mode.as_tag());
         Self::build(
             config,
             redis_instances,
             LimiterSpec {
+                window_secs,
+                window_env_var,
                 threshold: config.ai_byte_limit_per_second.saturating_mul(window_secs),
                 custom_keys_csv: config.ai_byte_limit_overrides_csv.as_ref(),
                 custom_key_scale: window_secs,
@@ -212,10 +230,12 @@ impl GlobalRateLimiter {
         // gives every bucket an infinite leak rate and the limiter admits
         // everything. That is the opposite of what an operator setting a limit
         // asked for, and it fails silently, so refuse to boot on it.
-        if config.global_rate_limit_window_interval_secs == 0 {
+        if spec.window_secs == 0 {
             anyhow::bail!(
-                "invalid configuration: GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS must be greater than 0; \
-                 a zero window gives every key an infinite leak rate, so no limit is ever enforced"
+                "invalid configuration: {} must be greater than 0 (limiter {}); \
+                 a zero window gives every key an infinite leak rate, so no limit is ever enforced",
+                spec.window_env_var,
+                spec.metrics_scope
             );
         }
 
@@ -266,7 +286,7 @@ impl GlobalRateLimiter {
 
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: spec.threshold,
-            window_interval: Duration::from_secs(config.global_rate_limit_window_interval_secs),
+            window_interval: Duration::from_secs(spec.window_secs),
             sync_interval: Duration::from_secs(config.global_rate_limit_sync_interval_secs),
             tick_interval: Duration::from_millis(config.global_rate_limit_tick_interval_ms),
             redis_key_prefix: spec.redis_key_prefix.to_string(),
