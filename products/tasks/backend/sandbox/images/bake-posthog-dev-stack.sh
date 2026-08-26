@@ -58,6 +58,9 @@ RUSTUP_VERSION=1.29.0
 RUSTUP_SHA256_AMD64=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
 RUSTUP_SHA256_ARM64=9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792
 RUST_TOOLCHAIN=1.91.1
+PROTOC_VERSION=28.3
+PROTOC_SHA256_AMD64=0ad949f04a6a174da83cdcbdb36dee0a4925272a5b6d83f79a6bf9852076d53f
+PROTOC_SHA256_ARM64=1de522032a8b194002fe35cab86d747848238b5e4de4f99648372079f5b46f9a
 SQLX_CLI_VERSION=0.8.3
 
 export RUSTUP_HOME=/opt/rust/rustup
@@ -98,7 +101,7 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # process-manager resolution (phrocs), and the Go/Rust procs and rust/bin migrators
 # need their toolchains.
 apt-get update
-apt-get install -y --no-install-recommends brotli make protobuf-compiler
+apt-get install -y --no-install-recommends brotli make unzip
 rm -rf /var/lib/apt/lists/*
 
 case "$(uname -m)" in
@@ -107,12 +110,16 @@ case "$(uname -m)" in
         GO_SHA256="$GO_SHA256_AMD64"
         RUSTUP_TARGET=x86_64-unknown-linux-gnu
         RUSTUP_SHA256="$RUSTUP_SHA256_AMD64"
+        PROTOC_ARCH=x86_64
+        PROTOC_SHA256="$PROTOC_SHA256_AMD64"
         ;;
     aarch64)
         GO_ARCH=arm64
         GO_SHA256="$GO_SHA256_ARM64"
         RUSTUP_TARGET=aarch64-unknown-linux-gnu
         RUSTUP_SHA256="$RUSTUP_SHA256_ARM64"
+        PROTOC_ARCH=aarch_64
+        PROTOC_SHA256="$PROTOC_SHA256_ARM64"
         ;;
     *)
         echo "unsupported architecture: $(uname -m)" >&2
@@ -156,6 +163,13 @@ for tool in cargo rustc rustup rustfmt cargo-fmt cargo-clippy clippy-driver; do
         "exec /opt/rust/cargo/bin/$tool \"\$@\"" > "/usr/local/bin/$tool"
     chmod +x "/usr/local/bin/$tool"
 done
+
+log "installing protoc ${PROTOC_VERSION} (same pin as .github/actions/setup-protoc)"
+curl -fsSL -o /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip"
+echo "${PROTOC_SHA256}  /tmp/protoc.zip" | sha256sum -c -
+unzip -oq /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+rm /tmp/protoc.zip
+protoc --version
 
 log "installing sqlx-cli (rust/bin migrators)"
 cargo install sqlx-cli --version "$SQLX_CLI_VERSION" --locked --no-default-features --features native-tls,postgres
