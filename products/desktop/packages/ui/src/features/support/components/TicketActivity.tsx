@@ -3,9 +3,9 @@ import {
   summarizeActivity,
 } from "@posthog/core/support/activitySummary";
 import { Button, Text } from "@posthog/quill";
-import { formatRelativeTimeShort } from "@posthog/shared";
 import { Section } from "@posthog/ui/features/support/components/TicketRailSection";
 import { useSupportTicketActivity } from "@posthog/ui/features/support/hooks/useSupportTicketActivity";
+import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { useState } from "react";
 
 const COLLAPSED_COUNT = 5;
@@ -41,9 +41,10 @@ export function TicketActivity({ ticketId }: { ticketId: string }) {
                 {summarizeActivity(entry)}
               </span>
             </Text>
-            <Text className="shrink-0 text-[10px] text-gray-11 tabular-nums">
-              {formatRelativeTimeShort(entry.created_at)}
-            </Text>
+            <RelativeTimestamp
+              timestamp={entry.created_at}
+              className="text-[10px] text-gray-11 tabular-nums"
+            />
           </div>
         ))}
         {hidden > 0 && (

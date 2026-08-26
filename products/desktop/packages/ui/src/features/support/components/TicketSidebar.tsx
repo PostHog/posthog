@@ -1,9 +1,15 @@
+import { type Icon, InfoIcon, RobotIcon } from "@phosphor-icons/react";
 import type {
   SupportTicket,
   SupportTicketMessage,
 } from "@posthog/api-client/posthog-client";
 import { readTicketTaskId } from "@posthog/core/support/ticketTaskLink";
-import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
+import {
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { TicketAgentPanel } from "@posthog/ui/features/support/components/TicketAgentPanel";
 import { TicketInfoPanel } from "@posthog/ui/features/support/components/TicketInfoPanel";
 import {
@@ -11,6 +17,13 @@ import {
   useSupportQueueStore,
 } from "@posthog/ui/features/support/supportQueueStore";
 import { useEffect } from "react";
+
+const SIDEBAR_TABS: Record<SupportSidebarTab, { label: string; Icon: Icon }> = {
+  ticket: { label: "Ticket", Icon: InfoIcon },
+  agent: { label: "AI chat", Icon: RobotIcon },
+};
+
+const SIDEBAR_TAB_ORDER: readonly SupportSidebarTab[] = ["ticket", "agent"];
 
 export function TicketSidebar({
   ticket,
@@ -31,22 +44,19 @@ export function TicketSidebar({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Tabs
-        value={tab}
-        onValueChange={(value) => setSidebarTab(value as SupportSidebarTab)}
-      >
-        <TabsList
-          variant="line"
-          className="h-[32px] shrink-0 gap-1 border-b border-b-(--gray-6) p-0 px-2"
-        >
-          <TabsTrigger value="ticket" className="px-2.5">
-            Ticket
-          </TabsTrigger>
-          <TabsTrigger value="agent" className="px-2.5">
-            AI chat
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="flex h-[32px] shrink-0 items-center gap-0.5 border-border border-b pr-2 pl-3">
+        <span className="min-w-0 flex-1 truncate font-medium text-[13px]">
+          {SIDEBAR_TABS[tab].label}
+        </span>
+        {SIDEBAR_TAB_ORDER.map((side) => (
+          <SidebarTabButton
+            key={side}
+            side={side}
+            active={tab}
+            onSelect={setSidebarTab}
+          />
+        ))}
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" hidden={tab !== "ticket"}>
         <TicketInfoPanel ticket={ticket} />
@@ -55,5 +65,36 @@ export function TicketSidebar({
         <TicketAgentPanel ticket={ticket} messages={messages} />
       </div>
     </div>
+  );
+}
+
+function SidebarTabButton({
+  side,
+  active,
+  onSelect,
+}: {
+  side: SupportSidebarTab;
+  active: SupportSidebarTab;
+  onSelect: (tab: SupportSidebarTab) => void;
+}) {
+  const { label, Icon } = SIDEBAR_TABS[side];
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={label}
+            data-selected={active === side || undefined}
+            onClick={() => onSelect(side)}
+            className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+          >
+            <Icon size={16} />
+          </Button>
+        }
+      />
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   );
 }

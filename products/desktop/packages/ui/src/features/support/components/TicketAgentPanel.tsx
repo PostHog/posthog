@@ -1,4 +1,4 @@
-import { RobotIcon, SpinnerGapIcon } from "@phosphor-icons/react";
+import { RobotIcon } from "@phosphor-icons/react";
 import type {
   SupportTicket,
   SupportTicketMessage,
@@ -13,6 +13,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Spinner,
   Text,
 } from "@posthog/quill";
 import {
@@ -107,7 +108,7 @@ function TicketAgentSession({
   if (!task) {
     return (
       <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
+        <Spinner className="size-4 text-gray-9" />
       </div>
     );
   }

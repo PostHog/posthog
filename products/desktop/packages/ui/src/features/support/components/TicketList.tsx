@@ -1,8 +1,4 @@
-import {
-  CaretDownIcon,
-  MagnifyingGlassIcon,
-  SpinnerGapIcon,
-} from "@phosphor-icons/react";
+import { CaretDownIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import type {
   SupportAssigneeFilter,
   SupportTicket,
@@ -28,19 +24,28 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
+  MenuLabel,
+  Spinner,
   Text,
 } from "@posthog/quill";
 import { TicketRow } from "@posthog/ui/features/support/components/TicketRow";
 import { useSupportTicketsInfinite } from "@posthog/ui/features/support/hooks/useSupportTickets";
 import { useSupportTicketViews } from "@posthog/ui/features/support/hooks/useSupportTicketViews";
 import {
+  sortedPinnedTicketIds,
+  usePinnedTicketsStore,
+} from "@posthog/ui/features/support/pinnedTicketsStore";
+import { supportTicketQuery } from "@posthog/ui/features/support/supportQueries";
+import {
   QUEUE_STATUSES,
   type SupportAssigneeScope,
   useSupportQueueStore,
 } from "@posthog/ui/features/support/supportQueueStore";
 import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
+import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { navigateToSupportTicket } from "@posthog/ui/router/navigationBridge";
-import { useMemo } from "react";
+import { useQueries } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 
 const SCOPE_LABELS: Record<SupportAssigneeScope, string> = {
   me: "My tickets",
@@ -92,6 +97,38 @@ export function TicketList({ activeTicketId }: { activeTicketId?: string }) {
     isFetchingNextPage,
     fetchNextPage,
   } = useSupportTicketsInfinite(listOptions);
+
+  const pinnedAtById = usePinnedTicketsStore((state) => state.pinnedAtById);
+  const pinnedIds = useMemo(
+    () => sortedPinnedTicketIds(pinnedAtById),
+    [pinnedAtById],
+  );
+  const showPinnedSection =
+    assigneeScope === "me" &&
+    viewShortId === null &&
+    debouncedSearch.trim() === "" &&
+    pinnedIds.length > 0;
+  const pinnedQueries = useQueries({
+    queries: pinnedIds.map((id) => ({
+      ...supportTicketQuery(id),
+      enabled: showPinnedSection,
+    })),
+  });
+  const pinnedTickets = showPinnedSection
+    ? pinnedQueries
+        .map((query) => query.data)
+        .filter((ticket): ticket is SupportTicket => ticket !== undefined)
+    : [];
+  const unpinnedTickets = showPinnedSection
+    ? tickets.filter((ticket) => pinnedAtById[ticket.id] === undefined)
+    : tickets;
+
+  const [loadMoreRef, loadMoreInView] = useInView();
+  useEffect(() => {
+    if (loadMoreInView && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage({ cancelRefetch: false });
+    }
+  }, [loadMoreInView, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const activeView = views?.find((view) => view.short_id === viewShortId);
 
@@ -188,7 +225,7 @@ export function TicketList({ activeTicketId }: { activeTicketId?: string }) {
       <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
         {isPending && (
           <div className="flex justify-center p-4">
-            <SpinnerGapIcon size={16} className="animate-spin text-gray-9" />
+            <Spinner className="size-4 text-gray-9" />
           </div>
         )}
 
@@ -199,32 +236,44 @@ export function TicketList({ activeTicketId }: { activeTicketId?: string }) {
           </Text>
         )}
 
-        {!isPending && !isError && tickets.length === 0 && (
-          <Empty className="p-4">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <MagnifyingGlassIcon size={18} />
-              </EmptyMedia>
-              <EmptyTitle>No tickets here</EmptyTitle>
-              <EmptyDescription>
-                Nothing matches this queue right now.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+        {!isPending &&
+          !isError &&
+          tickets.length === 0 &&
+          pinnedTickets.length === 0 && (
+            <Empty className="p-4">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <MagnifyingGlassIcon size={18} />
+                </EmptyMedia>
+                <EmptyTitle>No tickets here</EmptyTitle>
+                <EmptyDescription>
+                  Nothing matches this queue right now.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+
+        {showPinnedSection && pinnedTickets.length > 0 && (
+          <>
+            <MenuLabel className="flex items-center py-0">Pinned</MenuLabel>
+            <TicketRows
+              tickets={pinnedTickets}
+              activeTicketId={activeTicketId}
+              pinnedAtById={pinnedAtById}
+            />
+            <div className="my-1 border-border border-b" />
+          </>
         )}
 
-        <TicketRows tickets={tickets} activeTicketId={activeTicketId} />
+        <TicketRows
+          tickets={unpinnedTickets}
+          activeTicketId={activeTicketId}
+          pinnedAtById={pinnedAtById}
+        />
 
         {hasNextPage && (
-          <div className="flex justify-center py-2">
-            <Button
-              variant="outline"
-              size="sm"
-              loading={isFetchingNextPage}
-              onClick={() => void fetchNextPage({ cancelRefetch: false })}
-            >
-              Load more
-            </Button>
+          <div ref={loadMoreRef} className="flex justify-center py-2">
+            {isFetchingNextPage && <Spinner className="size-4 text-gray-9" />}
           </div>
         )}
       </div>
@@ -235,9 +284,11 @@ export function TicketList({ activeTicketId }: { activeTicketId?: string }) {
 function TicketRows({
   tickets,
   activeTicketId,
+  pinnedAtById,
 }: {
   tickets: SupportTicket[];
   activeTicketId?: string;
+  pinnedAtById: Record<string, number>;
 }) {
   const now = Date.now();
 
@@ -249,6 +300,7 @@ function TicketRows({
           ticket={ticket}
           now={now}
           isActive={ticket.id === activeTicketId}
+          isPinned={pinnedAtById[ticket.id] !== undefined}
           onSelect={() => navigateToSupportTicket(ticket.id)}
         />
       ))}

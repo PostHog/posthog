@@ -5,6 +5,7 @@ import {
   ClockIcon,
   LifebuoyIcon,
   NotePencilIcon,
+  PushPinIcon,
   RobotIcon,
   UserIcon,
   WarningCircleIcon,
@@ -18,6 +19,7 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUpdateSupportTicket";
+import { usePinnedTicketsStore } from "@posthog/ui/features/support/pinnedTicketsStore";
 import { getCachedSupportTicket } from "@posthog/ui/features/support/supportQueries";
 import {
   type SupportAssigneeScope,
@@ -66,6 +68,9 @@ export function useSupportCommands(closeSettingsDialog: () => void) {
 
   const ticketId = view.type === "support" ? view.ticketId : undefined;
   const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const ticketPinned = usePinnedTicketsStore((state) =>
+    ticketId === undefined ? false : state.pinnedAtById[ticketId] !== undefined,
+  );
 
   return useMemo<SupportCommand[]>(() => {
     if (!supportEnabled) {
@@ -151,6 +156,15 @@ export function useSupportCommands(closeSettingsDialog: () => void) {
       });
     }
 
+    commands.push({
+      id: "support-pin",
+      label: ticketPinned ? "Unpin ticket" : "Pin ticket to My tickets",
+      keywords: "ticket pin unpin favorite keep",
+      icon: <PushPinIcon size={12} className="text-gray-11" />,
+      action: "support-pin-ticket",
+      onRun: () => usePinnedTicketsStore.getState().togglePinned(ticketId),
+    });
+
     const cachedTicket = getCachedSupportTicket(ticketId);
     if (cachedTicket && isTicketSnoozed(cachedTicket, Date.now())) {
       commands.push({
@@ -233,6 +247,7 @@ export function useSupportCommands(closeSettingsDialog: () => void) {
   }, [
     supportEnabled,
     ticketId,
+    ticketPinned,
     currentUserId,
     projectId,
     updateTicket,

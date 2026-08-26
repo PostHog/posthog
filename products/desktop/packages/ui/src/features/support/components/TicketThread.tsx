@@ -22,9 +22,9 @@ import {
   EmptyTitle,
   Text,
 } from "@posthog/quill";
-import { formatRelativeTimeShort } from "@posthog/shared";
 import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { messageAuthorLabel } from "@posthog/ui/features/support/ticketPresentation";
+import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 
 export function TicketThread({
   messages,
@@ -84,9 +84,10 @@ function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
               AI
             </Badge>
           )}
-          <Text className="shrink-0 text-[11px] text-gray-11 tabular-nums">
-            {formatRelativeTimeShort(message.created_at)}
-          </Text>
+          <RelativeTimestamp
+            timestamp={message.created_at}
+            className="text-gray-11 tabular-nums"
+          />
         </ChatMessageHeader>
 
         <ChatBubble

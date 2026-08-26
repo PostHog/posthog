@@ -1,21 +1,27 @@
-import { SpinnerGapIcon, TicketIcon } from "@phosphor-icons/react";
+import { PushPinIcon, TicketIcon } from "@phosphor-icons/react";
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
 import { ticketSlaState } from "@posthog/core/support/ticketState";
 import {
   Badge,
+  Button,
   cn,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Spinner,
   Text,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { PanelResizeHandle } from "@posthog/ui/features/panels/components/PanelResizeHandle";
 import { TicketComposer } from "@posthog/ui/features/support/components/TicketComposer";
 import { TicketSidebar } from "@posthog/ui/features/support/components/TicketSidebar";
 import { TicketThread } from "@posthog/ui/features/support/components/TicketThread";
 import { useSupportTicketMessages } from "@posthog/ui/features/support/hooks/useSupportTicketMessages";
+import { usePinnedTicketsStore } from "@posthog/ui/features/support/pinnedTicketsStore";
 import { supportKeys } from "@posthog/ui/features/support/supportKeys";
 import {
   isTicketNotFoundError,
@@ -31,6 +37,7 @@ import {
   ticketRequesterName,
   ticketStatusLabel,
 } from "@posthog/ui/features/support/ticketPresentation";
+import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -73,7 +80,7 @@ export function TicketDetailView({
   if (isPending && !ticket) {
     return (
       <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
+        <Spinner className="size-4 text-gray-9" />
       </div>
     );
   }
@@ -101,42 +108,48 @@ export function TicketDetailView({
   }
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TicketHeader ticket={ticket} />
-        <PanelGroup
-          direction="vertical"
-          autoSaveId="support-ticket-thread"
-          className="min-h-0 flex-1"
+    <div className="flex h-full min-h-0 flex-col">
+      <TicketHeader ticket={ticket} />
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex h-[32px] shrink-0 items-center gap-1.5 border-border border-b px-3">
+            <Text className="font-medium text-[13px]">Conversation</Text>
+            <CountBadge count={messages.length} tone="neutral" />
+          </div>
+          <PanelGroup
+            direction="vertical"
+            autoSaveId="support-ticket-thread"
+            className="min-h-0 flex-1"
+          >
+            <Panel
+              defaultSize={65}
+              minSize={25}
+              className="flex min-h-0 flex-col"
+            >
+              <TicketThread messages={messages} />
+            </Panel>
+            <PanelResizeHandle className="h-px bg-(--gray-5) transition-colors hover:bg-(--gray-7) data-[resize-handle-state=drag]:bg-(--accent-9)" />
+            <Panel
+              defaultSize={35}
+              minSize={15}
+              className="flex min-h-0 flex-col"
+            >
+              <TicketComposer key={ticket.id} ticket={ticket} />
+            </Panel>
+          </PanelGroup>
+        </div>
+        <ResizableSidebar
+          open
+          width={sidebarWidth}
+          setWidth={setSidebarWidth}
+          isResizing={isResizing}
+          setIsResizing={setIsResizing}
+          minWidth={TICKET_SIDEBAR_MIN_WIDTH}
+          side="right"
         >
-          <Panel
-            defaultSize={65}
-            minSize={25}
-            className="flex min-h-0 flex-col"
-          >
-            <TicketThread messages={messages} />
-          </Panel>
-          <PanelResizeHandle className="h-px bg-(--gray-5) transition-colors hover:bg-(--gray-7) data-[resize-handle-state=drag]:bg-(--accent-9)" />
-          <Panel
-            defaultSize={35}
-            minSize={15}
-            className="flex min-h-0 flex-col"
-          >
-            <TicketComposer key={ticket.id} ticket={ticket} />
-          </Panel>
-        </PanelGroup>
+          <TicketSidebar key={ticket.id} ticket={ticket} messages={messages} />
+        </ResizableSidebar>
       </div>
-      <ResizableSidebar
-        open
-        width={sidebarWidth}
-        setWidth={setSidebarWidth}
-        isResizing={isResizing}
-        setIsResizing={setIsResizing}
-        minWidth={TICKET_SIDEBAR_MIN_WIDTH}
-        side="right"
-      >
-        <TicketSidebar key={ticket.id} ticket={ticket} messages={messages} />
-      </ResizableSidebar>
     </div>
   );
 }
@@ -145,19 +158,43 @@ function TicketHeader({ ticket }: { ticket: SupportTicket }) {
   const now = Date.now();
   const sla = ticketSlaState(ticket, now);
   const countdown = formatSlaCountdown(ticket.sla_due_at, now);
+  const pinned = usePinnedTicketsStore(
+    (state) => state.pinnedAtById[ticket.id] !== undefined,
+  );
+  const { togglePinned } = usePinnedTicketsStore.getState();
 
   return (
-    <div className="flex shrink-0 items-start gap-3 border-border border-b px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <Text className="block truncate font-semibold text-[15px] leading-tight">
-          {ticket.email_subject || ticketRequesterName(ticket)}
-        </Text>
-        <Text className="mt-0.5 block truncate text-[12px] text-muted-foreground">
-          {`#${ticket.ticket_number} · ${ticket.channel_source} · ${ticketRequesterName(ticket)}`}
-        </Text>
-      </div>
+    <div className="flex h-10 shrink-0 items-center gap-2 border-border border-b px-3">
+      <Text className="min-w-0 shrink truncate font-medium text-[13px]">
+        {ticket.email_subject || ticketRequesterName(ticket)}
+      </Text>
+      <Text className="min-w-0 shrink-[2] truncate text-[12px] text-muted-foreground">
+        {`#${ticket.ticket_number} · ${ticket.channel_source} · ${ticketRequesterName(ticket)}`}
+      </Text>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="default"
+              size="icon-sm"
+              aria-label={pinned ? "Unpin ticket" : "Pin ticket"}
+              onClick={() => togglePinned(ticket.id)}
+              className="text-muted-foreground"
+            >
+              <PushPinIcon
+                size={16}
+                weight={pinned ? "fill" : "regular"}
+                className={pinned ? "text-primary" : undefined}
+              />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">
+          {pinned ? "Unpin from My tickets" : "Pin to My tickets"}
+        </TooltipContent>
+      </Tooltip>
 
-      <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {countdown && (
           <Text
             className={cn("text-[11px] tabular-nums", SLA_TEXT_CLASSES[sla])}

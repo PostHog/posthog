@@ -67,6 +67,7 @@ export type CommandMenuAction =
   | "open-loops"
   | "open-support"
   | "support-set-scope"
+  | "support-pin-ticket"
   | "support-compose"
   | "support-open-web"
   | "support-wake-ticket"
