@@ -3,7 +3,8 @@ import posthog from 'posthog-js'
 
 import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils/strings'
+import { membershipLevelToName } from 'lib/utils/permissioning'
+import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -40,6 +41,11 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             title: 'Email',
             key: 'email',
             render: (_, member) => <span className="text-sm text-muted">{member.user.email}</span>,
+        },
+        {
+            title: 'Access level',
+            key: 'level',
+            render: (_, member) => capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? 'Unknown'),
         },
     ]
 
