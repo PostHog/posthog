@@ -429,7 +429,12 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # "nothing to analyze" as a session with no events, which we already gate as ineligible, so calling
                 # it a failure would point the user at support over a recording that can never produce a video.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.NO_SNAPSHOTS) from e
-            if _failure_type(e) == _RASTERIZER_TOO_LARGE_TYPE:
+            # An in-flight history from before this branch existed already scheduled the failed-mark for an
+            # oversized recording. `patched` makes those histories skip this branch and keep the old path, so
+            # switching them to the ineligible-mark on replay cannot raise a non-determinism error.
+            if _failure_type(e) == _RASTERIZER_TOO_LARGE_TYPE and wf.patched(
+                "replay-vision-too-large-ineligible-2026-08"
+            ):
                 # Gate as ineligible, not failed, so the user reads "too large" instead of a "known issue" retry prompt.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.TOO_LARGE) from e
             # Direct cause only: a nested activity timeout inside the child already bumped the

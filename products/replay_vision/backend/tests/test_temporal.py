@@ -2217,6 +2217,8 @@ async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workf
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
+        # `wf.patched` also needs that loop; True models a fresh execution, where every patch is active.
+        patch("temporalio.workflow.patched", return_value=True),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
