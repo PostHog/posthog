@@ -43,6 +43,11 @@ env:
     # quiet weekend doesn't page. Keep it well above the typical gap between master pushes.
     ACTIVITY_WINDOW_MINUTES: '120'
     COMMIT_FAILURE_STREAK_THRESHOLD: '10'
+    # Cloud agent fired when an incident opens: it diagnoses the failure and answers in the
+    # incident's Slack thread. Unset (or a missing POSTHOG_PROJECT_SECRET_API_KEY) disables the
+    # fire and leaves the alert itself untouched. See docs/internal/master-red-diagnosis-loop.md.
+    DIAGNOSIS_LOOP_ID: ''
+    POSTHOG_PROJECT_ID: '2'
     # The master ruleset's required status checks that run on master push — a failure
     # here means master is genuinely broken. Hand-synced with the ruleset; there is no
     # automated reconciliation, so update this when the required checks change.
@@ -84,6 +89,7 @@ jobs:
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  POSTHOG_PROJECT_SECRET_API_KEY: ${{ secrets.POSTHOG_DEVEX_LOOP_SECRET_API_KEY }}
               with:
                   github-token: ${{ steps.app-token.outputs.token || github.token }}
                   script: |

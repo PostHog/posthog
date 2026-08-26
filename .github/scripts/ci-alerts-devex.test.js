@@ -133,7 +133,14 @@ const commitsAt = (ageMins) => [
     },
 ]
 
-function run(github, { history = [], now = minutes(0), env = {} } = {}) {
+// Loop-trigger response in fetch shape. `ok` mirrors a 2xx; the body is what LoopFireRunSerializer returns.
+const loopTriggerResponse = (body = { created: true, reason: 'created' }, status = 200) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+})
+
+function run(github, { history = [], now = minutes(0), env = {}, fetchImpl } = {}) {
     const outputs = {}
     const core = { setOutput: (k, v) => (outputs[k] = v), info: () => {}, warning: () => {} }
     const slack = makeSlack(history)
@@ -145,13 +152,25 @@ function run(github, { history = [], now = minutes(0), env = {} } = {}) {
         WORKFLOW_FAILURE_MINUTES_THRESHOLD: '20',
         ACTIVITY_WINDOW_MINUTES: '120',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
+        DIAGNOSIS_LOOP_ID: '',
+        POSTHOG_PROJECT_SECRET_API_KEY: '',
         ...env,
     })
     return ciAlertsDevex(
         { context: { repo: { owner: 'PostHog', repo: 'posthog' } }, github, core },
-        { now, slack, sleep: () => Promise.resolve() }
+        { now, slack, sleep: () => Promise.resolve(), fetch: fetchImpl }
     ).then(() => ({ slack, outputs }))
 }
+
+// Env that arms the diagnosis loop fire.
+const diagnosisEnv = { DIAGNOSIS_LOOP_ID: 'loop-uuid', POSTHOG_PROJECT_SECRET_API_KEY: 'phs_test' }
+
+// Five consecutive Backend CI failures — the streak arm, which opens an incident.
+const redMaster = () =>
+    createGithubMock({
+        'ci-backend.yml': runs('Backend CI', Array(5).fill('failure')),
+        'ci-frontend.yml': runs('Frontend CI', ['success']),
+    })
 
 describe('ci-alerts-devex', () => {
     it('no-op when all workflows pass and no incident is open', async () => {
@@ -677,6 +696,55 @@ describe('ci-alerts-devex', () => {
             assert.equal(outputs.action, expected)
         })
     }
+
+    describe('diagnosis loop', () => {
+        it('fires once when an incident opens, in that incident thread', async () => {
+            const fetchImpl = recordingFn(() => Promise.resolve(loopTriggerResponse()))
+            const { outputs } = await run(redMaster(), { env: diagnosisEnv, fetchImpl })
+
+            assert.equal(outputs.action, 'create')
+            assert.equal(fetchImpl.calls.length, 1)
+            const [url, options] = fetchImpl.calls[0]
+            assert.equal(url, 'https://us.posthog.com/api/projects/2/loops/loop-uuid/trigger/')
+            assert.equal(options.headers.Authorization, 'Bearer phs_test')
+            // Keyed on the anchor ts, so a retried job reuses the first run instead of racing a second.
+            assert.equal(options.headers['Idempotency-Key'], 'master-red-111.222')
+            const payload = JSON.parse(options.body)
+            assert.equal(payload.slack.thread_ts, '111.222')
+            assert.deepEqual(
+                payload.failing_workflows.map((w) => w.name),
+                ['Backend CI']
+            )
+        })
+
+        it('does not re-fire while an incident stays open', async () => {
+            const fetchImpl = recordingFn(() => Promise.resolve(loopTriggerResponse()))
+            const { outputs } = await run(redMaster(), {
+                history: [activeAnchor()],
+                env: diagnosisEnv,
+                fetchImpl,
+            })
+
+            assert.equal(outputs.action, 'update')
+            assert.equal(fetchImpl.calls.length, 0)
+        })
+
+        it('still posts the alert when the loop trigger fails', async () => {
+            const fetchImpl = recordingFn(() => Promise.reject(new Error('connect ECONNREFUSED')))
+            const { slack, outputs } = await run(redMaster(), { env: diagnosisEnv, fetchImpl })
+
+            assert.equal(outputs.action, 'create')
+            assert.equal(slack.postMessage.calls.length, 2)
+        })
+
+        it('sends nothing when the loop is not configured', async () => {
+            const fetchImpl = recordingFn(() => Promise.resolve(loopTriggerResponse()))
+            const { outputs } = await run(redMaster(), { fetchImpl })
+
+            assert.equal(outputs.action, 'create')
+            assert.equal(fetchImpl.calls.length, 0)
+        })
+    })
 
     describe('formatDuration', () => {
         for (const [mins, expected] of [
