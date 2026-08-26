@@ -13,6 +13,12 @@ from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
+from posthog.integration_secrets.errors import (
+    IntegrationServiceMisconfiguredError,
+    IntegrationServiceUnreachableError,
+    SecretInRecoveryError,
+    SecretMissingError,
+)
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -198,6 +204,29 @@ async def test_schema_deleted_mid_sync_routes_through_handler():
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args.args[5] is error
     source.parse_config.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_transient_app_db_error_in_setup_is_retryable_not_raw():
+    # The setup phase resolves this run's job/schema/source rows over the Django ORM (our own app
+    # DB). A transient connection-pool blip there — e.g. a PgBouncer server_login_retry cooldown —
+    # raises a Django OperationalError before the source's error handling runs. It's our infra, not
+    # the customer's source, so it must be re-raised as NonReportableError (Temporal retries the
+    # whole activity and it self-heals) rather than escaping raw and being stored verbatim as
+    # latest_error while minting error-tracking noise.
+    error = OperationalError("server login has been failing, cached error: (server_login_retry)")
+    source = mock.MagicMock(spec=SimpleSource)
+
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(side_effect=error)),
+    ):
+        with pytest.raises(NonReportableError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value.__cause__ is error
+    handle_mock.assert_not_awaited()
+    source.source_for_pipeline.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -476,14 +505,22 @@ async def test_jsonpath_error_routes_through_handler_without_source_opt_in():
     logger.aexception.assert_not_awaited()
 
 
+@parameterized.expand(
+    [
+        # Raised in shared pipeline code (delta merge) when a keyless table syncs incrementally.
+        ("primary_key", "Primary key required for incremental syncs"),
+        # Raised by botocore when the object storage endpoint hostname is one it rejects (e.g. an
+        # underscore in a self-hosted OBJECT_STORAGE_ENDPOINT). Deterministic for the deployment, so
+        # it must stop retrying instead of looping the activity's budget and reporting every attempt.
+        ("invalid_endpoint", "Invalid endpoint: http://posthog_objectstorage:19000"),
+    ]
+)
 @pytest.mark.asyncio
-async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in():
-    # "Primary key required for incremental syncs" is raised in shared pipeline code (delta merge),
-    # not any one source, and lives in the shared Any_Source_Errors dict. It must be non-retryable in
-    # this in-activity handler for every source, not just those that duplicate the message into their
-    # own get_non_retryable_errors — otherwise a keyless incremental table retries the activity's whole
-    # budget and reports on every attempt.
-    error = Exception("Primary key required for incremental syncs")
+async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in(_name: str, message: str):
+    # These messages are raised in shared pipeline code, not any one source, and live in the shared
+    # Any_Source_Errors dict. Each must be non-retryable in this in-activity handler for every source,
+    # not just those that duplicate the message into their own get_non_retryable_errors.
+    error = Exception(message)
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -742,3 +779,116 @@ async def test_parent_gate_inert_for_sources_without_requirements():
 
     assert result is False
     flag_check.assert_not_called()
+
+
+# Credentials the integration service holds are PostHog's own — the OAuth app secrets and API keys
+# we own, not anything a customer configured. Every failure state it has is therefore ours, and
+# every one of them ends on its own (a key in recovery is re-provisioned, a missing key is added, an
+# unreachable service comes back). The classification has to reflect both facts: retry, and never
+# reach handle_non_retryable_error, which disables the schema and makes the customer re-enable a
+# sync they never broke. Without this, one key going into recovery would disable every sync of that
+# source type across every customer.
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error,reported",
+    [
+        (SecretInRecoveryError("HUBSPOT_APP_CLIENT_SECRET"), False),
+        (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET"), True),
+        (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET", disabled_reason="unconfigured"), True),
+        (IntegrationServiceMisconfiguredError("INTEGRATION_SERVICE_URL"), True),
+        (IntegrationServiceUnreachableError("connection refused"), False),
+    ],
+)
+async def test_integration_secret_failure_retries_without_disabling_the_schema(error, reported):
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+        mock.patch.object(module, "capture_exception") as capture_mock,
+    ):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    # Never disabled: that is the behaviour this whole branch exists to prevent.
+    handle_mock.assert_not_awaited()
+    assert exc_info.value.__cause__ is error
+
+    # The customer reads a message that names no internal credential and asks nothing of them.
+    assert str(exc_info.value) == module.INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE
+    assert "HUBSPOT_APP_CLIENT_SECRET" not in str(exc_info.value)
+    assert "INTEGRATION_SERVICE_URL" not in str(exc_info.value)
+
+    # Reported only when a person has to act. NonReportableError already keeps the activity
+    # interceptor from capturing on escape, so an explicit capture is the only way these reach
+    # error tracking at all — and the only way the ones that don't need a human stay quiet.
+    assert capture_mock.call_count == (1 if reported else 0)
+    if reported:
+        assert capture_mock.call_args.args[0] is error
+        logger.aexception.assert_awaited_once()
+    else:
+        logger.awarning.assert_awaited_once()
+        logger.aexception.assert_not_awaited()
+
+
+# The bare-404 rule below this branch reads a 404 as "the customer's configured endpoint is gone"
+# and stops the sync for good. A misrouted INTEGRATION_SERVICE_URL answers 404 too, so ordering
+# decides whether our own deploy error is charged to the customer. The client wraps its transport
+# failures precisely so the two can't collide; this pins the ordering that keeps it true anyway.
+@pytest.mark.asyncio
+async def test_integration_failure_is_classified_before_the_bare_404_rule():
+    error = IntegrationServiceUnreachableError("404 Client Error: Not Found for url: http://integration-service")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+        mock.patch.object(module, "capture_exception"),
+    ):
+        with pytest.raises(NonReportableError):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_not_awaited()
+
+
+# The retry budget can run out while the credential is still unavailable. When it does, the
+# customer-facing message above becomes the run's `internal_error`, and finalization
+# (update_external_data_job_model) matches that text against every non-retryable pattern — a
+# case-insensitive substring test. A match there would disable the schema, which is the exact
+# outcome the whole classification exists to avoid, arriving by the back door.
+#
+# So the message is not free text: no pattern may be a substring of it. This sweeps every
+# registered source rather than the shared dict alone, because a source-specific pattern
+# (a bare word like "unavailable") would do it just as well.
+def test_the_customer_facing_message_matches_no_non_retryable_pattern():
+    from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+    from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+
+    patterns = set(Any_Source_Errors.keys())
+    for source in SourceRegistry.get_all_sources().values():
+        patterns |= set(source.get_non_retryable_errors().keys())
+
+    # Guard the guard: if the registry ever fails to load, an empty pattern set would make this
+    # test pass while checking nothing.
+    assert len(patterns) > 20, f"expected the source registry to contribute patterns, got {len(patterns)}"
+
+    offenders = [p for p in patterns if error_message_matches(module.INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE, [p])]
+    assert offenders == [], (
+        f"These non-retryable patterns match the integration-credential message, so an exhausted "
+        f"retry budget would disable the customer's schema: {offenders}"
+    )

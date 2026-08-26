@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from redis import exceptions as redis_exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -70,19 +71,24 @@ class TestResolvePrimaryKeys:
 class TestPersistPrimaryKeys:
     @parameterized.expand(
         [
-            # name, is_incremental, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
+            # name, is_incremental, is_cdc, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
             # Full-refresh schemas don't merge on a PK — never touch sync_type_config.
-            ("skips_when_not_incremental", False, None, ["id"], {}, None),
+            ("skips_when_not_incremental", False, False, None, ["id"], {}, None),
+            # A CDC schema snapshots as full_refresh but streams incrementally, so its key must be
+            # persisted during that first run — otherwise the streaming phase has no merge key and
+            # trips the keyless-table guardrail.
+            ("backfills_for_cdc_snapshot", False, True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
             # A stored PK is already the source of truth — nothing to backfill.
-            ("skips_when_already_persisted", True, ["existing"], ["id"], {}, None),
+            ("skips_when_already_persisted", True, False, ["existing"], ["id"], {}, None),
             # No resolvable PK -> leave it empty so the keyless-table guardrail still fires.
-            ("skips_when_no_resolved_pk", True, None, None, {}, None),
+            ("skips_when_no_resolved_pk", True, False, None, None, {}, None),
             # The fix: an incremental schema with no stored PK backfills the resolved one.
-            ("backfills_when_incremental_and_empty", True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            ("backfills_when_incremental_and_empty", True, False, None, ["id"], {}, {"primary_key_columns": ["id"]}),
             # A concurrent API edit that landed a PK first must not be clobbered inside the lock.
             (
                 "does_not_clobber_concurrent_write",
                 True,
+                False,
                 None,
                 ["id"],
                 {"primary_key_columns": ["already"]},
@@ -95,12 +101,13 @@ class TestPersistPrimaryKeys:
         self,
         _name: str,
         is_incremental: bool,
+        is_cdc: bool,
         persisted: list[str] | None,
         resource_pks: list[str] | None,
         db_config_before: dict,
         expected_written: dict | None,
     ):
-        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted)
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted, is_cdc=is_cdc)
         resource = MagicMock(primary_keys=resource_pks)
 
         captured: dict = {}
@@ -742,3 +749,30 @@ class TestHandleNonRetryableError:
 
         assert isinstance(exc_info.value, NonReportableError)
         assert exc_info.value.__cause__ is original_error
+
+    def test_redis_error_after_successful_ping_fails_fast(self):
+        # A successful ping doesn't guarantee `.incr()` still reaches Redis - if it raises, this
+        # must take the same fast-fail path as a `None` client instead of surfacing unwrapped and
+        # masking the already-classified `error` behind an ordinary retryable activity failure.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+        redis_client = MagicMock(
+            incr=AsyncMock(side_effect=redis_exceptions.ConnectionError("Connect call failed")),
+            expire=AsyncMock(),
+        )
+
+        @asynccontextmanager
+        async def fake_get_redis():
+            yield redis_client
+
+        with (
+            patch(f"{_EXTRACT_MODULE}._get_redis", fake_get_redis),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+        mock_capture.assert_called_once()

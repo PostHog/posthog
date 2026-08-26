@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db.models import F, Q, Sum
-from django.db.utils import OperationalError
+from django.db.utils import InternalError, OperationalError
 
 import requests
+import structlog
 from dateutil import parser
 from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
+logger = structlog.get_logger(__name__)
+
+
 def _get_hash_key(team_id: int) -> str:
     return f"posthog:data_warehouse_row_tracking:{team_id}"
 
@@ -43,6 +47,14 @@ async def _get_redis():
 
         redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         await redis.ping()
+    except redis_exceptions.RedisError as e:
+        # Row tracking already fails open when redis is unavailable (every caller
+        # checks `if not redis: return`), so a Redis-side blip - unreachable, refusing
+        # writes because RDB snapshotting failed, loading, etc. - isn't a bug, and
+        # shouldn't be reported to error tracking. Same rationale as the RedisError
+        # handling in will_hit_billing_limit below.
+        await logger.awarning("Redis error while getting row tracking client, failing open", error=str(e))
+        redis = None
     except Exception as e:
         capture_exception(e)
         # get_async_client only builds a lazy client, so a failed ping means redis is
@@ -246,9 +258,10 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         await logger.awarning(f"BillingLimits: Redis error while checking billing limits, failing open: {e}")
 
         return False
-    except OperationalError as e:
-        # Same rationale as above: a dropped Postgres connection while fetching billing
-        # data is a transient infra blip, and the check already fails open.
+    except (OperationalError, InternalError) as e:
+        # Same rationale as above: a dropped Postgres connection, or a read-only
+        # transaction hitting a replica/failover blip, while fetching billing data is
+        # a transient infra issue, and the check already fails open.
         await logger.awarning(f"BillingLimits: Database error while checking billing limits, failing open: {e}")
 
         return False

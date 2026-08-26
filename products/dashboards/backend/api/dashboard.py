@@ -64,6 +64,7 @@ from posthog.event_usage import EventSource, get_event_source, report_user_actio
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
     MAX_SEARCH_LENGTH,
@@ -79,12 +80,6 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import (
-    UserAccessControl,
-    UserAccessControlSerializerMixin,
-    access_level_satisfied_for_resource,
-)
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -100,6 +95,14 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
@@ -115,6 +118,8 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
+from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
@@ -157,7 +162,6 @@ from products.notifications.backend.facade.api import (
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import (
     INCLUDE_DASHBOARDS_PARAMETER,
-    DashboardTileBasicSerializer,
     InsightBasicSerializer,
     InsightSerializer,
     InsightViewSet,
@@ -1139,19 +1143,19 @@ class DashboardBasicSerializer(
             "restriction_level": {"help_text": "Controls who can edit the dashboard."},
         }
 
-    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+    def get_effective_restriction_level(self, dashboard: Dashboard) -> RestrictionLevel:
         if self.context.get("is_shared"):
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.dashboard(dashboard).effective_restriction_level
 
-    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
+    def get_effective_privilege_level(self, dashboard: Dashboard) -> PrivilegeLevel:
         if self.context.get("is_shared"):
-            return Dashboard.PrivilegeLevel.CAN_VIEW
+            return PrivilegeLevel.CAN_VIEW
         return self.user_permissions.dashboard(dashboard).effective_privilege_level
 
     def get_access_control_version(self, dashboard: Dashboard) -> str:
         # This effectively means that the dashboard they are using the old dashboard permissions
-        if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+        if dashboard.restriction_level > RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             return "v1"
         return "v2"
 
@@ -2631,7 +2635,10 @@ class DashboardsViewSet(
         dashboard = self.get_object()
 
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        # Views during staff impersonation aren't the team's own activity - skip the write
+        # so support sessions don't bump the team-facing "Last accessed" (it also feeds cache warming).
+        if not is_impersonated(request):
+            record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
         serializer = DashboardSerializer(dashboard, context=serializer_context)
@@ -2677,7 +2684,9 @@ class DashboardsViewSet(
 
         # Do all database operations and data loading synchronously first
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        # Skip the "Last accessed" bump during staff impersonation (see retrieve)
+        if not is_impersonated(request):
+            record_dashboard_view(dashboard, access_method)
 
         context = self.get_serializer_context()
 

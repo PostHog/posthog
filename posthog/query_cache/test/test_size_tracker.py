@@ -5,10 +5,11 @@ from django.db import OperationalError
 from django.test import override_settings
 
 import fakeredis
+from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker, get_team_cache_limit
-from posthog.query_cache.storage import entry_redis_key
+from posthog.query_cache.storage import BLOB_DELETE_DELAY_SECONDS, S3BlobPointer, encode_pointer, entry_redis_key
 
 ENTRY_KEYS = [
     "test_key",
@@ -143,6 +144,59 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(self._entry("test_key_1"), data)
         # Tracking should be updated
         self.assertEqual(self.tracker.get_total_size(), len(data))
+
+    @parameterized.expand(
+        [
+            ("pointer", encode_pointer(S3BlobPointer(bucket="cache-bucket", key="query_cache/1/old")), True),
+            ("inline_blob", b"plain-old-bytes", False),
+            ("absent", None, False),
+        ]
+    )
+    def test_set_schedules_delayed_delete_only_for_replaced_pointers(self, _name, old_value, expect_delete):
+        if old_value is not None:
+            self._seed_entry("test_key_1", old_value)
+
+        with patch("posthog.query_cache.tasks.delete_query_cache_blob.apply_async") as apply_async:
+            self.tracker.set("test_key_1", b"new-data", 300)
+
+        self.assertEqual(self._entry("test_key_1"), b"new-data")
+        if not expect_delete:
+            apply_async.assert_not_called()
+            return
+        apply_async.assert_called_once()
+        self.assertEqual(apply_async.call_args.kwargs["countdown"], BLOB_DELETE_DELAY_SECONDS)
+        task_kwargs = apply_async.call_args.kwargs["kwargs"]
+        self.assertEqual(task_kwargs["bucket"], "cache-bucket")
+        self.assertEqual(task_kwargs["key"], "query_cache/1/old")
+        self.assertEqual(task_kwargs["trigger"], "replaced")
+
+    def test_eviction_schedules_delete_for_evicted_pointer_entries(self):
+        pointer = encode_pointer(S3BlobPointer(bucket="cache-bucket", key="query_cache/1/evicted"))
+        self._seed_entry("test_key_1", pointer)
+        self.tracker.track_cache_write("test_key_1", 200)
+        self._seed_entry("test_key_2", b"y" * 200)
+        self.tracker.track_cache_write("test_key_2", 200)
+
+        with patch("posthog.query_cache.tasks.delete_query_cache_blob.apply_async") as apply_async:
+            evicted = self.tracker.evict_until_under_limit(300, 250)
+
+        # Both entries go, but only the pointer-backed one has a blob to delete
+        self.assertEqual(evicted, ["test_key_1", "test_key_2"])
+        apply_async.assert_called_once()
+        task_kwargs = apply_async.call_args.kwargs["kwargs"]
+        self.assertEqual(task_kwargs["key"], "query_cache/1/evicted")
+        self.assertEqual(task_kwargs["trigger"], "evicted")
+
+    def test_broker_failure_does_not_break_the_cache_write(self):
+        self._seed_entry("test_key_1", encode_pointer(S3BlobPointer(bucket="cache-bucket", key="query_cache/1/old")))
+
+        with patch(
+            "posthog.query_cache.tasks.delete_query_cache_blob.apply_async", side_effect=Exception("broker down")
+        ):
+            self.tracker.set("test_key_1", b"new-data", 300)
+
+        self.assertEqual(self._entry("test_key_1"), b"new-data")
+        self.assertEqual(self.tracker.get_total_size(), len(b"new-data"))
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500)
     def test_set_method_triggers_eviction_when_over_limit(self):

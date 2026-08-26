@@ -88,6 +88,33 @@ pub fn set_telemetry_env_id_from_environment() {
     set_telemetry_env_id(&env_id);
 }
 
+/// Whether this event is a panic from std's `print!`/`eprintln!` machinery
+/// failing on a closed pipe. These fire when the reader of stdout/stderr goes
+/// away mid-command; the writer fix in `main.rs` keeps them from aborting the
+/// command, and dropping them here keeps the residual noise out of error
+/// tracking so a broken pipe never self-reports as an issue.
+fn is_broken_pipe_panic(event: &Event) -> bool {
+    if event.event_name() != "$exception" {
+        return false;
+    }
+
+    let Some(items) = event
+        .properties()
+        .get("$exception_list")
+        .and_then(|list| list.as_array())
+    else {
+        return false;
+    };
+
+    items.iter().any(|item| {
+        item.get("value")
+            .and_then(|value| value.as_str())
+            .is_some_and(|message| {
+                message.contains("failed printing to std") && message.contains("Broken pipe")
+            })
+    })
+}
+
 fn apply_telemetry_properties(event: &mut Event) {
     let _ = event.insert_prop("cli_version", env!("CARGO_PKG_VERSION"));
     let _ = event.insert_prop("invocation_id", telemetry_invocation_id());
@@ -172,6 +199,9 @@ pub fn init_posthog_telemetry() {
         .request_timeout_seconds(5) // It's a CLI, 5 seconds is an eternity
         .error_tracking(error_tracking)
         .before_send(|mut event| {
+            if is_broken_pipe_panic(&event) {
+                return None;
+            }
             apply_telemetry_properties(&mut event);
             Some(event)
         })
@@ -306,5 +336,41 @@ impl InvocationContext {
             .drain(..)
             .for_each(|handle| handle.join().unwrap());
         posthog_rs::flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn exception_event(message: &str) -> Event {
+        let mut event = Event::new_anon("$exception");
+        event
+            .insert_prop(
+                "$exception_list",
+                serde_json::json!([{ "type": "Panic", "value": message }]),
+            )
+            .unwrap();
+        event
+    }
+
+    #[test]
+    fn detects_broken_pipe_printing_panics() {
+        assert!(is_broken_pipe_panic(&exception_event(
+            "failed printing to stderr: Broken pipe (os error 32)"
+        )));
+        assert!(is_broken_pipe_panic(&exception_event(
+            "failed printing to stdout: Broken pipe (os error 32)"
+        )));
+    }
+
+    #[test]
+    fn ignores_other_events() {
+        assert!(!is_broken_pipe_panic(&exception_event(
+            "index out of bounds"
+        )));
+        assert!(!is_broken_pipe_panic(&Event::new_anon(
+            "posthog cli command run"
+        )));
     }
 }

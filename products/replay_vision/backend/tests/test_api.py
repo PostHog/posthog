@@ -620,7 +620,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self._create_scanner(name="visible")
         hidden = self._create_scanner(name="hidden")
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
         ):
             resp = self.client.get(f"{self.scanners_url}stats/")
@@ -636,7 +636,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         hidden.created_by = other
         hidden.save(update_fields=["created_by"])
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
         ):
             resp = self.client.get(f"{self.scanners_url}creators/")
@@ -683,7 +683,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     def _patch_deny_resource(self, denied: str):
         return patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
             side_effect=lambda resource, **_: resource != denied,
         )
 
@@ -869,8 +869,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.experiment = create_experiment(self.team, "checkout-redesign")
         self.targeting = {
             "experiment_id": self.experiment.id,
-            "variant_keys": ["test"],
-            "use_exposure_fallback": False,
+            "variant": "test",
         }
 
     def _create_payload(self, name: str, **extra: Any) -> dict[str, Any]:
@@ -898,17 +897,9 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("missing_experiment", {"variant_keys": [], "use_exposure_fallback": False}),
-            ("bad_experiment_id", {"experiment_id": 0, "variant_keys": [], "use_exposure_fallback": False}),
-            (
-                "variant_keys_not_a_list",
-                {"experiment_id": 9, "variant_keys": "not-a-list", "use_exposure_fallback": False},
-            ),
-            ("blank_variant_key", {"experiment_id": 9, "variant_keys": [""], "use_exposure_fallback": False}),
-            (
-                "too_many_variant_keys",
-                {"experiment_id": 9, "variant_keys": [f"v{i}" for i in range(51)], "use_exposure_fallback": False},
-            ),
+            ("missing_experiment", {"variant": "test"}),
+            ("bad_experiment_id", {"experiment_id": 0, "variant": "test"}),
+            ("blank_variant", {"experiment_id": 9, "variant": ""}),
         ]
     )
     def test_experiment_targeting_rejects_malformed(self, _name: str, targeting: dict[str, Any]) -> None:
@@ -917,7 +908,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 400, resp.json())
         # The field's nested validation reports the exact offending key (e.g.
-        # experiment_targeting__variant_keys__0), so match on the prefix rather than the exact attr.
+        # experiment_targeting__variant), so match on the prefix rather than the exact attr.
         self.assertTrue(resp.json()["attr"].startswith("experiment_targeting"), resp.json())
 
     def test_partial_update_cannot_save_a_half_filled_targeting(self) -> None:
@@ -926,7 +917,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         scanner = self._create_scanner(name="patch-me", experiment_targeting=self.targeting)
         resp = self.client.patch(
             f"{self.scanners_url}{scanner.id}/",
-            data={"experiment_targeting": {"variant_keys": ["control"]}},
+            data={"experiment_targeting": {"variant": "control"}},
             format="json",
         )
         self.assertEqual(resp.status_code, 400)
@@ -2835,7 +2826,7 @@ class TestRetryActions(_VisionAPITestCase):
         observation = self._create_failed("sess-rbac")
 
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
         ):
             resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")

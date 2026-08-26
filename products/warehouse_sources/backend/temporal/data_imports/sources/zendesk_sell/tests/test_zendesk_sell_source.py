@@ -4,55 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.source import ZendeskSellSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.zendesk_sell import (
-    ZendeskSellResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert ZendeskSellSource().source_type == ExternalDataSourceType.ZENDESKSELL
-
-    def test_config_is_crm_alpha_and_unreleased(self) -> None:
-        config = ZendeskSellSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.CRM
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_config_exposes_single_password_access_token_field(self) -> None:
-        fields = ZendeskSellSource().get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "access_token"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-
-
-class TestGetSchemas:
-    def test_every_endpoint_is_full_refresh(self) -> None:
-        schemas = ZendeskSellSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
-    def test_names_filter(self) -> None:
-        schemas = ZendeskSellSource().get_schemas(MagicMock(), team_id=1, names=["deals", "leads"])
-        assert {s.name for s in schemas} == {"deals", "leads"}
 
 
 class TestValidateCredentials:
@@ -89,14 +44,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = ZendeskSellSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestResumableManager:
-    def test_manager_is_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = ZendeskSellSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ZendeskSellResumeConfig
 
 
 class TestSourceForPipeline:

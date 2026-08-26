@@ -9,6 +9,7 @@ import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
+    BreakdownAttributionType,
     BreakdownKeyType,
     BreakdownType,
     CalendarHeatmapMathType,
@@ -140,6 +141,7 @@ export enum NodeKind {
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebBotsTableQuery = 'WebBotsTableQuery',
+    WebAgentAnalyticsQuery = 'WebAgentAnalyticsQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
@@ -204,6 +206,7 @@ export enum NodeKind {
     MCPToolQualityDailyStatsQuery = 'MCPToolQualityDailyStatsQuery',
     MCPToolCategoryCountsQuery = 'MCPToolCategoryCountsQuery',
     MCPToolCategoriesQuery = 'MCPToolCategoriesQuery',
+    MCPToolCategoryMapQuery = 'MCPToolCategoryMapQuery',
     MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
@@ -239,6 +242,7 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
+    | WebAgentAnalyticsQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -286,6 +290,7 @@ export type AnyDataNode =
     | MCPToolQualityDailyStatsQuery
     | MCPToolCategoryCountsQuery
     | MCPToolCategoriesQuery
+    | MCPToolCategoryMapQuery
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
@@ -329,6 +334,7 @@ export type QuerySchema =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
+    | WebAgentAnalyticsQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -415,6 +421,7 @@ export type QuerySchema =
     | MCPToolQualityDailyStatsQuery
     | MCPToolCategoryCountsQuery
     | MCPToolCategoriesQuery
+    | MCPToolCategoryMapQuery
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
@@ -3038,6 +3045,8 @@ export interface AccountsTableRow {
     id: string
     name: string
     externalId?: string | null
+    /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+    logoDomain?: string | null
     /** Requested direct Account fields, keyed by their typed field reference. */
     accountFields: Record<string, string | null>
     /** Sorted tag names. Omitted when the request does not select tags. */
@@ -3518,6 +3527,28 @@ export interface MCPToolCategoriesQuery extends DataNode<MCPToolCategoriesQueryR
 
 export type CachedMCPToolCategoriesQueryResponse = CachedQueryResponse<MCPToolCategoriesQueryResponse>
 
+/** One tool paired with one $mcp_tool_category it was called under. */
+export interface MCPToolCategoryMapItem {
+    tool: string
+    category: string
+}
+
+export interface MCPToolCategoryMapQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCategoryMapItem[]
+}
+
+/**
+ * Which categories each tool was called under. The intent clustering snapshot is precomputed and
+ * stores tool names without categories, so this is what lets that tab scope by category. A tool
+ * recategorised mid-window appears once per category, rather than one row silently winning.
+ */
+export interface MCPToolCategoryMapQuery extends DataNode<MCPToolCategoryMapQueryResponse> {
+    kind: NodeKind.MCPToolCategoryMapQuery
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolCategoryMapQueryResponse = CachedQueryResponse<MCPToolCategoryMapQueryResponse>
+
 /** One distinct description seen for a single MCP tool, with the last time it was reported. */
 export interface MCPToolDescriptionItem {
     description: string
@@ -3684,6 +3715,48 @@ export interface WebBotsTableQueryResponse extends AnalyticsQueryResponseBase {
     offset?: integer
 }
 export type CachedWebBotsTableQueryResponse = CachedQueryResponse<WebBotsTableQueryResponse>
+
+export enum WebAgentAnalyticsQueryType {
+    Overview = 'overview',
+    Issues = 'issues',
+    PageRequests = 'page_requests',
+    Transitions = 'transitions',
+    Demand = 'demand',
+    IssueVariants = 'issue_variants',
+    RequestAnatomy = 'request_anatomy',
+    JourneySummary = 'journey_summary',
+    Journeys = 'journeys',
+    JourneyDetail = 'journey_detail',
+}
+
+export enum WebAgentContentGrouping {
+    Exact = 'exact',
+    Normalized = 'normalized',
+}
+
+/** Agent traffic summaries and readiness diagnostics derived from web request events. */
+export interface WebAgentAnalyticsQuery extends WebAnalyticsQueryBase<WebAgentAnalyticsQueryResponse> {
+    kind: NodeKind.WebAgentAnalyticsQuery
+    queryType: WebAgentAnalyticsQueryType
+    includeCrawlers?: boolean
+    contentGrouping?: WebAgentContentGrouping
+    llmsTxtUrl?: string
+    limit?: integer
+    offset?: integer
+    intentKey?: string
+    /** Opaque journey identifier returned by the journeys list, used to load one journey's timeline. */
+    journeyKey?: string
+}
+export interface WebAgentAnalyticsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebAgentAnalyticsQueryResponse = CachedQueryResponse<WebAgentAnalyticsQueryResponse>
 
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
@@ -5225,6 +5298,10 @@ export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     series: ExperimentFunnelMetricStep[]
     funnel_order_type?: StepOrderValue
+    /** How to attribute the breakdown value across funnel steps. @default first_touch */
+    breakdownAttributionType?: BreakdownAttributionType
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. @asType integer */
+    breakdownAttributionValue?: integer
 }
 
 export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
@@ -7949,6 +8026,7 @@ export const externalDataSources = [
     'Ebay',
     'Commercetools',
     'LightspeedRetail',
+    'Shipmail',
     'ShipStation',
     'ConstantContact',
     'Mailgun',
@@ -9078,6 +9156,18 @@ export const externalDataSources = [
     'Airwallex',
     'Polymarket',
     'Kalshi',
+    'Capterra',
+    'GooglePostmasterTools',
+    'Growi',
+    'Clarify',
+    'DatoCMS',
+    'WPSOffice',
+    'TeraBox',
+    'SimonData',
+    'CommissionJunction',
+    'Liveblocks',
+    'NationBuilder',
+    'Tana',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

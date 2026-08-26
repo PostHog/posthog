@@ -1019,6 +1019,54 @@ class TestQueueOperationTimeouts:
             await asyncio.wait_for(run_task, timeout=5.0)
 
     @pytest.mark.asyncio
+    async def test_startup_sweep_error_does_not_crash_consumer_and_polling_starts(self):
+        # Reproduces the reported issue: a schema-level failure (e.g. the queue DB
+        # missing its tables) during the one-time startup sweep used to propagate out
+        # of run() uncaught, crashing the consumer -- even though the periodic
+        # _recovery_loop already tolerates the identical failure from the same call.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        polling_started = asyncio.Event()
+
+        async def raise_undefined_table(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            raise psycopg.errors.UndefinedTable('relation "sourcebatch" does not exist')
+
+        async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            polling_started.set()
+            return []
+
+        with (
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=raise_undefined_table,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # Polling can only begin if the startup sweep error was contained instead of crashing run().
+            await asyncio.wait_for(polling_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        mock_capture.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_poll_timeout_wrapped_as_operational_error_is_not_reported(self):
         # psycopg's async wait loop can catch the CancelledError that
         # asyncio.timeout() raises on expiry and re-raise it as a generic

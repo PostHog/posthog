@@ -14,6 +14,8 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    DelegatedOAuthAccessTokenAuthentication,
+    DelegatedPersonalAPIKeyAuthentication,
     IDJagAccessTokenAuthentication,
     InternalAPIAuthentication,
     JwtAuthentication,
@@ -38,9 +40,10 @@ from posthog.permissions import (
     VerifiedDomainEnforcementPermission,
 )
 from posthog.products import is_product_module
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -299,6 +302,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
                 # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
                 IDJagAccessTokenAuthentication,
+                DelegatedPersonalAPIKeyAuthentication,
+                DelegatedOAuthAccessTokenAuthentication,
                 JwtAuthentication,
                 OAuthAccessTokenAuthentication,
                 PersonalAPIKeyAuthentication,

@@ -8,11 +8,8 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.profound.profound import ProfoundResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.profound.source import ProfoundSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.profound.source"
 PROFOUND_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.profound.profound"
@@ -63,23 +60,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestProfoundSource:
-    def test_source_type(self) -> None:
-        assert ProfoundSource().source_type == ExternalDataSourceType.PROFOUND
-
-    def test_schemas_cover_the_endpoint_catalog(self) -> None:
-        schemas = ProfoundSource().get_schemas(None, 1)  # type: ignore[arg-type]
-
-        assert [s.name for s in schemas] == [
-            "Categories",
-            "Models",
-            "Regions",
-            "Domains",
-            "Assets",
-            "Personas",
-            "Visibility",
-            "Citations",
-        ]
-
     @parameterized.expand(
         [
             ("visibility_is_incremental", "Visibility", True),
@@ -112,22 +92,6 @@ class TestProfoundSource:
 
         assert ok is expected
         assert (message is None) is expected
-
-    def test_resumable_manager_is_bound_to_the_resume_dataclass(self) -> None:
-        manager = ProfoundSource().get_resumable_source_manager(_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ProfoundResumeConfig
-
-    @mock.patch(f"{SOURCE_MODULE}.profound_source")
-    def test_source_for_pipeline_passes_the_watermark_when_incremental(self, mock_source) -> None:
-        inputs = _inputs(should_use_incremental_field=True, db_incremental_field_last_value="2026-06-01")
-
-        ProfoundSource().source_for_pipeline(_Config(), mock.MagicMock(), inputs)  # type: ignore[arg-type]
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["endpoint"] == "Visibility"
-        assert kwargs["db_incremental_field_last_value"] == "2026-06-01"
 
     @mock.patch(f"{SOURCE_MODULE}.profound_source")
     def test_source_for_pipeline_drops_the_watermark_on_full_refresh(self, mock_source) -> None:

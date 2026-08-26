@@ -859,8 +859,10 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         [
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
-            # digit-containing kind — the allowlist regex used to miss these
-            ("query_kind_digit", "query/PathsV2Query/", {"query": {"kind": "PathsV2Query"}}),
+            # digit-containing kind — the allowlist regex used to miss these. The kind is
+            # made up on purpose: the middleware matches on the path alone, and a real kind
+            # here would execute a product-owned query runner from a core test.
+            ("query_kind_digit", "query/SomeV2Query/", {"query": {"kind": "SomeV2Query"}}),
             ("query_upgrade", "query/upgrade/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
             (
