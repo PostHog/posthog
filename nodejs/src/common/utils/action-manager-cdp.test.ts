@@ -1,4 +1,4 @@
-import { createAction, createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createAction, createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
@@ -18,12 +18,10 @@ describe('ActionManagerCDP()', () => {
         jest.spyOn(Date, 'now').mockImplementation(() => now)
 
         hub = await createHub()
-        await resetTestDatabase()
 
         postgres = new PostgresRouter(defaultConfig)
         actionManager = new ActionManagerCDP(postgres)
-        const team = await getFirstTeam(hub.postgres)
-        teamId = team.id
+        teamId = (await createTestTeamFixture(hub.postgres)).team.id
         fetchActionsSpy = jest.spyOn(actionManager as any, 'fetchActions')
     })
 
