@@ -49,7 +49,7 @@ export function IssueSeveritySelect({
             </SelectTrigger>
             <SelectContent align="start" alignItemWithTrigger={false}>
                 <SelectGroup>
-                    <SelectGroupLabel>Severity</SelectGroupLabel>
+                    <SelectGroupLabel className="py-1">Severity</SelectGroupLabel>
                     {ISSUE_SEVERITY_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                             <IssueSeverityTag severity={option.value} />

@@ -40,7 +40,7 @@ export const IssueStatusSelect = ({
             </SelectTrigger>
             <SelectContent align="start" alignItemWithTrigger={false}>
                 <SelectGroup>
-                    <SelectGroupLabel>Status</SelectGroupLabel>
+                    <SelectGroupLabel className="py-1">Status</SelectGroupLabel>
                     {options.map((option) => (
                         <SelectItem key={option} value={option}>
                             <StatusIndicator status={option} size="xsmall" />

@@ -10,13 +10,10 @@ export const AssigneeSelect = ({
     assignee,
     onChange,
     children,
-    nativeButton = true,
 }: {
     assignee: ErrorTrackingIssue['assignee']
     onChange: (assignee: ErrorTrackingIssue['assignee']) => void
     children: (assignee: Assignee, isOpen: boolean) => JSX.Element
-    fullWidth?: boolean
-    nativeButton?: boolean
 }): JSX.Element => {
     const { ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const { resolveAssignee } = useValues(assigneeSelectLogic)
@@ -39,7 +36,6 @@ export const AssigneeSelect = ({
             open={showPopover}
             onOpenChange={setShowPopover}
             trigger={children(resolvedAssignee, showPopover)}
-            nativeButton={nativeButton}
         />
     )
 }
