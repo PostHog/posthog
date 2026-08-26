@@ -6,7 +6,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 
-from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.facade.models import HogFunctionTemplate
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError
@@ -562,14 +562,29 @@ class TestFunctionMessageTemplatesAPI(APIBaseTest):
                         "url": {"value": "https://example.com"},
                         "auth_token": {"value": "super-secret"},
                     },
+                    "mappings": [
+                        {
+                            "name": "Event mapping",
+                            "inputs_schema": [
+                                {"key": "path", "type": "string", "label": "Path"},
+                                {"key": "mapping_token", "type": "string", "label": "Token", "secret": True},
+                            ],
+                            "inputs": {
+                                "path": {"value": "/hook"},
+                                "mapping_token": {"value": "mapping-secret"},
+                            },
+                        }
+                    ],
                 }
             }
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert "super-secret" not in str(response.json())
+        assert "mapping-secret" not in str(response.json())
         template = MessageTemplate.objects.get(id=response.json()["id"])
         assert template.content["function"]["inputs"] == {"url": {"value": "https://example.com"}}
+        assert template.content["function"]["mappings"][0]["inputs"] == {"path": {"value": "/hook"}}
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/messaging_templates/{template.id}/",

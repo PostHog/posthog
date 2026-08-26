@@ -544,6 +544,7 @@ layer = "modules"
 path = "products.messaging"
 depends_on = [
     "posthog",
+    "products.cdp",
 ]
 layer = "modules"
 

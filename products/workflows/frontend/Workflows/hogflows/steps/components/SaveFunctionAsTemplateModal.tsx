@@ -30,7 +30,21 @@ export function SaveFunctionAsTemplateModal({
         }
     }, [saveModalOpen])
 
-    const { inputs: cleanInputs, strippedKeys } = stripSecretInputs(inputs ?? {}, template.inputs_schema)
+    const { inputs: cleanInputs, strippedKeys: inputStrippedKeys } = stripSecretInputs(
+        inputs ?? {},
+        template.inputs_schema
+    )
+    // Mappings carry their own inputs and inputs_schema, so strip each one by its own schema
+    const cleanedMappings = mappings?.map((mapping) => {
+        const { inputs: cleanMappingInputs, strippedKeys: mappingStrippedKeys } = stripSecretInputs(
+            mapping.inputs ?? {},
+            mapping.inputs_schema
+        )
+        return { mapping: { ...mapping, inputs: cleanMappingInputs }, strippedKeys: mappingStrippedKeys }
+    })
+    const strippedKeys = Array.from(
+        new Set([...inputStrippedKeys, ...(cleanedMappings ?? []).flatMap((m) => m.strippedKeys)])
+    )
 
     const handleClose = (): void => {
         setTemplateName('')
@@ -56,7 +70,7 @@ export function SaveFunctionAsTemplateModal({
                                 description: templateDescription,
                                 templateId: template.id,
                                 inputs: cleanInputs,
-                                mappings,
+                                mappings: cleanedMappings?.map((m) => m.mapping),
                             })
                         }
                         disabledReason={!templateName ? 'Please enter a template name' : undefined}
