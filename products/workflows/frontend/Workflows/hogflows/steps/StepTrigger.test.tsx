@@ -52,11 +52,12 @@ describe('StepTriggerConfiguration', () => {
         cleanup()
     })
 
-    function renderTrigger(properties: HogFlowAction['filters']['properties']): void {
+    function renderTrigger(properties: NonNullable<HogFlowAction['filters']>['properties']): void {
         const action = {
             id: 'trigger_node',
             type: 'trigger',
             name: 'Trigger',
+            description: '',
             config: { type: 'event', filters: { events: [], properties } },
         } as TriggerAction
         render(
