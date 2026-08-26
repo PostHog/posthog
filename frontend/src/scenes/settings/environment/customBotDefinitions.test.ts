@@ -52,6 +52,8 @@ describe('customBotDefinitions', () => {
         test.each([
             ['a hostname', 'not-an-ip'],
             ['an octet over 255', '192.0.2.999'],
+            // Python's ipaddress rejects leading zeros, so the tester must too or Save 400s.
+            ['a leading-zero octet', '192.168.001.1'],
             ['a prefix wider than the family', '192.0.2.0/33'],
             ['too many parts', '192.0.2.0/24/8'],
         ])('rejects %s as a range', (_name, pattern) => {

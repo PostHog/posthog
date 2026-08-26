@@ -48,9 +48,9 @@ export function CustomBotDefinitions(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    const [savedDefinitions, setSavedDefinitions] = useState<CustomBotDefinition[]>(
-        () => currentTeam?.modifiers?.customBotDefinitions ?? []
-    )
+    // The saved state is whatever the server currently holds, so a save that the backend rejects
+    // leaves the editor dirty and retryable instead of falsely reading as saved.
+    const savedDefinitions = currentTeam?.modifiers?.customBotDefinitions ?? []
     const [definitions, setDefinitions] = useState<CustomBotDefinition[]>(savedDefinitions)
     const [testValues, setTestValues] = useState<Partial<Record<CustomBotField, string>>>({})
 
@@ -61,11 +61,14 @@ export function CustomBotDefinitions(): JSX.Element {
     const canEdit = !restrictedReason
 
     const firstError = definitions.map(validateCustomBotDefinition).find(Boolean)
-    const isUnchanged = equal(definitions, savedDefinitions)
+    const isUnchanged = equal(sanitizeCustomBotDefinitions(definitions), savedDefinitions)
     const testedFields = CUSTOM_BOT_FIELD_OPTIONS.filter((option) =>
         definitions.some((definition) => definition.key === option.value)
     )
     const matched = definitions.filter((definition) => matchesValue(definition, testValues[definition.key] ?? ''))
+    // Only values for a property still in use count as test input, so removing a rule does not leave
+    // a stale value showing a phantom "no match".
+    const hasTestInput = testedFields.some((field) => testValues[field.value]?.trim())
     // $ip is dropped on ingest when a project anonymizes IPs, so a range would never match.
     const ipRulesAreDead =
         currentTeam?.anonymize_ips && definitions.some((definition) => definition.key === CustomBotField.IP)
@@ -83,19 +86,21 @@ export function CustomBotDefinitions(): JSX.Element {
 
     const save = (): void => {
         const sanitized = sanitizeCustomBotDefinitions(definitions)
+        setDefinitions(sanitized)
+        // On success the team reloads with these definitions and isUnchanged flips to true; on a
+        // rejected save the team is unchanged, so the editor stays dirty and the error is actionable.
         updateCurrentTeam({
             modifiers: { ...currentTeam?.modifiers, customBotDefinitions: sanitized },
         })
-        setDefinitions(sanitized)
-        setSavedDefinitions(sanitized)
     }
 
     return (
         <div className="flex flex-col gap-4">
             <p className="mb-0">
                 A bot you add here counts as a bot everywhere <code>Is bot</code> is available, including insights, web
-                analytics, and SQL. The built-in list covers crawlers that identify themselves, like GPTBot and
-                Googlebot.
+                analytics, and SQL. PostHog's built-in list already covers crawlers that identify themselves, like
+                GPTBot and Googlebot. Your rules are checked first, so you can give one of those a different name or
+                category.
             </p>
             <p className="mb-0">
                 Match the user agent to catch a crawler that names itself, or the IP address to catch one that sends a
@@ -226,7 +231,7 @@ export function CustomBotDefinitions(): JSX.Element {
 
             {testedFields.length > 0 ? (
                 <div className="flex flex-col gap-2">
-                    <LemonLabel info="Only your own bots are checked here. PostHog's built-in list is matched first when a query runs.">
+                    <LemonLabel info="Only your own bots are checked here. A real query also matches PostHog's built-in list, after your rules.">
                         Test a value
                     </LemonLabel>
                     {testedFields.map((field) => (
@@ -251,7 +256,7 @@ export function CustomBotDefinitions(): JSX.Element {
                                 </LemonTag>
                             ))}
                         </span>
-                    ) : Object.values(testValues).some((value) => value?.trim()) ? (
+                    ) : hasTestInput ? (
                         <span className="text-muted">No match. This would count as regular traffic.</span>
                     ) : null}
                 </div>

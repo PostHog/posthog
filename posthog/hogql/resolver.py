@@ -1898,9 +1898,13 @@ class Resolver(CloningVisitor):
                 )
             if node.name in ("isLikelyBot", "__preview_isBot"):
                 # The two-arg form duplicates its IP argument across the per-prefix-length range
-                # checks, so it needs the same re-entrancy guard as the lookup builders below.
+                # checks, and a project's own user-agent rules duplicate the user-agent argument the
+                # same way, so guard the expansion whenever either can happen. A plain one-arg call
+                # with no custom rules embeds its argument once and stays unguarded, so it can still
+                # be reached inside another macro's expansion.
                 modifiers = self.context.modifiers
-                if len(node.args) > 1:
+                duplicates_argument = len(node.args) > 1 or bool(modifiers and modifiers.customBotDefinitions)
+                if duplicates_argument:
                     return self._expand_duplicating_macro(
                         node, lambda: is_bot(node=node, args=node.args, modifiers=modifiers)
                     )

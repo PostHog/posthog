@@ -18,8 +18,9 @@ products.web_analytics.backend.hogql_queries so that changes to bot data do not 
 a HogQL review.
 
 A project can extend the built-in list with its own rules, which arrive as query modifiers. Each
-rule matches one event property, so the rules are checked as an ordered chain after the built-ins
-rather than merged into the built-in pattern array.
+rule matches one event property, so the rules are checked as an ordered chain ahead of the
+built-ins rather than merged into the built-in pattern array. A project's own rule wins when both
+match.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -208,22 +209,29 @@ def _build_bot_array_lookup(
             ],
         )
 
-    # With project rules the checks become an ordered chain. multiMatchAnyIndex reports whichever
-    # pattern matches earliest in the string rather than earliest in the array, so sharing one
-    # array with the built-ins would leave precedence up to the user agent being classified.
-    # A separate branch per group makes it the order below instead: built-ins, then the project's
-    # own rules, then the empty user agent, then the built-in IP ranges.
-    builtin_index = ast.Call(
-        name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
-    )
-    branches: list[ast.Expr] = [
-        _matched(builtin_index),
-        ast.ArrayAccess(array=_string_array(builtin_labels), property=builtin_index, nullish=False),
-    ]
+    # With project rules the checks become an ordered chain, in this order: the project's own
+    # rules, then the built-ins, then the empty user agent, then the built-in IP ranges. A rule
+    # someone wrote by hand says more about what they want counted than a default we shipped, so
+    # it wins — that also makes the setting predictable, since a rule that matches always names
+    # the event.
+    #
+    # It has to be a branch per group rather than one shared pattern array: multiMatchAnyIndex
+    # reports whichever pattern matches earliest in the string rather than earliest in the array,
+    # so merging the arrays would leave precedence up to the user agent being classified.
+    branches: list[ast.Expr] = []
     for group in groups:
         branch = _custom_group_branch(group, args, attr)
         if branch is not None:
             branches.extend(branch)
+    builtin_index = ast.Call(
+        name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
+    )
+    branches.extend(
+        [
+            _matched(builtin_index),
+            ast.ArrayAccess(array=_string_array(builtin_labels), property=builtin_index, nullish=False),
+        ]
+    )
     branches.extend(
         [
             ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=safe_user_agent, right=ast.Constant(value="")),

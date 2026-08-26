@@ -97,7 +97,9 @@ function parseIp(address: string): { value: bigint; width: bigint } | null {
         }
         let value = 0n
         for (const octet of octets) {
-            if (!/^\d{1,3}$/.test(octet) || Number(octet) > 255) {
+            // No leading zeros: Python's ipaddress rejects them, so the server would 400 a rule
+            // the tester had called valid.
+            if (!/^(0|[1-9]\d{0,2})$/.test(octet) || Number(octet) > 255) {
                 return null
             }
             value = (value << 8n) | BigInt(octet)

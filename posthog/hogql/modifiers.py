@@ -73,12 +73,13 @@ def create_default_modifiers_for_team(
                         pass
                 elif key == "customBotDefinitions":
                     # drop the definitions that don't parse, keep the rest — one bad entry should
-                    # not take a project's whole bot list out of every query
+                    # not take a project's whole bot list out of every query. A non-dict entry
+                    # (from a hand-edited modifiers JSON) is unparseable, so drop it too rather than
+                    # let it reach compile_definitions and crash every classification query.
                     if isinstance(value, list):
                         definitions = []
                         for definition in value:
                             if not isinstance(definition, dict):
-                                definitions.append(definition)
                                 continue
                             try:
                                 definitions.append(CustomBotDefinition(**definition))

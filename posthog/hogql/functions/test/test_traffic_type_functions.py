@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
-from posthog.schema import CustomBotDefinition, CustomBotField, CustomBotMatcher
+from posthog.schema import CustomBotDefinition, CustomBotField, CustomBotMatcher, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -609,6 +609,29 @@ class TestMacroExpansionGuard(BaseTest):
         printed = self._print("SELECT __preview_getTrafficType(toString(__preview_isBot(properties.x))) FROM events")
         assert "multiMatchAnyIndex" in printed
 
+    def test_one_arg_is_bot_with_custom_ua_rule_is_guarded(self):
+        # A project user-agent rule makes even the one-arg form duplicate the user-agent argument,
+        # so nesting it becomes the same exponential vector and must be rejected. Without a rule the
+        # same nesting is allowed (test_non_duplicating_macro_inside_duplicating_macro_is_allowed).
+        modifiers = HogQLQueryModifiers(
+            customBotDefinitions=[
+                CustomBotDefinition(
+                    id="1",
+                    name="Acme",
+                    key=CustomBotField.FIELD_RAW_USER_AGENT,
+                    pattern="AcmeBot",
+                    matcher=CustomBotMatcher.CONTAINS,
+                )
+            ]
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
+            prepare_and_print_ast(
+                parse_select("SELECT __preview_isBot(toString(__preview_isBot(properties.x))) FROM events"),
+                context,
+                "clickhouse",
+            )
+
     def test_two_arg_is_bot_expands_ip_ranges(self):
         printed = self._print(
             "SELECT isLikelyBot(toString(properties.$user_agent), toString(properties.$ip)) FROM events"
@@ -736,15 +759,26 @@ class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
 
         assert (is_bot, name) == (True, "Load test")
 
-    def test_built_in_bots_are_named_before_a_project_rule(self):
-        # multiMatchAnyIndex reports whichever pattern matches earliest in the string, so the
-        # built-ins only keep their say while they are checked in their own branch.
-        _is_bot, name, _category = self._classify(
-            [_custom_bot(name="Mine", pattern="GPTBot")],
+    @parameterized.expand(
+        [
+            # Someone who writes a rule for a bot PostHog already knows means to relabel it, so
+            # their rule takes both the name and the category.
+            ("a rule that matches", "GPTBot", ("Mine", "monitoring")),
+            # Rules extend the built-in list rather than replacing it, so an event no rule claims
+            # keeps the name PostHog gives it.
+            ("a rule that does not match", "AcmeBot", ("GPTBot", "ai_crawler")),
+        ]
+    )
+    def test_a_project_rule_is_named_ahead_of_a_built_in(self, _name: str, pattern: str, expected: tuple[str, str]):
+        # Precedence only holds while each group is checked in its own branch: multiMatchAnyIndex
+        # reports whichever pattern matches earliest in the string rather than earliest in the
+        # array, so merging the rules into the built-in array would decide this by user agent.
+        _is_bot, name, category = self._classify(
+            [_custom_bot(name="Mine", pattern=pattern, category="monitoring")],
             {"$raw_user_agent": "Mozilla/5.0 (compatible; GPTBot/1.0)"},
         )
 
-        assert name == "GPTBot"
+        assert (name, category) == expected
 
     def test_a_project_rule_beats_the_no_user_agent_bucket(self):
         # Server logs arrive without a user agent. A project that named the IP wants its own name
