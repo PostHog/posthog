@@ -122,14 +122,19 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 )
                 return previous
 
-            # Capture below the previous-selection short circuit so an activity retry that
-            # reuses an earlier run's repository does not re-emit the start event.
-            _capture_repo_research_event(
-                "signals_repo_research_started",
-                team,
-                team.organization,
-                input.report_id,
-            )
+            # Emit the start event once per research job. The short circuit above only
+            # silences a reuse; this activity persists no durable selection of its own (the
+            # repo_selection artefact is written by the next activity), so an activity retry or
+            # worker restart finds no previous choice and reaches here again. Temporal increments
+            # `attempt` on each re-run, so gate the capture on the first attempt.
+            attempt = temporalio.activity.info().attempt if temporalio.activity.in_activity() else 1
+            if attempt == 1:
+                _capture_repo_research_event(
+                    "signals_repo_research_started",
+                    team,
+                    team.organization,
+                    input.report_id,
+                )
 
             user_id = await database_sync_to_async(_resolve_sandbox_user_id, thread_sensitive=False)(input.team_id)
             if user_id is None:
