@@ -51,6 +51,17 @@ export function releaseSidebarPeek(): void {
   holdCount = Math.max(0, holdCount - 1);
 }
 
+export async function withSidebarPeekHeld<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  holdSidebarPeek();
+  try {
+    return await operation();
+  } finally {
+    releaseSidebarPeek();
+  }
+}
+
 export function endSidebarPeek(delayMs = 0): void {
   if (holdCount > 0) return;
   clearHideTimer();

@@ -6,6 +6,7 @@ import {
   holdSidebarPeek,
   releaseSidebarPeek,
   useSidebarPeekStore,
+  withSidebarPeekHeld,
 } from "./sidebarPeekStore";
 
 const isPeeked = (): boolean => useSidebarPeekStore.getState().peek;
@@ -81,6 +82,25 @@ describe("sidebarPeekStore", () => {
 
     vi.advanceTimersByTime(200);
     expect(isPeeked()).toBe(true);
+  });
+
+  it("keeps the peek open until an asynchronous menu closes", async () => {
+    beginSidebarPeek();
+    let closeMenu: (() => void) | undefined;
+    const menuClosed = new Promise<void>((resolve) => {
+      closeMenu = resolve;
+    });
+
+    const result = withSidebarPeekHeld(() => menuClosed);
+    endSidebarPeek(0);
+    vi.runAllTimers();
+    expect(isPeeked()).toBe(true);
+
+    closeMenu?.();
+    await result;
+    endSidebarPeek(0);
+    vi.runAllTimers();
+    expect(isPeeked()).toBe(false);
   });
 
   it("cancelSidebarPeek closes immediately and clears the hold", () => {
