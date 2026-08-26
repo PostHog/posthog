@@ -229,28 +229,46 @@ class TestTicketAPI(APIBaseTest):
         self.ticket.refresh_from_db()
         self.assertIsNotNone(self.ticket.sla_due_at)
 
-    def test_update_sla_due_at_logs_activity(self, mock_on_commit):
-        sla_time = timezone.now() + timedelta(hours=5)
+    @parameterized.expand(
+        [
+            (
+                "sla_due_at",
+                {"sla_due_at": "2030-01-01T00:00:00+00:00"},
+                {"sla_due_at": (None, "2030-01-01T00:00:00+00:00")},
+            ),
+            (
+                "status_and_priority",
+                {"status": Status.RESOLVED, "priority": Priority.HIGH},
+                {"status": (Status.NEW, Status.RESOLVED), "priority": (None, Priority.HIGH)},
+            ),
+        ]
+    )
+    def test_update_logs_every_changed_field_in_one_activity_entry(
+        self, mock_on_commit, _name, payload, expected_changes
+    ):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"sla_due_at": sla_time.isoformat()},
+            payload,
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        activity = ActivityLog.objects.filter(
-            team_id=self.team.id,
-            scope="Ticket",
-            item_id=str(self.ticket.id),
-            activity="updated",
-        ).first()
+        entries = list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="Ticket",
+                item_id=str(self.ticket.id),
+                activity="updated",
+            )
+        )
+        self.assertEqual(len(entries), 1)
 
-        assert activity is not None
-        assert activity.detail is not None
-        changes = activity.detail.get("changes", [])
-        sla_change = next((c for c in changes if c["field"] == "sla_due_at"), None)
-        assert sla_change is not None
-        self.assertIsNone(sla_change["before"])
-        self.assertIsNotNone(sla_change["after"])
+        detail = entries[0].detail
+        assert detail is not None
+        changes = detail.get("changes", [])
+        self.assertEqual(
+            {change["field"]: (change["before"], change["after"]) for change in changes},
+            expected_changes,
+        )
 
     @parameterized.expand(
         [
