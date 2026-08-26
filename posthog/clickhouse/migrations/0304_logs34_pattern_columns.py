@@ -7,15 +7,13 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 operations = [
     run_sql_with_exceptions(
-        "ALTER TABLE posthog.logs34 "
-        "ADD COLUMN IF NOT EXISTS pattern String, "
-        "ADD COLUMN IF NOT EXISTS pattern_version UInt8",
+        "ALTER TABLE logs34 ADD COLUMN IF NOT EXISTS pattern String, ADD COLUMN IF NOT EXISTS pattern_version UInt8",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
-        "ALTER TABLE posthog.logs_distributed "
+        "ALTER TABLE logs_distributed "
         "ADD COLUMN IF NOT EXISTS pattern String, "
         "ADD COLUMN IF NOT EXISTS pattern_version UInt8",
         node_roles=[NodeRole.LOGS],
