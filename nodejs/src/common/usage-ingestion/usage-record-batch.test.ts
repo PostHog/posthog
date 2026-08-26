@@ -55,17 +55,16 @@ describe('UsageRecordBatch', () => {
         expect(ingested[0].map((r) => r.teamId)).toEqual([2])
     })
 
-    it('gates individual usage keys and preserves aggregate quantities', async () => {
-        const b = new UsageRecordBatch(client, {
-            unit: 'bytes',
-            isTeamEnabled: () => true,
-            isUsageKeyEnabled: (_teamId, usageKey) => usageKey === 'logs_bytes',
-        })
+    it('keeps an aggregate record its own quantity and unit', async () => {
+        const b = new UsageRecordBatch(client, { unit: 'bytes', isTeamEnabled: () => true })
         b.add(1, 'logs_bytes', 'logs:1', 42, 'bytes')
         b.add(1, 'logs_records', 'logs:2', 3, 'records')
         await b.flush()
 
-        expect(ingested[0]).toEqual([expect.objectContaining({ usageKey: 'logs_bytes', quantity: 42, unit: 'bytes' })])
+        expect(ingested[0]).toEqual([
+            expect.objectContaining({ usageKey: 'logs_bytes', quantity: 42, unit: 'bytes' }),
+            expect.objectContaining({ usageKey: 'logs_records', quantity: 3, unit: 'records' }),
+        ])
     })
 
     it('does not send twice for one accumulation', async () => {

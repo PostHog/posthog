@@ -5,7 +5,6 @@ import { UsageIngestionClient, UsageRecordInput } from './client'
 export interface UsageRecordBatchConfig {
     unit: string
     isTeamEnabled: ValueMatcher<number>
-    isUsageKeyEnabled?: (teamId: number, usageKey: string) => boolean
 }
 
 interface PendingRecord {
@@ -39,18 +38,13 @@ export class UsageRecordBatch {
         return this.records.size
     }
 
-    /** Whether this record would be kept, so a caller can skip building one. */
-    accepts(teamId: number, usageKey?: string): boolean {
-        if (this.client === null || !this.config.isTeamEnabled(teamId)) {
-            return false
-        }
-        return (
-            usageKey === undefined || !this.config.isUsageKeyEnabled || this.config.isUsageKeyEnabled(teamId, usageKey)
-        )
+    /** Whether this team's records would be kept, so a caller can skip building one. */
+    accepts(teamId: number): boolean {
+        return this.client !== null && this.config.isTeamEnabled(teamId)
     }
 
     add(teamId: number, usageKey: string, recordId: string, quantity = 1, unit?: string): void {
-        if (quantity <= 0 || !this.accepts(teamId, usageKey)) {
+        if (quantity <= 0 || !this.accepts(teamId)) {
             return
         }
         const key = `${teamId}:${usageKey}:${recordId}`
@@ -71,7 +65,7 @@ export class UsageRecordBatch {
         recordId: string
     ): void {
         // A record that would be dropped must not put the flush behind its Kafka writes.
-        if (!this.accepts(teamId, usageKey)) {
+        if (!this.accepts(teamId)) {
             return
         }
         this.pendingAcknowledgements.push(
