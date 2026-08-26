@@ -1074,7 +1074,12 @@ jobs:
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true'
-        timeout-minutes: 20
+        # On master this job replays the full migration history from scratch to
+        # produce the schema dump every PR job restores. That replay grows with
+        # every merged migration and hits a fixed limit eventually, which cancels
+        # the job and fails the Django gate on master. Sized at about twice the
+        # replay so it stays a guard against a hang, not a ceiling on history.
+        timeout-minutes: 40
         name: Validate migrations
         runs-on: depot-ubuntu-24.04
         steps:
