@@ -1,3 +1,11 @@
+import {
+  type ChannelItemFilters,
+  type ChannelItemGrouping,
+  type ChannelItemSort,
+  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DEFAULT_CHANNEL_ITEM_GROUPING,
+  DEFAULT_CHANNEL_ITEM_SORT,
+} from "@posthog/core/canvas/channelItems";
 import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
 import { create } from "zustand";
@@ -28,6 +36,11 @@ interface SidebarStoreState {
   showAllUsers: boolean;
   showInternal: boolean;
   taskTypeFilter: WorkspaceMode[];
+  // The space session list's narrowing. Held here rather than in the list so a
+  // space switch, which remounts the list, keeps what the user chose.
+  channelItemFilters: ChannelItemFilters;
+  channelItemSort: ChannelItemSort;
+  channelItemGrouping: ChannelItemGrouping;
   // Reveals the Channels feature in the unified sidebar (channel tree replaces
   // the task list, Canvas nav item appears). Off by default — Code merged into
   // the Bluebird chrome ships with channels hidden until the user opts in.
@@ -59,6 +72,9 @@ interface SidebarStoreActions {
   setShowAllUsers: (showAllUsers: boolean) => void;
   setShowInternal: (showInternal: boolean) => void;
   toggleTaskType: (mode: WorkspaceMode) => void;
+  setChannelItemFilters: (filters: ChannelItemFilters) => void;
+  setChannelItemSort: (sort: ChannelItemSort) => void;
+  setChannelItemGrouping: (grouping: ChannelItemGrouping) => void;
   setChannelsEnabled: (channelsEnabled: boolean) => void;
   setNavItemVisible: (item: CustomizableNavItemId, visible: boolean) => void;
   setNavItemOrder: (order: readonly CustomizableNavItemId[]) => void;
@@ -82,6 +98,9 @@ export const useSidebarStore = create<SidebarStore>()(
       showAllUsers: false,
       showInternal: false,
       taskTypeFilter: [...ALL_WORKSPACE_MODES],
+      channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+      channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
+      channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
       channelsEnabled: false,
       navItemOverrides: {},
       navItemOrder: [],
@@ -149,6 +168,11 @@ export const useSidebarStore = create<SidebarStore>()(
           navItemOverrides: { ...state.navItemOverrides, [item]: visible },
         })),
       setNavItemOrder: (navItemOrder) => set({ navItemOrder }),
+      setChannelItemFilters: (channelItemFilters) =>
+        set({ channelItemFilters }),
+      setChannelItemSort: (channelItemSort) => set({ channelItemSort }),
+      setChannelItemGrouping: (channelItemGrouping) =>
+        set({ channelItemGrouping }),
     }),
     {
       name: "sidebar-storage",
@@ -165,6 +189,9 @@ export const useSidebarStore = create<SidebarStore>()(
         showAllUsers: state.showAllUsers,
         showInternal: state.showInternal,
         taskTypeFilter: state.taskTypeFilter,
+        channelItemFilters: state.channelItemFilters,
+        channelItemSort: state.channelItemSort,
+        channelItemGrouping: state.channelItemGrouping,
         channelsEnabled: state.channelsEnabled,
         navItemOverrides: state.navItemOverrides,
         navItemOrder: state.navItemOrder,
@@ -183,6 +210,9 @@ export const useSidebarStore = create<SidebarStore>()(
           showAllUsers?: boolean;
           showInternal?: boolean;
           taskTypeFilter?: WorkspaceMode[];
+          channelItemFilters?: Partial<ChannelItemFilters>;
+          channelItemSort?: ChannelItemSort;
+          channelItemGrouping?: ChannelItemGrouping;
           channelsEnabled?: boolean;
           navItemOverrides?: unknown;
           navItemOrder?: unknown;
@@ -209,6 +239,16 @@ export const useSidebarStore = create<SidebarStore>()(
           showInternal: persistedState.showInternal ?? current.showInternal,
           taskTypeFilter:
             persistedState.taskTypeFilter ?? current.taskTypeFilter,
+          // Spread over the defaults so a filter added later starts at its
+          // default instead of undefined for users with older persisted state.
+          channelItemFilters: {
+            ...current.channelItemFilters,
+            ...persistedState.channelItemFilters,
+          },
+          channelItemSort:
+            persistedState.channelItemSort ?? current.channelItemSort,
+          channelItemGrouping:
+            persistedState.channelItemGrouping ?? current.channelItemGrouping,
           channelsEnabled:
             persistedState.channelsEnabled ?? current.channelsEnabled,
           navItemOverrides: sanitizeNavItemOverrides(

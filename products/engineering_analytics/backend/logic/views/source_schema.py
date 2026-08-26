@@ -109,3 +109,16 @@ TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
     "team_slug": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
+
+# The Trunk merge-queue snapshot (TrunkIo source, opt-in MergeQueuePullRequests endpoint): one row
+# per queue entry with the state it last reached. Trunk keeps no state history, so
+# ``state_changed_at`` is the entry's last transition, not a timeline. Typed by the trunk_io
+# pipeline (verified against a real connected source); Nullable like everything else it lands.
+TRUNK_MERGE_QUEUE_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "pr_number": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "priority_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "skip_the_line": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField"},
+    "state_changed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}

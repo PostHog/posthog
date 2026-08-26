@@ -40,6 +40,7 @@ from typing import Any
 
 from django.conf import settings
 
+import requests
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
@@ -50,7 +51,12 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.settings.utils import get_list
 
 from .callers import IntegrationCaller
-from .errors import IntegrationServiceMisconfiguredError, SecretInRecoveryError, SecretMissingError
+from .errors import (
+    IntegrationServiceMisconfiguredError,
+    IntegrationServiceUnreachableError,
+    SecretInRecoveryError,
+    SecretMissingError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -88,15 +94,22 @@ class SecretValue:
 
     state: str
     value: str | None = field(repr=False)
-    previous: str | None = field(repr=False)
+    incoming: str | None = field(repr=False)
 
 
 @frozen
 class RotatingSecret:
-    """Current value plus the outgoing one, so the two cannot be transposed silently."""
+    """The live value plus the staged replacement, so the two cannot be transposed silently.
+
+    `incoming` is the value a rotation has staged and the service already accepts — NOT the
+    outgoing one. A rotation stages the replacement in `<KEY>_FALLBACKS` while the live value
+    stays put, and completing it moves the staged value across and drops the sibling. So the
+    overlap is the staging window: once a rotation completes, the old value stops being served
+    and there is nothing to fall back to.
+    """
 
     current: str = field(repr=False)
-    previous: str | None = field(repr=False)
+    incoming: str | None = field(repr=False)
 
 
 def integration_service_signing_keys() -> list[str]:
@@ -158,17 +171,18 @@ class IntegrationSecretsClient:
             out[key] = secret.value
         return out
 
-    def get_with_previous(self, key: str, caller: IntegrationCaller) -> RotatingSecret:
-        """Current value plus the outgoing one while a rotation is in flight.
+    def get_with_incoming(self, key: str, caller: IntegrationCaller) -> RotatingSecret:
+        """The live value plus the staged replacement, while a rotation is in flight.
 
-        For callers that can retry against a third party: try current, and on an auth
-        failure retry with previous. Nothing is reported back — the service works out for
-        itself when the old value is safe to retire.
+        For callers that can retry against a third party: try current, and on an auth failure
+        retry with `incoming` — which is what you want when the credential has already been
+        rotated at the provider and the live value no longer works there. Nothing is reported
+        back; the service works out for itself when a staged value is safe to promote.
         """
         secret = self._resolve([key], caller)[key]
         if secret.state == "recovery" or secret.value is None:
             raise SecretInRecoveryError(key)
-        return RotatingSecret(current=secret.value, previous=secret.previous)
+        return RotatingSecret(current=secret.value, incoming=secret.incoming)
 
     def _resolve(self, keys: list[str], caller: IntegrationCaller) -> dict[str, SecretValue]:
         missing = _missing_config()
@@ -181,13 +195,7 @@ class IntegrationSecretsClient:
         return self._fetch(keys, caller)
 
     def _fetch(self, keys: list[str], caller: IntegrationCaller) -> dict[str, SecretValue]:
-        response = internal_requests.post(
-            f"{settings.INTEGRATION_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}",
-            headers=self._auth_headers(keys, caller),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        body: dict[str, Any] = response.json()
+        body = self._post(keys, caller)
 
         missing = set(body.get("missing") or [])
         secrets: dict[str, Any] = body.get("secrets") or {}
@@ -202,11 +210,44 @@ class IntegrationSecretsClient:
             resolved[key] = SecretValue(
                 state=payload.get("state", "steady"),
                 value=payload.get("value"),
-                previous=payload.get("previous"),
+                # `previous` is the wire name for the staged value. It is wrong, and renaming a
+                # field both sides read needs a release where each accepts either — so the
+                # correction stops at this boundary rather than propagating the wrong idea.
+                incoming=payload.get("previous"),
             )
             INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="ok").inc()
 
         return resolved
+
+    def _post(self, keys: list[str], caller: IntegrationCaller) -> dict[str, Any]:
+        """The request itself, with every transport failure wearing this client's own type.
+
+        No `requests` exception may escape. Callers sit in the middle of talking to some third
+        party, so a bare `HTTPError` from here is indistinguishable from one raised by the API
+        they were actually calling — and the difference decides whose problem it is. A misrouted
+        `INTEGRATION_SERVICE_URL` answering 404 is our deploy error, not a dead endpoint of
+        theirs, and a caller reading the status code alone cannot tell.
+        """
+        # Minted outside the try: signing is local work, and a failure there is a bug in this
+        # process, not the service being unreachable. Catching it here would file it under the
+        # one label nobody investigates.
+        headers = self._auth_headers(keys, caller)
+        try:
+            response = internal_requests.post(
+                f"{settings.INTEGRATION_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}",
+                headers=headers,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            # ValueError covers a body that is not JSON. Modern `requests` raises its own
+            # JSONDecodeError (a RequestException), but the stdlib/simplejson ValueError still
+            # surfaces on older paths, and nothing else in this block raises one.
+            return response.json()
+        except (requests.RequestException, ValueError) as e:
+            INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="unreachable").inc()
+            raise IntegrationServiceUnreachableError(
+                f"The integration service did not answer a credential request: {e}"
+            ) from e
 
     def _auth_headers(self, keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
         token = encode_jwt(
@@ -223,7 +264,7 @@ class IntegrationSecretsClient:
             # Carry the reason: without it this reads as "the service doesn't have it", which is
             # the one thing it does not mean — the service was never asked.
             raise SecretMissingError(key, disabled_reason=disabled_reason)
-        return SecretValue(state="steady", value=value, previous=None)
+        return SecretValue(state="steady", value=value, incoming=None)
 
 
 _client = IntegrationSecretsClient()
@@ -237,5 +278,5 @@ def get_many(keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
     return _client.get_many(keys, caller)
 
 
-def get_with_previous(key: str, caller: IntegrationCaller) -> RotatingSecret:
-    return _client.get_with_previous(key, caller)
+def get_with_incoming(key: str, caller: IntegrationCaller) -> RotatingSecret:
+    return _client.get_with_incoming(key, caller)

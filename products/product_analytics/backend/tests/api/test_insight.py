@@ -55,6 +55,7 @@ from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.facade.access import DashboardAccessMethod
@@ -62,8 +63,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -4804,7 +4803,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         """
         from posthog.models.organization import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

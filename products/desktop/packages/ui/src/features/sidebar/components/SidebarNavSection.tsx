@@ -3,10 +3,13 @@ import {
   ANALYTICS_EVENTS,
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
+import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
+import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
   CUSTOMIZABLE_NAV_ITEM_IDS,
@@ -29,7 +32,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import { Box, Flex } from "@radix-ui/themes";
 import { useRouterState } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import type { MouseEventHandler, ReactNode } from "react";
 import { ActivityItem } from "./items/ActivityItem";
 import { CommandCenterItem } from "./items/CommandCenterItem";
 import { ConfigureItem } from "./items/ConfigureItem";
@@ -38,8 +41,6 @@ import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
 import { SearchItem } from "./items/SearchItem";
-
-const SIDEBAR_INBOX_REFETCH_INTERVAL_MS = 60_000;
 
 interface SidebarNavSectionProps {
   // The Command Center badge counts how many command-center cells point at a
@@ -63,6 +64,7 @@ export function SidebarNavSection({
   commandCenterActiveCount: providedActiveCount,
 }: SidebarNavSectionProps = {}) {
   const view = useAppView();
+  const openBrowserTab = useOpenBrowserTab();
   // Loops stays behind the loops flag; default on in dev so local builds
   // keep the nav item. Also gates the per-channel Loops tab (see ChannelTabs).
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
@@ -71,6 +73,11 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  // With channel reports on, spaces own reports (sidebar tab + feed) and the
+  // inbox disappears as a destination.
+  const channelReportsEnabled = useChannelReportsEnabled();
+  const reportsInboxEnabled = useReportsInboxEnabled();
+  const inboxDecisionCount = useInboxDecisionCount();
   const contextEnabled = useContextLayerFlag();
   const inSpaces = useRouterState({
     select: (state) => state.location.pathname.startsWith("/spaces"),
@@ -88,18 +95,6 @@ export function SidebarNavSection({
   const isCommandCenterActive = view.type === "command-center";
   const isContextActive = view.type === "context";
 
-  // Open pull requests in the inbox — the main CTA, and the same count the inbox
-  // Pull requests tab shows, so the badge and the tab always agree.
-  // `ignoreFilters` keeps the badge stable against the inbox's filter chrome;
-  // scope still follows the user's For-you / project choice.
-  // The sidebar mounts on every route, so its badge polls slowly; opening the
-  // inbox adds its own 3s observers and React Query uses the shortest interval.
-  const { counts: inboxCounts } = useInboxAllReports({
-    ignoreFilters: true,
-    refetchIntervalMs: SIDEBAR_INBOX_REFETCH_INTERVAL_MS,
-  });
-  const inboxPullRequestCount = inboxCounts.pulls;
-
   // Only subscribe to the task list when a parent hasn't already supplied the
   // count — keeps the standalone (Channels) render self-contained without
   // opening a redundant subscription when composed inside SidebarMenu.
@@ -113,13 +108,24 @@ export function SidebarNavSection({
 
   // depth 1 means the row was clicked inside the expanded More section.
   const withNavTrack =
-    (item: SidebarNavItem, action: () => void, depth: 0 | 1 = 0) =>
-    () => {
+    (
+      item: SidebarNavItem,
+      action: () => void,
+      depth: 0 | 1 = 0,
+      newTab?: { href: string; prepare?: () => void },
+    ): MouseEventHandler<Element> =>
+    (event) => {
       track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
         item,
         in_more: depth === 1,
         layout: "code",
       });
+      if (newTab && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        newTab.prepare?.();
+        openBrowserTab(newTab.href);
+        return;
+      }
       action();
     };
 
@@ -132,7 +138,9 @@ export function SidebarNavSection({
     ),
   );
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
-    inbox: true,
+    // The global reports inbox reclaims the slot from the channel-reports
+    // takeover; without it, spaces own reports and the entry goes away.
+    inbox: !channelReportsEnabled || reportsInboxEnabled,
     "command-center": true,
     contexts: contextEnabled,
     activity: bluebirdEnabled,
@@ -150,15 +158,22 @@ export function SidebarNavSection({
       <InboxItem
         depth={depth}
         isActive={isInboxActive}
-        onClick={withNavTrack("inbox", navigateToInbox, depth)}
-        pullRequestCount={inboxPullRequestCount}
+        onClick={withNavTrack("inbox", navigateToInbox, depth, {
+          href: "/inbox",
+        })}
+        decisionCount={inboxDecisionCount}
       />
     ),
     "command-center": (depth) => (
       <CommandCenterItem
         depth={depth}
         isActive={isCommandCenterActive}
-        onClick={withNavTrack("command_center", navigateToCommandCenter, depth)}
+        onClick={withNavTrack(
+          "command_center",
+          navigateToCommandCenter,
+          depth,
+          { href: "/command-center" },
+        )}
         activeCount={commandCenterActiveCount}
       />
     ),
@@ -166,7 +181,9 @@ export function SidebarNavSection({
       <ActivityItem
         depth={depth}
         isActive={isActivityActive}
-        onClick={withNavTrack("activity", navigateToActivity, depth)}
+        onClick={withNavTrack("activity", navigateToActivity, depth, {
+          href: "/activity",
+        })}
       />
     ),
     configure: (depth) => (
@@ -179,7 +196,9 @@ export function SidebarNavSection({
       <LoopsItem
         depth={depth}
         isActive={isLoopsActive}
-        onClick={withNavTrack("loops", navigateToLoops, depth)}
+        onClick={withNavTrack("loops", navigateToLoops, depth, {
+          href: "/loops",
+        })}
       />
     ),
     contexts: (depth) => (
@@ -199,7 +218,7 @@ export function SidebarNavSection({
       <Box mb="2">
         <NewTaskItem
           isActive={isHomeActive}
-          onClick={withNavTrack("new_task", goNewTask)}
+          onClick={withNavTrack("new_task", goNewTask, 0, { href: "/new" })}
         />
       </Box>
 

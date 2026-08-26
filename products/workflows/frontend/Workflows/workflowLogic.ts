@@ -170,6 +170,7 @@ const WORKFLOW_CONTENT_FIELDS = [
     'trigger_masking',
     'conversion',
     'exit_condition',
+    'email_sending_rate_limit',
     'abort_action',
     'variables',
 ] as const
@@ -363,7 +364,19 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -979,6 +992,13 @@ export interface workflowLogicActions {
                       to: string
                       type: 'branch' | 'continue'
                   }[]
+                  email_sending_rate_limit?:
+                      | {
+                            count: number
+                            period: 'hour' | 'minute'
+                        }
+                      | null
+                      | undefined
                   exit_condition:
                       | 'exit_on_conversion'
                       | 'exit_on_trigger_not_matched'
@@ -1191,7 +1211,19 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1807,6 +1839,13 @@ export interface workflowLogicActions {
                       to: string
                       type: 'branch' | 'continue'
                   }[]
+                  email_sending_rate_limit?:
+                      | {
+                            count: number
+                            period: 'hour' | 'minute'
+                        }
+                      | null
+                      | undefined
                   exit_condition:
                       | 'exit_on_conversion'
                       | 'exit_on_trigger_not_matched'
@@ -1988,9 +2027,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -2058,6 +2094,21 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -2351,9 +2402,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -2421,6 +2469,21 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<

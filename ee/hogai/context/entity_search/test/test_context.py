@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -25,7 +26,6 @@ from products.surveys.backend.models import Survey
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search import EntitySearchContext
-from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account

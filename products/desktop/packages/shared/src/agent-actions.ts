@@ -40,11 +40,21 @@ const openCanvasFields = {
   canvas_id: requiredField.describe("Id of the canvas to open. Required."),
 };
 
+const openInboxFields = {
+  kind: z.literal("open_inbox"),
+  report_id: requiredField
+    .optional()
+    .describe(
+      "Id of a single report to open. Omit to open the inbox on its own.",
+    ),
+};
+
 /** What the host accepts and {@link buildActionUrl} turns into a link. */
 export const agentActionSchema = z.discriminatedUnion("kind", [
   z.object(composeFields),
   z.object(openSpaceFields),
   z.object(openCanvasFields),
+  z.object(openInboxFields),
 ]);
 
 export type AgentAction = z.infer<typeof agentActionSchema>;
@@ -66,6 +76,7 @@ export const showActionSchema = z.discriminatedUnion("kind", [
   z.object({ ...composeFields, label: labelSchema }),
   z.object({ ...openSpaceFields, label: labelSchema }),
   z.object({ ...openCanvasFields, label: labelSchema }),
+  z.object({ ...openInboxFields, label: labelSchema }),
 ]);
 
 export type ShowAction = z.infer<typeof showActionSchema>;
@@ -102,5 +113,9 @@ export function buildActionUrl(action: AgentAction, scheme: string): string {
       return `${scheme}://channel/${encodeURIComponent(action.channel_id)}`;
     case "open_canvas":
       return `${scheme}://canvas/${encodeURIComponent(action.channel_id)}/${encodeURIComponent(action.canvas_id)}`;
+    case "open_inbox":
+      return action.report_id
+        ? `${scheme}://inbox/${encodeURIComponent(action.report_id)}`
+        : `${scheme}://inbox`;
   }
 }

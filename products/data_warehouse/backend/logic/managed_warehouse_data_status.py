@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema,
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 ReadinessState = Literal[
     "not_configured",
