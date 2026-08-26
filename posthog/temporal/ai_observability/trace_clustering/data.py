@@ -269,9 +269,13 @@ def fetch_item_summaries(
             skipped_wrong_batch += 1
             continue
 
-        # HogQL parses timestamp strings into datetime objects
+        # trace_timestamp is a datetime only when the team's property definition is typed DateTime;
+        # otherwise HogQL returns the raw string.
         trace_ts = row[5]
-        trace_ts_str = trace_ts.isoformat() if trace_ts else ""
+        if isinstance(trace_ts, datetime):
+            trace_ts_str = trace_ts.isoformat()
+        else:
+            trace_ts_str = str(trace_ts) if trace_ts else ""
 
         # For trace-level, trace_id is the same as item_id (fallback ok)
         # For generation-level, trace_id must come from $ai_trace_id property (no fallback)
