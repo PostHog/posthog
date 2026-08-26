@@ -47,6 +47,7 @@ from products.tasks.backend.facade.run_config import (
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     PUBLIC_REASONING_EFFORTS,
+    WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
     RunSource,
@@ -662,6 +663,17 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same "
+            "mode. Omit to reuse a warm Run whatever mode it booted on."
+        ),
     )
     pending_user_message = serializers.CharField(
         required=False,
@@ -3257,6 +3269,27 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         default=None,
         allow_null=True,
         help_text="Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.",
+    )
+    origin_product = serializers.ChoiceField(
+        choices=WARMABLE_ORIGIN_PRODUCTS,
+        required=False,
+        default=tasks_facade.TaskOriginProduct.USER_CREATED,
+        help_text=(
+            "Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the "
+            "quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born "
+            "under the same origin. Defaults to the Code app."
+        ),
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Permission mode to boot the agent session on. Read at session construction, so it cannot be "
+            "changed once the sandbox is warm — a submit selecting a different mode falls through to a "
+            "cold Run. Omit to take the runtime's default."
+        ),
     )
 
     def validate_repository(self, value: str | None) -> str | None:

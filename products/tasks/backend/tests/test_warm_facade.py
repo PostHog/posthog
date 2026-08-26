@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.utils import timezone as django_timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, Throttled
 
@@ -378,12 +379,13 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         branch="main",
         created_by=None,
         extra_state: dict[str, Any] | None = None,
+        origin_product=Task.OriginProduct.USER_CREATED,
     ) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
             title="",
             description="",
-            origin_product=Task.OriginProduct.USER_CREATED,
+            origin_product=origin_product,
             created_by=created_by or self.user,
             repository=repository,
             repositories=repositories or ([repository] if repository else []),
@@ -405,6 +407,53 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         }
         validated.update(data)
         return facade.create_task(self.team.id, self.user.id, validated_data=validated)
+
+    def test_desktop_create_without_permission_mode_still_reuses_warm(self):
+        # A warm Run's state always carries a concrete permission mode, but the Code app never sends one
+        # on create. Folding the mode into the equality tuple would compare None against "default" and
+        # break every Desktop warm reuse — this pins the asymmetric comparison that prevents it.
+        warm_task, run = self._warm_run(extra_state={"initial_permission_mode": "default"})
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create()
+
+        assert str(dto.id) == str(warm_task.id)
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 1
+
+    def test_reuses_matching_posthog_ai_warm_task(self):
+        warm_task, run = self._warm_run(
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            extra_state={"initial_permission_mode": "auto"},
+        )
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(origin_product=Task.OriginProduct.POSTHOG_AI, initial_permission_mode="auto")
+
+        assert str(dto.id) == str(warm_task.id)
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 1
+
+    @parameterized.expand(
+        [
+            ("warm_is_code_submit_is_phai", Task.OriginProduct.USER_CREATED, Task.OriginProduct.POSTHOG_AI),
+            ("warm_is_phai_submit_is_code", Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.USER_CREATED),
+        ]
+    )
+    def test_does_not_reuse_a_warm_from_a_different_origin_product(self, _name, warm_origin, submit_origin):
+        # Origin fixes the OAuth app, the quota gate, the pool budget and PR authorship at boot, so a
+        # cross-origin reuse would run under the wrong product's entitlements and authorship.
+        self._warm_run(origin_product=warm_origin)
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(origin_product=submit_origin)
+
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 2
+        assert str(dto.origin_product) == submit_origin
+
+    def test_permission_mode_mismatch_creates_a_new_cold_task(self):
+        # The mode is read when the agent session is constructed, so a warm booted on one mode can't
+        # serve a submit that asked for another.
+        self._warm_run(extra_state={"initial_permission_mode": "default"})
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            self._create(initial_permission_mode="bypassPermissions")
+
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
     def test_reuses_matching_warm_task_and_activates_it_in_place(self):
         warm_task, run = self._warm_run()
