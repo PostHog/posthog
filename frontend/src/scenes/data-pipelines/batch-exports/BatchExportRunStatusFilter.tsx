@@ -24,7 +24,7 @@ export function BatchExportRunStatusFilter({ id }: { id: string }): JSX.Element 
         <LemonDropdown
             closeOnClickInside={false}
             overlay={
-                <div className="deprecated-space-y-px p-1">
+                <div className="flex flex-col gap-px p-1">
                     {BATCH_EXPORT_RUN_STATUS_FILTER_OPTIONS.map((option) => (
                         <LemonButton
                             key={option.value}

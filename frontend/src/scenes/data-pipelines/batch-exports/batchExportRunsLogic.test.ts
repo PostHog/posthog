@@ -236,7 +236,11 @@ describe('batchExportRunsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(lastRunsRequestUrl).not.toBeNull()
-            expect(lastRunsRequestUrl!.searchParams.getAll('status')).toEqual(['Failed', 'FailedRetryable'])
+            expect(lastRunsRequestUrl!.searchParams.getAll('status')).toEqual([
+                'Failed',
+                'FailedRetryable',
+                'FailedBilling',
+            ])
         })
     })
 })

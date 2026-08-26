@@ -61,28 +61,27 @@ export const dayOptions = [
 export type BatchExportStatus = BatchExportRun['status']
 
 /** Statuses a person can filter runs by, collapsing the Temporal states they don't distinguish. */
-export type BatchExportRunStatusGroup = 'in_progress' | 'completed' | 'failed' | 'billing' | 'cancelled'
+export type BatchExportRunStatusGroup = 'running' | 'completed' | 'failed' | 'cancelled'
 
 // Typed as a full Record so a new status fails the build until someone puts it in a group.
 const STATUS_TO_GROUP: Record<BatchExportStatus, BatchExportRunStatusGroup> = {
-    Starting: 'in_progress',
-    Running: 'in_progress',
-    ContinuedAsNew: 'in_progress',
+    Starting: 'running',
+    Running: 'running',
+    ContinuedAsNew: 'running',
     Completed: 'completed',
     Failed: 'failed',
     FailedRetryable: 'failed',
-    FailedBilling: 'billing',
+    FailedBilling: 'failed',
     Cancelled: 'cancelled',
     Terminated: 'cancelled',
     TimedOut: 'cancelled',
 }
 
 export const BATCH_EXPORT_RUN_STATUS_FILTER_OPTIONS: { value: BatchExportRunStatusGroup; label: string }[] = [
-    { value: 'in_progress', label: 'In progress' },
+    { value: 'running', label: 'Running' },
     { value: 'completed', label: 'Completed' },
     { value: 'failed', label: 'Failed' },
-    { value: 'billing', label: 'Over billing limit' },
-    { value: 'cancelled', label: 'Cancelled or timed out' },
+    { value: 'cancelled', label: 'Cancelled' },
 ]
 
 export function batchExportRunStatusesForGroups(groups: BatchExportRunStatusGroup[]): BatchExportStatus[] {
