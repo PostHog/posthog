@@ -228,7 +228,11 @@ def _time_to_seconds(value: datetime.time) -> float:
     return value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000
 
 
-def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
+def evolve_pyarrow_schema(
+    incoming_table: pa.Table,
+    delta_schema: deltalake.Schema | None,
+    merge_key_columns: Sequence[str] | None = None,
+) -> pa.Table:
     # First pass: normalize types that Delta write path does not handle well.
     for column_name in incoming_table.column_names:
         incoming_column = incoming_table.column(column_name)
@@ -285,6 +289,7 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
 
     # Second pass: align with existing Delta table schema.
     delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    merge_keys = {_fold_column_name_for_match(name) for name in merge_key_columns or []}
     for delta_field in delta_arrow_schema:
         if delta_field.name not in incoming_table.schema.names:
             new_column_data = (
@@ -356,18 +361,24 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
                     incoming_table = incoming_table.set_column(
                         incoming_table.schema.get_field_index(delta_field.name), delta_field.name, parsed_timestamps
                     )
-            elif (pa.types.is_binary(delta_field.type) or pa.types.is_large_binary(delta_field.type)) and (
-                pa.types.is_string(incoming_column.type) or pa.types.is_large_string(incoming_column.type)
+            elif (
+                _fold_column_name_for_match(delta_field.name) in merge_keys
+                and (pa.types.is_binary(delta_field.type) or pa.types.is_large_binary(delta_field.type))
+                and (pa.types.is_string(incoming_column.type) or pa.types.is_large_string(incoming_column.type))
             ):
                 # A table written before `hex_encode_id_binary_columns` stores this key as raw
                 # bytes while the batch now carries hex text. pyarrow casts string to binary
                 # without complaint, which would store the hex text as bytes: the merge predicate
                 # would then match no stored row and re-insert every incoming row. Fail instead,
                 # so the table is reset and re-synced onto the hex representation.
+                #
+                # Only merge keys (primary keys and the partition-key source columns) take this
+                # path. Every other column casts as before, so a source that legitimately turns a
+                # non-key binary column into a string column keeps syncing.
                 raise SchemaColumnTypeChangedException(
-                    f"Source column type changed: '{delta_field.name}' is stored as {delta_field.type} but now "
-                    f"arrives as hex text ({incoming_column.type}). Reset and fully re-sync this table to adopt "
-                    f"the new type.",
+                    f"Source column type changed: merge key '{delta_field.name}' is stored as {delta_field.type} "
+                    f"but now arrives as text ({incoming_column.type}). Reset and fully re-sync this table to "
+                    f"adopt the new type.",
                     column_name=delta_field.name,
                     stored_type=delta_field.type,
                     incoming_type=incoming_column.type,

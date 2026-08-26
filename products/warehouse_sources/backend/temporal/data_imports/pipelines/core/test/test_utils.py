@@ -973,6 +973,34 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
 
 
 @pytest.mark.parametrize(
+    "merge_key_columns,raises",
+    [
+        (["val"], True),
+        (None, False),
+    ],
+)
+def test_evolve_pyarrow_schema_guards_only_merge_keys_against_hex_text(
+    merge_key_columns: list[str] | None, raises: bool
+):
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array(["01ff", "02ff"], type=pa.string()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema(cast(Any, [pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.binary(), nullable=True)]))
+    )
+
+    if raises:
+        with pytest.raises(SchemaColumnTypeChangedException, match="merge key"):
+            evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+    else:
+        evolved = evolve_pyarrow_schema(arrow_table, delta_schema, merge_key_columns=merge_key_columns)
+        assert evolved.column("val").to_pylist() == [b"01ff", b"02ff"]
+
+
+@pytest.mark.parametrize(
     "delta_type, incoming_column",
     [
         # Non-numeric text arriving for a column stored as int (Failed to parse string).
@@ -984,10 +1012,6 @@ def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_colu
         # A cast pyarrow has no kernel for at all — raised as ArrowNotImplementedError, not
         # ArrowInvalid (a binary column now arriving where a numeric one is stored).
         (pa.float64(), pa.array([b"\x01", b"\x02"], type=pa.binary())),
-        # Hex text for a key stored as raw bytes, before `hex_encode_id_binary_columns` existed.
-        # pyarrow casts string to binary without complaint, so only the explicit guard stops the
-        # hex text being stored as bytes and the merge re-inserting every row.
-        (pa.binary(), pa.array(["01ff", "02ff"], type=pa.string())),
     ],
 )
 def test_evolve_pyarrow_schema_incompatible_cast_raises_actionable_error(
