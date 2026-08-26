@@ -17,6 +17,9 @@ CHECK_NAME_REGEX = r"^[A-Za-z][A-Za-z0-9_]*$"
 
 SUBJECT_STATUS_FIELD = "subject_status"
 
+# `deleted` is nullable, so "not deleted" has to name the null case too.
+ACTIVE = models.Q(deleted=False) | models.Q(deleted__isnull=True)
+
 validate_check_name = RegexValidator(
     regex=CHECK_NAME_REGEX,
     message="Name must start with a letter and contain only letters, numbers, and underscores.",
@@ -52,8 +55,9 @@ class DataQualityCheck(
 
     A check passes when its compiled query finds zero failing rows. The definition is the source of
     truth here; ``fingerprint`` makes agent authoring idempotent (re-creating a semantically
-    identical check upserts instead of duplicating), and it is also the stable identity a git-synced
-    config file would round-trip against.
+    identical *active* check upserts instead of duplicating), and it is also the stable identity a
+    git-synced config file would round-trip against. Editing the assertion recomputes it in place:
+    the check keeps its id, history, and latest status.
 
     The subject is one of two foreign keys -- ``saved_query`` (views and matviews) or ``table``
     (warehouse source tables) -- and never both. The data modeling Node for a subject is resolved at
@@ -76,6 +80,16 @@ class DataQualityCheck(
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    definition_author = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+        help_text="Who last changed what this check asserts. Automated runs authorize as them, "
+        "falling back to created_by.",
     )
     owner = models.ForeignKey(
         "posthog.User",
@@ -161,6 +175,13 @@ class DataQualityCheck(
         blank=True,
         help_text="Outcome of the newest run, denormalized so health rollups stay a single read.",
     )
+    # Denormalized for the same reason as last_status: "failing since when" is the first question a
+    # failing check raises, and the answer can be older than any page of run history.
+    last_succeeded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the check last passed. Null means it has not passed within the run retention window.",
+    )
 
     fingerprint = models.CharField(
         max_length=64,
@@ -189,21 +210,25 @@ class DataQualityCheck(
                     & ~models.Q(table__isnull=False, subject_type=SubjectType.VIEW)
                 ),
             ),
-            # Partial per FK: orphaned checks (both FKs null) are exempt on purpose.
+            # Partial per FK: orphaned checks (both FKs null) are exempt on purpose, and so are
+            # soft-deleted ones -- a deleted definition may be authored again, as a new check with
+            # its own id and history, rather than resurrecting the row that was deleted.
             models.UniqueConstraint(
                 fields=["team", "saved_query", "fingerprint"],
-                condition=models.Q(saved_query__isnull=False),
+                condition=models.Q(saved_query__isnull=False) & ACTIVE,
                 name="unique_quality_check_fp_view",
             ),
             models.UniqueConstraint(
                 fields=["team", "table", "fingerprint"],
-                condition=models.Q(table__isnull=False),
+                condition=models.Q(table__isnull=False) & ACTIVE,
                 name="unique_quality_check_fp_table",
             ),
-            # Partial: a blank name is the "address me by id" case, and many checks share it.
+            # Partial on both counts: a blank name is the "address me by id" case, which many checks
+            # share, and a deleted check keeps its name only as history -- holding the name against a
+            # new check would make a delete irreversible for anyone who wants that name back.
             models.UniqueConstraint(
                 fields=["team", "name"],
-                condition=~models.Q(name=""),
+                condition=~models.Q(name="") & ACTIVE,
                 name="unique_quality_check_name_per_team",
             ),
         ]

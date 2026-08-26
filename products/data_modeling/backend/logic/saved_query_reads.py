@@ -44,6 +44,24 @@ def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str 
     return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.normalized_name}"
 
 
+def get_node_ids_for_saved_queries(team_id: int, saved_query_ids: Iterable[UUID | str]) -> dict[str, str]:
+    """The DAG node each of these saved queries sits on, as one query.
+
+    A saved query can appear in several DAGs; the lowest node id wins so a link built from this
+    stays put across refreshes instead of following whichever row the database returned first.
+    """
+    ids = list(saved_query_ids)
+    if not ids:
+        return {}
+    rows = (
+        Node.objects.filter(team_id=team_id, saved_query_id__in=ids).order_by("id").values_list("saved_query_id", "id")
+    )
+    nodes: dict[str, str] = {}
+    for saved_query_id, node_id in rows:
+        nodes.setdefault(str(saved_query_id), str(node_id))
+    return nodes
+
+
 def get_saved_query_ids_for_nodes(team_id: int, node_ids: Iterable[UUID | str]) -> list[str]:
     """The saved queries behind these DAG nodes. Source-table nodes have none and are dropped."""
     rows = Node.objects.filter(team_id=team_id, id__in=list(node_ids), saved_query__isnull=False).values_list(
