@@ -104,7 +104,7 @@ function LoadedEditPage({
       onChange={setPlan}
       images={images}
       environmentName={environment.name}
-      savedVariableKeys={environment.environment_variable_keys}
+      savedVariableKeys={environment.environment_variable_keys ?? []}
       saving={updateMutation.isPending}
       deleting={deleteMutation.isPending}
       onCancel={onDone}
