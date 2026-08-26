@@ -73,7 +73,7 @@ import {
     buildPythonExecutionRunning,
     mergeExecutionVariables,
 } from './pythonExecution'
-import { buildNotebookNodeClipboardHTML } from './utils'
+import { buildNotebookNodeClipboardHTML, getNodeChildren } from './utils'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 export type DuckSqlRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
@@ -1408,7 +1408,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 (editableTitle ? nodeAttributes.title : null) || titlePlaceholder,
         ],
         // TODO: Fix the typing of nodeAttributes
-        children: [(s) => [s.nodeAttributes], (nodeAttributes): NotebookNodeResource[] => nodeAttributes.children],
+        children: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): NotebookNodeResource[] => getNodeChildren(nodeAttributes),
+        ],
 
         exportedGlobals: [
             (s) => [s.nodeAttributes],

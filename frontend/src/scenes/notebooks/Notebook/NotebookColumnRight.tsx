@@ -48,7 +48,7 @@ const Widgets = ({ nodeLogic }: { nodeLogic: BuiltLogic<notebookNodeLogicType> }
 
     return (
         <>
-            {children?.map((child) => (
+            {children.map((child) => (
                 <NotebookNodeChildRenderer key={child.attrs.nodeId} content={child} />
             ))}
         </>
