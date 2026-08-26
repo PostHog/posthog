@@ -972,12 +972,19 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
     )
     @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled", return_value=True)
     @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
-    def test_produce_failure_does_not_raise_into_the_build(self, mock_gate, mock_shadow_gate, mock_producer_scope):
+    @patch("products.feature_flags.backend.flags_cache.logger")
+    def test_produce_failure_does_not_raise_into_the_build(
+        self, mock_logger, mock_gate, mock_shadow_gate, mock_producer_scope
+    ):
         # Parity evidence is telemetry, so an unhealthy Kafka must not raise back
         # into the task that just wrote the cache.
         publish_shadow_invalidation(self.TEAM_ID)
 
         mock_producer_scope.assert_called_once()
+        # Real and shadow invalidations share a topic and a log event, so this field
+        # is the only thing telling on-call the lost message was telemetry.
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_invalidation_produce_failed"
+        assert mock_logger.warning.call_args.kwargs["shadow"] is True
 
     @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
@@ -1030,6 +1037,9 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
         assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_compare_flag_evaluation_failed"
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    # `_shadow_compare_enabled` reaches the SDK through ph_client rather than this
+    # module's import. Patching here still covers it, because both names resolve to
+    # the same posthoganalytics module object.
     @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled", return_value=False)
     def test_both_gates_evaluate_locally_and_capture_nothing(self, mock_feature_enabled, mock_produce):
         publish_shadow_invalidation(self.TEAM_ID)

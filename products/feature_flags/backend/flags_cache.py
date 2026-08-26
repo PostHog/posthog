@@ -1157,9 +1157,10 @@ def _shadow_compare_enabled(team_id: int) -> bool:
 
     Unlike `_route_to_kafka`, an unresolvable flag ticks no TOMBSTONE_COUNTER.
     Local evaluation cannot resolve SHADOW_COMPARE_FLAG for as long as the flag
-    does not exist in PostHog, so a tick would be a permanent fleet-rate series
-    on a panel that means "rare anomaly". `_route_to_kafka` reads the same client
-    first, so a wedged polling thread still shows up there.
+    does not exist in PostHog, so a tick would fire on every Celery-owned rebuild,
+    holding a constant high rate on a panel that means "rare anomaly".
+    `_route_to_kafka` reads the same client first, so a wedged polling thread
+    still shows up there.
     """
     try:
         return feature_enabled_or_false(
