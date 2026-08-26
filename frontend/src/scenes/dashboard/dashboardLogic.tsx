@@ -2594,6 +2594,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardFilters,
                             tile.filters_overrides
                         ).dateFromOverride,
+                        resolvedDateFrom: tile.insight?.resolved_date_range?.date_from,
                         retentionMonths,
                     })
                 ),

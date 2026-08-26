@@ -14,6 +14,7 @@ import { exceedsRetention } from './exceedsRetention'
 export interface insightRetentionBannerLogicValues {
     retentionMonths: number | null // dataRetentionBannerLogic
     warningEligible: boolean // dataRetentionBannerLogic
+    insightData: Record<string, any> // insightDataLogic
     query: Node | null // insightDataLogic
     dateRange: DateRange | null | undefined // insightVizDataLogic
     rangeExceedsRetention: boolean
@@ -26,6 +27,7 @@ export interface insightRetentionBannerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         rangeExceedsRetention: (
             dateRange: DateRange | null | undefined,
+            insightData: Record<string, any>,
             retentionMonths: number | null,
             query: Node<Record<string, any>> | null
         ) => boolean
@@ -51,16 +53,17 @@ export const insightRetentionBannerLogic = kea<insightRetentionBannerLogicType>(
             dataRetentionBannerLogic,
             ['warningEligible', 'retentionMonths'],
             insightDataLogic(props),
-            ['query'],
+            ['insightData', 'query'],
             insightVizDataLogic(props),
             ['dateRange'],
         ],
     })),
     selectors({
         rangeExceedsRetention: [
-            (s) => [s.dateRange, s.retentionMonths, s.query],
+            (s) => [s.dateRange, s.insightData, s.retentionMonths, s.query],
             (
                 dateRange: null | import('../../../queries/schema').DateRange | undefined,
+                insightData: Record<string, any>,
                 retentionMonths: number | null,
                 query: null | import('../../../queries/schema').Node
             ): boolean =>
@@ -68,6 +71,7 @@ export const insightRetentionBannerLogic = kea<insightRetentionBannerLogicType>(
                     query,
                     // The live editor range wins over whatever the saved query declares.
                     dateFromOverride: dateRange?.date_from,
+                    resolvedDateFrom: insightData?.resolved_date_range?.date_from,
                     retentionMonths,
                 }),
         ],

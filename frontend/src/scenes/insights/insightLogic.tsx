@@ -80,7 +80,7 @@ import type { InsightFilterOverrideContextApi } from '../../../../products/produ
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
-import type { QueryStatus } from '../../queries/schema/schema-general'
+import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import type { MathDefinition } from '../trends/mathsLogic'
@@ -194,6 +194,7 @@ export interface insightLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id: number
             is_cached?: boolean | undefined
             is_sample: boolean
@@ -238,6 +239,7 @@ export interface insightLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id: number
             is_cached?: boolean | undefined
             is_sample: boolean
@@ -359,6 +361,7 @@ export interface insightLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id?: number | undefined
             is_cached?: boolean | undefined
             is_sample?: boolean | undefined
@@ -402,6 +405,7 @@ export interface insightLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id?: number | undefined
             is_cached?: boolean | undefined
             is_sample?: boolean | undefined

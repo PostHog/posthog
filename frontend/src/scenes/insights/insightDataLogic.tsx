@@ -67,6 +67,7 @@ import type {
     QuerySchema,
     QueryStatus,
     RefreshType,
+    ResolvedDateRangeResponse,
     SessionsQueryResponse,
     TraceSpansAggregationQueryResponse,
     TraceSpansAttributeBreakdownQueryResponse,
@@ -259,6 +260,7 @@ export interface insightDataLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id: number
             is_cached?: boolean | undefined
             is_sample: boolean
@@ -305,6 +307,7 @@ export interface insightDataLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id: number
             is_cached?: boolean | undefined
             is_sample: boolean

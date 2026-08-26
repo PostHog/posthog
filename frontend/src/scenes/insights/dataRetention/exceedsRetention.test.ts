@@ -25,39 +25,48 @@ describe('exceedsRetention', () => {
     })
 
     it.each([
-        ['a team with no enforced window never warns', insightViz('-3y'), undefined, null, false],
-        ['a range inside the window is fine', insightViz('-30d'), undefined, RETENTION_MONTHS, false],
-        ['a range past the window warns', insightViz('-3y'), undefined, RETENTION_MONTHS, true],
-        ['"all time" warns however short the window', insightViz('all'), undefined, 84, true],
-        ['an absolute date past the window warns', insightViz('2020-01-01'), undefined, RETENTION_MONTHS, true],
-        ['a query with no range at all stays quiet', insightViz(null), undefined, RETENTION_MONTHS, false],
-        ['an unparseable range stays quiet', insightViz('not-a-date'), undefined, RETENTION_MONTHS, false],
-        // The precedence the dashboard banner and a tile's icon both depend on: whatever the surface passes in
-        // wins over the range saved on the insight, in both directions.
-        ['an override shortens a long saved range', insightViz('-3y'), '-7d', RETENTION_MONTHS, false],
-        ['an override lengthens a short saved range', insightViz('-7d'), '-3y', RETENTION_MONTHS, true],
-        ['no override falls back to the saved range', insightViz('-3y'), undefined, RETENTION_MONTHS, true],
-        // SQL can scan arbitrary history and carries no range we can resolve, so reading events is the signal.
-        ['SQL reading events warns', sqlInsight('select count() from events'), undefined, RETENTION_MONTHS, true],
-        ['SQL not reading events stays quiet', sqlInsight('select 1'), undefined, RETENTION_MONTHS, false],
+        ['a team with no enforced window never warns', insightViz('-3y'), undefined, '2023-06-15', null, false],
         [
-            'SQL over persons only stays quiet',
-            sqlInsight('select count() from persons'),
+            'a resolved range inside the window is fine',
+            insightViz('-30d'),
             undefined,
+            '2026-05-16',
             RETENTION_MONTHS,
             false,
         ],
-        ['SQL ignores any override it was handed', sqlInsight('select 1'), 'all', RETENTION_MONTHS, false],
+        ['a resolved range past the window warns', insightViz('-3y'), undefined, '2023-06-15', RETENTION_MONTHS, true],
+        ['no resolved range yet stays quiet', insightViz('-3y'), undefined, undefined, RETENTION_MONTHS, false],
+        // "All time" resolves to the earliest event the floored query can see, so the resolved range never reaches
+        // past the window; the requested range has to carry the warning.
+        ['"all time" warns however recent the resolved range', insightViz('all'), undefined, '2026-01-01', 84, true],
+        [
+            'an "all time" override warns over a short saved range',
+            insightViz('-7d'),
+            'all',
+            '2026-06-08',
+            RETENTION_MONTHS,
+            true,
+        ],
+        [
+            'an override narrower than a saved "all time" defers to the resolved range',
+            insightViz('all'),
+            '-7d',
+            '2026-06-08',
+            RETENTION_MONTHS,
+            false,
+        ],
+        ['SQL warns whenever retention applies', sqlInsight('select 1'), undefined, undefined, RETENTION_MONTHS, true],
     ])(
         '%s',
         (
             _label: string,
             query: any,
             dateFromOverride: string | undefined,
+            resolvedDateFrom: string | undefined,
             retentionMonths: number | null,
             expected: boolean
         ) => {
-            expect(exceedsRetention({ query, dateFromOverride, retentionMonths })).toBe(expected)
+            expect(exceedsRetention({ query, dateFromOverride, resolvedDateFrom, retentionMonths })).toBe(expected)
         }
     )
 })

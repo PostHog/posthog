@@ -208,6 +208,7 @@ export function InsightMeta({
         exceedsRetention({
             query: insight.query,
             dateFromOverride: dateOverride.dateFromOverride,
+            resolvedDateFrom: insightData?.resolved_date_range?.date_from,
             retentionMonths,
         })
     const dataRetentionWarning =
