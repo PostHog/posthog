@@ -214,6 +214,16 @@ describe('tracingFiltersLogic', () => {
             expect(logic.values.suppressAutoOpenFilter).toBe(inner.values[0])
         })
 
+        // Separate from the fold test above, which needs the flag already armed by its first add.
+        it('does not defer a refresh for a click that changes nothing', () => {
+            logic.actions.addFilter('http.method', 'GET')
+            logic.actions.refreshDeferredFilters()
+
+            logic.actions.addFilter('http.method', 'GET')
+
+            expect(logic.values.hasDeferredFilterRefresh).toBe(false)
+        })
+
         it('cancels a standing exclusion instead of contradicting it', () => {
             logic.actions.addFilter('http.method', 'GET', PropertyOperator.IsNot)
             logic.actions.addFilter('http.method', 'GET', PropertyOperator.Exact)

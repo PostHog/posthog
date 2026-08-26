@@ -372,15 +372,20 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             // Reconciled rather than appended, so clicking the same attribute row twice does not
             // stack a duplicate chip, and including a value cancels a standing exclusion of it.
             // Same rules the search bar and the facet rail apply.
-            const newGroup: UniversalFiltersGroup = {
-                ...currentGroup,
-                values: mergeFilterIntoValues(currentGroup.values, {
-                    key,
-                    value: [value],
-                    operator,
-                    type: propertyType,
-                } as UniversalFiltersGroupValue),
+            const reconciled = mergeFilterIntoValues(currentGroup.values, {
+                key,
+                value: [value],
+                operator,
+                type: propertyType,
+            } as UniversalFiltersGroupValue)
+
+            if (equal(reconciled, currentGroup.values)) {
+                // The click landed on filters that already say this. Writing an equal group would
+                // reload the list, the patterns pivot and the group-by breakdown for no change.
+                return
             }
+
+            const newGroup: UniversalFiltersGroup = { ...currentGroup, values: reconciled }
 
             actions.setFilterGroup({ ...values.filters.filterGroup, values: [newGroup] }, false)
         },

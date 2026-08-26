@@ -436,12 +436,13 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 suppressAutoOpenForFilter: (_, { filter }) => filter,
             },
         ],
-        // Set when a filter is added while the trace drawer is open (so its query is deferred);
-        // cleared once that deferred query has actually run.
+        // Set when a filter write skips its own query (the drawer is covering the list);
+        // cleared once that deferred query has actually run. Keyed on the write rather than on
+        // `addFilter`, so a click that reconciles to the filters already applied defers nothing.
         hasDeferredFilterRefresh: [
             false,
             {
-                addFilter: () => true,
+                setFilterGroup: (state, { skipQuery }) => skipQuery || state,
                 refreshDeferredFilters: () => false,
             },
         ],
@@ -565,6 +566,12 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 operator,
                 type: propertyType,
             } as UniversalFiltersGroupValue)
+
+            if (equal(merged.values, currentGroup.values)) {
+                // The click landed on filters that already say this. Writing an equal group would
+                // re-render the bar and defer a re-query for a filter set that never moved.
+                return
+            }
 
             const newGroup: UniversalFiltersGroup = { ...currentGroup, values: merged.values }
 

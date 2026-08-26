@@ -5,7 +5,13 @@
  * and clicking `+` after `-` on the same value left `attr = x` beside `attr ≠ x`, which matches no
  * span. The rules below keep the invariant the facet rail keeps (see FacetRail/facets.ts): one
  * filter per attribute and polarity, and no value on both sides at once.
+ *
+ * Logs holds the same rules in Filters/logsFilterAdd.ts, over a superset that also reconciles the
+ * ambiguous `log` / `log_attribute` pair its picker produces. Two copies is what the products
+ * convention allows; a third consumer is the point to lift the shared core into lib/.
  */
+
+import { uniqueBy } from 'lib/utils/arrays'
 
 import { PropertyFilterType, PropertyFilterValue, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
@@ -83,29 +89,32 @@ export function mergeSpanFilter(values: FilterEntry[], incoming: FilterEntry): S
     }
 
     const incomingKeys = incomingValues.map(valueKey)
+    const reconciled: FilterEntry[] = []
     let merged: FilterEntry | null = null
-    const reconciled = values
-        .map((entry): FilterEntry | null => {
-            const existing = asFilter(entry)
-            if (!existing || existing.type !== filter.type || existing.key !== filter.key) {
-                return entry
-            }
-            if (existing.operator === operator) {
-                const kept = filterValues(existing)
-                const keptKeys = kept.map(valueKey)
-                merged = withValues(existing, [
-                    ...kept,
-                    ...incomingValues.filter((v) => !keptKeys.includes(valueKey(v))),
-                ])
-                return merged
-            }
-            if (existing.operator === opposite) {
-                const remaining = filterValues(existing).filter((v) => !incomingKeys.includes(valueKey(v)))
-                return remaining.length > 0 ? withValues(existing, remaining) : null
-            }
-            return entry
-        })
-        .filter((entry): entry is FilterEntry => entry !== null)
 
-    return merged ? { values: reconciled, filter: merged } : { values: [...reconciled, incoming], filter: incoming }
+    for (const entry of values) {
+        const existing = asFilter(entry)
+        if (!existing || existing.type !== filter.type || existing.key !== filter.key) {
+            reconciled.push(entry)
+            continue
+        }
+        if (existing.operator === operator) {
+            merged = withValues(existing, uniqueBy([...filterValues(existing), ...incomingValues], valueKey))
+            reconciled.push(merged)
+            continue
+        }
+        if (existing.operator === opposite) {
+            const remaining = filterValues(existing).filter((v) => !incomingKeys.includes(valueKey(v)))
+            if (remaining.length > 0) {
+                reconciled.push(withValues(existing, remaining))
+            }
+            continue
+        }
+        reconciled.push(entry)
+    }
+
+    if (merged) {
+        return { values: reconciled, filter: merged }
+    }
+    return { values: [...reconciled, incoming], filter: incoming }
 }
