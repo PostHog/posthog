@@ -11,6 +11,7 @@ import type {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
+import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { hasBreakdown } from 'scenes/funnels/funnelUtils'
@@ -121,6 +122,7 @@ export function FunnelLineChart({
         [seriesBase, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
     )
 
+    const legendRenderItem = useChartLegendSeriesMenu({ surface: 'funnel', seriesCount: series.length })
     const legendConfig = useMemo<ChartLegendConfig>(
         () =>
             buildBaseLegendConfig({
@@ -128,8 +130,9 @@ export function FunnelLineChart({
                 legendPosition,
                 canEditInsight,
                 inSharedMode,
+                renderItem: legendRenderItem,
             }),
-        [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
+        [showLegend, series.length, legendPosition, canEditInsight, inSharedMode, legendRenderItem]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useChartConfig(

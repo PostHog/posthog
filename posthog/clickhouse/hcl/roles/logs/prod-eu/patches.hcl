@@ -1,5 +1,17 @@
 # prod-eu deltas to base logs objects.
 database "posthog" {
+  # EU drops whole parts on TTL for the attribute tables; dev and prod-us still
+  # rewrite parts to expire rows.
+  patch_table "log_attributes2" {
+    settings = {
+      ttl_only_drop_parts = "1"
+    }
+  }
+  patch_table "log_attributes3" {
+    settings = {
+      ttl_only_drop_parts = "1"
+    }
+  }
   patch_table "kafka_logs_avro" {
     column "bytes_uncompressed" {
       type  = "Int64"
@@ -29,9 +41,6 @@ database "posthog" {
       poll_max_batch_size  = 1000
       thread_per_consumer  = true
     }
-  }
-  patch_materialized_view "kafka_logs34_avro_mv" {
-    query = file("sql/kafka_logs34_avro_mv.sql")
   }
   patch_materialized_view "kafka_logs_avro_billing_metrics_mv" {
     query = file("sql/kafka_logs_avro_billing_metrics_mv.sql")

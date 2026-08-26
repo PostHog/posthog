@@ -15,10 +15,16 @@ class PosthogJwtAudience(Enum):
     UNSUBSCRIBE = "posthog:unsubscribe"
     EXPORTED_ASSET = "posthog:exported_asset"
     IMPERSONATED_USER = "posthog:impersonted_user"
+    DELEGATED_USER = "posthog:delegated_user"
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
+    RECORDING_API = "posthog:recording_api"
+    WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
+    WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
+    WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
     INTEGRATION_SERVICE = "posthog:integration_service"
+    TASKS_CREATE = "posthog:tasks:create"
 
 
 def signing_key_fingerprint(key: str) -> str:
@@ -57,9 +63,9 @@ def encode_jwt(
     )
 
 
-def decode_jwt(token: str, audience: PosthogJwtAudience) -> dict[str, Any]:
+def decode_jwt(token: str, audience: PosthogJwtAudience, verification_keys: list[str] | None = None) -> dict[str, Any]:
     last_error: jwt.InvalidSignatureError | None = None
-    for key in _verification_keys():
+    for key in verification_keys if verification_keys is not None else _verification_keys():
         try:
             return jwt.decode(token, key, audience=audience.value, algorithms=[JWT_ALGORITHM])
         except jwt.InvalidSignatureError as error:

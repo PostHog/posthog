@@ -31,8 +31,6 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
-import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
-
 export interface EnhancedToolCall extends AssistantToolCall {
     status: TaskExecutionStatus
     isLastPlanningMessage?: boolean
@@ -65,7 +63,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
-    ) => string | [text: string, widgetDef: RecordingsWidgetDef | SessionSummarizationWidgetDef | null]
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | ReplayVisionScanWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -136,9 +134,9 @@ export interface RecordingsWidgetDef {
     args: RecordingUniversalFilters
 }
 
-export interface SessionSummarizationWidgetDef {
-    widget: 'session_summarization'
-    args: { updates: SessionSummarizationUpdate[] }
+export interface ReplayVisionScanWidgetDef {
+    widget: 'replay_vision_scan'
+    args: { scanId: string; sessionIds: string[]; skipped: { sessionId: string; reason: string }[] }
 }
 
 /** Static mode definition for display purposes. */
@@ -177,6 +175,39 @@ function skillStatusFormatter(
         return `${completedLabel}${suffix}`
     }
     return `${pendingLabel}${suffix}...`
+}
+
+/** Only these produce a row to wait for. Anything else is reported rather than polled for. */
+const OUTCOMES_THAT_MINT_AN_OBSERVATION = ['started', 'already_running', 'already_scanned']
+
+/**
+ * The scan tool reports what it started, per session, and the results land later on the scanner it
+ * minted. Sessions it skipped never get a row, so they are carried separately rather than left to
+ * look like work still in progress.
+ */
+function replayVisionScanWidgetDef(toolCall: EnhancedToolCall): ReplayVisionScanWidgetDef | null {
+    const payload = toolCall.result?.ui_payload?.scan_replay_vision_sessions
+    const scanId = typeof payload?.scan_id === 'string' ? payload.scan_id : null
+    if (!scanId || !Array.isArray(payload?.results)) {
+        return null
+    }
+    const results = payload.results as { session_id?: unknown; scan_outcome?: unknown }[]
+    const sessionIds: string[] = []
+    const skipped: { sessionId: string; reason: string }[] = []
+    for (const result of results) {
+        if (typeof result?.session_id !== 'string' || typeof result?.scan_outcome !== 'string') {
+            continue
+        }
+        if (OUTCOMES_THAT_MINT_AN_OBSERVATION.includes(result.scan_outcome)) {
+            sessionIds.push(result.session_id)
+        } else {
+            skipped.push({ sessionId: result.session_id, reason: result.scan_outcome })
+        }
+    }
+    if (!sessionIds.length && !skipped.length) {
+        return null
+    }
+    return { widget: 'replay_vision_scan', args: { scanId, sessionIds, skipped } }
 }
 
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
@@ -740,20 +771,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing experiment results...'
         },
     },
-    experiment_session_replays_summary: {
-        name: 'Summarize experiment session replays',
-        description:
-            'Summarize experiment session replays to analyze user behavior patterns across experiment variants using session recordings',
-        product: Scene.Experiment,
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.Flags],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Analyzed session replay patterns'
-            }
-            return 'Analyzing session replays...'
-        },
-    },
     summarize_replay_vision_summaries: {
         name: 'Summarize session summaries',
         description: 'Summarize session summaries across a Replay Vision summarizer scanner',
@@ -796,10 +813,10 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Started scanning recordings'
+            if (toolCall.status !== 'completed') {
+                return 'Starting scans...'
             }
-            return 'Starting scans...'
+            return ['Scanned recordings', replayVisionScanWidgetDef(toolCall)]
         },
     },
     retry_replay_vision_observation: {
@@ -923,15 +940,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
     },
     suggest_replay_vision_tags: {
-        name: 'Suggest tags',
-        description: 'Suggest tags for a classifier, grounded in what it has seen',
+        name: 'Suggest categories',
+        description: 'Suggest categories for a classifier, grounded in what it has seen',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Suggest tags'
+                return 'Suggest categories'
             }
-            return 'Suggest tags...'
+            return 'Suggest categories...'
         },
     },
     read_replay_vision_actions: {
@@ -1330,33 +1347,13 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
     },
     summarize_sessions: {
+        // Retired tool. The entry stays so old conversations still render it, but it carries no `modes`:
+        // `getToolsForMode` reads that field, and listing it would offer a tool nobody can call.
         name: 'Summarize sessions',
-        description: 'Summarize sessions to analyze real user behavior',
+        description: 'Summarize sessions analyze real user behavior',
         icon: iconForType('session_replay'),
-        beta: true,
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            const text = toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...'
-            // Parse structured updates from the tool call updates
-            const updates = toolCall.updates
-            if (updates && updates.length > 0) {
-                const parsedUpdates: SessionSummarizationUpdate[] = []
-                for (const update of updates) {
-                    try {
-                        const parsed = JSON.parse(update)
-                        if (isObject(parsed) && (parsed.type === 'sessions_discovered' || parsed.type === 'progress')) {
-                            parsedUpdates.push(parsed as unknown as SessionSummarizationUpdate)
-                        }
-                    } catch {
-                        // Not a structured update, skip
-                    }
-                }
-                if (parsedUpdates.length > 0) {
-                    return [text, { widget: 'session_summarization', args: { updates: parsedUpdates } }]
-                }
-            }
-            return text
-        },
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...',
     },
     web_search: {
         name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one

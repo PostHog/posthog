@@ -86,12 +86,6 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsCreateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsUpdateBodyDomainMax = 128
@@ -102,12 +96,6 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsUpdateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsPartialUpdateBodyDomainMax = 128
@@ -118,12 +106,6 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsPartialUpdateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const domainsVerifyCreateBodyDomainMax = 128
@@ -134,12 +116,6 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsVerifyCreateBodySsoEnforcementMax).optional(),
-    identity_provider_config: zod
-        .uuid()
-        .nullish()
-        .describe(
-            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
-        ),
 })
 
 export const identityProviderConfigsCreateBodyNameMax = 255
@@ -160,6 +136,30 @@ export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
         .max(identityProviderConfigsCreateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsCreateBodySamlEntityIdMax)
@@ -211,6 +211,30 @@ export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .max(identityProviderConfigsUpdateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsUpdateBodySamlEntityIdMax)
@@ -262,6 +286,30 @@ export const IdentityProviderConfigsPartialUpdateBody = /* @__PURE__ */ zod.obje
         .max(identityProviderConfigsPartialUpdateBodyNameMax)
         .optional()
         .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    domain_scope: zod
+        .union([
+            zod.enum(['all', 'selected']).describe('\* `all` - All\n\* `selected` - Selected'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Domains this configuration applies to. An unset value behaves like selected domains.\n\n\* `all` - All\n\* `selected` - Selected'
+        ),
+    config_scope: zod
+        .union([
+            zod.enum(['saml', 'scim', 'xaa']).describe('\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Feature configured by this identity provider configuration.\n\n\* `saml` - Saml\n\* `scim` - Scim\n\* `xaa` - Xaa'
+        ),
+    organization_domain_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Organization domain IDs that this identity provider configuration applies to.'),
     saml_entity_id: zod
         .string()
         .max(identityProviderConfigsPartialUpdateBodySamlEntityIdMax)
@@ -917,7 +965,7 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token is live it is revoked immediately and the owner is notified by email.
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
  *
  * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
  * @summary Report and revoke a leaked PostHog API key or token

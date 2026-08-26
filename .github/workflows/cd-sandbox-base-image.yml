@@ -4,20 +4,37 @@ on:
     push:
         branches:
             - master
-    # paths mirror the changes job's dorny filter, which still gates push events.
+    # Narrower than the changes job's dorny filter, which also gates push events.
+    # A skills edit changes a COPY payload rather than a build instruction, so it
+    # cannot break the image build, and the :sha image a PR build pushes is never
+    # pulled by anything. `ci-agent-skills.yml` already builds the same skills on
+    # the same PR. Master keeps rebuilding on skills changes through the filter
+    # below, so the :master image production resolves still gets current skills.
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
             - 'products/tasks/backend/sandbox/images/**'
-            - 'products/*/skills/**'
+            - 'products/desktop/packages/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
+            # The notebook image bakes this package and stamps its content hash.
+            - 'products/notebooks/backend/sandbox/kernel/**'
+            - 'products/notebooks/backend/kernel_package.py'
     workflow_dispatch:
 
 jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog'
+        # A fork PR runs in the base repo, so `repository_owner` does not exclude it,
+        # but its read-only GITHUB_TOKEN cannot push to ghcr.io. Skipping here leaves
+        # `sandbox_image` unset so both build jobs skip too, which keeps a fork off
+        # the skills build it would only pay for to fail at the push.
+        # trunk-merge/** heads are skipped the same way: merge-queue PRs are ephemeral,
+        # nothing pulls images pushed for them, and each constituent PR already built its own.
+        if: |
+            github.repository_owner == 'PostHog' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read
@@ -26,6 +43,9 @@ jobs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -37,30 +57,117 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  # Keep in sync with the trigger-level pull_request paths above.
+                  # Wider than the trigger-level pull_request paths above, because
+                  # this also gates push events, where a skills change does have to
+                  # rebuild the image that :master serves.
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
                         - 'products/tasks/backend/sandbox/images/**'
+                        - 'products/desktop/packages/agent-shadow/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
+                        - 'products/notebooks/backend/sandbox/kernel/**'
+                        - 'products/notebooks/backend/kernel_package.py'
 
     build_skills:
         needs: changes
         name: Build agent skills from source
         if: |
-            github.repository_owner == 'PostHog' && (
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        # `Run migrations` builds the schema from scratch on ubuntu-latest with no schema cache and
+        # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
+        # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.
+        timeout-minutes: 45
         permissions:
             contents: read
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Fetch base branch for merge-base computation
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # Scoped, blob-less, no-tags: without an explicit refspec, git fetch
+              # falls back to remote.origin.fetch and pulls every branch.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache keys
+              id: schema-key
+              # Restores the schema dump ci-backend saves on master pushes, so the
+              # migrate step below only tops up what is newer instead of replaying the
+              # full migration history. On a PR the migration-set key is the merge-base's;
+              # on a push or dispatch it is HEAD's. A cache miss falls through to a full
+              # migrate, so an absent or wrong key is never a correctness risk.
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  IS_PR: ${{ github.event_name == 'pull_request' }}
+                  # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in
+                  # ci-backend.yml, which saves these caches on master pushes.
+                  SCHEMA_CACHE_EPOCH: v2
+              run: |
+                  if [ "$IS_PR" != "true" ]; then
+                      # Pushed or dispatched commit is checked out directly: no merge
+                      # commit, no base ref. The per-SHA key would point at this same
+                      # push's cache (saved concurrently by ci-backend, so racy); rely
+                      # on the stable migration-set key below.
+                      REF=HEAD
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                      if [ -z "$MERGE_BASE" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::merge-base not found (branch too stale?), so the schema cache is skipped"
+                          exit 0
+                      fi
+                      # Routing decides which app labels reach the dump, so an edited routing
+                      # config matches no master dump: drop both keys and migrate from scratch.
+                      DB_ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      if [ "$DB_ROUTING_BASE" != "$DB_ROUTING_HEAD" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                          exit 0
+                      fi
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                      REF="$MERGE_BASE"
+                  fi
+                  # Last-resort restore prefix: matches the newest saved dump when the exact
+                  # keys miss. Gated on checkout age because a re-run of an old commit could
+                  # restore a dump newer than its code, which forward-only migrate cannot repair.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
+                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched, so restore falls back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Start Docker services
               env:
@@ -103,6 +210,41 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: bin/ci-wait-for-docker wait
+
+            - name: Restore schema cache from master
+              if: steps.schema-key.outputs.migrations_key != '' || steps.schema-key.outputs.key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  # Prefer the shared content key; fall back to the exact merge-base SHA
+                  # key, then to the newest dump of any migration set.
+                  key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.key }}
+                      ${{ steps.schema-key.outputs.prefix_key }}
+
+            - name: Prime posthog from cached schema
+              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
+              # schema-only dump lacks; the migrate step below layers anything newer on
+              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+                  TARGET_DB: posthog
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss, so the migrate step below runs the full history"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  if ! ./bin/hogli db:restore-schema-fresh; then
+                      echo "::warning::Schema restore failed (stale or incompatible cached dump?), so the migrate step below runs the full history"
+                  fi
 
             - name: Run migrations
               env:
@@ -163,7 +305,8 @@ jobs:
         needs: [changes, build_skills]
         name: Build and push Tasks Sandbox container image
         if: |
-            github.repository_owner == 'PostHog' && (
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -219,6 +362,7 @@ jobs:
                     id: build
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -233,6 +377,7 @@ jobs:
                     id: build-notebook
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -245,6 +390,7 @@ jobs:
                     id: build-streamlit
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -257,6 +403,7 @@ jobs:
                     id: build-pi
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -270,6 +417,7 @@ jobs:
                     id: build-vm
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm
                         buildx-fallback: false # the fallback is so slow it's better to just fail

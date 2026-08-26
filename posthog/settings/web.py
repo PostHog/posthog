@@ -77,6 +77,8 @@ PRODUCTS_APPS = [
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.review_hog.backend.apps.ReviewHogConfig",
     "products.logs.backend.apps.LogsConfig",
+    "products.billing_alerts.backend.apps.BillingAlertsConfig",
+    "products.context_layer.backend.apps.ContextLayerAppConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
@@ -362,6 +364,9 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 # region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
 # this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# Max orgs the daily ICP re-enrichment sweep re-fetches per run — the Harmonic spend/rate
+# bound for products/growth/backend/temporal/signup_enrichment/reenrichment.py.
+GROWTH_ICP_REENRICH_DAILY_CAP = get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int)
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
@@ -440,21 +445,21 @@ if DEBUG:
     # a second source for 1300+ identical assets would make collectstatic warn about
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
+
+# WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
+if TEST:
+    _staticfiles_storage_backend = "django.contrib.staticfiles.storage.StaticFilesStorage"
+elif get_from_env("STATIC_PRECOMPRESS", True, type_cast=str_to_bool):
+    _staticfiles_storage_backend = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+else:
+    _staticfiles_storage_backend = "whitenoise.storage.ManifestStaticFilesStorage"
+
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        # CompressedManifest: collectstatic pre-generates .br and .gz (brotli is
-        # already a dependency) so WhiteNoise serves compressed bytes from disk and
-        # the envoy edge — which otherwise gzips static per request (Contour's
-        # default compression filter) — skips recompression since Content-Encoding
-        # is already set. Same Manifest base class: hashed names unchanged.
-        "BACKEND": (
-            "django.contrib.staticfiles.storage.StaticFilesStorage"
-            if TEST
-            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
-        ),
+        "BACKEND": _staticfiles_storage_backend,
     },
 }
 # Never emit .map.gz/.map.br: the production image deletes *.map after the
@@ -573,6 +578,8 @@ SPECTACULAR_SETTINGS = {
         "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
         "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
         "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
+        # `source_product` names the same choice set on several signals components, so pin one name.
+        "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
@@ -586,11 +593,19 @@ SPECTACULAR_SETTINGS = {
         "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
         "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
         "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
-        "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.types.ExternalDataSourceType",
+        "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.facade.types.ExternalDataSourceType",
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        # Shared by TaskCreate.origin_product and TaskWrite.origin_product. Needs naming because
+        # WarmTaskRequest.origin_product offers only the warmable subset, so "origin_product" alone
+        # no longer identifies one choice set. Keyed to the name the generator already produced
+        # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
+        "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
+        "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
+        "EmailThreadParticipantKindEnum": "products.conversations.backend.models.email_thread.EmailThreadParticipantKind",
         # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
         "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
         "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
@@ -598,15 +613,22 @@ SPECTACULAR_SETTINGS = {
         "TicketTagsMatchEnum": "products.conversations.backend.api.ticket_filters.TICKET_TAGS_MATCH_CHOICES",
         "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
         "BatchImportStatusEnum": "products.managed_migrations.backend.models.batch_imports.BatchImport.Status",
+        # Shared by HogFlowBatchJob.status and HogFlowBatchJobCancelResponse.status (same choice set).
+        "HogFlowBatchJobStatusEnum": "products.workflows.backend.models.hog_flow_batch_job.HogFlowBatchJob.State",
         # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
         "MetricsRecalculationStatusEnum": (
             "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
         ),
         "AnnouncementStatusEnum": "products.customer_analytics.backend.models.announcement.Announcement.Status",
         "AnnouncementDeliveryStatusEnum": "products.customer_analytics.backend.models.announcement_delivery.AnnouncementDelivery.Status",
+        "FeatureRequestStatusEnum": "products.customer_analytics.backend.models.feature_request.FeatureRequestStatus",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
+        "BillingAlertMetricEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.Metric",
+        "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+        # Shared by ChangeRequest.state and ChangeRequestSummary.state (same choice set).
+        "ChangeRequestStateEnum": "products.approvals.backend.models.ChangeRequestState",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
@@ -621,6 +643,8 @@ SPECTACULAR_SETTINGS = {
         # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
         "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
+        # Same field name as the installation scope above, different values.
+        "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
         "MCPServiceAccountStatusEnum": "products.mcp_store.backend.models.SERVICE_ACCOUNT_STATUS_CHOICES",
         "MCPServerCategoryEnum": "products.mcp_store.backend.models.CATEGORY_CHOICES",
         "MCPToolApprovalStateEnum": "products.mcp_store.backend.models.APPROVAL_STATES",
@@ -673,7 +697,24 @@ SPECTACULAR_SETTINGS = {
         # and churn subscriptions' generated types.
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
+        "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
+        "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
+        # `severity` is shared by a data quality check, its overview projection, and the severity a
+        # past run was judged at.
+        "DataQualityCheckSeverityEnum": ["error", "warn"],
+        # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
+        "CanvasStateScopeEnum": ["user", "shared"],
+        # `kind` is a generic field name; one shared name for the canvas kind set.
+        "CanvasKindEnum": ["freeform", "grid", "component"],
+        # `status`/`op`/`columns`/`schemaVersion` are generic field names; pin the grid layout sets.
+        "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
+        "CanvasLayoutOpEnum": ["set_grid", "add_placement", "update_placement", "remove_placement"],
+        # Integer choice sets need explicit (value, label) pairs; a bare list is
+        # only matched for string choices.
+        "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
+        "CanvasLayoutSchemaVersionEnum": [(1, 1)],
         # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
         "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
         # `strength` and `kind` are generic enough that the next one added anywhere would collide,
@@ -712,6 +753,19 @@ SPECTACULAR_SETTINGS = {
             "needs_attention",
             "sync_paused",
         ],
+        "ManagedWarehouseMonitoringMetricEnum": [
+            "query_rate",
+            "error_ratio",
+            "duration_p50",
+            "duration_p95",
+            "sessions_active",
+            "s3_bytes_rate",
+            "acquire_p95",
+            "acquire_by_source",
+            "storage_bytes",
+            "worker_crash_rate",
+        ],
+        "ManagedWarehouseMonitoringWindowEnum": ["1h", "6h", "24h", "7d", "30d"],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
@@ -773,6 +827,23 @@ SPECTACULAR_SETTINGS = {
             "7day",
             "30day",
         ],
+        # Same member set minus `never`, shared by the `materialize` body and by each cadence the
+        # saved-query sync frequency bounds offer. Both mean "a cadence to run at", so one name.
+        "MaterializeSyncFrequencyEnum": [
+            "15min",
+            "30min",
+            "1hour",
+            "6hour",
+            "12hour",
+            "24hour",
+            "7day",
+            "30day",
+        ],
+        # Two unrelated products now expose a `blocked_by` ChoiceField. Collision resolution keys off
+        # how many choice sets share the field name and ignores overrides, so pinning only one still
+        # component-prefixes the other. Both are pinned to keep either name stable as more appear.
+        "SyncFrequencyBlockedByEnum": ["source", "consumer"],
+        "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
         # Signals now has two serializers (single SignalReportStateRequest + bulk
         # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
         # shared enum to a stable name so it doesn't collide with the other `state` enums
@@ -834,6 +905,7 @@ SPECTACULAR_SETTINGS = {
         "WoWChangeDirectionEnum": ["Up", "Down"],
         "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
         # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
         # widget_type ChoiceField (one value). drf-spectacular hashes enum value sets — without
@@ -853,6 +925,16 @@ SPECTACULAR_SETTINGS = {
         "TaskExecutionModeEnum": ["interactive", "background"],
         # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
         "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+        "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "auto",
+            "read-only",
+            "full-access",
+            None,
+        ],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
@@ -1020,6 +1102,13 @@ LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOK
 LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
 
 ####
+# Firecrawl (outbound page scraping, see posthog/egress/firecrawl/)
+FIRECRAWL_API_KEY = get_from_env("FIRECRAWL_API_KEY", "")
+# Operator ceilings on credit spend rather than Firecrawl's own limits, which the process can't see.
+FIRECRAWL_EGRESS_PER_MINUTE_BUDGET = get_from_env("FIRECRAWL_EGRESS_PER_MINUTE_BUDGET", 60, type_cast=int)
+FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 1000, type_cast=int)
+
+####
 # Feature flag billing analytics
 # Used to track feature flag requests for billing purposes.
 # Named "decide" for historical reasons: the /decide endpoint was the original
@@ -1057,6 +1146,12 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
+# Monthly read-bytes allowance for organizations without an active subscription,
+# enforced from the product-owned counter in posthog/api_queries_quota.py. 0 disables it.
+API_QUERIES_FREE_TIER_READ_BYTES_LIMIT: int = get_from_env(
+    "API_QUERIES_FREE_TIER_READ_BYTES_LIMIT", 50_000_000_000_000, type_cast=int
+)
+
 ####
 # /api/environments deprecation
 
@@ -1073,6 +1168,12 @@ API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "202
 # var without redeploy. 1.0 = emit every operation, 0.01 = 1% sample.
 # Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
 QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
+
+# Persons list SLO sampling rate. That endpoint runs its ActorsQuery through `calculate()`,
+# not `run()`, so it emits no query-service SLO events at all. It is lower volume than the
+# query service and its slow tail is the point of the measurement, so it samples ten times
+# higher. Same weighting rule: divide counts by `properties.sample_rate`.
+PERSONS_LIST_SLO_SAMPLE_RATE = get_from_env("PERSONS_LIST_SLO_SAMPLE_RATE", 1.0 if TEST else 0.1, type_cast=float)
 
 ####
 # Livestream
@@ -1113,11 +1214,11 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
-HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 50000))
+HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 500000))
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
-HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 100000))
+HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
-# Empty by default — everyone gets the 50k tier. Opt-in via env override for teams needing 100k.
+# Empty by default — everyone gets the 500k tier. Opt-in via env override for teams needing 1M.
 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
     int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", ""))
 }
@@ -1228,6 +1329,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "product_tour:read",
     "product_tour:write",
     "heatmap:read",
+    "heatmap:write",
     "element:read",
     "uploaded_media:write",
     "survey:read",

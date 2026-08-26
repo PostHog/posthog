@@ -13,7 +13,7 @@ mod tests {
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::{
             cohort_cache_manager::CohortCacheManager,
-            cohort_models::{CohortId, CohortType, MembershipStampPolicy},
+            cohort_models::{Cohort, CohortId, CohortType, MembershipStampPolicy},
             membership::{CohortMembershipError, CohortMembershipProvider},
         },
         flags::{
@@ -1776,6 +1776,82 @@ mod tests {
             "acme is not mecklenburgische, so is_not should match"
         );
         assert_eq!(reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    /// Regression test: a `NOT_IN` cohort filter must not match when person-property DB prep
+    /// never ran. Cohort evaluation reads the same property map as direct filters, so under
+    /// `Pending` the person looks like they have no properties, the cohort resolves to "not a
+    /// member", and `NOT_IN` flips that into a match — granting the flag to exactly the people
+    /// the condition excludes. Cohorts are loaded here so the check can't pass by falling
+    /// through the `cohorts: None` branch instead.
+    #[tokio::test]
+    async fn test_is_condition_match_cohort_not_in_fails_closed_when_person_properties_pending() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let flag = mock!(FeatureFlag);
+
+        let condition = FlagPropertyGroup {
+            variant: None,
+            properties: Some(vec![PropertyFilter {
+                key: "id".to_string(),
+                value: Some(json!(42)),
+                operator: Some(OperatorType::NotIn),
+                prop_type: PropertyType::Cohort,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            }]),
+            rollout_percentage: Some(100.0),
+            ..Default::default()
+        };
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        matcher
+            .flag_evaluation_state
+            .set_cohorts(Arc::from(vec![Cohort {
+                id: 42,
+                team_id: 1,
+                filters: Some(json!({
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"key": "tenant", "type": "person", "value": "acme", "operator": "exact"}
+                        ]
+                    }
+                })),
+                ..Default::default()
+            }]));
+        // Left at its default `Pending` state: DB prep never ran for this matcher.
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        let empty_person = HashMap::new();
+        let empty_groups = HashMap::new();
+        let ctx = PropertyContext {
+            person_properties: Some(&empty_person),
+            group_properties: &empty_groups,
+            aggregation: None,
+        };
+        let (is_match, reason) = matcher
+            .is_condition_match(&flag, &condition, &ctx, None, &None)
+            .unwrap();
+        assert!(
+            !is_match,
+            "unknowable cohort membership must not satisfy NOT_IN"
+        );
+        assert_eq!(reason, FeatureFlagMatchReason::NoConditionMatch);
     }
 
     fn create_test_flag_with_variants(team_id: TeamId) -> FeatureFlag {
@@ -3892,6 +3968,120 @@ mod tests {
             0,
             "Provider must not be consulted when realtime cohort evaluation is disabled"
         );
+    }
+
+    #[tokio::test]
+    async fn test_behavioral_cohort_non_match_surfaces_cohort_not_evaluated_reason() {
+        // A behavioral-cohort non-match must report NoConditionMatchCohortNotEvaluated, not a bare
+        // NoConditionMatch: the evaluator can't resolve behavioral membership, so the negative is unreliable.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Behavioral Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "behavioral_non_member".to_string();
+        // Person does NOT satisfy the cohort filters, so dynamic evaluation is a non-match.
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_realtime_cohort_evaluation(false);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(!result.matches);
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
+        );
+        // Serializes as the backward-compatible code; the enriched signal rides the description.
+        assert_eq!(result.reason.to_string(), "no_condition_match");
+    }
+
+    #[tokio::test]
+    async fn test_person_property_cohort_non_match_keeps_plain_no_condition_match_reason() {
+        // A cohort without a behavioral condition is fully evaluable from person properties,
+        // so a genuine non-match must stay NoConditionMatch and not be over-labeled.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Person Property Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "person_property_non_member".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(!result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::NoConditionMatch);
     }
 
     #[tokio::test]

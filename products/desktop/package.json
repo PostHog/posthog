@@ -10,14 +10,12 @@
   "scripts": {
     "preinstall": "node scripts/enforce-pnpm.mjs",
     "postinstall": "bash scripts/ensure-phrocs.sh --update",
-    "setup": "bash apps/code/bin/setup",
     "bootstrap:cloud-task": "pnpm install --frozen-lockfile --prefer-offline --ignore-scripts && pnpm build:deps",
-    "prepare": "husky",
-    "dev": "pnpm build:deps && bash scripts/ensure-phrocs.sh && bin/phrocs --config mprocs.yaml",
-    "dev:mprocs": "pnpm build:deps && mprocs",
+    "dev": "pnpm skills:local && pnpm build:deps && bash scripts/ensure-phrocs.sh && bin/phrocs --config mprocs.yaml",
+    "dev:mprocs": "pnpm skills:local && pnpm build:deps && mprocs",
     "dev:agent": "pnpm --filter agent dev",
     "dev:git": "pnpm --filter @posthog/git dev",
-    "dev:code": "pnpm --filter code start",
+    "dev:code": "pnpm skills:local && pnpm --filter code start",
     "app:cdp": "node scripts/electron-cdp.mjs",
     "build": "turbo build",
     "build:deps": "turbo build --filter=@posthog/code^...",
@@ -33,13 +31,13 @@
     "rebuild:sqlite-electron": "node scripts/rebuild-better-sqlite3-electron.mjs",
     "typecheck": "turbo typecheck",
     "boundaries": "node scripts/check-host-boundaries.mjs",
-    "optimize:onboarding-videos": "node scripts/optimize-onboarding-videos.mjs",
     "lint": "biome check --write --unsafe",
     "format": "biome format --write",
     "clean": "pnpm -r clean",
     "knip": "knip",
+    "skills:local": "node scripts/sync-local-skills.mjs",
     "skills:pull": "node scripts/pull-skills.mjs",
-    "hosthog:build": "pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/web... && pnpm exec turbo build --filter=@posthog/web && ln -sfn apps/web/dist dist"
+    "hosthog:build": "pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/web... && SKIP_PRODUCT_ENGINEER_SKILLS_DOWNLOAD=1 pnpm exec turbo build --filter=@posthog/web && ln -sfn apps/web/dist dist"
   },
   "keywords": [
     "posthog",
@@ -54,13 +52,12 @@
     "@biomejs/biome": "2.2.4",
     "@posthog/cli": "^0.8.2",
     "fflate": "^0.8.2",
-    "husky": "^9.1.7",
     "knip": "^5.66.3",
-    "lint-staged": "^15.5.2",
     "mprocs": "^0.7.1",
     "turbo": "^2.9.16"
   },
   "lint-staged": {
+    "*.{mjs,json,jsonc,css}": "biome check --write --unsafe --files-ignore-unknown=true --no-errors-on-unmatched",
     "*.{ts,tsx,js,jsx}": [
       "biome check --write --unsafe --files-ignore-unknown=true --no-errors-on-unmatched",
       "bash -c 'pnpm typecheck'"

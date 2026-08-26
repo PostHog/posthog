@@ -2,8 +2,13 @@ import re
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import quote, urljoin, urlparse
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
+        ParentTableRef,
+    )
 
 import structlog
 from dateutil import parser as dateutil_parser
@@ -28,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    ParentRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
@@ -35,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
     DEFAULT_SENTRY_API_BASE_URL,
+    ISSUES_PARENT_ROW_FILTER,
     PROJECT_STAT_NAMES,
     REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
@@ -78,6 +85,10 @@ class SentryResumeConfig:
     issue_id: Optional[str] = None
     tag_key: Optional[str] = None
     values_next_url: Optional[str] = None
+    # Which issue ordering the fan-out checkpoint above is a position in: None for the API's
+    # `sort=date` listing, or the pinned Delta version when the parent came from the warehouse.
+    # Resuming across a change here would fast-forward past issues the new order never reached.
+    parent_version: Optional[int] = None
 
 
 # Sentry exposes an org URL as `https://<org>.sentry.io/` in its UI and as
@@ -368,43 +379,143 @@ def _parse_datetime_value(value: Any) -> datetime | None:
 # ---------------------------------------------------------------------------
 
 
+def _skip_rows_on_stale_issue_404(
+    rows: Iterator[dict[str, Any]], organization_slug: str, issue_id: str, stale_issues: set[str]
+) -> Iterator[dict[str, Any]]:
+    """Swallow a 404 raised while iterating a warehouse-snapshot issue's sub-resource.
+
+    Records the issue in `stale_issues` so the caller can report how much of the snapshot the
+    vendor no longer has — the drift measure the reuse follow-up needs.
+    """
+    try:
+        yield from rows
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 404:
+            stale_issues.add(issue_id)
+            logger.info(
+                "sentry_source.stale_warehouse_issue_skipped",
+                organization_slug=organization_slug,
+                issue_id=issue_id,
+            )
+            return
+        raise
+
+
+# lastSeen carries the scan floor, so it is always projected. A parent whose column selection
+# dropped it fails the eager resolve check and drives this child from the API instead.
+_ISSUES_PARENT_COLUMNS = ["id", "lastSeen"]
+
+
+def _issues_parent_row_filter(cutoff_last_seen: datetime | None) -> ParentRowFilter:
+    """Floor for the issues scan: Sentry's list window, tightened by the incremental cutoff.
+
+    The cutoff half is pure I/O: it turns the per-row skip below into a predicate the parquet
+    reader applies, so an incremental run stops reading issues it would only discard. The
+    per-row check stays the authority, and the floor is never tighter than it.
+
+    The window half caps a watermark older than the window from widening the scan back out.
+    The no-watermark case never reaches this filter: `sentry_source` sends full refreshes down
+    the API parent path, because Sentry clamps its listing to the org's plan retention and a
+    snapshot floor cannot reproduce that bound — see SENTRY_FANOUT_PARENT_WINDOW.
+    """
+    return dataclasses.replace(ISSUES_PARENT_ROW_FILTER, not_before=cutoff_last_seen)
+
+
+def _usable_resume_state(
+    manager: Optional[ResumableSourceManager[SentryResumeConfig]], parent_version: int | None
+) -> Optional[SentryResumeConfig]:
+    """The issue_tag_values checkpoint, when this run iterates issues the way it was written.
+
+    A checkpoint is a position in an iteration order, so it only means anything to a run
+    walking the same order: the API's `sort=date` listing, or one pinned Delta version.
+    Applying one across that boundary fast-forwards past issues the new order never reached
+    while the watermark still advances, so the rows are lost until a reset. The full triple
+    has to be present — anything partial is treated as absent rather than applied to the
+    wrong (issue, tag) pair.
+
+    Callers must also `clear_state()` when this returns None with state still stored: the
+    pipeline reads `can_resume()` itself to pick replace-vs-append for chunk 0, so a source
+    restarting from the top while that says "resuming" appends a full re-read.
+    """
+    if manager is None or not manager.can_resume():
+        return None
+    loaded = manager.load_state()
+    if loaded is None or not (loaded.issue_id and loaded.tag_key and loaded.values_next_url):
+        return None
+    if loaded.parent_version != parent_version:
+        return None
+    return loaded
+
+
 def _iter_issue_tag_values_rows(
     base_api_url: str,
     headers: dict[str, str],
     organization_slug: str,
     resumable_source_manager: Optional[ResumableSourceManager[SentryResumeConfig]] = None,
     incremental_last_seen_max: Any = None,
+    issues_table: Optional["ParentTableRef"] = None,
+    issues_snapshot_at: datetime | None = None,
 ) -> Iterator[dict[str, Any]]:
     cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
+    use_warehouse_parent = issues_table is not None
 
-    # Resume state only honours the fan-out fields; the flat-endpoint
-    # ``next_url`` is meaningless here. We require the full (issue_id, tag_key,
-    # values_next_url) triple to be present — anything partial is treated as
-    # absent and falls through to a fresh run so we don't apply a stale URL to
-    # the wrong (issue, tag) pair.
+    issues: Iterator[dict[str, Any]]
+    if issues_table is not None:
+        # noqa reason: keeps deltalake/pyarrow off the import path of this module (imported
+        # by the API process for schema discovery) — the reader loads only when syncing.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+            iter_parent_pages_from_warehouse,
+        )
+
+        # Streamed scan — the reader must never materialize the table. The incremental
+        # early-break below becomes a per-row filter in this mode (same issue set, no
+        # ordering requirement). Duplicate rows can't occur: append-mode parents take the
+        # API path instead of this one.
+        issues = (
+            row
+            for page in iter_parent_pages_from_warehouse(
+                table=issues_table,
+                parent_name="issues",
+                columns=_ISSUES_PARENT_COLUMNS,
+                page_size=100,
+                schema_name="issue_tag_values",
+                row_filter=_issues_parent_row_filter(cutoff_last_seen),
+            )
+            for row in page
+        )
+    else:
+        issues = _iter_endpoint_rows(
+            base_api_url=base_api_url,
+            path=f"/organizations/{organization_slug}/issues/",
+            headers=headers,
+            params={"limit": 100, "query": "", "sort": "date"},
+        )
+
+    # A pinned Delta version enumerates its files in a fixed order, so a warehouse run
+    # resumes like an API run — but only against a checkpoint written over the same pin.
+    parent_version = issues_table.version if issues_table is not None else None
     resume_issue_id: str | None = None
     resume_tag_key: str | None = None
     resume_values_next_url: str | None = None
-    if resumable_source_manager is not None and resumable_source_manager.can_resume():
-        loaded = resumable_source_manager.load_state()
-        if loaded is not None and loaded.issue_id and loaded.tag_key and loaded.values_next_url:
-            resume_issue_id = loaded.issue_id
-            resume_tag_key = loaded.tag_key
-            resume_values_next_url = loaded.values_next_url
+    loaded = _usable_resume_state(resumable_source_manager, parent_version)
+    if loaded is not None:
+        resume_issue_id = loaded.issue_id
+        resume_tag_key = loaded.tag_key
+        resume_values_next_url = loaded.values_next_url
 
-    issues = _iter_endpoint_rows(
-        base_api_url=base_api_url,
-        path=f"/organizations/{organization_slug}/issues/",
-        headers=headers,
-        params={"limit": 100, "query": "", "sort": "date"},
-    )
-
+    stale_issues: set[str] = set()
     skipped_for_resume = 0
 
     for issue in issues:
         if cutoff_last_seen is not None:
             issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
             if issue_last_seen is not None and issue_last_seen <= cutoff_last_seen:
+                # API mode returns issues sorted by date desc, so the first stale issue ends
+                # the scan. The warehouse scan is unordered (streaming, no global sort), so
+                # stale issues are filtered per row instead — same selected set either way.
+                if use_warehouse_parent:
+                    continue
                 break
 
         issue_id = str(issue["id"])
@@ -441,6 +552,11 @@ def _iter_issue_tag_values_rows(
             params={"limit": 100},
             max_pages=_MAX_PAGES_PER_PARENT,
         )
+        if use_warehouse_parent:
+            # The warehouse snapshot can contain issues deleted upstream since the issues
+            # schema last synced; their tags endpoint 404s. A fresh API parent pull would
+            # simply not list them, so skip instead of failing the sync.
+            tags = _skip_rows_on_stale_issue_404(tags, organization_slug, issue_id, stale_issues)
         for tag in tags:
             tag_key = tag.get("key") or tag.get("id")
             if not isinstance(tag_key, str) or not tag_key:
@@ -507,6 +623,17 @@ def _iter_issue_tag_values_rows(
                             status_code=response.status_code,
                         )
                         break
+                    # Warehouse-snapshot parents can be deleted upstream mid-list; their
+                    # values endpoint 404s. Skip the tag, same as the stale-issue skip above.
+                    if use_warehouse_parent and response.status_code == 404:
+                        stale_issues.add(issue_id)
+                        logger.info(
+                            "sentry_source.stale_warehouse_issue_skipped",
+                            organization_slug=organization_slug,
+                            issue_id=issue_id,
+                            tag_key=tag_key,
+                        )
+                        break
                     # Other client errors (401, etc.) still propagate to the job-level handler.
                     raise
 
@@ -528,11 +655,16 @@ def _iter_issue_tag_values_rows(
 
                 should_stop = False
                 for row in rows:
-                    if cutoff_last_seen is not None:
-                        row_last_seen = _parse_datetime_value(row.get("lastSeen"))
-                        if row_last_seen is not None and row_last_seen <= cutoff_last_seen:
+                    row_last_seen = _parse_datetime_value(row.get("lastSeen"))
+                    if cutoff_last_seen is not None and row_last_seen is not None:
+                        if row_last_seen <= cutoff_last_seen:
                             should_stop = True
                             break
+                    if issues_snapshot_at is not None and row_last_seen is not None:
+                        if row_last_seen > issues_snapshot_at:
+                            # Newer than the issues snapshot this run fanned out over. Values are
+                            # returned newest-first, so skip past it rather than stopping.
+                            continue
 
                     row["issue_id"] = issue_id
                     row["tag_key"] = tag_key
@@ -546,13 +678,17 @@ def _iter_issue_tag_values_rows(
 
                 # Checkpoint the URL of the NEXT values page — it has not been
                 # fetched yet, so resume can pick it up directly without
-                # re-processing any rows that were already yielded.
+                # re-processing any rows that were already yielded. `parent_version`
+                # stamps which issue ordering the position belongs to, so a later
+                # attempt reading a different parent ignores it (see
+                # `_usable_resume_state`).
                 if next_url and resumable_source_manager is not None:
                     resumable_source_manager.save_state(
                         SentryResumeConfig(
                             issue_id=issue_id,
                             tag_key=tag_key,
                             values_next_url=urljoin(f"{base_api_url}/", next_url),
+                            parent_version=parent_version,
                         )
                     )
 
@@ -565,6 +701,16 @@ def _iter_issue_tag_values_rows(
             resume_issue_id = None
             resume_tag_key = None
             resume_values_next_url = None
+
+    if use_warehouse_parent:
+        # Stale issues are ones the snapshot still lists but Sentry has dropped, each costing
+        # a wasted request per sync. Against the reader's row count this is the drift measure
+        # for deciding whether the snapshot needs a freshness filter — see the plan follow-up.
+        logger.info(
+            "sentry_source.warehouse_parent_stale_issues",
+            organization_slug=organization_slug,
+            stale_issues=len(stale_issues),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1120,6 +1266,8 @@ def sentry_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
+    source_id: str | None = None,
+    use_warehouse_parent: bool = False,
 ) -> SourceResponse:
     endpoint_config = SENTRY_ENDPOINTS[endpoint]
     normalized_base_url = _validated_api_base_url(api_base_url)
@@ -1129,6 +1277,54 @@ def sentry_source(
     # which can't be expressed as a single parent→child dependency.
     if endpoint == "issue_tag_values":
         headers = _auth_headers(auth_token)
+        incremental_last_seen_max = db_incremental_field_last_value if should_use_incremental_field else None
+        issues_table: ParentTableRef | None = None
+        issues_snapshot_at: datetime | None = None
+        # Warehouse reuse only with a watermark: the per-row cutoff then bounds the fan-out to
+        # issues newer than the last run, the regime whose volume matched the API path in
+        # production. Without one (a full refresh), the only available floor is our window
+        # constant, and Sentry clamps its own listing to the org plan retention below it --
+        # see SENTRY_FANOUT_PARENT_WINDOW -- so the API path is the only faithful parent.
+        if use_warehouse_parent and _parse_datetime_value(incremental_last_seen_max) is not None:
+            if team_id is None or not source_id:
+                raise ValueError("team_id and source_id are required when reading the issues parent from the warehouse")
+            # noqa reason: keeps deltalake/pyarrow off the import path of this module (imported
+            # by the API process for schema discovery) — the reader stack loads only when syncing.
+            from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+                parent_snapshot_covers_through,
+                try_resolve_parent_table,
+            )
+
+            # How far the issues snapshot is guaranteed complete. The tag values fanned out below
+            # are fetched live, so emitting one past this point would carry the watermark over
+            # issues the snapshot has not shown yet, and the next floor would skip them for good.
+            # Read before the table is pinned, never after: a sync completing between the two
+            # reads would otherwise cap on the newer job while the fan-out reads the older
+            # snapshot. No completed sync means nothing to cap against, so take the API path.
+            issues_snapshot_at = parent_snapshot_covers_through(team_id, source_id, "issues")
+            if issues_snapshot_at is not None:
+                # Resolved here, in sync source-build context, never inside the iterator: its body
+                # runs on the pipeline's executor threads, where ad-hoc ORM reads hit the
+                # pooler-drop failure mode resolve_parent_table_ref documents.
+                issues_table = try_resolve_parent_table(
+                    team_id=team_id,
+                    source_id=source_id,
+                    parent_name="issues",
+                    required_columns=_ISSUES_PARENT_COLUMNS,
+                    schema_name="issue_tag_values",
+                    row_filter=_issues_parent_row_filter(_parse_datetime_value(incremental_last_seen_max)),
+                )
+                if issues_table is None:
+                    # The table turned out to be unreadable, so this run reads the live issues
+                    # API. That listing has no snapshot behind it, so capping against one would
+                    # drop fresh tag values the API path had no reason to hold back.
+                    issues_snapshot_at = None
+        if resumable_source_manager is not None and resumable_source_manager.can_resume():
+            # The pipeline reads this same Redis state to pick replace-vs-append for chunk 0,
+            # so state the iterator will refuse has to go now, before it decides. Same
+            # predicate as the iterator's, so the two can't disagree.
+            if _usable_resume_state(resumable_source_manager, issues_table.version if issues_table else None) is None:
+                resumable_source_manager.clear_state()
         return _make_source_response(
             endpoint_config,
             lambda: _iter_issue_tag_values_rows(
@@ -1136,7 +1332,9 @@ def sentry_source(
                 headers=headers,
                 organization_slug=organization_slug,
                 resumable_source_manager=resumable_source_manager,
-                incremental_last_seen_max=db_incremental_field_last_value if should_use_incremental_field else None,
+                incremental_last_seen_max=incremental_last_seen_max,
+                issues_table=issues_table,
+                issues_snapshot_at=issues_snapshot_at,
             ),
         )
 
@@ -1173,6 +1371,8 @@ def sentry_source(
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
                 incremental_config_factory=_sentry_incremental_window,
+                source_id=source_id,
+                use_warehouse_parent=use_warehouse_parent,
                 page_size_param=endpoint_config.page_size_param,
             ),
         )

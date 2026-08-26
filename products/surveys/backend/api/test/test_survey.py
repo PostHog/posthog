@@ -27,10 +27,11 @@ from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     get_survey_api_translations,
@@ -38,8 +39,6 @@ from products.surveys.backend.api.survey import (
     nh3_clean_with_allow_list,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestSurvey(APIBaseTest):
@@ -6520,6 +6519,86 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
         # Generic condition fields SHOULD be copied
         assert duplicated.conditions.get("url") == "https://example.com"
+
+    @parameterized.expand(
+        [
+            (
+                "standard_keys",
+                {"fr": {"name": "Sondage"}, "es-MX": {"name": "Encuesta"}},
+                {"fr": {"question": "Qu'en pensez-vous?"}},
+            ),
+            # Legacy keys predate language-code validation and only survive edits via grandfathering, which
+            # keys off an existing instance. Duplication is a create, so routing these through the serializer
+            # would reject "english" as an invalid code and 400 the whole batch.
+            (
+                "legacy_keys",
+                {"english": {"name": "Survey"}},
+                {"english": {"question": "What do you think?"}},
+            ),
+        ]
+    )
+    def test_bulk_duplicate_copies_translations(
+        self, _name: str, survey_translations: dict, question_translations: dict
+    ) -> None:
+        translated_survey = Survey.objects.create(
+            team=self.team,
+            name="Translated Survey",
+            type="popover",
+            questions=[
+                {"type": "open", "question": "What do you think?", "translations": question_translations},
+                {"type": "open", "question": "Any other feedback?"},
+            ],
+            base_language="en-GB",
+            translations=survey_translations,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{translated_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        duplicated = Survey.objects.get(team=self.team2)
+        assert duplicated.base_language == "en-GB"
+        assert duplicated.translations == survey_translations
+        assert duplicated.questions is not None
+        # Per-question translations are restored onto the right question, and questions without any are untouched.
+        assert duplicated.questions[0]["translations"] == question_translations
+        assert "translations" not in duplicated.questions[1]
+
+    def test_bulk_duplicate_copies_question_translation_matching_default_base_language(self) -> None:
+        # A non-English base language with an "en" question translation is valid at the source, but the create
+        # serializer resolves base_language to the default "en" and would reject "en" as colliding with it.
+        translated_survey = Survey.objects.create(
+            team=self.team,
+            name="French Survey",
+            type="popover",
+            questions=[
+                {
+                    "type": "open",
+                    "question": "Qu'en pensez-vous?",
+                    "translations": {"en": {"question": "What do you think?"}},
+                }
+            ],
+            base_language="fr",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{translated_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        duplicated = Survey.objects.get(team=self.team2)
+        assert duplicated.base_language == "fr"
+        assert duplicated.questions is not None
+        assert duplicated.questions[0]["translations"] == {"en": {"question": "What do you think?"}}
 
     def test_bulk_duplicate_transaction_rollback_on_error(self):
         """Test that all duplications are rolled back if one fails"""

@@ -15,6 +15,9 @@ export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' |
  *  lanes read the same way on a dashboard even though only `collected` exists until the fetch lane
  *  ships. */
 export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
+export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
+export type MlImageSource = 'css' | 'html'
+export type MlImageSourceKind = 'inline' | 'url'
 
 const URL_BYTES_SAMPLE_RATE = 16
 
@@ -96,6 +99,25 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['outcome'],
     })
 
+    private static readonly mlImageReferencesByProperty = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_references_by_property',
+        help: 'Collected CSS and HTML image ref occurrences by bounded source, property, and lane. Counts references before per-message content or URL deduplication',
+        labelNames: ['source', 'property', 'kind'],
+    })
+
+    private static readonly mlUrlCrawlHistory = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_url_crawl_history_total',
+        help: 'URL jobs checked by the mirror before Kafka: fresh jobs are suppressed, misses are produced, and errors fail open',
+        labelNames: ['outcome'],
+    })
+
+    private static readonly mlUrlCrawlHistoryDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_crawl_history_duration_seconds',
+        help: 'Wall time for one mirror crawl-history read by outcome',
+        labelNames: ['outcome'],
+        buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+    })
+
     private static readonly mlUrlsDeclined = new Counter({
         name: 'recording_blob_ingestion_v2_ml_urls_declined',
         help: 'Remote image URLs the anonymizer refused to collect, by reason. A decline is invisible in the collected count, so without this the lane looks like traffic carries fewer images than it does',
@@ -173,6 +195,17 @@ export class SessionRecordingIngesterMetrics {
         this.mlImagesCollected.labels(outcome).inc(count)
     }
 
+    public static incrementMlImageReferencesByProperty(
+        source: MlImageSource,
+        property: string,
+        kind: MlImageSourceKind,
+        count: number
+    ): void {
+        if (count > 0) {
+            this.mlImageReferencesByProperty.labels(source, property, kind).inc(count)
+        }
+    }
+
     private static readonly mlUrlBytes = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_url_bytes',
         help: 'Bytes in one collected remote image URL, sampled. The tail sizes the per-record packing budget, because a record is filled by bytes rather than by a fixed number of URLs. Read the shape, not the count: one URL in URL_BYTES_SAMPLE_RATE is observed',
@@ -205,6 +238,14 @@ export class SessionRecordingIngesterMetrics {
     }
     public static incrementMlUrlsCollected(outcome: MlUrlLaneStage, count: number): void {
         this.mlUrlsCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlUrlCrawlHistory(outcome: MlUrlCrawlHistoryOutcome, count: number): void {
+        this.mlUrlCrawlHistory.labels(outcome).inc(count)
+    }
+
+    public static observeMlUrlCrawlHistoryDuration(outcome: 'success' | 'error', durationSeconds: number): void {
+        this.mlUrlCrawlHistoryDuration.labels(outcome).observe(durationSeconds)
     }
 
     public static incrementMlUrlsDeclined(reason: string, count: number): void {

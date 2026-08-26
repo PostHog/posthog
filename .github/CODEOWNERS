@@ -25,6 +25,8 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
 # so we have to be extra careful with changes here. Let's have the security team own these checks.
 .github/workflows/ci-security.yaml @PostHog/team-security
+# The composite action ci-security.yaml runs its blocking scans through — same ownership, or the scans could be weakened without security review.
+.github/actions/semgrep-ci/ @PostHog/team-security
 .github/workflows/codeql.yml @PostHog/team-security
 
 # This workflow runs on the `pull_request_target` event so that it can run without needing a GitHub org member to explicitly approve it.
@@ -46,10 +48,6 @@ tools/owners/** @PostHog/team-security
 # assignment and are much safer to change.
 CODEOWNERS @PostHog/team-security
 
-# PR approval agent — can auto-approve PRs, so changes need review
-.github/workflows/pr-approval-agent.yml @PostHog/team-security
-tools/pr-approval-agent/** @PostHog/team-security
-
 # Ingestion team owns persons migrations
 rust/persons_migrations/** @PostHog/team-ingestion
 
@@ -70,3 +68,32 @@ bin/dev-sandbox* @PostHog/team-security
 # deploy — installable by all tenants and feeding tool results into their LLM agents. The
 # probe only verifies liveness, so PR review is the vendor-identity gate.
 products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
+
+# Adding a line here exempts a product from isolation, so the full Django backend suite
+# keeps running on every change it makes — a cost paid by everyone, not just its team.
+# `hogli product:bootstrap` scaffolds a sealed product, so a new one should never need an
+# entry. Removals are the mechanical result of a product sealing and are a rubber stamp.
+products/isolation_baseline.txt @PostHog/team-devex
+
+# Workflows owns CDP, Workflows and Messaging, and the entries below gate the parts
+# where another team's change breaks a customer silently: the API and models decide
+# which of a tenant's rows get listed and updated, and the plugin-server worker
+# decides what gets delivered. Other teams edit these as a side effect of shipping
+# their own product, usually by carving out an exception so their own rows behave
+# differently, and nothing errors when they get it wrong: their tests still pass, and
+# existing customer configurations just stop appearing, or stop being delivered.
+# #66355 did that, and it took #83993, #86202 and #86614 to unwind. Product frontends
+# stay out, because a mistake there is visible rather than silent.
+products/cdp/backend/api/** @PostHog/team-workflows
+products/cdp/backend/models/** @PostHog/team-workflows
+products/workflows/backend/api/** @PostHog/team-workflows
+products/workflows/backend/models/** @PostHog/team-workflows
+products/messaging/backend/api/** @PostHog/team-workflows
+products/messaging/backend/models/** @PostHog/team-workflows
+nodejs/src/cdp/** @PostHog/team-workflows
+# ...except the tests beside those gates. Nothing else under the worker is exempt:
+# the template, legacy-plugin, legacy-webhook and segment directories all hold live
+# delivery code and mutable registries, so an edit there can redirect a customer's
+# events and the credentials that go with them.
+products/*/backend/api/test/**
+nodejs/src/cdp/**/*.test.ts

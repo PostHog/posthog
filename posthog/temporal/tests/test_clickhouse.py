@@ -22,6 +22,8 @@ from posthog.temporal.common.clickhouse import (
     encode_clickhouse_data,
 )
 
+pytestmark = pytest.mark.django_db
+
 
 async def _wait_for_query_status(
     client: ClickHouseClient,
@@ -338,6 +340,31 @@ async def test_acheck_query_in_query_log_cancelled(clickhouse_client, django_db_
     # using raise_on_error=True should raise an exception
     with pytest.raises(ClickHouseError):
         await _wait_for_query_status(clickhouse_client, query_id, ClickHouseQueryStatus.ERROR, raise_on_error=True)
+
+
+async def test_acheck_query_in_query_log_classifies_the_error(clickhouse_client, django_db_setup):
+    """A failure recovered from the query log is classified like one returned over HTTP.
+
+    A caller that waits out a query which outlived its client timeout reads the failure from the
+    query log instead of the response. Both carry the same error text, so both must yield the same
+    exception class: otherwise whether a caller sees `ClickHouseMemoryLimitExceededError` or a bare
+    `ClickHouseError` depends on how long the query happened to take.
+    """
+    query_id = f"test-memory-limit-query-{uuid.uuid4()}"
+
+    with pytest.raises(ClickHouseMemoryLimitExceededError) as direct:
+        await clickhouse_client.execute_query_with_summary(
+            "SELECT groupArray(toString(number)) FROM numbers(10000000)",
+            query_id=query_id,
+            settings={"max_memory_usage": "1000000"},
+        )
+
+    with pytest.raises(ClickHouseMemoryLimitExceededError) as from_query_log:
+        await _wait_for_query_status(clickhouse_client, query_id, ClickHouseQueryStatus.ERROR)
+
+    assert "MEMORY_LIMIT_EXCEEDED" in str(direct.value)
+    assert "MEMORY_LIMIT_EXCEEDED" in str(from_query_log.value)
+    assert from_query_log.value.query_id == query_id
 
 
 async def test_acheck_query_in_query_log_not_found(clickhouse_client, django_db_setup):

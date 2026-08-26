@@ -52,6 +52,8 @@ pub mod json;
 pub mod scan;
 pub mod snapshot;
 #[doc(hidden)]
+pub mod srcset;
+#[doc(hidden)]
 pub mod text;
 pub mod timings;
 #[cfg(feature = "typed-parse")]
@@ -82,7 +84,7 @@ pub use timings::{PhaseTimings, PhaseTimingsSnapshot};
 #[cfg(feature = "typed-parse")]
 pub use typed::{parse_scrubbed_event, parse_scrubbed_event_with_ctx};
 pub use url_collect::{CollectedUrl, UrlCollection};
-pub use url_policy::{canonicalize, is_public_host, CanonicalUrl};
+pub use url_policy::{canonicalize, is_public_host, politeness_key, CanonicalUrl};
 
 /// Shared helpers for the image-neutralization tests across modules.
 #[cfg(test)]

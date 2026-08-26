@@ -34,6 +34,9 @@ jobs:
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -102,7 +105,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing job. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -111,12 +114,9 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: services/llm-gateway/junit.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 

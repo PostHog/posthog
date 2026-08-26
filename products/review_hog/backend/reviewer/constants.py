@@ -13,12 +13,22 @@ from products.tasks.backend.facade.run_config import (
 logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
-REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
-REVIEW_MODEL = "claude-sonnet-5"
+REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
+REVIEW_MODEL = "gpt-5.6-sol"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
-# Claude sandboxes run with bypassPermissions by default, so headless MCP skill pulls need no
-# extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
-REVIEW_INITIAL_PERMISSION_MODE = None
+# Codex's default "auto" approval mode does not auto-approve MCP tool calls, so a headless reviewer
+# stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default
+# and take None here.)
+REVIEW_INITIAL_PERMISSION_MODE = "full-access"
+
+# Least-privilege PostHog MCP scopes for every ReviewHog sandbox session. The sessions process
+# untrusted PR-comment text, and their only legitimate MCP use is reading their criteria skill
+# (skill-get / skill-file-get) — without this the context defaults to "full", handing an injectable
+# agent execute-sql and every write tool. Internal sandbox-plumbing scopes are re-added by the
+# resolver, so this cannot break session mechanics. `user:read` is the MCP handshake: the MCP
+# server resolves the calling user (`/api/users/@me/`) when a session opens and refuses the whole
+# connection without it, so the agent never gets `skill-get` and silently reviews without its skill.
+REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read", "user:read"]
 
 
 @dataclass(frozen=True)
@@ -43,24 +53,15 @@ DEFAULT_REVIEW_ARM = ReviewArm(
     initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
 )
 
-# The reviewer-model experiment: each new report draws its arm once at creation and keeps it for
+# The reviewer-model arm draw: each new report draws its arm once at creation and keeps it for
 # life, because a per-turn redraw would feed one arm's findings into the other arm's
-# "already covered" injection. Weights are relative shares (`random.choices` normalizes them). End
-# the experiment by dropping arms HERE, never by deregistering the model in products/tasks:
-# persisted assignments resolve against the live registry per unit, so a mid-experiment
-# deregistration silently falls in-flight turns back to the default pins, unit by unit.
-REVIEW_EXPERIMENT_ARMS: tuple[tuple[float, ReviewArm], ...] = (
-    (0.5, DEFAULT_REVIEW_ARM),
-    (
-        0.5,
-        ReviewArm(
-            runtime_adapter=RuntimeAdapter.CODEX,
-            model="gpt-5.6-sol",
-            reasoning_effort=ReasoningEffort.XHIGH,
-            initial_permission_mode="full-access",
-        ),
-    ),
-)
+# "already covered" injection. Weights are relative shares (`random.choices` normalizes them).
+# Run a model experiment by adding weighted arms here; end it by dropping arms HERE, never by
+# deregistering the model in products/tasks: persisted assignments resolve against the live
+# registry per unit, so a mid-experiment deregistration silently falls in-flight turns back to
+# the default pins, unit by unit. Reports that drew a now-dropped arm keep running it while its
+# combo stays registered, by design.
+REVIEW_EXPERIMENT_ARMS: tuple[tuple[float, ReviewArm], ...] = ((1.0, DEFAULT_REVIEW_ARM),)
 
 
 def draw_review_arm() -> ReviewArm:
@@ -122,6 +123,27 @@ VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
 VALIDATION_MODEL: str | None = "claude-opus-5"
 VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
+
+# RESOLUTION MODEL
+# Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
+# Starts on the validator's setup — resolution is judgment + careful editing, the validator's tier.
+RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
+RESOLUTION_MODEL: str | None = "claude-opus-4-8"
+RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
+
+# A resolution run handles at most this many threads, priority-ordered; the binding constraint is
+# the warm session's context window (every turn accumulates), not sandbox cost. Overflow is named in
+# the run summary and the next run continues — never silent truncation.
+MAX_THREADS_PER_RUN = 20
+
+# Attempts for the per-PR resolution session. Retries are cheap — the per-thread verdicts persist,
+# so a retry redoes unjudged threads and undelivered side effects (a crash in the post-reply window
+# can still duplicate a reply; see temporal/resolution.py). On the final attempt a failed turn skips
+# its thread instead of raising, mirroring the validation session. Sized for prod worker rollouts:
+# deploys land every ~15 minutes and kill the in-flight attempt after a ~5-minute grace, so an
+# attempt survives ~2-4 turns and a full work-list needs several attempts to grind through.
+RESOLUTION_MAX_ATTEMPTS = 5
 
 # CHUNKING MODEL
 # Pins for the sandbox chunking turn (PRs over the one-shot gate), matching the one-shot pin below —
@@ -223,10 +245,10 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 
 # OUTCOME TELEMETRY
 # The outcome-classifier judge decides whether the commits that landed after review actually
-# addressed a finding. Pinned to a model DIFFERENT from the reviewer's (`REVIEW_MODEL` /
-# `ONESHOT_MODEL` = claude-sonnet-5): a judge sharing the reviewer's model family would inherit the
-# same blind spots the telemetry exists to measure. Effort is "high" — a focused yes/no on a small
-# diff, not the reviewer's exhaustive xhigh pass.
+# addressed a finding. Pinned to a model family DIFFERENT from the reviewer's (`REVIEW_MODEL`):
+# a judge sharing the reviewer's model family would inherit the same blind spots the telemetry
+# exists to measure. Effort is "high" — a focused yes/no on a small diff, not the reviewer's
+# exhaustive xhigh pass.
 OUTCOME_JUDGE_MODEL = "claude-opus-5"
 OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.

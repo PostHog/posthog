@@ -568,7 +568,6 @@ export interface batchExportConfigFormLogicValues {
         | 'HTTP'
         | 'Postgres'
         | 'Redshift'
-        | 'S3'
         | 'S3Compatible'
         | 'Snowflake'
         | null
@@ -700,7 +699,6 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null
@@ -712,7 +710,6 @@ export interface batchExportConfigFormLogicMeta {
             | 'HTTP'
             | 'Postgres'
             | 'Redshift'
-            | 'S3'
             | 'S3Compatible'
             | 'Snowflake'
             | null
@@ -727,7 +724,6 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null
@@ -741,7 +737,6 @@ export interface batchExportConfigFormLogicMeta {
                 | 'HTTP'
                 | 'Postgres'
                 | 'Redshift'
-                | 'S3'
                 | 'S3Compatible'
                 | 'Snowflake'
                 | null,
@@ -956,7 +951,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null
@@ -979,7 +973,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null
@@ -997,7 +990,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     | 'HTTP'
                     | 'Postgres'
                     | 'Redshift'
-                    | 'S3'
                     | 'S3Compatible'
                     | 'Snowflake'
                     | null,
@@ -1031,28 +1023,34 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 destination: buildDestinationPayload(formdata) as any,
             } as any
 
-            if (props.id) {
-                const res = await api.batchExports.update(props.id, data)
-                lemonToast.success('Batch export configuration updated successfully')
+            try {
+                if (props.id) {
+                    const res = await api.batchExports.update(props.id, data)
+                    lemonToast.success('Batch export configuration updated successfully')
+                    void addProductIntent({
+                        product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                        intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
+                    })
+                    actions.setBatchExportConfig(res)
+                    actions.updateBatchExportConfigSuccess(res)
+                    return
+                }
+                const res = await api.batchExports.create(data)
+                actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
                 void addProductIntent({
                     product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
-                    intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
+                    intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
                 })
-                actions.setBatchExportConfig(res)
+
+                router.actions.replace(urls.batchExport(res.id))
+                lemonToast.success('Batch export created successfully')
                 actions.updateBatchExportConfigSuccess(res)
-                return
+            } catch (error: any) {
+                // Not rethrown, matching `deleteBatchExport` below: the unsaved values stay on the
+                // form either way, and a rejecting listener escapes kea as an unhandled rejection.
+                lemonToast.error(error.detail || error.message || 'Could not save the batch export. Try again.')
             }
-            const res = await api.batchExports.create(data)
-            actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
-
-            void addProductIntent({
-                product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
-                intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
-            })
-
-            router.actions.replace(urls.batchExport(res.id))
-            lemonToast.success('Batch export created successfully')
-            actions.updateBatchExportConfigSuccess(res)
         },
         updateBatchExportConfigSuccess: ({ batchExportConfig }) => {
             if (!batchExportConfig) {

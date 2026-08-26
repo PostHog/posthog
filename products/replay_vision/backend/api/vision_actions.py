@@ -152,6 +152,15 @@ class AlertConfigSerializer(serializers.Serializer):
             "every_match ignores it (each check covers what's new since the previous one)."
         ),
     )
+    include_reasoning = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, each example line in the alert message includes the scanner's full reasoning "
+            "for that observation, not just its verdict/score/tags. Useful when piping the message "
+            "somewhere else to read or act on. Defaults to false."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         frequency = attrs.get("frequency", AlertFrequency.ON_BREACH)
@@ -493,7 +502,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if name is None:
             return
         # A brand-new digest whose name is exactly the auto-derived one came from the one-click
-        # "Turn on daily digest" button, so create() makes it collision-safe instead of 400-ing.
+        # "Turn on featured digest" button, so create() makes it collision-safe instead of 400-ing.
         # A user-typed name (even on a digest) still gets the explicit duplicate error below.
         if self.instance is None and attrs.get("is_scanner_digest") and self._has_derived_digest_name(attrs):
             return
@@ -581,7 +590,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if "vision_action_unique_team_name" in str(error):
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
         if "vision_action_unique_scanner_digest" in str(error):
-            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a daily digest."})
+            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a featured digest."})
         raise error
 
 

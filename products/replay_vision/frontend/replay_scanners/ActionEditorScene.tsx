@@ -2,15 +2,24 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+} from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,6 +29,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { VisionDocsLink } from '../components/DocsLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
     AlertConfigFrequencyEnumApi,
@@ -121,6 +131,11 @@ function ScheduleSection(): JSX.Element {
                 {noDays && <span className="text-xs text-danger">Pick at least one day</span>}
             </div>
 
+            <span className="text-xs text-muted">
+                Each run summarizes up to 100 observations since the last digest ran. Busier periods are sampled down to
+                that limit.
+            </span>
+
             <div className="w-32">
                 <label className="text-sm font-semibold">At</label>
                 <LemonInput
@@ -143,11 +158,6 @@ function ScheduleSection(): JSX.Element {
                 <label className="text-sm font-semibold">Timezone</label>
                 <TimezoneSelect value={timezone} onChange={(tz) => setActionFormValue('timezone', tz)} />
             </div>
-
-            <span className="text-xs text-muted">
-                Each run summarizes up to 100 observations from the period. Busier periods are sampled down to that
-                limit.
-            </span>
         </div>
     )
 }
@@ -208,13 +218,13 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
         case 'classifier': {
             const configuredTags: string[] = scanner.scanner_config?.tags ?? []
             const allowFreeform = !!scanner.scanner_config?.allow_freeform_tags
-            filteredLabel = 'Only certain tags'
+            filteredLabel = 'Only certain categories'
             controls = (
                 <div className="flex flex-col gap-1">
                     <LemonInputSelect
                         mode="multiple"
                         allowCustomValues={allowFreeform}
-                        placeholder="Pick tags…"
+                        placeholder="Pick categories…"
                         value={actionForm.tags}
                         onChange={(tags) => setActionFormValue('tags', tags)}
                         options={[...new Set([...configuredTags, ...actionForm.tags])].map((t) => ({
@@ -223,7 +233,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                         }))}
                         data-attr="vision-action-targeting-tags"
                     />
-                    <span className="text-xs text-muted">Only summarize observations tagged with any of these.</span>
+                    <span className="text-xs text-muted">Only summarize observations in any of these categories.</span>
                 </div>
             )
             break
@@ -336,14 +346,14 @@ function AlertMatchLine({ scannerId }: { scannerId: string }): JSX.Element | nul
         case 'classifier': {
             const configuredTags: string[] = scanner.scanner_config?.tags ?? []
             const allowFreeform = !!scanner.scanner_config?.allow_freeform_tags
-            lead = 'tagged'
+            lead = 'in category'
             control = (
                 <div className="min-w-48">
                     <LemonInputSelect
                         mode="multiple"
                         size="small"
                         allowCustomValues={allowFreeform}
-                        placeholder="any tag"
+                        placeholder="any category"
                         value={actionForm.tags}
                         onChange={(tags) => setActionFormValue('tags', tags)}
                         options={[...new Set([...configuredTags, ...actionForm.tags])].map((tag) => ({
@@ -405,6 +415,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const everyMatch = actionForm.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
     const isScorer = scanner?.scanner_type === 'scorer'
@@ -433,7 +444,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 
             <LemonSegmentedButton
                 size="small"
-                className="max-w-full overflow-x-auto"
+                className="max-w-full"
                 value={actionForm.alert_frequency}
                 onChange={(value) => {
                     setActionFormValue('alert_frequency', value)
@@ -520,6 +531,14 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
             ) : null}
             {actionFormErrors?.min_score ? (
                 <span className="text-xs text-danger">{String(actionFormErrors.min_score)}</span>
+            ) : null}
+            {featureFlags[FEATURE_FLAGS.REPLAY_VISION_SEND_REASONING] ? (
+                <LemonCheckbox
+                    checked={actionForm.alert_include_reasoning}
+                    onChange={(checked) => setActionFormValue('alert_include_reasoning', checked)}
+                    label="Include the observation's reasoning in the message"
+                    data-attr="vision-action-alert-include-reasoning"
+                />
             ) : null}
             <span className="text-xs text-muted">
                 {everyMatch
@@ -614,9 +633,9 @@ function WebhookDelivery({ noun }: { noun: string }): JSX.Element {
             </LemonField>
             <span className="text-xs text-muted">
                 We POST a JSON payload to this URL.{' '}
-                <Link to="https://posthog.com/docs/replay-vision/webhooks" target="_blank">
+                <VisionDocsLink page="webhooks" dataAttr="vision-docs-link-webhook-payload">
                     See the payload format
-                </Link>
+                </VisionDocsLink>
                 .
             </span>
             {!actionForm.webhook_url && (

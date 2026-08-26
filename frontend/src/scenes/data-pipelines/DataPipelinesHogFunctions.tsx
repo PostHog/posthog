@@ -11,7 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { HogFunctionTypeType } from '~/types'
+import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
@@ -22,6 +22,8 @@ export type DataPipelinesHogFunctionsProps = {
     action?: JSX.Element
 }
 
+// `site_app` is intentionally absent: web scripts renders the scene-level product
+// empty state instead (products/cdp/frontend/emptyState).
 export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; description: string }>> = {
     destination: {
         key: ProductKey.PIPELINE_DESTINATIONS,
@@ -31,10 +33,6 @@ export const MAPPING: Partial<Record<HogFunctionTypeType, { key: ProductKey; des
         key: ProductKey.PIPELINE_TRANSFORMATIONS,
         description:
             'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
-    },
-    site_app: {
-        key: ProductKey.SITE_APPS,
-        description: 'Web scripts allow you to add custom tags and functionality to your website using PostHog.',
     },
 }
 
@@ -70,6 +68,21 @@ export function DataPipelinesHogFunctions({
 
     const productInfoMapping = MAPPING[kind]
 
+    // Each source is null until it loads, so keep them unflattened here: the list just needs
+    // everything in one array, but the empty state has to tell "none" apart from "not loaded yet".
+    const manualSources: (HogFunctionType[] | null)[] =
+        kind === 'destination'
+            ? [hogFunctionPluginsDestinations, hogFunctionBatchExports]
+            : kind === 'site_app'
+              ? [hogFunctionPluginsSiteApps]
+              : []
+
+    const manualFunctions = manualSources.length > 0 ? manualSources.flatMap((source) => source ?? []) : undefined
+
+    // A null source has not loaded yet. Counting it as empty flashes the CTA before the data arrives.
+    const isEmpty =
+        !loading && hogFunctions.length === 0 && manualSources.every((source) => source !== null && source.length === 0)
+
     return (
         <SceneContent>
             {productInfoMapping ? (
@@ -80,7 +93,7 @@ export function DataPipelinesHogFunctions({
                     description={productInfoMapping.description}
                     docsURL="https://posthog.com/docs/cdp"
                     actionElementOverride={action}
-                    isEmpty={hogFunctions.length === 0 && !loading}
+                    isEmpty={isEmpty}
                 />
             ) : null}
             <SceneSection>
@@ -88,13 +101,7 @@ export function DataPipelinesHogFunctions({
                     logicKey={logicKey}
                     type={kind}
                     additionalTypes={additionalKinds}
-                    manualFunctions={
-                        kind === 'destination'
-                            ? [...(hogFunctionPluginsDestinations ?? []), ...(hogFunctionBatchExports ?? [])]
-                            : kind === 'site_app'
-                              ? [...(hogFunctionPluginsSiteApps ?? [])]
-                              : undefined
-                    }
+                    manualFunctions={manualFunctions}
                 />
             </SceneSection>
             <SceneDivider />

@@ -37,6 +37,11 @@ build pipeline's dependency admission ships.
 
 ## Styling and theme without Quill
 
+- Size the outermost JSX/HTML element to the iframe viewport with `h-screen` or `height: 100vh`.
+  Do not use `h-full` or `height: 100%` on that root: a published canvas's artifact shell gives
+  its `html`, `body`, and `#root` elements no explicit height, so percentage height collapses to
+  the content height. Descendants may use percentage height after the outermost element establishes
+  the viewport height.
 - Use Tailwind utilities and/or a `<style>` block (keyframes and complex selectors are fine).
 - The host toggles a `.dark` class on the document root when the user's PostHog theme changes.
   Define your colors as CSS variables under `:root { … }` with overrides under `html.dark { … }`,
@@ -51,6 +56,10 @@ build pipeline's dependency admission ships.
 - No `fetch()`/`XMLHttpRequest`, no `<script>` tags, no dynamic `import()`, no remote assets —
   the sandbox blocks them. PostHog data comes only through the `ph` bridge (see the
   `querying-canvas-data` skill), including `ph.capture` for interaction analytics.
+- A document that states PostHog numbers must make each one verifiable: an insight-backed number
+  links its saved insight through `ph.openExternal` (URL from the `generate-app-url` MCP tool,
+  from a click); an ad-hoc `ph.query` number discloses the exact query that ran in a `<details>`
+  element beside the claim — see "Verifiability" in `querying-canvas-data`.
 - External links go through `ph.openExternal(url)` (posthog.com origins only), from a user
   interaction.
 - Validate and publish through the canvas tools as described in `validating-and-publishing-canvases`.
