@@ -47,6 +47,8 @@ jobs:
                   fetch-depth: 1
                   sparse-checkout: |
                       /.github/
+                      /bin/render-jest-timings-example
+                      /bin/report-jest-timings
                       /.depot/
                       /tools/
                       /proto/
