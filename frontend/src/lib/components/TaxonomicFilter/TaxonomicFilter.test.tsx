@@ -435,6 +435,74 @@ describe('TaxonomicFilter', () => {
             // ...but the render-backed SQL expression tab is not.
             expect(screen.queryByTestId('taxonomic-switch-to-hogql_expression')).not.toBeInTheDocument()
         })
+
+        // Searching an event this picker hides has to say so. Dropping it from the list and then
+        // reporting "no results" tells someone who knows the event exists that it never did.
+        // The rebuild's half of this lives in menu/Combobox.test.tsx.
+        describe('an event hidden because its data is moving', () => {
+            let unmountFeatureFlagLogic: (() => void) | null = null
+
+            beforeEach(() => {
+                unmountFeatureFlagLogic = featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS], {
+                    [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
+                })
+            })
+
+            afterEach(() => {
+                featureFlagLogic.actions.setFeatureFlags([], {})
+                unmountFeatureFlagLogic?.()
+                unmountFeatureFlagLogic = null
+            })
+
+            it('explains the absence instead of reporting no results', async () => {
+                renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
+
+                await activateGroupWithResults('taxonomic-tab-events')
+                await withoutDebounceDelay((user) =>
+                    user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                )
+
+                await waitFor(() => {
+                    expect(inVisibleTab(screen.getAllByTestId('taxonomic-hidden-event'))).toBeTruthy()
+                })
+                expect(screen.queryByText(/No results for/)).not.toBeInTheDocument()
+            })
+
+            // The aggregated tab's own group carries no exclusions, so reading the active list's
+            // group instead of the Events group leaves this arm silent.
+            it('explains it on the aggregated tab too', async () => {
+                renderFilter({
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.SuggestedFilters,
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.PersonProperties,
+                    ],
+                })
+
+                // Real timers: SuggestedFilters is present, see the sibling tests above.
+                await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+
+                await waitFor(() => {
+                    expect(inVisibleTab(screen.getAllByTestId('taxonomic-hidden-event'))).toBeTruthy()
+                })
+            })
+
+            it('reports no results as usual once the kill switch is off', async () => {
+                featureFlagLogic.actions.setFeatureFlags([], {})
+                renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
+
+                await activateGroupWithResults('taxonomic-tab-events')
+                await withoutDebounceDelay((user) =>
+                    user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                )
+
+                await waitFor(() => {
+                    expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
+                })
+                expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
+            })
+        })
     })
 
     describe('tab switching', () => {

@@ -9,6 +9,8 @@ import {
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
@@ -913,6 +915,31 @@ describe('infiniteListLogic', () => {
                     group: undefined,
                     localItems: partial({ count: 0, results: [] }),
                 })
+        })
+    })
+
+    describe('events a picker excludes', () => {
+        const HIDDEN_EVENT = '$feature_flag_called'
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        // The Pinned and Recent tabs filter against the caller's record rather than the Events
+        // group's own list, so the hidden names have to reach that record for a pin saved before
+        // the event was hidden to drop.
+        it('folds the hidden names into the record the Recent and Pinned tabs read', () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'hidden-events',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            expect(listLogic.values.excludedPropertiesWithHiddenEvents?.[TaxonomicFilterGroupType.Events]).toContain(
+                HIDDEN_EVENT
+            )
         })
     })
 

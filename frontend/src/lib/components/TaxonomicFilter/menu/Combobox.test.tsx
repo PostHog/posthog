@@ -5,6 +5,9 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -1081,6 +1084,50 @@ describe('MenuFilterCombobox', () => {
 
         await waitFor(() => expect(screen.getByTestId('menu-filter-empty')).toBeInTheDocument())
         expect(screen.queryByText('Check for results in other categories')).not.toBeInTheDocument()
+    })
+
+    // Parity with the legacy picker, whose half lives in TaxonomicFilter.test.tsx. Nothing enforces
+    // that the two agree, so the same rule is asserted on both.
+    describe('an event hidden because its data is moving', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS], {
+                [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
+            })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        it('explains the absence, and drops recovery buttons that cannot recover it', async () => {
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                searchQuery: '$feature_flag_called',
+            })
+
+            const empty = await waitFor(() => screen.getByTestId('menu-filter-empty'))
+            expect(within(empty).getByText(/\$feature_flag_called isn't available here/)).toBeInTheDocument()
+            expect(screen.queryByTestId('menu-filter-include-stale-events')).not.toBeInTheDocument()
+            expect(screen.queryByTestId('menu-filter-check-other-categories')).not.toBeInTheDocument()
+        })
+
+        it('reports no matches as usual once the kill switch is off', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                searchQuery: '$feature_flag_called',
+            })
+
+            const empty = await waitFor(() => screen.getByTestId('menu-filter-empty'))
+            expect(within(empty).queryByText(/isn't available here/)).not.toBeInTheDocument()
+        })
     })
 
     describe('reveal barrier', () => {

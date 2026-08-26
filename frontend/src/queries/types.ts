@@ -86,6 +86,13 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
      */
     suppressSlowQuerySuggestions?: boolean
+    /**
+     * Let this table's event pickers offer events whose data is moving out of the `events` table.
+     * Set it where the pick is thrown away with the page. A surface whose query gets saved (an
+     * insight, a dashboard tile, a notebook, a table view) leaves it unset, so it stops saving a
+     * filter that returns nothing once the data moves. See `TaxonomicFilterProps.includeHiddenEvents`.
+     */
+    includeHiddenEvents?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

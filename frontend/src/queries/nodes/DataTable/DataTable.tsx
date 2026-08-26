@@ -849,10 +849,20 @@ export function DataTable({
             />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
-            <EventName key="event-name" query={query.source as EventsQuery | SessionsQuery} setQuery={setQuerySource} />
+            <EventName
+                key="event-name"
+                query={query.source as EventsQuery | SessionsQuery}
+                setQuery={setQuerySource}
+                includeHiddenEvents={context?.includeHiddenEvents}
+            />
         ) : null,
         showEventsFilter && isEventsQuery(query.source) ? (
-            <EventsFilter key="events-filter" query={query.source} setQuery={setQuerySource} />
+            <EventsFilter
+                key="events-filter"
+                query={query.source}
+                setQuery={setQuerySource}
+                includeHiddenEvents={context?.includeHiddenEvents}
+            />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />

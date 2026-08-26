@@ -5173,6 +5173,8 @@ export interface CoreFilterDefinition {
     used_for_debug?: boolean
     /** Name of a single property on events of this name that UIs should display alongside the event. */
     primary_property?: string
+    /** Keep this event out of pickers that build a query someone saves and runs later. Surfaces that read live event data still offer it. */
+    hidden_in_query_builders?: boolean
 }
 
 export interface TileParams {

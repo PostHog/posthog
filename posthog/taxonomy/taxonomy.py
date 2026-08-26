@@ -19,6 +19,11 @@ class CoreFilterDefinition(TypedDict):
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
+    # Keep this event out of pickers that build a query someone saves and runs later, because its rows
+    # are moving out of the events table. Surfaces that read live event data still offer it.
+    # This marks a migration in progress, not a permanent trait: drop the field once every event
+    # carrying it has moved and its old artifacts are migrated (RFC #1209).
+    hidden_in_query_builders: NotRequired[bool]
 
 
 def is_hidden_from_assistant(definition: CoreFilterDefinition) -> bool:
@@ -177,10 +182,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$feature_flag_called": {
             "label": "Feature flag called",
             "description": (
-                'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active feature flags".'
+                "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but you can't build a saved query on it. Its data is moving, so a saved query would stop returning results. To see how a flag is used, open the flag and check its Usage tab."
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
+            "hidden_in_query_builders": True,
             "primary_property": "$feature_flag",
         },
         "$feature_view": {
@@ -1744,7 +1750,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag": {
             "label": "Feature flag",
-            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active feature flags".',
+            "description": 'The key of the feature flag, sent on "Feature flag called" and "Feature enrollment" events. To find other events where a flag was active, use "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {

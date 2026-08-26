@@ -911,6 +911,51 @@ describe('taxonomicFilterLogic', () => {
         )
     })
 
+    describe('events whose data is moving out of the events table', () => {
+        const HIDDEN_EVENT = '$feature_flag_called'
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        const eventsGroupExclusions = (props: Record<string, any>): (string | null)[] => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
+            })
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `hidden-events-${JSON.stringify(props)}`,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                ...props,
+            })
+            testLogic.mount()
+            const exclusions =
+                testLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+                    ?.excludedProperties ?? []
+            testLogic.unmount()
+            return exclusions
+        }
+
+        // Hiding is the picker's default, so a picker added later is covered without having to know
+        // about any of this. Surfaces that read live data opt back in explicitly.
+        it('hides them by default', () => {
+            expect(eventsGroupExclusions({})).toContain(HIDDEN_EVENT)
+        })
+
+        it('offers them to a picker that opts out', () => {
+            expect(eventsGroupExclusions({ includeHiddenEvents: true })).not.toContain(HIDDEN_EVENT)
+        })
+
+        // Cohorts exclude "All events" and transformations exclude $exception; adding ours must not
+        // drop either.
+        it("keeps the picker's own exclusions", () => {
+            const exclusions = eventsGroupExclusions({
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: [null, '$exception'] },
+            })
+            expect(exclusions).toContain('$exception')
+            expect(exclusions).toContain(HIDDEN_EVENT)
+        })
+    })
+
     describe('SuggestedFilters presence by variant', () => {
         afterEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], {

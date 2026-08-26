@@ -56,6 +56,7 @@ import {
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
 import { floatToFront } from '../utils/floatToFront'
+import { hiddenEventMatchingSearch } from '../utils/hiddenEvents'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { MatchedValueBadge } from './MatchedValueBadge'
@@ -718,6 +719,20 @@ export function MenuFilterCombobox({
             return {
                 title: singleGroup.name,
                 body: `Type at least ${minLen} characters to search ${description} we have seen.`,
+            }
+        }
+        // `groups` is already narrowed to the tabs this filter offers, so no group-type gate is
+        // needed here, unlike the mirror of this branch in InfiniteList.tsx.
+        const hiddenEventSearched = hiddenEventMatchingSearch(
+            searchQuery,
+            groups.find((g) => g.type === TaxonomicFilterGroupType.Events)?.excludedProperties
+        )
+        if (hiddenEventSearched) {
+            // `body` is load-bearing, not decoration: the recovery buttons below render only when it
+            // is absent, and neither of them can bring back an excluded name.
+            return {
+                title: `${hiddenEventSearched} isn't available here`,
+                body: "PostHog still collects this event, but you can't build a saved query on it. Its data is moving, so a saved query would stop returning results. To see how a flag is used, open the flag and check its Usage tab.",
             }
         }
         const categoryLabel = singleGroup?.name ?? null

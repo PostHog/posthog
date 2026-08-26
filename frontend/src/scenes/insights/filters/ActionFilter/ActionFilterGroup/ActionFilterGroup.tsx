@@ -56,6 +56,7 @@ interface ActionFilterGroupProps {
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: any[]
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
+    includeHiddenEvents?: TaxonomicPopoverProps['includeHiddenEvents']
     groupTitle?: string
     trendsDisplayCategory?: any
     insightType?: InsightType
@@ -78,6 +79,7 @@ export function ActionFilterGroup({
     showNumericalPropsOnly,
     dataWarehousePopoverFields,
     excludedProperties,
+    includeHiddenEvents,
     groupTitle,
     trendsDisplayCategory,
     insightType,
@@ -373,6 +375,7 @@ export function ActionFilterGroup({
                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                                     excludedProperties={excludedProperties}
+                                    includeHiddenEvents={includeHiddenEvents}
                                     definitionPopoverRenderer={definitionPopoverRenderer}
                                 />
                                 {eventIndex < nestedFilters.length - 1 && (
@@ -427,6 +430,7 @@ export function ActionFilterGroup({
                             showNumericalPropsOnly={showNumericalPropsOnly}
                             dataWarehousePopoverFields={dataWarehousePopoverFields}
                             excludedProperties={excludedProperties}
+                            includeHiddenEvents={includeHiddenEvents}
                         />
                     </div>
                 )}

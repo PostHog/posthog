@@ -168,6 +168,9 @@ export function Group(): JSX.Element {
                                 setQuery={setGroupEventsQuery}
                                 context={{
                                     refresh: 'force_blocking',
+                                    // Browses this group's captured events. The query carries no
+                                    // contextKey, so the pick is never saved as a table view.
+                                    includeHiddenEvents: true,
                                     customActions: (
                                         <LemonButton
                                             key="reset-group-events-filters"

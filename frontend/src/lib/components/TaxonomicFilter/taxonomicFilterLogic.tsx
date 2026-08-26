@@ -50,6 +50,7 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
+import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import {
     MCP_TOOL_CALL_EVENT,
     MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
@@ -398,6 +399,7 @@ export interface taxonomicFilterLogicValues {
     propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     propertyFilters: {
         excludedProperties: TaxonomicFilterGroupValueMap
+        includeHiddenEvents: boolean | undefined
         propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     }
     redistributedTopMatchItems: TopMatchItem[]
@@ -516,9 +518,11 @@ export interface taxonomicFilterLogicMeta {
         propertyAllowList: (arg: any) => TaxonomicFilterGroupValueMap | undefined
         propertyFilters: (
             excludedProperties: TaxonomicFilterGroupValueMap,
-            propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+            propertyAllowList: TaxonomicFilterGroupValueMap | undefined,
+            arg: any
         ) => {
             excludedProperties: TaxonomicFilterGroupValueMap
+            includeHiddenEvents: boolean | undefined
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined
         }
         allowNonCapturedEvents: (arg: any) => boolean
@@ -554,6 +558,7 @@ export interface taxonomicFilterLogicMeta {
             suggestedFiltersLabel: any,
             propertyFilters: {
                 excludedProperties: TaxonomicFilterGroupValueMap
+                includeHiddenEvents: boolean | undefined
                 propertyAllowList: TaxonomicFilterGroupValueMap | undefined
             },
             metadataPropertyDefinitionsByType: {
@@ -583,12 +588,12 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -880,14 +885,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
             { resultEqualityCheck: objectsEqual },
         ],
+        // Combined so `taxonomicGroups` stays under kea's 16-dep tuple type limit.
         propertyFilters: [
-            (s) => [s.excludedProperties, s.propertyAllowList],
+            (s) => [s.excludedProperties, s.propertyAllowList, (_, props) => props.includeHiddenEvents],
             (
                 excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap,
                 propertyAllowList:
                     | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
-                    | undefined
-            ) => ({ excludedProperties, propertyAllowList }),
+                    | undefined,
+                includeHiddenEvents: boolean | undefined
+            ) => ({ excludedProperties, propertyAllowList, includeHiddenEvents }),
             { resultEqualityCheck: objectsEqual },
         ],
         allowNonCapturedEvents: [
@@ -961,6 +968,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     propertyAllowList:
                         | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                         | undefined
+                    includeHiddenEvents: boolean | undefined
                 },
                 {
                     event: eventMetadataPropertyDefinitions,
@@ -981,7 +989,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
                     eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
-                const { excludedProperties, propertyAllowList } = propertyFilters
+                const { excludedProperties, propertyAllowList, includeHiddenEvents } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -994,8 +1002,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
                         }).url,
-                        excludedProperties:
-                            excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
+                        excludedProperties: [
+                            ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
+                            ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                        ],
                         ...withKeywordShortcuts<Record<string, any>>(
                             {
                                 getName: (eventDefinition) => eventDefinition.name,

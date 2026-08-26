@@ -82,6 +82,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     schemaColumns?: DatabaseSchemaField[]
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
+    includeHiddenEvents?: boolean
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -220,6 +221,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     schemaColumns,
     metadataSource,
     excludedProperties,
+    includeHiddenEvents,
     selectedProperties,
     propertyAllowList,
     optionsFromProp,
@@ -302,6 +304,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             schemaColumns={schemaColumns}
             metadataSource={metadataSource}
             excludedProperties={excludedProperties}
+            includeHiddenEvents={includeHiddenEvents}
             selectedProperties={selectedProperties}
             propertyAllowList={propertyAllowList}
             optionsFromProp={optionsFromProp}
