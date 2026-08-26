@@ -16,9 +16,13 @@ import {
     toSegmentationEvent,
 } from '~/ingestion/pipelines/sessionreplay/segmentation'
 
+import { SessionBatchMetrics } from './metrics'
+
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
-const MAX_URLS_COUNT = 25
+// Single-page apps change route on every query-string change, so an active session visits many
+// distinct URLs. A low cap drops most of them and makes the recording hard to find by page.
+const MAX_URLS_COUNT = 100
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -93,7 +97,6 @@ export class SnappySessionRecorder {
     private snapshotSource: string | null = null
     private snapshotLibrary: string | null = null
     private segmentationEvents: SegmentationEvent[] = []
-    private droppedUrlsCount: number = 0
 
     constructor(
         public readonly sessionId: string,
@@ -229,14 +232,10 @@ export class SnappySessionRecorder {
         if (!this.firstUrl) {
             this.firstUrl = truncatedUrl
         }
-        if (this.urls.size < MAX_URLS_COUNT) {
+        if (this.urls.size < MAX_URLS_COUNT || this.urls.has(truncatedUrl)) {
             this.urls.add(truncatedUrl)
         } else {
-            this.droppedUrlsCount++
-            logger.warn(
-                '🔗',
-                `Dropping URL (count limit reached) for session ${this.sessionId} team ${this.teamId}, dropped ${this.droppedUrlsCount} URLs`
-            )
+            SessionBatchMetrics.incrementUrlsDropped()
         }
     }
 

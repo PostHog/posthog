@@ -52,6 +52,11 @@ export class SessionBatchMetrics {
         help: 'Number of console logs stored',
     })
 
+    private static readonly urlsDropped = new Counter({
+        name: 'recording_blob_ingestion_v2_urls_dropped_total',
+        help: 'Number of distinct session URLs dropped because the per-block URL cap was reached',
+    })
+
     // S3-specific metrics
     private static readonly s3BatchesStarted = new Counter({
         name: 'recording_blob_ingestion_v2_s3_batches_started_total',
@@ -191,6 +196,10 @@ export class SessionBatchMetrics {
 
     public static incrementConsoleLogsStored(count: number = 1): void {
         this.consoleLogsStored.inc(count)
+    }
+
+    public static incrementUrlsDropped(count: number = 1): void {
+        this.urlsDropped.inc(count)
     }
 
     // S3-specific metric methods

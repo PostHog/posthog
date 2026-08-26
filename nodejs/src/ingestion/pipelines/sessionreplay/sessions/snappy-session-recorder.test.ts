@@ -356,9 +356,8 @@ describe('SnappySessionRecorder', () => {
             expect(result.urls?.[0].length).toBe(4096)
         })
 
-        it('should limit the number of URLs to 25', async () => {
-            // Create 30 different URLs
-            const events = Array.from({ length: 30 }, (_, i) => ({
+        it('should limit the number of URLs to 100', async () => {
+            const events = Array.from({ length: 120 }, (_, i) => ({
                 type: RRWebEventType.Meta,
                 timestamp: new Date('2025-01-01T01:00:00Z').getTime() + i * 100,
                 data: { href: `https://example${i}.com` },
@@ -369,8 +368,8 @@ describe('SnappySessionRecorder', () => {
             recorder.recordMessage(message)
             const result = await recorder.end()
 
-            // Only the first 25 URLs should be stored
-            expect(result.urls?.length).toBe(25)
+            // Only the first 100 distinct URLs should be stored
+            expect(result.urls?.length).toBe(100)
             // First URL should be the first one in the events array
             expect(result.firstUrl).toBe('https://example0.com')
         })
