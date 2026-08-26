@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, Optional
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import _references_denied_table
 
+from posthog.dataclasses import frozen
+
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
 from .subjects import resolve_subject
@@ -76,7 +78,19 @@ def check_reads_denied_subject(team_id: int, check_type: str, config: dict[str, 
     return any(is_subject_denied(name, denied) for name in referenced_subject_names(team_id, check_type, config))
 
 
-def referenced_subject_names(team_id: int, check_type: str, config: dict[str, Any]) -> list[str]:
+@frozen
+class ReferencedSubjects:
+    """What a check reads besides its declared subject, and whether that could be established.
+
+    ``unresolved_reference`` is the part a name list cannot carry: a ``relationships`` target that no
+    longer resolves leaves no name behind, so a caller matching names alone would read "references
+    nothing" from a subject that was deleted out from under the denial set."""
+
+    names: tuple[str, ...]
+    unresolved_reference: bool
+
+
+def referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -> ReferencedSubjects:
     """Every warehouse name a check reads *besides* its declared subject.
 
     A ``relationships`` check names a second subject and a ``custom_sql`` query selects from arbitrary
@@ -86,8 +100,35 @@ def referenced_subject_names(team_id: int, check_type: str, config: dict[str, An
     spec = get_spec(check_type)
     parsed = spec.parse_config(config)
     names = list(spec.referenced_table_names(parsed))
+    unresolved = False
     if related := spec.related_subject_ref(parsed):
         ref = resolve_subject(team_id, related[0], related[1])
         if ref.exists:
             names.append(ref.name)
-    return names
+        else:
+            unresolved = True
+    return ReferencedSubjects(names=tuple(names), unresolved_reference=unresolved)
+
+
+def referenced_subject_names(team_id: int, check_type: str, config: dict[str, Any]) -> list[str]:
+    """The names from :func:`referenced_subjects`, for callers that only report or match on them."""
+    return list(referenced_subjects(team_id, check_type, config).names)
+
+
+def unconfirmable_subject_names(
+    team: "Team",
+    user: "User",
+    names: tuple[str, ...],
+    user_access_control: Optional["UserAccessControl"] = None,
+) -> set[str]:
+    """The referenced names this caller can neither resolve nor be shown to have been denied.
+
+    Deleting a warehouse object takes its denial with it: the name leaves the database the caller
+    can resolve *and* the denial set that is rebuilt from the objects that still exist, so a run
+    that once read a denied table starts reading as harmless. Neither state proves access, so both
+    are reported and the caller fails them closed -- the same stance ``_require_parent_subject_access``
+    already takes for the subject a check hangs off."""
+    if not names:
+        return set()
+    database = Database.create_for(team=team, user=user, user_access_control=user_access_control)
+    return {name for name in names if not database.has_table(name) and not database.is_table_access_denied(name)}

@@ -27,7 +27,15 @@ from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
-from ..logic.subject_access import denied_subject_names, is_subject_denied, referenced_subject_names
+from ..logic.subject_access import (
+    ReferencedSubjects,
+    check_type_reads_beyond_subject,
+    denied_subject_names,
+    is_subject_denied,
+    referenced_subject_names,
+    referenced_subjects,
+    unconfirmable_subject_names,
+)
 from ..logic.subjects import resolve_subject
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
 from .contracts import CheckTypeInfo
@@ -38,11 +46,13 @@ __all__ = [
     "CheckStatusRow",
     "CheckTypeInfo",
     "CompiledCheck",
+    "ReferencedSubjects",
     "SubjectKey",
     "SubjectLocation",
     "SubjectRef",
     "SubjectUnresolvableError",
     "UnknownCheckTypeError",
+    "check_type_reads_beyond_subject",
     "checks_for_subject",
     "compile_check",
     "compute_fingerprint",
@@ -57,6 +67,7 @@ __all__ = [
     "notify_materialization_blocked",
     "quality_audit_mode",
     "referenced_subject_names",
+    "referenced_subjects",
     "related_subject_ref",
     "resolve_subject",
     "roll_up_health",
@@ -66,6 +77,7 @@ __all__ = [
     "subject_health",
     "subject_locations",
     "to_config_entry",
+    "unconfirmable_subject_names",
     "upsert_check",
     "validate_check",
 ]
