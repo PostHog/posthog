@@ -38,8 +38,8 @@ import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
 
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
-export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
+export const METRIC_AGGREGATIONS = ['sum', 'avg', 'count', 'p95', 'rate', 'increase'] as const
+export type MetricAggregation = (typeof METRIC_AGGREGATIONS)[number]
 
 export type MetricsViewerSeries = _MetricSeriesApi
 

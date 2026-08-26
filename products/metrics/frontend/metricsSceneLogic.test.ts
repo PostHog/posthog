@@ -85,21 +85,24 @@ describe('metricsSceneLogic', () => {
             expect(logic.values.activeTab).toEqual('viewer')
             expect(logic.values.metricName).toEqual('queue_depth')
             expect(logic.values.selectedMetricType).toEqual('gauge')
+            // The shared link's own aggregation survives the recommendation cascade that
+            // picking queue_depth (a gauge, recommending 'avg') triggers.
             expect(logic.values.aggregation).toEqual('p95')
             expect(logic.values.dateFrom).toEqual('-24h')
             expect(logic.values.dateTo).toEqual('2026-08-25T00:00:00.000Z')
             expect(logic.values.groupByKeys).toEqual(['service_name', 'env'])
             expect(logic.values.filterGroup).toEqual(FILTER_GROUP)
+            // Applying the params dispatches setters whose own URL sync must not rewrite the
+            // URL from half-applied state — the params stay in the address bar for a refresh.
+            expect(router.values.searchParams).toMatchObject({ metricName: 'queue_depth', aggregation: 'p95' })
         })
 
-        it('lets an explicit aggregation param win over the picked metric type recommendation', async () => {
-            // Picking queue_depth (a gauge) recommends 'avg'; the shared link's own
-            // aggregation must survive that cascade.
+        it('keeps the recommended aggregation for a link that has a metric but no aggregation param', async () => {
             await expectLogic(logic, () => {
-                router.actions.push('/metrics', { metricName: 'queue_depth', aggregation: 'p95' })
+                router.actions.push('/metrics', { metricName: 'queue_depth' })
             }).toFinishAllListeners()
 
-            expect(logic.values.aggregation).toEqual('p95')
+            expect(logic.values.aggregation).toEqual('avg')
         })
 
         it.each([
@@ -114,10 +117,17 @@ describe('metricsSceneLogic', () => {
             expect(logic.values[valueKey as keyof typeof logic.values]).toEqual(expected)
         })
 
-        it('ignores a malformed filterGroup in the URL', async () => {
+        it.each([
+            ['unparsable JSON', '{not valid json'],
+            // kea-router pre-parses JSON-looking params, so these arrive as real values
+            // and would crash the filter selectors without shape validation.
+            ['a JSON array', '[1,2]'],
+            ['a JSON object of the wrong shape', '{"a":1}'],
+            ['a group with junk inside values', '{"type":"AND","values":[1]}'],
+        ])('ignores a malformed filterGroup in the URL (%s)', async (_, urlValue) => {
             const before = logic.values.filterGroup
             await expectLogic(logic, () => {
-                router.actions.push('/metrics', { filterGroup: '{not valid json' })
+                router.actions.push('/metrics', { filterGroup: urlValue })
             }).toFinishAllListeners()
 
             expect(logic.values.filterGroup).toEqual(before)
@@ -137,7 +147,13 @@ describe('metricsSceneLogic', () => {
                 logic.actions.setDateFrom('-7d')
             }).toFinishAllListeners()
 
-            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', dateFrom: '-7d' })
+            // aggregation is written even when recommended ('increase' for this counter), so
+            // restoring the link never has to re-derive it.
+            expect(router.values.searchParams).toMatchObject({
+                metricName: 'requests_total',
+                aggregation: 'increase',
+                dateFrom: '-7d',
+            })
 
             await expectLogic(logic, () => {
                 logic.actions.setDateFrom('-1h')
