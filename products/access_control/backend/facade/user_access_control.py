@@ -1124,9 +1124,10 @@ class UserAccessControl:
         decision = self._blocked_and_allowed_object_ids(access_controls)
 
         # Apply filtering logic based on resource-level access
-        if not self.has_resource_access(resource) and decision.allowed_ids:
-            # User has "none" resource access but specific object access
-            # Only show objects they have explicit access to (plus created objects)
+        if not self.has_resource_access(resource):
+            # Resource-level "none": show only granted objects and the user's own objects, also
+            # when there are no grants at all. Logic-layer and background callers reach this
+            # filter with no permission layer above it, so it must fail closed on its own.
             if model_has_creator:
                 queryset = queryset.filter(Q(id__in=decision.allowed_ids) | Q(created_by=self._user))
             else:
