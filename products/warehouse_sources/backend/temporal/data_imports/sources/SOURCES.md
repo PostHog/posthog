@@ -455,6 +455,7 @@ the row lists both.
 | metaplane                        | HTTP                        | requests                                                        | ✅                          |
 | meteostat                        | HTTP                        | requests                                                        | ✅                          |
 | metorial                         | HTTP                        | requests                                                        | ✅                          |
+| metronome                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
 | mighty_networks                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
@@ -1171,7 +1172,6 @@ doesn't conflict with concurrent PRs.
 - merge
 - metricool
 - metriport
-- metronome
 - mews
 - mezmo
 - microsoft_365_usage_reports
