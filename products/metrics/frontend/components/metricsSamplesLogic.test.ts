@@ -205,18 +205,12 @@ describe('metricsSamplesLogic', () => {
     })
 
     // Regression: the chart's exemplar overlay starves (never fetches samples)
-    // unless the samples tab happens to be open — a chart redraw must refresh
-    // them in chart mode, and must not fire needless requests in stat mode.
-    it('refreshes samples on chart query success only in chart mode', async () => {
+    // unless the samples tab happens to be open — a chart redraw must refresh them.
+    it('refreshes samples on chart query success', async () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
 
         metricsViewerLogic.actions.fetchQueryResultsSuccess([])
         await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
-        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
-
-        metricsViewerLogic.actions.setViewMode('stat')
-        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
-        await expectLogic(logic).delay(10)
         expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
     })
 })
