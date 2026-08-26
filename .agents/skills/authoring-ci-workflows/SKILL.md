@@ -121,19 +121,49 @@ Four rules for the gate body:
 `WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
 
-## Checkout / clone — shallow by default
+## Checkout / clone — sparse first, then shallow
 
-Full clones are slow and hang on degraded runners; blobs dominate clone size and are lazily fetchable.
-Default to shallow; go deep only for real merge-base or version math, and even then bound the depth and filter blobs.
+This repo is 45k tracked files and 4.6 GiB of packed objects, so **what you materialize costs more than how much history you fetch**.
+Measured checkout-step durations, from the GitHub API on real runs:
+
+| Pattern                                         | depot-ubuntu-24.04 | GitHub-hosted ubuntu |
+| ----------------------------------------------- | ------------------ | -------------------- |
+| `sparse-checkout` of a few paths, cone mode off | 0–7s               | 0–7s                 |
+| plain checkout (depth 1)                        | 11–13s             | 22–44s               |
+| `fetch-depth: 1000` + `filter: blob:none`       | 53–59s             | —                    |
+
+- **Biggest lever: check out only the paths the job reads.**
+  Sparse-checkout is not just for single files — a job that runs a local composite action, reads a JSON config, or lints one directory should name those paths and nothing else.
+
+  ```yaml
+  - uses: actions/checkout@<sha> # v6
+    with:
+      sparse-checkout: |
+        .github/actions/paths-filter
+        .github/clickhouse-versions.json
+      sparse-checkout-cone-mode: false
+  ```
+
+- **Always set `sparse-checkout-cone-mode: false`.**
+  Cone mode additionally materializes every file in the repo root — here 70 files and 21.5 MB, `.test_durations` alone 18.5 MB — which is most of what you were trying to avoid.
+  Cone mode also only takes whole directories, so it drags in all of `bin/` when you wanted one script.
+
+- **`filter: blob:none` is counterproductive if the job then materializes the tree.**
+  It removes blobs from the fetch, but `git checkout` immediately lazy-fetches every blob in HEAD in a second round trip, which is slower than having fetched them in the pack.
+  That lazy fetch also intermittently fails its per-blob credential lookup with `could not read Username for github.com` (#59779, blocked a merge until retried).
+  Pair `blob:none` with `sparse-checkout` so the lazy fetch is a handful of blobs, or drop it and take the plain depth-1 checkout.
 
 - **Default:** plain `actions/checkout` (depth 1). Add nothing.
-- **Diffing against the PR base:** bounded depth + blobless, then an explicit, scoped fetch (the sanctioned pattern, from `ci-backend.yml`):
+
+- **Diffing against the PR base:** you need real history, so bound the depth, filter blobs, **and** sparse-checkout the files the job reads:
 
   ```yaml
   - uses: actions/checkout@<sha> # v6
     with:
       fetch-depth: 1000
       filter: blob:none
+      sparse-checkout: .github/actions/paths-filter
+      sparse-checkout-cone-mode: false
   - name: Fetch PR base for affected diff
     if: github.event_name == 'pull_request'
     env:
@@ -141,13 +171,21 @@ Default to shallow; go deep only for real merge-base or version math, and even t
     run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
   ```
 
-- **One file (e.g. `.nvmrc` before `setup-node`):** `sparse-checkout` it instead of cloning the repo.
+  A sparse working tree does not affect `git merge-base`, `git diff <a>...<b>`, `git log --name-status`, `git ls-tree`, `git ls-files`, or `git show <rev>:<path>` — those read the object database or the index.
+  Only commands that compare against the worktree (`git diff HEAD`, `git status`) see the skip-worktree entries.
+  One caveat when `blob:none` is also set: `git show <rev>:<path>` still needs that blob, and a sparse checkout never downloaded it, so the read becomes a lazy fetch that can fail.
+  Name any file a step reads that way in the sparse set — `ci-dagster.yml` does this for `docker-compose.base.yml`, whose contents feed a cache key.
+
+- **`changes` / paths-filter gating jobs:** on `pull_request` the vendored `.github/actions/paths-filter` diffs via the GitHub API and never touches the tree.
+  The only reason to check out is that a local action must exist on disk, so sparse-checkout `.github/actions/paths-filter` plus any file the job's own steps read.
+  **Never pass `base: HEAD` to paths-filter from a sparse job** — that routes it to `git diff HEAD`, which a sparse worktree makes return nothing, so every downstream job silently skips green.
+
 - **Foot-gun:** `git fetch --deepen=N` with **no refspec** falls back to the wildcard `refs/heads/*` and pulls _every branch_.
   Always pass an explicit, `--no-tags`, `--filter=blob:none` refspec scoped to the base ref.
   (Bumping `actions/checkout`'s own `fetch-depth` is safe — it uses a scoped `refs/pull/N/merge` refspec.)
 - The linter rejects `fetch-depth: 0` unless you add `filter: blob:none`, use `sparse-checkout`, or justify it with `# hogli-lint: allow-full-depth-checkout -- <reason>`.
-  Genuinely full-history jobs: repo mirroring (`foss-sync.yml`), tag/submodule version math (`release-cli.yml`).
-  Most base-diff jobs should use bounded `1000 + blob:none`.
+  Genuinely full-history jobs: repo mirroring (`foss-sync.yml`), tag/submodule version math (`release-cli.yml`, `desktop-tag.yml`).
+  Most base-diff jobs should use bounded `1000 + blob:none` **plus** a sparse set.
 
 ## Pinning and tool versions
 
@@ -250,7 +288,7 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] Triggers scoped: trigger `paths:` where the whole workflow is skippable; a required check must still fire on every PR (never paths-gate it into never dispatching).
 - [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
-- [ ] Checkout is shallow, or bounded `1000 + blob:none` for base diffing.
+- [ ] Checkout names only the paths the job reads (`sparse-checkout` + cone mode off), or is shallow; bounded `1000 + blob:none` only for base diffing.
 - [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
