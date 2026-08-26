@@ -52,6 +52,9 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
+ * - 403 on a load action — the scene's own access gates handle it, so `initKea` shows no toast.
+ *   This covers a bare 403 (empty body, no `code`), which the `permission_denied` and auth-gate
+ *   cases above miss. Restricted to load actions because a 403 on a write keeps its toast.
  * - 404 on a load action — the resource is gone, and the scene that fetched it renders its own
  *   NotFound state. Restricted to load actions because a 404 on a write (updating a resource that
  *   was just deleted) is a real conflict that stays reportable.
@@ -81,7 +84,7 @@ export function shouldReportApiFailure(
     if (status === 401 || isTransientGatewayStatus(status)) {
         return false
     }
-    if (status === 404 && isLoadAction) {
+    if ((status === 403 || status === 404) && isLoadAction) {
         return false
     }
     if (isAccessDeniedError(failure)) {
