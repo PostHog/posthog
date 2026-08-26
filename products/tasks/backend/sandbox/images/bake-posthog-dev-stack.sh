@@ -92,7 +92,7 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # process-manager resolution (phrocs), and the Go/Rust procs and rust/bin migrators
 # need their toolchains.
 apt-get update
-apt-get install -y --no-install-recommends brotli make
+apt-get install -y --no-install-recommends brotli make protobuf-compiler
 rm -rf /var/lib/apt/lists/*
 
 case "$(uname -m)" in
