@@ -168,7 +168,7 @@ impl GrpcTransport {
     fn spawn_lane(&self, worker_url: &str) -> Lane {
         let (tx, rx) = mpsc::unbounded_channel();
         let runner = LaneRunner {
-            worker_url: worker_url.to_string(),
+            worker_url: Arc::from(worker_url),
             grpc_url: grpc_url(worker_url, self.grpc_port),
             consumer_id: self.consumer_id.clone(),
             max_unacked: self.max_unacked,
@@ -214,7 +214,7 @@ struct LedgerEntry {
 }
 
 struct LaneRunner {
-    worker_url: String,
+    worker_url: Arc<str>,
     grpc_url: String,
     consumer_id: String,
     max_unacked: usize,
