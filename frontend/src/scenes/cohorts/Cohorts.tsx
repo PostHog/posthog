@@ -99,7 +99,7 @@ export function Cohorts(): JSX.Element {
         {
             title: 'Last calculated',
             tooltip:
-                'PostHog works out which people belong to each dynamic cohort in the background, so you can filter on the cohort in insights and elsewhere. It refreshes cohorts older than 15 minutes and after you edit a cohort. On projects with many cohorts, a refresh can take longer.',
+                'PostHog works out which people belong to each dynamic cohort in the background, so you can filter on the cohort in insights and elsewhere. It targets cohorts whose last calculation is more than 15 minutes old, and recalculates after you edit a cohort. A refresh can take longer when many cohorts need recalculating.',
             render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>
