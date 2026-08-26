@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    getContext,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -548,12 +560,13 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         }
         actions.loadKernelInfo()
         cache.disposables.add(() => {
-            // A replaced kea store drops this logic without unmounting it, so the disposable that
-            // owns this timer never runs its cleanup. Storybook does that on every story mount.
-            // The `cache` identity check finds the case a path check misses, which is a new logic
-            // mounted at the same path by the next story. Both call sites read `values`, which on
-            // a dropped logic either throws "Can not find path" or reads the wrong store.
-            const isLive = (): boolean => notebookKernelInfoLogic.findMounted(props.shortId)?.cache === cache
+            // Replacing the kea context drops this logic's path from the store without unmounting
+            // it, so the disposable never runs its cleanup and the timer survives. Storybook does
+            // that on every story mount. Reading `values` from a tick that outlived its context
+            // either throws "Can not find path" or, once the next story mounts a logic at the same
+            // path, reads a store this timer no longer belongs to.
+            const mountedIn = getContext()
+            const isLive = (): boolean => getContext() === mountedIn
             // Reschedules itself rather than using setInterval, because a starting kernel is
             // polled five times more often than a settled one.
             let timeoutId = 0
@@ -571,8 +584,8 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                     values.isStarting ? 2000 : 10000
                 )
             }
-            // The plugin keeps every manager in a module-level set and reruns setup when the tab
-            // becomes visible, so this setup can also run after the store went away.
+            // The plugin holds every manager in a module-level set and reruns setup when the tab
+            // becomes visible, so this setup can also run after the context went away.
             if (isLive()) {
                 scheduleRefresh()
             }

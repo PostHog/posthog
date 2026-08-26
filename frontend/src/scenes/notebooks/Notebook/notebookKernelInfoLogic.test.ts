@@ -90,4 +90,24 @@ describe('notebookKernelInfoLogic', () => {
 
         expect(kernelStatusSpy).toHaveBeenCalledTimes(callsPerMount)
     })
+
+    test('re-arms the refresh loop when a remounted logic reuses its cache', async () => {
+        logic = notebookKernelInfoLogic({ shortId: 'reused-cache-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(30_000)
+
+        const callsPerMount = kernelStatusSpy.mock.calls.length
+        expect(callsPerMount).toBeGreaterThan(1)
+
+        // Remounting a retained built logic keeps its cache and its kea context, the lifecycle
+        // scratchpadLogic.test.ts exercises. The loop has to arm again instead of reading the
+        // reused cache as a sign that the logic went away.
+        logic.unmount()
+        logic.mount()
+        kernelStatusSpy.mockClear()
+        await jest.advanceTimersByTimeAsync(30_000)
+
+        // One fewer than a full window, because the mount request itself is already counted out.
+        expect(kernelStatusSpy).toHaveBeenCalledTimes(callsPerMount - 1)
+    })
 })

@@ -114,7 +114,10 @@ const detachGlobalVisibilityListener = (): void => {
 }
 
 const initializeDisposablesManager = (logic: LogicWithCache): void => {
-    if (logic.cache.disposables) {
+    // A logic that mounts again keeps the same cache, so the disposed manager from its previous
+    // life is still attached. Replace it, or every `add` in the new `afterMount` is a no-op and
+    // the logic silently loses its timers and listeners for the rest of the session.
+    if (logic.cache.disposables && !logic.cache.disposables.isDisposed) {
         return
     }
 
