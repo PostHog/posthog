@@ -743,6 +743,11 @@ jobs:
               # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
               # (see common/esbuilder/utils.mjs), which runs as part of the
               # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+              #
+              # Chromium fetches static over loopback here, so the pre-compressed .br
+              # and .gz variants are never read and only cost collectstatic time.
+              env:
+                  STATIC_PRECOMPRESS: '0'
               run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
