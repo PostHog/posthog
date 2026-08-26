@@ -1,9 +1,27 @@
 import { MessageTemplate } from './types'
 
+export const NEW_FUNCTION_TEMPLATE: MessageTemplate = {
+    id: 'new',
+    name: '',
+    description: '',
+    type: 'function',
+    content: {
+        templating: 'liquid' as const,
+        function: {
+            template_id: '',
+            inputs: {},
+        },
+    },
+    created_at: null,
+    updated_at: null,
+    created_by: null,
+}
+
 export const NEW_TEMPLATE: MessageTemplate = {
     id: 'new',
     name: '',
     description: '',
+    type: 'email',
     content: {
         templating: 'liquid' as const,
         email: {

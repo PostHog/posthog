@@ -1,18 +1,27 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { workflowLogic } from '../../workflowLogic'
+import { savedFunctionTemplatesLogic } from '../savedFunctionTemplatesLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+import { SaveFunctionAsTemplateModal } from './components/SaveFunctionAsTemplateModal'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { StepFunctionNode } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
-    const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { actionValidationErrorsById, hogFunctionTemplatesById } = useValues(workflowLogic)
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { openSaveModal } = useActions(savedFunctionTemplatesLogic)
 
     const templateId = node.data.config.template_id
     const validationResult = actionValidationErrorsById[node.id]
     const inputs = node.data.config.inputs
     const mappings = 'mappings' in node.data.config ? node.data.config.mappings : undefined
+
+    // Only generic destination steps can be saved to the library - email/SMS/push have their own flows
+    const template = hogFunctionTemplatesById[templateId]
+    const canSaveAsTemplate = node.data.type === 'function' && template?.type === 'destination'
 
     return (
         <>
@@ -30,6 +39,16 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 warnings={validationResult?.warnings}
                 emailFieldErrors={validationResult?.emailErrors}
             />
+            {canSaveAsTemplate && (
+                <>
+                    <div className="flex justify-end mt-2">
+                        <LemonButton size="xsmall" type="secondary" onClick={openSaveModal}>
+                            Save as template
+                        </LemonButton>
+                    </div>
+                    <SaveFunctionAsTemplateModal template={template} inputs={inputs} mappings={mappings} />
+                </>
+            )}
         </>
     )
 }

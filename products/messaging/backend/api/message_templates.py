@@ -4,7 +4,7 @@ from typing import Any
 from django.db import transaction
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -17,6 +17,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.validation import build_html_wrap_design
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.models.message_category import MessageCategory
@@ -88,16 +89,40 @@ class EmailTemplateSerializer(serializers.Serializer):
     )
 
 
+class FunctionTemplateContentSerializer(serializers.Serializer):
+    template_id = serializers.CharField(
+        help_text="Hog function template the saved step is based on, e.g. 'template-webhook' or 'template-slack'. "
+        "Must be an existing destination-type template.",
+    )
+    inputs = serializers.JSONField(
+        default=dict,
+        help_text="Input values keyed by the template's inputs_schema keys, e.g. "
+        '{"url": {"value": "https://..."}}. Inputs marked secret in the template schema are never stored — '
+        "they are stripped on save and must be re-entered after inserting the template into a workflow.",
+    )
+    mappings = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Optional per-event mappings copied into the workflow step along with the inputs.",
+    )
+
+
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
         choices=["liquid"],
         default="liquid",
-        help_text="Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.",
+        help_text="Templating language for the template content. Always 'liquid' — Liquid tags pass through verbatim.",
     )
     email = EmailTemplateSerializer(
         required=False,
         allow_null=True,
         help_text="Email message content. Replaced as a whole on update — send the complete object.",
+    )
+    function = FunctionTemplateContentSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Saved webhook/destination step content. Present for 'function'-type templates. "
+        "Replaced as a whole on update — send the complete object.",
     )
 
 
@@ -132,17 +157,22 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "name": {"help_text": "Human-readable template name shown in the library."},
             "description": {"help_text": "What the template is for and when to use it."},
-            "type": {"help_text": "Message channel of the template. Currently 'email'."},
+            "type": {
+                "help_text": "Kind of template: 'email' (a message) or 'function' (a saved webhook/destination step)."
+            },
             "deleted": {"help_text": "Soft-delete flag. Set true to remove the template from the library."},
         }
 
     def validate(self, data: Any) -> Any:
-        template_type = data.get("type")
+        # Partial updates may omit `type`, so fall back to the stored value before branching.
+        template_type = data.get("type") or (self.instance.type if self.instance else "email")
         email = data.get("content", {}).get("email") if data.get("content") else None
         if template_type == "email" and email and not email.get("subject"):
             raise serializers.ValidationError(
                 {"content": {"email": {"subject": "Subject is required for email templates."}}}
             )
+        if template_type == "function":
+            self._validate_function_content(data)
         # Programmatically authored templates often supply html without a design, which the
         # visual editor can't open. Wrap the html in a single custom HTML block; the stored
         # html stays untouched, so nothing about the sent email changes.
@@ -169,6 +199,37 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
                     {"content": {"email": {"design": f"Rendering the design to HTML failed: {e}"}}}
                 )
         return data
+
+    def _validate_function_content(self, data: Any) -> None:
+        content = data.get("content")
+        if content is None:
+            # Partial updates of e.g. just the name don't resend content; creates must include it.
+            if self.instance is not None:
+                return
+            raise serializers.ValidationError(
+                {"content": {"function": {"template_id": "Function templates require content.function.template_id."}}}
+            )
+
+        function = content.get("function") or {}
+        template_id = function.get("template_id")
+        if not template_id:
+            raise serializers.ValidationError(
+                {"content": {"function": {"template_id": "Function templates require content.function.template_id."}}}
+            )
+
+        template = HogFunctionTemplate.get_template(template_id)
+        if template is None or template.type != "destination":
+            raise serializers.ValidationError(
+                {"content": {"function": {"template_id": f"'{template_id}' is not a known destination template."}}}
+            )
+
+        # The library stores plaintext JSON, so schema-declared secrets (auth headers, API keys)
+        # must never land in it - drop them here regardless of what the client sent.
+        secret_keys = {schema["key"] for schema in (template.inputs_schema or []) if schema.get("secret")}
+        inputs = function.get("inputs")
+        if isinstance(inputs, dict):
+            for key in secret_keys:
+                inputs.pop(key, None)
 
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
@@ -293,7 +354,7 @@ class MessageTemplatesViewSet(
     queryset = MessageTemplate.objects.all()
 
     def safely_get_queryset(self, queryset):
-        return (
+        queryset = (
             queryset.filter(
                 team_id=self.team_id,
                 deleted=False,
@@ -301,6 +362,26 @@ class MessageTemplatesViewSet(
             .select_related("created_by")
             .order_by("-created_at")
         )
+        template_type = self.request.query_params.get("type") if self.action == "list" else None
+        if template_type is not None:
+            if template_type not in ("email", "function"):
+                raise serializers.ValidationError({"type": "Must be one of: 'email', 'function'."})
+            queryset = queryset.filter(type=template_type)
+        return queryset
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "type",
+                str,
+                description="Only return templates of this kind: 'email' (messages) or 'function' "
+                "(saved webhook/destination steps). Omit to return all.",
+                required=False,
+            )
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
 
     @extend_schema(request=DesignPatchSerializer, responses={200: MessageTemplateSerializer})
     @action(detail=True, methods=["PATCH"])

@@ -1520,6 +1520,7 @@ export const productUrls = {
     workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
+    workflowsLibraryTemplateNewFunction: (): string => '/workflows/library/templates/new?type=function',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
 }
 

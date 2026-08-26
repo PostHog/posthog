@@ -6,6 +6,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError
@@ -482,3 +483,161 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestFunctionMessageTemplatesAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        self.webhook_template = HogFunctionTemplate.objects.create(
+            template_id="template-webhook",
+            sha="1.0.0",
+            name="HTTP Webhook",
+            description="",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[
+                {"key": "url", "type": "string", "label": "URL", "required": True},
+                {"key": "method", "type": "string", "label": "Method", "required": False},
+                {"key": "auth_token", "type": "string", "label": "Auth token", "secret": True},
+            ],
+            type="destination",
+            status="stable",
+            category=["Custom"],
+        )
+        HogFunctionTemplate.objects.create(
+            template_id="template-transformation",
+            sha="1.0.0",
+            name="A transformation",
+            description="",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="transformation",
+            status="stable",
+            category=["Custom"],
+        )
+
+    def _create_function_template(self, content):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            data={"name": "Saved webhook", "type": "function", "content": content},
+            format="json",
+        )
+
+    def test_create_function_template_succeeds(self):
+        response = self._create_function_template(
+            {"function": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["type"] == "function"
+        assert data["content"]["function"]["template_id"] == "template-webhook"
+        assert data["content"]["function"]["inputs"] == {"url": {"value": "https://example.com"}}
+
+    @parameterized.expand(
+        [
+            ("missing_content", None),
+            ("missing_template_id", {"function": {"inputs": {}}}),
+            ("unknown_template", {"function": {"template_id": "template-nope", "inputs": {}}}),
+            ("non_destination_template", {"function": {"template_id": "template-transformation", "inputs": {}}}),
+        ]
+    )
+    def test_create_function_template_with_invalid_template_fails(self, _name, content):
+        payload: dict = {"name": "Bad template", "type": "function"}
+        if content is not None:
+            payload["content"] = content
+
+        response = self.client.post(f"/api/projects/{self.team.id}/messaging_templates/", data=payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_secret_inputs_are_never_stored(self):
+        response = self._create_function_template(
+            {
+                "function": {
+                    "template_id": "template-webhook",
+                    "inputs": {
+                        "url": {"value": "https://example.com"},
+                        "auth_token": {"value": "super-secret"},
+                    },
+                }
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert "super-secret" not in str(response.json())
+        template = MessageTemplate.objects.get(id=response.json()["id"])
+        assert template.content["function"]["inputs"] == {"url": {"value": "https://example.com"}}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/",
+            data={
+                "content": {
+                    "function": {
+                        "template_id": "template-webhook",
+                        "inputs": {
+                            "url": {"value": "https://example.com/v2"},
+                            "auth_token": {"value": "still-secret"},
+                        },
+                    }
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        template.refresh_from_db()
+        assert template.content["function"]["inputs"] == {"url": {"value": "https://example.com/v2"}}
+
+    def test_partial_update_without_type_still_validates_as_function(self):
+        response = self._create_function_template({"function": {"template_id": "template-webhook", "inputs": {}}})
+        template_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template_id}/",
+            data={"name": "Renamed webhook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template_id}/",
+            data={"content": {"function": {"inputs": {}}}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand(
+        [
+            ("email_only", "email", ["Email one"]),
+            ("function_only", "function", ["Webhook one"]),
+            ("no_filter", None, ["Email one", "Webhook one"]),
+        ]
+    )
+    def test_list_filters_by_type(self, _name, type_param, expected_names):
+        MessageTemplate.objects.create(
+            team=self.team,
+            name="Email one",
+            content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}},
+            type="email",
+        )
+        MessageTemplate.objects.create(
+            team=self.team,
+            name="Webhook one",
+            content={"function": {"template_id": "template-webhook", "inputs": {}}},
+            type="function",
+        )
+
+        url = f"/api/projects/{self.team.id}/messaging_templates/"
+        if type_param:
+            url += f"?type={type_param}"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(t["name"] for t in response.json()["results"]) == sorted(expected_names)
+
+    def test_list_with_invalid_type_returns_400(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/?type=sms")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

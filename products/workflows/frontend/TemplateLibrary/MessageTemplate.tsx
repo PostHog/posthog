@@ -13,15 +13,17 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { FunctionTemplateEditor } from './FunctionTemplateEditor'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
     logic: messageTemplateSceneLogic,
-    paramsToProps: ({ params: { id }, searchParams: { messageId } }) => ({
+    paramsToProps: ({ params: { id }, searchParams: { messageId, type } }) => ({
         id: id || 'new',
         messageId,
+        type: type === 'function' ? 'function' : undefined,
     }),
     productKey: ProductKey.WORKFLOWS,
 }
@@ -147,6 +149,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
                     {messageLoading || templateLoading ? (
                         <Spinner className="text-lg" />
+                    ) : template.type === 'function' ? (
+                        <FunctionTemplateEditor />
                     ) : (
                         <EmailTemplater
                             value={template?.content.email}

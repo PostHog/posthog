@@ -16,8 +16,10 @@ import '../registry'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import type { MessageTemplate } from '../../../TemplateLibrary/types'
 import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
+import { savedFunctionTemplatesLogic } from '../savedFunctionTemplatesLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { DEFAULT_DELAY_DURATION, getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
@@ -296,6 +298,58 @@ function HogFunctionTemplatesChooser(): JSX.Element {
     )
 }
 
+function savedTemplateToAction(template: MessageTemplate): CreateActionType | null {
+    const functionContent = template.content.function
+    if (!functionContent?.template_id) {
+        return null
+    }
+    return {
+        type: 'function',
+        name: template.name,
+        description: template.description,
+        config: {
+            template_id: functionContent.template_id,
+            // Provenance: which library template this step was created from
+            template_uuid: template.id,
+            inputs: structuredClone(functionContent.inputs ?? {}),
+            ...(functionContent.mappings ? { mappings: structuredClone(functionContent.mappings) } : {}),
+        },
+    }
+}
+
+function SavedTemplatesChooser(): JSX.Element | null {
+    const { savedFunctionTemplates } = useValues(savedFunctionTemplatesLogic)
+    const { loadSavedFunctionTemplates } = useActions(savedFunctionTemplatesLogic)
+
+    useEffect(() => {
+        loadSavedFunctionTemplates()
+    }, [loadSavedFunctionTemplates])
+
+    const actions = savedFunctionTemplates
+        .map((template) => ({ template, action: savedTemplateToAction(template) }))
+        .filter((x): x is { template: MessageTemplate; action: CreateActionType } => x.action !== null)
+
+    if (actions.length === 0) {
+        return null
+    }
+
+    return (
+        <>
+            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                From your library <LemonDivider className="flex-1" />
+            </span>
+            {actions.map(({ template, action }) => (
+                <HogFlowEditorToolbarNode key={template.id} action={action}>
+                    <div className="py-1 flex-1">
+                        <div>{template.name}</div>
+                        {template.description && <div className="text-xs text-muted">{template.description}</div>}
+                    </div>
+                </HogFlowEditorToolbarNode>
+            ))}
+        </>
+    )
+}
+
 export function HogFlowEditorPanelBuild(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { isRowScopedTrigger } = useValues(workflowLogic)
@@ -336,6 +390,8 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 </HogFlowEditorToolbarNode>
             )}
             <HogFunctionTemplatesChooser />
+
+            <SavedTemplatesChooser />
 
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Delays <LemonDivider className="flex-1" />

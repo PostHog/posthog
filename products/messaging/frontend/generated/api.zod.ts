@@ -269,7 +269,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                 .describe('\* `liquid` - liquid')
                 .default(messagingTemplatesCreateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
+                    "Templating language for the template content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -325,6 +325,33 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+            function: zod
+                .union([
+                    zod.object({
+                        template_id: zod
+                            .string()
+                            .describe(
+                                "Hog function template the saved step is based on, e.g. 'template-webhook' or 'template-slack'. Must be an existing destination-type template."
+                            ),
+                        inputs: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Input values keyed by the template\'s inputs_schema keys, e.g. {\"url\": {\"value\": \"https:\/\/...\"}}. Inputs marked secret in the template schema are never stored — they are stripped on save and must be re-entered after inserting the template into a workflow.'
+                            ),
+                        mappings: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Optional per-event mappings copied into the workflow step along with the inputs.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Saved webhook\/destination step content. Present for 'function'-type templates. Replaced as a whole on update — send the complete object."
+                ),
         })
         .optional()
         .describe('Template content keyed by channel. Replaced as a whole on update, not merged.'),
@@ -332,7 +359,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(messagingTemplatesCreateBodyTypeMax)
         .optional()
-        .describe("Message channel of the template. Currently 'email'."),
+        .describe("Kind of template: 'email' (a message) or 'function' (a saved webhook\/destination step)."),
     message_category: zod
         .uuid()
         .nullish()
@@ -358,7 +385,7 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                 .describe('\* `liquid` - liquid')
                 .default(messagingTemplatesUpdateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
+                    "Templating language for the template content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -414,6 +441,33 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+            function: zod
+                .union([
+                    zod.object({
+                        template_id: zod
+                            .string()
+                            .describe(
+                                "Hog function template the saved step is based on, e.g. 'template-webhook' or 'template-slack'. Must be an existing destination-type template."
+                            ),
+                        inputs: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Input values keyed by the template\'s inputs_schema keys, e.g. {\"url\": {\"value\": \"https:\/\/...\"}}. Inputs marked secret in the template schema are never stored — they are stripped on save and must be re-entered after inserting the template into a workflow.'
+                            ),
+                        mappings: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Optional per-event mappings copied into the workflow step along with the inputs.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Saved webhook\/destination step content. Present for 'function'-type templates. Replaced as a whole on update — send the complete object."
+                ),
         })
         .optional()
         .describe('Template content keyed by channel. Replaced as a whole on update, not merged.'),
@@ -421,7 +475,7 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(messagingTemplatesUpdateBodyTypeMax)
         .optional()
-        .describe("Message channel of the template. Currently 'email'."),
+        .describe("Kind of template: 'email' (a message) or 'function' (a saved webhook\/destination step)."),
     message_category: zod
         .uuid()
         .nullish()
@@ -448,7 +502,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe('\* `liquid` - liquid')
                 .default(messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault)
                 .describe(
-                    "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
+                    "Templating language for the template content. Always 'liquid' — Liquid tags pass through verbatim.\n\n\* `liquid` - liquid"
                 ),
             email: zod
                 .union([
@@ -504,6 +558,33 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+            function: zod
+                .union([
+                    zod.object({
+                        template_id: zod
+                            .string()
+                            .describe(
+                                "Hog function template the saved step is based on, e.g. 'template-webhook' or 'template-slack'. Must be an existing destination-type template."
+                            ),
+                        inputs: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Input values keyed by the template\'s inputs_schema keys, e.g. {\"url\": {\"value\": \"https:\/\/...\"}}. Inputs marked secret in the template schema are never stored — they are stripped on save and must be re-entered after inserting the template into a workflow.'
+                            ),
+                        mappings: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Optional per-event mappings copied into the workflow step along with the inputs.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Saved webhook\/destination step content. Present for 'function'-type templates. Replaced as a whole on update — send the complete object."
+                ),
         })
         .optional()
         .describe('Template content keyed by channel. Replaced as a whole on update, not merged.'),
@@ -511,7 +592,7 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(messagingTemplatesPartialUpdateBodyTypeMax)
         .optional()
-        .describe("Message channel of the template. Currently 'email'."),
+        .describe("Kind of template: 'email' (a message) or 'function' (a saved webhook\/destination step)."),
     message_category: zod
         .uuid()
         .nullish()

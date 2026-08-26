@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
-import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
+import { IconApple, IconAndroid, IconChevronDown, IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -13,6 +13,7 @@ import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from 'lib/ui/quill'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -282,14 +283,36 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 resourceType={AccessControlResourceType.Workflow}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
-                                <LemonButton
-                                    data-attr="new-message-button"
-                                    to={urls.workflowsLibraryTemplateNew()}
-                                    type="primary"
-                                    size="small"
-                                >
-                                    New template
-                                </LemonButton>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger
+                                        render={
+                                            <LemonButton
+                                                data-attr="new-message-button"
+                                                type="primary"
+                                                size="small"
+                                                sideIcon={<IconChevronDown />}
+                                            />
+                                        }
+                                    >
+                                        New template
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="min-w-fit">
+                                        <DropdownMenuItem
+                                            data-attr="new-email-template"
+                                            onClick={() => router.actions.push(urls.workflowsLibraryTemplateNew())}
+                                        >
+                                            Email
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            data-attr="new-function-template"
+                                            onClick={() =>
+                                                router.actions.push(urls.workflowsLibraryTemplateNewFunction())
+                                            }
+                                        >
+                                            Webhook or destination
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
                             </AccessControlAction>
                         )}
                         {currentTab === 'channels' && (
