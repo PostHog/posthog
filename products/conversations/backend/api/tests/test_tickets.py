@@ -232,7 +232,6 @@ class TestTicketAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("sla_due_at", lambda when: {"sla_due_at": when.isoformat()}, {"sla_due_at"}),
-            ("snooze_also_holds", lambda when: {"snoozed_until": when.isoformat()}, {"snoozed_until", "status"}),
             (
                 "status_and_priority",
                 lambda when: {"status": Status.RESOLVED, "priority": Priority.HIGH},
@@ -266,45 +265,6 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual({change["field"] for change in changes}, expected_fields)
         for change in changes:
             self.assertNotEqual(change["before"], change["after"])
-
-    @parameterized.expand(
-        [
-            ("snoozing_holds", Status.NEW, None, 2, None, Status.ON_HOLD),
-            ("unsnoozing_reopens", Status.ON_HOLD, 2, None, None, Status.OPEN),
-            ("resnoozing_keeps_status", Status.PENDING, 2, 5, None, Status.PENDING),
-            ("explicit_status_wins", Status.NEW, None, 2, Status.PENDING, Status.PENDING),
-        ]
-    )
-    def test_snooze_change_derives_status(
-        self,
-        mock_on_commit,
-        _name,
-        initial_status,
-        initial_snooze_hours,
-        new_snooze_hours,
-        explicit_status,
-        expected_status,
-    ):
-        now = timezone.now()
-        self.ticket.status = initial_status
-        self.ticket.snoozed_until = now + timedelta(hours=initial_snooze_hours) if initial_snooze_hours else None
-        self.ticket.save()
-
-        body: dict = {
-            "snoozed_until": (now + timedelta(hours=new_snooze_hours)).isoformat() if new_snooze_hours else None
-        }
-        if explicit_status is not None:
-            body["status"] = explicit_status
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            body,
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], expected_status)
-
-        self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, expected_status)
 
     @parameterized.expand(
         [

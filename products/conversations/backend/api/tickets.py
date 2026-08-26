@@ -418,8 +418,9 @@ def _status_implied_by_snooze(before: datetime | None, after: datetime | None) -
     return None
 
 
-def _isoformat(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
+def _activity_value(value: Any) -> Any:
+    """Render a field value for the activity log. Datetimes go in as ISO strings."""
+    return value.isoformat() if isinstance(value, datetime) else value
 
 
 def _ticket_action_properties(ticket: Ticket) -> dict[str, Any]:
@@ -480,11 +481,19 @@ class _TicketUpdateDiff:
         fields: list[tuple[str, Any, Any]] = [
             ("status", self.before.status, self.after.status),
             ("priority", self.before.priority, self.after.priority),
-            ("sla_due_at", _isoformat(self.before.sla_due_at), _isoformat(self.after.sla_due_at)),
-            ("snoozed_until", _isoformat(self.before.snoozed_until), _isoformat(self.after.snoozed_until)),
+            ("sla_due_at", self.before.sla_due_at, self.after.sla_due_at),
+            ("snoozed_until", self.before.snoozed_until, self.after.snoozed_until),
         ]
+        # Compare the raw values, so two datetimes for the same instant in different
+        # timezones do not register as a change, then render for the log.
         return [
-            Change(type="Ticket", field=field, before=before, after=after, action="changed")
+            Change(
+                type="Ticket",
+                field=field,
+                before=_activity_value(before),
+                after=_activity_value(after),
+                action="changed",
+            )
             for field, before, after in fields
             if before != after
         ]
@@ -1003,8 +1012,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def _emit_status_change_side_effects(self, request, ticket: Ticket, old_status: str, new_status: str) -> None:
         """Emit analytics + activity log for a single ticket status change.
 
-        Called from both ``update()`` and ``bulk_update_status()`` to keep
-        event-tracking logic in one place.
+        Used by ``bulk_update_status()``. Single-ticket updates log every changed
+        field in one entry, so they build their own activity log entry instead.
         """
         try:
             capture_ticket_status_changed(ticket, old_status, new_status, actor=request.user, actor_type="user")
