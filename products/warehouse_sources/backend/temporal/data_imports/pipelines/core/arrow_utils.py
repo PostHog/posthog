@@ -617,6 +617,7 @@ def _hex_arrays_or_report(
     value_chunks: Iterable[Sequence[bytes | None]],
     column_name: str,
     binary_reporter: Optional[BinaryColumnReporter],
+    hex_type: pa.DataType,
 ) -> Optional[list[pa.Array]]:
     """Lowercase-hex strings for one binary column, or None when the values can't be converted.
 
@@ -629,10 +630,12 @@ def _hex_arrays_or_report(
     """
     try:
         hex_arrays: list[pa.Array] = [
-            pa.array([None if value is None else value.hex() for value in chunk], type=pa.string())
+            pa.array([None if value is None else value.hex() for value in chunk], type=hex_type)
             for chunk in value_chunks
         ]
-    except (AttributeError, TypeError, ValueError) as e:
+    # pa.ArrowException also catches the 32-bit offset overflow of a chunk whose hex crosses
+    # 2 GB, which is an ArrowCapacityError and so sits outside ValueError.
+    except (AttributeError, TypeError, ValueError, pa.ArrowException) as e:
         if binary_reporter:
             binary_reporter.conversion_failed(column_name, e)
         return None
@@ -697,11 +700,15 @@ def hex_encode_id_binary_columns(
         # Indexed, not by name: a batch carrying the same column name twice makes the name
         # lookup raise instead of converting.
         column = table.column(index)
-        hex_arrays = _hex_arrays_or_report((chunk.to_pylist() for chunk in column.chunks), field.name, binary_reporter)
+        # Keep 64-bit offsets where the source column has them: hex doubles the byte length.
+        hex_type = pa.large_string() if pa.types.is_large_binary(field.type) else pa.string()
+        hex_arrays = _hex_arrays_or_report(
+            (chunk.to_pylist() for chunk in column.chunks), field.name, binary_reporter, hex_type
+        )
         if hex_arrays is None:
             continue
 
-        table = table.set_column(index, field.with_type(pa.string()), pa.chunked_array(hex_arrays, type=pa.string()))
+        table = table.set_column(index, field.with_type(hex_type), pa.chunked_array(hex_arrays, type=hex_type))
 
     return table
 
@@ -1194,7 +1201,10 @@ def _process_batch(
             if pa.types.is_binary(field.type):
                 if _is_id_like_column(str(field_name), primary_keys):
                     hex_arrays = _hex_arrays_or_report(
-                        [_to_list_array(columnar_table_data[field_name])], str(field_name), binary_reporter
+                        [_to_list_array(columnar_table_data[field_name])],
+                        str(field_name),
+                        binary_reporter,
+                        pa.string(),
                     )
                     if hex_arrays is None:
                         drop_column_names.add(field_name)
@@ -1447,7 +1457,7 @@ def _process_batch(
         if issubclass(py_type, bytes):
             if _is_id_like_column(str(field_name), primary_keys):
                 hex_arrays = _hex_arrays_or_report(
-                    [_to_list_array(columnar_table_data[field_name])], str(field_name), binary_reporter
+                    [_to_list_array(columnar_table_data[field_name])], str(field_name), binary_reporter, pa.string()
                 )
                 if hex_arrays is None:
                     drop_column_names.add(field_name)

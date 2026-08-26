@@ -380,18 +380,22 @@ def test_table_from_py_list_keeps_binary_id_column_with_schema():
 
 
 @pytest.mark.parametrize(
-    "column_name,column_type,primary_keys,expected_values",
+    "column_name,column_type,primary_keys,expected_values,expected_type",
     [
-        ("id", pa.binary(), None, ["bdd640", None]),
-        ("order_id", pa.binary(), None, ["bdd640", None]),
-        ("sk_load", pa.binary(), ["sk_load"], ["bdd640", None]),
-        ("sk_load", pa.large_binary(), ["sk_load"], ["bdd640", None]),
-        ("sk_load", pa.binary(), None, [b"\xbd\xd6\x40", None]),
-        ("payload", pa.binary(), None, [b"\xbd\xd6\x40", None]),
+        ("id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("order_id", pa.binary(), None, ["bdd640", None], pa.string()),
+        ("sk_load", pa.binary(), ["sk_load"], ["bdd640", None], pa.string()),
+        ("sk_load", pa.large_binary(), ["sk_load"], ["bdd640", None], pa.large_string()),
+        ("sk_load", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
+        ("payload", pa.binary(), None, [b"\xbd\xd6\x40", None], pa.binary()),
     ],
 )
 def test_hex_encode_id_binary_columns(
-    column_name: str, column_type: pa.DataType, primary_keys: list[str] | None, expected_values: list[Any]
+    column_name: str,
+    column_type: pa.DataType,
+    primary_keys: list[str] | None,
+    expected_values: list[Any],
+    expected_type: pa.DataType,
 ):
     table = pa.table({column_name: pa.array([b"\xbd\xd6\x40", None], type=column_type), "other": [1.0, 2.0]})
 
@@ -399,10 +403,7 @@ def test_hex_encode_id_binary_columns(
 
     assert converted.column(column_name).to_pylist() == expected_values
     assert converted.column("other").to_pylist() == [1.0, 2.0]
-    if isinstance(expected_values[0], str):
-        assert converted.schema.field(column_name).type == pa.string()
-    else:
-        assert converted.schema.field(column_name).type == column_type
+    assert converted.schema.field(column_name).type == expected_type
 
 
 def test_hex_encode_id_binary_columns_keeps_chunk_order_and_nulls():
