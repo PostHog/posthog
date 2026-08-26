@@ -38,6 +38,10 @@ ticket_type — one of:
 - account_billing: a question about the customer's plan, usage, limits, invoices, or billing.
 - unactionable: ONLY spam, bare feedback/thanks with no question, or automated noise. If the customer is asking anything they want answered, do NOT use this type.
 
+A ticket written in a language other than English is a real customer, not noise. Never classify a
+message as unactionable because you cannot read its language. Translate it, then classify it by the
+question it asks — a non-English "how do I X" is still how_to.
+
 Return a JSON object with these keys:
 - ticket_type: one of how_to | diagnostic | account_billing | bug | unactionable.
 - needs_diagnostics: boolean — true only when answering requires looking at the customer's own data (typically diagnostic tickets).
