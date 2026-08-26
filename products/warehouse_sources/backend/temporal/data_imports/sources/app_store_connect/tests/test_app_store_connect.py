@@ -613,7 +613,7 @@ class _FakeAnalyticsApi(_FakeApi):
         return super().get(url, **kwargs)
 
     def post(self, url: str, **kwargs: Any) -> MagicMock:
-        payload = kwargs.get("json")
+        payload = kwargs["json"]
         self.posts.append((url, payload))
         access_type = payload["data"]["attributes"]["accessType"]
         body = {
