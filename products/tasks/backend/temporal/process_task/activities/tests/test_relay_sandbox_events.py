@@ -1039,7 +1039,9 @@ class TestPersistFinalMessage:
 
         organization = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=organization, name="Test Team")
-        task = Task.objects.create(team=team, title="t", description="d")
+        task = Task.objects.create(
+            team=team, title="t", description="d", origin_product=Task.OriginProduct.USER_CREATED
+        )
         return task.create_run(mode="background", **kwargs)
 
     def test_merges_final_message_into_existing_output(self) -> None:

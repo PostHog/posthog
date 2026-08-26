@@ -544,6 +544,30 @@ def test_map_hosts_with_satellite_clusters() -> None:
         times_called.clear()
 
 
+def test_sibling_addresses_another_cluster_and_is_memoized() -> None:
+    hosts_by_cluster = {
+        "posthog": [("host1", 9000, 1, 1, "online", "data")],
+        "events": [
+            ("events-host1", 9000, 1, 1, "online", "data"),
+            ("events-host2", 9000, 2, 1, "online", "data"),
+        ],
+    }
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock(side_effect=lambda query, params: hosts_by_cluster[params["name"]])
+
+    cluster = ClickhouseCluster(bootstrap_client_mock, cluster="posthog")
+
+    assert cluster.sibling("posthog") is cluster
+
+    sibling = cluster.sibling("events")
+    assert sibling.data_cluster_name == "events"
+    assert sorted(sibling.shards) == [1, 2]
+    # The handle it was derived from keeps its own shard map, so the two clusters are not merged.
+    assert cluster.shards == [1]
+    # Memoized: rebuilding would rediscover the hosts and open a second pool per host.
+    assert cluster.sibling("events") is sibling
+
+
 def test_satellite_cluster_hosts_have_no_shard_info() -> None:
     bootstrap_client_mock = Mock()
 

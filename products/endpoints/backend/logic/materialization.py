@@ -32,6 +32,8 @@ from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     delete_node_from_dag,
+    is_materialization_fresh,
+    latest_saved_query_materialization_job,
     saved_query_materialized_at,
     sync_saved_query_to_dag,
 )
@@ -90,14 +92,29 @@ ELIGIBILITY_CHECK_FAILED_REASON = (
 def build_materialization_info(version: EndpointVersion, endpoint_name: str | None = None) -> dict:
     """Build the materialization status dict for a version."""
     if version.saved_query:
-        # v2 never writes saved_query.last_run_at; derive freshness from DataModelingJob.
-        materialized_at = saved_query_materialized_at(version.saved_query)
+        latest_job = latest_saved_query_materialization_job(version.saved_query)
+        materialization_status = latest_job.status if latest_job else version.saved_query.status
+        materialization_error = latest_job.error if latest_job else version.saved_query.latest_error
+        if latest_job and latest_job.status == DataWarehouseSavedQuery.Status.COMPLETED:
+            materialized_at = max(
+                timestamp
+                for timestamp in (latest_job.last_run_at, version.saved_query.last_run_at)
+                if timestamp is not None
+            )
+        else:
+            # A failed or running attempt may follow a successful build that remains serveable.
+            materialized_at = saved_query_materialized_at(version.saved_query)
         result = {
-            "status": version.saved_query.status or "Unknown",
+            "enabled": bool(version.saved_query.is_materialized),
+            "ready": bool(
+                version.saved_query.table_id
+                and is_materialization_fresh(materialized_at, version.data_freshness_seconds)
+            ),
+            "status": materialization_status or "Unknown",
             "can_materialize": True,
             "last_materialized_at": materialized_at.isoformat() if materialized_at else None,
-            "error": (version.saved_query.latest_error or "")
-            if version.saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED
+            "error": (materialization_error or "")
+            if materialization_status != DataWarehouseSavedQuery.Status.COMPLETED
             else "",
             "saved_query_id": str(version.saved_query.id),
         }
@@ -108,6 +125,8 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             capture_exception(e, {"endpoint_version_id": str(version.id), "team_id": version.endpoint.team_id})
             can_mat, reason = False, ELIGIBILITY_CHECK_FAILED_REASON
         result = {
+            "enabled": False,
+            "ready": False,
             "can_materialize": can_mat,
             "reason": reason if not can_mat else None,
         }
