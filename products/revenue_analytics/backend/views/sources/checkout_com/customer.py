@@ -31,9 +31,9 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     prefix = view_prefix_for_source(source)
 
-    # Get all schemas for the source, avoid calling `filter` and do the filtering on
-    # Python-land to avoid n+1 queries
-    schemas = source.schemas.all()
+    # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
+    # to avoid n+1 queries
+    schemas = source.schemas
     customer_schema = next((schema for schema in schemas if schema.name == CUSTOMER_RESOURCE_NAME), None)
     if customer_schema is None:
         return BuiltQuery(

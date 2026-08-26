@@ -33,9 +33,9 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     prefix = view_prefix_for_source(source)
 
-    # Get all schemas for the source, avoid calling `filter` and do the filtering on
-    # Python-land to avoid n+1 queries
-    schemas = source.schemas.all()
+    # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
+    # to avoid n+1 queries
+    schemas = source.schemas
     payments_schema = next((schema for schema in schemas if schema.name == PAYMENT_RESOURCE_NAME), None)
     actions_schema = next((schema for schema in schemas if schema.name == PAYMENT_ACTION_RESOURCE_NAME), None)
     if payments_schema is None or actions_schema is None:

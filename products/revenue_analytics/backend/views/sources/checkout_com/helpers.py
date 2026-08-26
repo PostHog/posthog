@@ -1,5 +1,3 @@
-from django.db.models import QuerySet
-
 from posthog.schema import CurrencyCode
 
 from posthog.hogql import ast
@@ -9,7 +7,7 @@ from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.models.team.team import Team
 
 from products.revenue_analytics.backend.views.sources.helpers import currency_aware_amount
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
+from products.warehouse_sources.backend.facade.contracts import RevenueSourceSchema, RevenueSourceTable
 
 # Schema (table) names the Checkout.com warehouse source syncs from the payments search API.
 # These match `PAYMENTS_ENDPOINTS` in the source module
@@ -129,7 +127,7 @@ def customer_id_expr() -> ast.Call:
     )
 
 
-def get_table(schemas: QuerySet[ExternalDataSchema], schema_name: str) -> DataWarehouseTable | None:
+def get_table(schemas: tuple[RevenueSourceSchema, ...], schema_name: str) -> RevenueSourceTable | None:
     schema = next((schema for schema in schemas if schema.name == schema_name), None)
     if schema is None:
         return None
@@ -137,7 +135,7 @@ def get_table(schemas: QuerySet[ExternalDataSchema], schema_name: str) -> DataWa
     return schema.table
 
 
-def approved_captures_join_expr(actions_table: DataWarehouseTable, payments_table: DataWarehouseTable) -> ast.JoinExpr:
+def approved_captures_join_expr(actions_table: RevenueSourceTable, payments_table: RevenueSourceTable) -> ast.JoinExpr:
     """FROM <payment_actions> AS action JOIN <payments> AS payment ON action.payment_id = payment.id.
 
     Approved `Capture` actions are Checkout.com's charges: the payment object only carries
