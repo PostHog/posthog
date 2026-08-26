@@ -14,7 +14,8 @@ import { useEffect, useRef } from "react";
  * from `InboxView`, so it fires once per visit and survives tab switches (the
  * shell stays mounted while the `<Outlet />` swaps tab bodies).
  */
-export function useTrackInboxViewed(): void {
+export function useTrackInboxViewed(options?: { enabled?: boolean }): void {
+  const enabled = options?.enabled ?? true;
   const {
     scopedReports,
     totalCount,
@@ -27,11 +28,11 @@ export function useTrackInboxViewed(): void {
     searchQuery,
     // The badge counts come from their own requests, so opt in here too or the
     // event records a zero the user never saw.
-  } = useInboxAllReports({ withReportsCount: true });
+  } = useInboxAllReports({ enabled, withReportsCount: true });
 
   const firedRef = useRef(false);
   useEffect(() => {
-    if (firedRef.current) return;
+    if (!enabled || firedRef.current) return;
     // Gate on a successful load, not just `!isLoading`: an errored initial
     // request also leaves `isLoading` false with an empty list, and `firedRef`
     // would then lock in a bogus empty-inbox view that a later refetch can't fix.
@@ -65,5 +66,6 @@ export function useTrackInboxViewed(): void {
     sourceProductFilter,
     priorityFilter,
     searchQuery,
+    enabled,
   ]);
 }

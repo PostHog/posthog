@@ -77,7 +77,12 @@ export function SidebarNavSection({
   // inbox disappears as a destination.
   const channelReportsEnabled = useChannelReportsEnabled();
   const reportsInboxEnabled = useReportsInboxEnabled();
-  const inboxDecisionCount = useInboxDecisionCount();
+  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
+  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
+  const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
+  const inboxVisible =
+    inboxAvailable && isNavItemVisible(navItemOverrides, "inbox");
+  const inboxDecisionCount = useInboxDecisionCount({ enabled: inboxVisible });
   const contextEnabled = useContextLayerFlag();
   const inSpaces = useRouterState({
     select: (state) => state.location.pathname.startsWith("/spaces"),
@@ -129,8 +134,6 @@ export function SidebarNavSection({
       action();
     };
 
-  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
-  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const orderedItems = orderedNavItems(navItemOrder);
   const hidden = new Set<CustomizableNavItemId>(
     CUSTOMIZABLE_NAV_ITEM_IDS.filter(
@@ -140,7 +143,7 @@ export function SidebarNavSection({
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
     // The global reports inbox reclaims the slot from the channel-reports
     // takeover; without it, spaces own reports and the entry goes away.
-    inbox: !channelReportsEnabled || reportsInboxEnabled,
+    inbox: inboxAvailable,
     "command-center": true,
     contexts: contextEnabled,
     activity: bluebirdEnabled,

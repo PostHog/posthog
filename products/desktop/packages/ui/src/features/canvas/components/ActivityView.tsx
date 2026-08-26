@@ -16,17 +16,18 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityActionsMenu } from "@posthog/ui/features/canvas/components/ActivityActionsMenu";
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityRow";
 import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
+import { InboxActivityOverflowRow } from "@posthog/ui/features/canvas/components/InboxActivityOverflowRow";
+import { InboxActivityRow } from "@posthog/ui/features/canvas/components/InboxActivityRow";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
+import { useActivityFeed } from "@posthog/ui/features/canvas/hooks/useActivityFeed";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
-import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
-import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { Fragment, useCallback, useEffect, useMemo } from "react";
 import {
+  activityFeedSourceDescription,
   activityReadPayload,
-  getUnreadActivityItems,
   groupActivityItemsByDay,
 } from "./activityFeed";
 
@@ -41,24 +42,27 @@ export function ActivityView() {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
   const {
-    items,
+    unreadItems,
     unreadCount,
+    feedItems,
+    lastShownReportId,
+    remainingInboxReportCount,
+    mentionsIncluded,
+    selfDrivingIncluded,
+    unreadsOnly,
     isLoading,
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useTaskActivity();
+  } = useActivityFeed();
   // Selected once for the feed, not once per row.
   const blockedTaskIds = useBlockedTaskIds();
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
-  const unreadItems = useMemo(() => getUnreadActivityItems(items), [items]);
-  const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
-  const shownItems = unreadsOnly ? unreadItems : items;
   const dayStart = useLocalDayStart();
   const shownItemGroups = useMemo(
-    () => groupActivityItemsByDay(shownItems, new Date(dayStart)),
-    [shownItems, dayStart],
+    () => groupActivityItemsByDay(feedItems, new Date(dayStart)),
+    [feedItems, dayStart],
   );
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
@@ -94,11 +98,11 @@ export function ActivityView() {
   // The feed body is identical in both shells; only the empty-state copy tracks
   // the layout's naming ("spaces" vs "channels").
   const feed =
-    isLoading && shownItems.length === 0 ? (
+    isLoading && feedItems.length === 0 ? (
       <div className="flex justify-center py-16">
         <Spinner />
       </div>
-    ) : shownItems.length === 0 ? (
+    ) : feedItems.length === 0 ? (
       <>
         <Empty>
           <EmptyHeader>
@@ -111,7 +115,10 @@ export function ActivityView() {
             <EmptyDescription>
               {unreadsOnly
                 ? "You're all caught up."
-                : "Task updates and comment notifications across channels appear here."}
+                : activityFeedSourceDescription(
+                    mentionsIncluded,
+                    selfDrivingIncluded,
+                  )}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -124,14 +131,26 @@ export function ActivityView() {
             <Fragment key={group.key}>
               <MenuLabel>{group.label}</MenuLabel>
               {group.items.map((item) => (
-                <ActivityRow
-                  key={item.id}
-                  item={item}
-                  onMarkRead={markRead}
-                  onActivate={openActivityItem}
-                  currentUser={currentUser}
-                  blockedTaskIds={blockedTaskIds}
-                />
+                <Fragment key={item.id}>
+                  {item.kind === "task" ? (
+                    <ActivityRow
+                      item={item.task}
+                      onMarkRead={markRead}
+                      onActivate={openActivityItem}
+                      currentUser={currentUser}
+                      blockedTaskIds={blockedTaskIds}
+                    />
+                  ) : (
+                    <InboxActivityRow report={item.report} />
+                  )}
+                  {item.kind === "report" &&
+                    item.report.id === lastShownReportId &&
+                    remainingInboxReportCount > 0 && (
+                      <InboxActivityOverflowRow
+                        count={remainingInboxReportCount}
+                      />
+                    )}
+                </Fragment>
               ))}
             </Fragment>
           ))}
@@ -147,7 +166,10 @@ export function ActivityView() {
           <div>
             <h1 className="font-bold text-2xl">Activity</h1>
             <p className="text-muted-foreground text-sm">
-              Task updates and comment notifications across channels.
+              {activityFeedSourceDescription(
+                mentionsIncluded,
+                selfDrivingIncluded,
+              )}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">

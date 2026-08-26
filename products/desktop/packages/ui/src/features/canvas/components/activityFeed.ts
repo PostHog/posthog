@@ -1,10 +1,37 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { formatShortDayLabel, getLocalDayKey } from "@posthog/shared";
+import type { SignalReport } from "@posthog/shared/types";
+
+export type ActivityFeedItem =
+  | {
+      kind: "task";
+      id: string;
+      activityAt: string;
+      task: TaskActivityItem;
+    }
+  | {
+      kind: "report";
+      id: string;
+      activityAt: string;
+      report: SignalReport;
+    };
 
 export interface ActivityDayGroup<T> {
   key: string;
   label: string;
   items: T[];
+}
+
+export function activityFeedSourceDescription(
+  mentionsIncluded: boolean,
+  selfDrivingIncluded: boolean,
+): string {
+  if (mentionsIncluded && selfDrivingIncluded) {
+    return "Task updates and Self-driving reports appear here.";
+  }
+  if (mentionsIncluded) return "Task updates appear here.";
+  if (selfDrivingIncluded) return "Self-driving reports appear here.";
+  return "Choose what to include from the Activity actions menu.";
 }
 
 export function groupActivityItemsByDay<T extends { activityAt: string }>(
@@ -27,6 +54,60 @@ export function groupActivityItemsByDay<T extends { activityAt: string }>(
     });
   }
   return [...groups.values()];
+}
+
+export function mergeActivityFeedItems(
+  tasks: readonly TaskActivityItem[],
+  reports: readonly SignalReport[],
+): ActivityFeedItem[] {
+  return [
+    ...tasks.map(
+      (task): ActivityFeedItem => ({
+        kind: "task",
+        id: `task:${task.id}`,
+        activityAt: task.activityAt,
+        task,
+      }),
+    ),
+    ...reports.map(
+      (report): ActivityFeedItem => ({
+        kind: "report",
+        id: `report:${report.id}`,
+        activityAt: report.updated_at,
+        report,
+      }),
+    ),
+  ].sort(
+    (left, right) =>
+      new Date(right.activityAt).getTime() -
+      new Date(left.activityAt).getTime(),
+  );
+}
+
+export function filterActivityFeedItems(
+  items: readonly ActivityFeedItem[],
+  query: string,
+): ActivityFeedItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [...items];
+
+  return items.filter((item) => {
+    const searchableText =
+      item.kind === "task"
+        ? [
+            item.task.taskTitle,
+            item.task.channelName,
+            item.task.snippet,
+            item.task.author?.first_name,
+            item.task.author?.last_name,
+            item.task.author?.email,
+          ]
+        : [item.report.title, item.report.summary, "P1", "Self-driving"];
+
+    return searchableText.some((value) =>
+      value?.toLowerCase().includes(normalizedQuery),
+    );
+  });
 }
 
 export function getUnreadActivityItems(
