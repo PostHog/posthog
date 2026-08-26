@@ -90,12 +90,13 @@ class TestConversationsTicketFetcherEligibility(BaseTest):
 
         assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
 
-    def test_ticket_is_resnapshotted_once_new_messages_land(self):
+    def test_ticket_is_resnapshotted_once_a_new_customer_message_lands(self):
         ticket = _make_ticket(self.team)
         _backdate_ticket(ticket, hours=48)
         assert len(conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})) == 1
 
         _backdate_emission(self.team, ticket, hours=30)
+        _add_comment(self.team, ticket, content="Here is the bug", author_type="customer")
         _set_last_message_at(ticket, minutes_ago=90)
 
         resnapshot = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
@@ -103,12 +104,26 @@ class TestConversationsTicketFetcherEligibility(BaseTest):
         # The re-snapshot must advance the ledger, or the ticket would be fetched on every run.
         assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
 
-    def test_new_messages_within_the_resnapshot_interval_are_not_fetched(self):
+    def test_support_reply_alone_does_not_resnapshot(self):
+        # A support agent chasing the customer advances last_message_at but adds nothing to read.
+        # This is the strongest sign the thread is still empty, so it must not re-emit.
+        ticket = _make_ticket(self.team)
+        _backdate_ticket(ticket, hours=48)
+        assert len(conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})) == 1
+
+        _backdate_emission(self.team, ticket, hours=30)
+        _add_comment(self.team, ticket, content="Any update on that repro?", author_type="support")
+        _set_last_message_at(ticket, minutes_ago=90)
+
+        assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
+
+    def test_new_customer_message_within_the_resnapshot_interval_is_not_fetched(self):
         ticket = _make_ticket(self.team)
         _backdate_ticket(ticket, hours=48)
         assert len(conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})) == 1
 
         _backdate_emission(self.team, ticket, hours=2)
+        _add_comment(self.team, ticket, content="One more detail", author_type="customer")
         _set_last_message_at(ticket, minutes_ago=90)
 
         assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == []
