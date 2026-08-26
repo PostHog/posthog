@@ -13,6 +13,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { HogFunctionTypeType } from '~/types'
 
+import { isDataPipelinesListEmpty } from './utils/isDataPipelinesListEmpty'
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 
@@ -68,6 +69,13 @@ export function DataPipelinesHogFunctions({
 
     const productInfoMapping = MAPPING[kind]
 
+    const manualFunctions =
+        kind === 'destination'
+            ? [...(hogFunctionPluginsDestinations ?? []), ...(hogFunctionBatchExports ?? [])]
+            : kind === 'site_app'
+              ? [...(hogFunctionPluginsSiteApps ?? [])]
+              : undefined
+
     return (
         <SceneContent>
             {productInfoMapping ? (
@@ -78,7 +86,14 @@ export function DataPipelinesHogFunctions({
                     description={productInfoMapping.description}
                     docsURL="https://posthog.com/docs/cdp"
                     actionElementOverride={action}
-                    isEmpty={hogFunctions.length === 0 && !loading}
+                    isEmpty={isDataPipelinesListEmpty({
+                        kind,
+                        hogFunctions,
+                        hogFunctionsLoading: loading,
+                        hogFunctionPluginsDestinations,
+                        hogFunctionBatchExports,
+                        hogFunctionPluginsSiteApps,
+                    })}
                 />
             ) : null}
             <SceneSection>
@@ -86,13 +101,7 @@ export function DataPipelinesHogFunctions({
                     logicKey={logicKey}
                     type={kind}
                     additionalTypes={additionalKinds}
-                    manualFunctions={
-                        kind === 'destination'
-                            ? [...(hogFunctionPluginsDestinations ?? []), ...(hogFunctionBatchExports ?? [])]
-                            : kind === 'site_app'
-                              ? [...(hogFunctionPluginsSiteApps ?? [])]
-                              : undefined
-                    }
+                    manualFunctions={manualFunctions}
                 />
             </SceneSection>
             <SceneDivider />
