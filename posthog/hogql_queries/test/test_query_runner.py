@@ -346,6 +346,7 @@ class TestQueryRunner(BaseTest):
                 "optimizeProjections": True,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "rewritePersonEventLookups": True,
                 "sessionIdPushdown": False,
                 "sessionPropertyPreAggregation": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
@@ -446,7 +447,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
+        assert cache_key == "cache_42_dd6d2835f6351f9e55ce11f6107ed36fccc3a90b465d384bd53758b8a0ff0624"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_runner_subclass(self):
@@ -461,7 +462,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
+        assert cache_key == "cache_42_868534565ba93b691ecb2bd0b84e0527dc094205e812e7e2190d2e8f59595836"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_different_timezone(self):
@@ -473,7 +474,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_032f9a7be3ea1fc4451f1e5a77841bb79f9b9ef65ad949f251ee0e68e8ee5fb0"
+        assert cache_key == "cache_42_22eff553455450e7a9f673a082de5b927ecb5b0249080882fe2e9d608dbc7239"
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()

@@ -141,6 +141,7 @@ def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
         or node.having
         or node.qualify
         or node.group_by
+        or node.group_by_mode
         or node.order_by
         or node.limit_by
         or node.view_name

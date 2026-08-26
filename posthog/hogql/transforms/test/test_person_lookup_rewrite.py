@@ -94,6 +94,10 @@ class TestPersonLookupRewrite(BaseTest):
                 "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' group by distinct_id",
             ),
             (
+                "group_by_all",
+                "select person.properties from events where person.id = '019cf684-0000-0000-0000-000000000000' group by all",
+            ),
+            (
                 "order_by",
                 "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' order by timestamp",
             ),
