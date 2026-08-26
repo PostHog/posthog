@@ -17,26 +17,27 @@ import { Link } from 'lib/lemon-ui/Link'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { CustomBotDefinition, CustomBotMatcher } from '~/queries/schema/schema-general'
+import { CustomBotDefinition, CustomBotField, CustomBotMatcher } from '~/queries/schema/schema-general'
 
 import {
     CUSTOM_BOT_CATEGORY,
     CUSTOM_BOT_CATEGORY_OPTIONS,
+    CUSTOM_BOT_FIELD_OPTIONS,
     MAX_CUSTOM_BOT_DEFINITIONS,
-    matchesUserAgent,
+    defaultMatcherFor,
+    fieldLabel,
+    matcherOptionsFor,
+    matchesValue,
+    patternPlaceholderFor,
     sanitizeCustomBotDefinitions,
     validateCustomBotDefinition,
 } from './customBotDefinitions'
-
-const MATCHER_OPTIONS = [
-    { value: CustomBotMatcher.Contains, label: 'contains' },
-    { value: CustomBotMatcher.Regex, label: 'matches regex' },
-]
 
 function newDefinition(): CustomBotDefinition {
     return {
         id: uuid(),
         name: '',
+        key: CustomBotField.RawUserAgent,
         pattern: '',
         matcher: CustomBotMatcher.Contains,
         category: CUSTOM_BOT_CATEGORY,
@@ -51,7 +52,7 @@ export function CustomBotDefinitions(): JSX.Element {
         () => currentTeam?.modifiers?.customBotDefinitions ?? []
     )
     const [definitions, setDefinitions] = useState<CustomBotDefinition[]>(savedDefinitions)
-    const [testUserAgent, setTestUserAgent] = useState('')
+    const [testValues, setTestValues] = useState<Partial<Record<CustomBotField, string>>>({})
 
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -59,12 +60,25 @@ export function CustomBotDefinitions(): JSX.Element {
     })
     const canEdit = !restrictedReason
 
-    const errors = definitions.map(validateCustomBotDefinition)
-    const firstError = errors.find(Boolean)
+    const firstError = definitions.map(validateCustomBotDefinition).find(Boolean)
     const isUnchanged = equal(definitions, savedDefinitions)
+    const testedFields = CUSTOM_BOT_FIELD_OPTIONS.filter((option) =>
+        definitions.some((definition) => definition.key === option.value)
+    )
+    const matched = definitions.filter((definition) => matchesValue(definition, testValues[definition.key] ?? ''))
+    // $ip is dropped on ingest when a project anonymizes IPs, so a range would never match.
+    const ipRulesAreDead =
+        currentTeam?.anonymize_ips && definitions.some((definition) => definition.key === CustomBotField.IP)
 
     const updateDefinition = (id: string, update: Partial<CustomBotDefinition>): void => {
         setDefinitions(definitions.map((d) => (d.id === id ? { ...d, ...update } : d)))
+    }
+
+    const changeKey = (definition: CustomBotDefinition, key: CustomBotField): void => {
+        // Regex works on every property, so treat it as a deliberate choice and keep it. Anything
+        // else follows the new property, which moves an IP rule onto ranges.
+        const matcher = definition.matcher === CustomBotMatcher.Regex ? CustomBotMatcher.Regex : defaultMatcherFor(key)
+        updateDefinition(definition.id, { key, matcher })
     }
 
     const save = (): void => {
@@ -76,10 +90,6 @@ export function CustomBotDefinitions(): JSX.Element {
         setSavedDefinitions(sanitized)
     }
 
-    const matchedName = testUserAgent
-        ? definitions.find((definition) => matchesUserAgent(definition, testUserAgent))?.name
-        : undefined
-
     return (
         <div className="flex flex-col gap-4">
             <p className="mb-0">
@@ -88,8 +98,8 @@ export function CustomBotDefinitions(): JSX.Element {
                 Googlebot.
             </p>
             <p className="mb-0">
-                Matching only looks at the user agent a visitor sends, so this does not catch traffic that reports
-                itself as a browser.{' '}
+                Match the user agent to catch a crawler that names itself, or the IP address to catch one that sends a
+                browser user agent from a range you know.{' '}
                 <Link to="https://posthog.com/docs/web-analytics/bot-detection">Read more about bot detection</Link>
             </p>
 
@@ -100,7 +110,7 @@ export function CustomBotDefinitions(): JSX.Element {
                     {
                         title: 'Name',
                         key: 'name',
-                        width: '25%',
+                        width: '22%',
                         render: (_, definition) => (
                             <LemonInput
                                 value={definition.name}
@@ -111,7 +121,7 @@ export function CustomBotDefinitions(): JSX.Element {
                         ),
                     },
                     {
-                        title: 'User agent',
+                        title: 'Matches when',
                         key: 'pattern',
                         render: (_, definition) => {
                             const error = validateCustomBotDefinition(definition)
@@ -119,8 +129,14 @@ export function CustomBotDefinitions(): JSX.Element {
                                 <div className="flex flex-col gap-1">
                                     <div className="flex items-center gap-2">
                                         <LemonSelect
+                                            value={definition.key}
+                                            options={CUSTOM_BOT_FIELD_OPTIONS}
+                                            onChange={(key) => changeKey(definition, key)}
+                                            disabledReason={restrictedReason}
+                                        />
+                                        <LemonSelect
                                             value={definition.matcher}
-                                            options={MATCHER_OPTIONS}
+                                            options={matcherOptionsFor(definition.key)}
                                             onChange={(matcher) => updateDefinition(definition.id, { matcher })}
                                             disabledReason={restrictedReason}
                                         />
@@ -128,11 +144,7 @@ export function CustomBotDefinitions(): JSX.Element {
                                             className="flex-1 font-mono"
                                             value={definition.pattern}
                                             onChange={(pattern) => updateDefinition(definition.id, { pattern })}
-                                            placeholder={
-                                                definition.matcher === CustomBotMatcher.Regex
-                                                    ? 'AcmeBot/[0-9]+'
-                                                    : 'AcmeBot'
-                                            }
+                                            placeholder={patternPlaceholderFor(definition.key, definition.matcher)}
                                             status={error ? 'danger' : undefined}
                                             disabledReason={restrictedReason}
                                         />
@@ -145,7 +157,7 @@ export function CustomBotDefinitions(): JSX.Element {
                     {
                         title: 'Category',
                         key: 'category',
-                        width: '20%',
+                        width: '18%',
                         render: (_, definition) => (
                             <LemonSelect
                                 className="w-full"
@@ -205,25 +217,42 @@ export function CustomBotDefinitions(): JSX.Element {
                 </div>
             ) : null}
 
-            {definitions.length > 0 ? (
+            {ipRulesAreDead ? (
+                <LemonBanner type="warning">
+                    This project anonymizes IP addresses, so events arrive without one and a rule on the IP address
+                    never matches. Turn off IP anonymization in Project settings, or match on another property.
+                </LemonBanner>
+            ) : null}
+
+            {testedFields.length > 0 ? (
                 <div className="flex flex-col gap-2">
-                    <LemonLabel>Test a user agent</LemonLabel>
-                    <LemonInput
-                        className="font-mono"
-                        value={testUserAgent}
-                        onChange={setTestUserAgent}
-                        placeholder="Paste a user agent to see if one of your bots matches it"
-                    />
-                    {testUserAgent ? (
-                        matchedName ? (
-                            <span>
-                                Matches <LemonTag type="success">{matchedName}</LemonTag>
-                            </span>
-                        ) : (
-                            <span className="text-secondary">
-                                None of your bots match this. PostHog's built-in list may still classify it as a bot.
-                            </span>
-                        )
+                    <LemonLabel info="Only your own bots are checked here. PostHog's built-in list is matched first when a query runs.">
+                        Test a value
+                    </LemonLabel>
+                    {testedFields.map((field) => (
+                        <div key={field.value} className="flex items-center gap-2">
+                            <span className="w-32 shrink-0 text-muted text-xs">{field.label}</span>
+                            <LemonInput
+                                className="flex-1 font-mono"
+                                value={testValues[field.value] ?? ''}
+                                onChange={(value) => setTestValues({ ...testValues, [field.value]: value })}
+                                placeholder={
+                                    field.value === CustomBotField.IP ? '192.0.2.55' : `Paste a ${field.label}`
+                                }
+                            />
+                        </div>
+                    ))}
+                    {matched.length > 0 ? (
+                        <span className="flex items-center gap-1 flex-wrap">
+                            Matches
+                            {matched.map((definition) => (
+                                <LemonTag key={definition.id} type="success">
+                                    {definition.name || fieldLabel(definition.key)}
+                                </LemonTag>
+                            ))}
+                        </span>
+                    ) : Object.values(testValues).some((value) => value?.trim()) ? (
+                        <span className="text-muted">No match. This would count as regular traffic.</span>
                     ) : null}
                 </div>
             ) : null}

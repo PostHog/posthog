@@ -1215,21 +1215,35 @@ export const BounceRatePageViewModeApi = {
     UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
 } as const
 
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+} as const
+
 export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
 
 export const CustomBotMatcherApi = {
     Contains: 'contains',
     Regex: 'regex',
+    Cidr: 'cidr',
 } as const
 
 export interface CustomBotDefinitionApi {
     /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
     category?: string | null
     id: string
+    /** The event property this rule reads. */
+    key: CustomBotFieldApi
     matcher: CustomBotMatcherApi
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the pattern matches. */
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
     name: string
-    /** Matched against the event's `$raw_user_agent`. */
+    /** Matched against the property named by `key`. */
     pattern: string
 }
 

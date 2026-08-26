@@ -2,38 +2,64 @@
 Project-defined bot definitions.
 
 BOT_DEFINITIONS only covers bots that declare themselves in the user agent, and it only covers the
-ones we know about. A project adds its own patterns in project settings when a scraper matters to
+ones we know about. A project adds its own rules in project settings when a scraper matters to
 them but is missing from that list — an internal load test, a partner integration, a niche crawler.
+
+Each rule matches one event property. The user agent says who a caller claims to be, so it is the
+default, but a bot that sends a browser user agent is only identifiable by where it comes from
+(`$ip`) or what it calls with (`$lib`), which is why the property is selectable.
 
 The definitions are stored on `team.modifiers` and reach HogQL through
 `HogQLQueryModifiers.customBotDefinitions`, so they extend `$virt_is_bot`, `$virt_bot_name`,
 `$virt_bot_operator`, `$virt_traffic_type` and `$virt_traffic_category` everywhere HogQL runs,
 not only in web analytics.
 
-The patterns end up inside a ClickHouse `multiMatchAnyIndex` call, which compiles them with
-hyperscan. Hyperscan supports less than PCRE, and a pattern it rejects fails every query that
+Substring and regex rules end up inside a ClickHouse `multiMatchAnyIndex` call, which compiles them
+with hyperscan. Hyperscan supports less than PCRE, and a pattern it rejects fails every query that
 reads one of those fields for the project. Two guards keep that from happening:
 
 - `validate_definition` runs on save and rejects what we can catch in Python.
 - `assert_patterns_compile` asks ClickHouse itself whether the patterns compile, because Python's
   `re` accepting a pattern does not mean hyperscan will.
 
-`to_bot_definitions` drops anything that still fails validation, so a definition written straight
+`compile_definitions` drops anything that still fails validation, so a definition written straight
 to the API before a rule tightened cannot break every query for the project.
 """
 
 import re
-from typing import TYPE_CHECKING
+from ipaddress import ip_network
+from typing import TYPE_CHECKING, Union
 
-from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS, BotDefinition
+from posthog.dataclasses import frozen
+
+from products.web_analytics.backend.hogql_queries.bot_definitions import BotDefinition
+from products.web_analytics.backend.hogql_queries.bot_ip_definitions import ipv6_prefix_groups
 
 if TYPE_CHECKING:
     from posthog.schema import CustomBotDefinition
 
-# Bounds the size of the pattern array added to every query that reads a classification field.
+# Bounds the work added to every query that reads a classification field.
 MAX_CUSTOM_BOT_DEFINITIONS = 50
 MAX_PATTERN_LENGTH = 200
 MAX_NAME_LENGTH = 100
+
+USER_AGENT_FIELD = "$raw_user_agent"
+IP_FIELD = "$ip"
+
+# Event properties a rule can match on, labelled the way the taxonomy already labels them.
+# Deliberately short: each property used adds a read to every query that selects a classification
+# field, so the list stays to properties that say who is calling rather than what they found.
+CUSTOM_BOT_FIELDS: dict[str, str] = {
+    USER_AGENT_FIELD: "Raw user agent",
+    IP_FIELD: "IP address",
+    "$lib": "Library",
+    "$host": "Host",
+    "$pathname": "Path name",
+    "$current_url": "Current URL",
+}
+
+CIDR_MATCHER = "cidr"
+PATTERN_MATCHERS = ("contains", "regex")
 
 # Category used when a project does not pick one.
 CUSTOM_CATEGORY = "custom"
@@ -71,12 +97,41 @@ _UNSUPPORTED_CONSTRUCTS: list[tuple[str, str]] = [
 _REGEX_METACHARACTERS = re.compile(r"([.^$*+?()\[\]{}|\\])")
 
 
+@frozen
+class PatternGroup:
+    """Rules on one property, matched by a single multiMatchAnyIndex over their patterns.
+
+    `patterns[i]` names `definitions[i]`, so the 1-based match index reads straight off
+    `definitions`.
+    """
+
+    key: str
+    patterns: list[str]
+    definitions: list[BotDefinition]
+
+
+@frozen
+class CidrGroup:
+    """Rules matched against the client IP by network range.
+
+    `networks[i]` is the (prefix length, IPv6 network address) of `definitions[i]`. IPv4 ranges are
+    already mapped into IPv6 space, matching how the built-in IP ranges are compared.
+    """
+
+    key: str
+    networks: list[tuple[int, str]]
+    definitions: list[BotDefinition]
+
+
+CustomBotGroup = Union[PatternGroup, CidrGroup]
+
+
 def _escape_literal(value: str) -> str:
     return _REGEX_METACHARACTERS.sub(r"\\\1", value)
 
 
 def compile_pattern(pattern: str, matcher: str) -> str:
-    """Turn a project's pattern into the regex handed to multiMatchAnyIndex."""
+    """Turn a substring or regex rule into the regex handed to multiMatchAnyIndex."""
     if matcher == "regex":
         return pattern
     # Substring matching is case-insensitive so people do not have to think about how an SDK cases
@@ -84,13 +139,36 @@ def compile_pattern(pattern: str, matcher: str) -> str:
     return f"(?i){_escape_literal(pattern)}"
 
 
-def validate_pattern(pattern: str, matcher: str) -> None:
+def compile_cidr(pattern: str) -> tuple[int, str]:
+    """Turn an IP rule into the (prefix length, network address) pair the IP matcher compares.
+
+    Normalized with strict=False first, matching what validation accepts — otherwise a range
+    written with host bits set, like 192.0.2.7/24, would save and then fail to compile.
+    """
+    network = ip_network(pattern.strip(), strict=False)
+    prefixlen, addresses = ipv6_prefix_groups((str(network),))[0]
+    return prefixlen, addresses[0]
+
+
+def validate_pattern(pattern: str, matcher: str, key: str) -> None:
     """Raise ValueError when a pattern cannot be used, with a message meant for the person saving it."""
     if not pattern or not pattern.strip():
         raise ValueError("Pattern cannot be empty.")
     if len(pattern) > MAX_PATTERN_LENGTH:
         raise ValueError(f"Pattern cannot be longer than {MAX_PATTERN_LENGTH} characters.")
-    if matcher not in ("contains", "regex"):
+
+    if matcher == CIDR_MATCHER:
+        if key != IP_FIELD:
+            raise ValueError(f"IP ranges only work with the {CUSTOM_BOT_FIELDS[IP_FIELD]} property.")
+        try:
+            # strict=False so "12.34.56.78/24" is read as its network rather than rejected for
+            # having host bits set.
+            ip_network(pattern.strip(), strict=False)
+        except ValueError as error:
+            raise ValueError(f"'{pattern}' is not a valid IP address or range: {error}.") from error
+        return
+
+    if matcher not in PATTERN_MATCHERS:
         raise ValueError(f"Unknown matcher '{matcher}'.")
     if matcher != "regex":
         return
@@ -110,9 +188,11 @@ def validate_definition(definition: "CustomBotDefinition") -> None:
         raise ValueError("Bot name cannot be empty.")
     if len(definition.name) > MAX_NAME_LENGTH:
         raise ValueError(f"Bot name cannot be longer than {MAX_NAME_LENGTH} characters.")
+    if definition.key not in CUSTOM_BOT_FIELDS:
+        raise ValueError(f"Cannot match on property '{definition.key}'.")
     if definition.category and definition.category not in TRAFFIC_TYPE_BY_CATEGORY:
         raise ValueError(f"Unknown category '{definition.category}'.")
-    validate_pattern(definition.pattern, definition.matcher.value)
+    validate_pattern(definition.pattern, definition.matcher.value, definition.key)
 
 
 # ClickHouse codes that mean "this pattern is the problem": BAD_ARGUMENTS and
@@ -157,40 +237,57 @@ def assert_patterns_compile(patterns: list[str]) -> None:
         return
 
 
-def to_bot_definitions(
-    definitions: list["CustomBotDefinition"] | None,
-) -> list[tuple[str, BotDefinition]]:
-    """Compile a project's definitions into (pattern, BotDefinition) pairs, dropping unusable ones.
+def _to_bot_definition(definition: "CustomBotDefinition") -> BotDefinition:
+    category = definition.category or CUSTOM_CATEGORY
+    return BotDefinition(
+        name=definition.name,
+        category=category,
+        traffic_type=TRAFFIC_TYPE_BY_CATEGORY.get(category, "Bot"),
+        # A project's own label is the only operator we have for a bot we don't know.
+        operator=definition.name,
+    )
 
-    Dropping rather than raising keeps a definition that slipped past validation — saved before a
-    rule tightened, or written straight to the API — from breaking every query for the project.
+
+def compile_definitions(definitions: list["CustomBotDefinition"] | None) -> list[CustomBotGroup]:
+    """Compile a project's definitions into the groups the HogQL builder emits.
+
+    Rules that match the same property the same way share a group, and the groups come back in the
+    order their first rule appears, which is the order they are checked at query time.
+
+    Unusable definitions are dropped rather than raised on: one saved before a rule tightened, or
+    written straight to the API, must not break every query for the project.
     """
     if not definitions:
         return []
 
-    compiled: list[tuple[str, BotDefinition]] = []
+    # (property, kind) -> the rules that share that group. Insertion order is the order the groups
+    # are checked, so a dict keeps first appearance meaningful.
+    buckets: dict[tuple[str, str], list[CustomBotDefinition]] = {}
     for definition in definitions[:MAX_CUSTOM_BOT_DEFINITIONS]:
         try:
             validate_definition(definition)
         except ValueError:
             continue
-        category = definition.category or CUSTOM_CATEGORY
-        compiled.append(
-            (
-                compile_pattern(definition.pattern, definition.matcher.value),
-                BotDefinition(
-                    name=definition.name,
-                    category=category,
-                    traffic_type=TRAFFIC_TYPE_BY_CATEGORY.get(category, "Bot"),
-                    # A project's own label is the only operator we have for a bot we don't know.
-                    operator=definition.name,
-                ),
-            )
+        kind = CIDR_MATCHER if definition.matcher.value == CIDR_MATCHER else "pattern"
+        buckets.setdefault((definition.key, kind), []).append(definition)
+
+    return [
+        CidrGroup(
+            key=key,
+            networks=[compile_cidr(rule.pattern) for rule in rules],
+            definitions=[_to_bot_definition(rule) for rule in rules],
         )
-    return compiled
+        if kind == CIDR_MATCHER
+        else PatternGroup(
+            key=key,
+            patterns=[compile_pattern(rule.pattern, rule.matcher.value) for rule in rules],
+            definitions=[_to_bot_definition(rule) for rule in rules],
+        )
+        for (key, kind), rules in buckets.items()
+    ]
 
 
-def categories() -> list[str]:
-    """Categories a project can pick from, in the order the settings editor shows them."""
-    known = list(dict.fromkeys(bot.category for bot in BOT_DEFINITIONS.values()))
-    return [CUSTOM_CATEGORY, *sorted(known)]
+def compiled_patterns(definitions: list["CustomBotDefinition"] | None) -> list[str]:
+    """Every regex a project's definitions put in front of hyperscan, for the save-time check."""
+    groups = compile_definitions(definitions)
+    return [pattern for group in groups if isinstance(group, PatternGroup) for pattern in group.patterns]

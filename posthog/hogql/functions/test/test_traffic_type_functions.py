@@ -1,11 +1,12 @@
 import ipaddress
+from uuid import uuid4
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
 
-from posthog.schema import CustomBotDefinition, CustomBotMatcher, HogQLQueryModifiers
+from posthog.schema import CustomBotDefinition, CustomBotField, CustomBotMatcher
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -20,6 +21,7 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
@@ -641,48 +643,132 @@ class TestMacroExpansionGuard(BaseTest):
         assert "multiMatchAnyIndex" in printed
 
 
-class TestCustomBotDefinitions(BaseTest):
-    def _print(self, select: str, definitions: list[CustomBotDefinition]) -> str:
-        return prepare_and_print_ast(
-            parse_select(select),
-            HogQLContext(
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(customBotDefinitions=definitions),
-            ),
-            "clickhouse",
-        )[0]
+CHROME_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
 
-    @parameterized.expand(
-        [
-            ("isLikelyBot", "isLikelyBot(properties.$raw_user_agent)"),
-            ("getBotName", "getBotName(properties.$raw_user_agent)"),
-            ("getTrafficCategory", "getTrafficCategory(properties.$raw_user_agent)"),
-        ]
+
+def _custom_bot(**kwargs) -> CustomBotDefinition:
+    return CustomBotDefinition(
+        **{
+            "id": "1",
+            "name": "Acme scraper",
+            "key": CustomBotField.FIELD_RAW_USER_AGENT,
+            "pattern": "AcmeBot",
+            "matcher": CustomBotMatcher.CONTAINS,
+            **kwargs,
+        }
     )
-    def test_project_definitions_reach_the_query(self, _name: str, call: str):
-        # The definitions live on the query modifiers, so the resolver has to thread them into the
-        # macro expansion. Without that the setting saves fine and silently does nothing.
-        printed = self._print(
-            f"SELECT {call} FROM events",
+
+
+class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
+    """Runs the project's rules the way a query does: team settings, then ClickHouse."""
+
+    def _classify(self, definitions: list[CustomBotDefinition], properties: dict) -> tuple:
+        self.team.modifiers = {"customBotDefinitions": [d.model_dump(mode="json") for d in definitions]}
+        self.team.save()
+
+        tag = uuid4().hex
+        _create_event(
+            team=self.team,
+            distinct_id="visitor",
+            event="$pageview",
+            properties={**properties, "_test_tag": tag},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT `$virt_is_bot`, `$virt_bot_name`, `$virt_traffic_category` "
+            f"FROM events WHERE properties._test_tag = '{tag}'",
+            self.team,
+        )
+        assert response.results is not None
+        return response.results[0]
+
+    def test_a_user_agent_rule_names_the_event(self):
+        is_bot, name, category = self._classify(
+            [_custom_bot(pattern="AcmeBot", category="ai_crawler")],
+            {"$raw_user_agent": "AcmeBot/1.0 (+https://example.com/bot)"},
+        )
+
+        assert (is_bot, name, category) == (True, "Acme scraper", "ai_crawler")
+
+    def test_an_ip_range_rule_catches_a_browser_user_agent(self):
+        # The reason a rule can pick its property: a scraper sending a real browser user agent is
+        # only identifiable by where it comes from.
+        is_bot, name, _category = self._classify(
             [
-                CustomBotDefinition(
-                    id="1",
-                    name="Acme scraper",
-                    pattern="AcmeBot",
-                    matcher=CustomBotMatcher.CONTAINS,
-                    category="ai_crawler",
+                _custom_bot(
+                    name="Office crawler",
+                    key=CustomBotField.FIELD_IP,
+                    matcher=CustomBotMatcher.CIDR,
+                    pattern="192.0.2.0/24",
                 )
             ],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$ip": "192.0.2.55"},
         )
 
-        assert "(?i)AcmeBot" in printed
+        assert (is_bot, name) == (True, "Office crawler")
 
-    def test_built_in_definitions_still_apply(self):
-        printed = self._print(
-            "SELECT getBotName(properties.$raw_user_agent) FROM events",
-            [CustomBotDefinition(id="1", name="Acme scraper", pattern="AcmeBot", matcher=CustomBotMatcher.CONTAINS)],
+    def test_an_ip_outside_the_range_is_left_alone(self):
+        is_bot, name, _category = self._classify(
+            [
+                _custom_bot(
+                    name="Office crawler",
+                    key=CustomBotField.FIELD_IP,
+                    matcher=CustomBotMatcher.CIDR,
+                    pattern="192.0.2.0/24",
+                )
+            ],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$ip": "192.0.3.55"},
         )
 
-        assert "GPTBot" in printed
-        assert "Acme scraper" in printed
+        assert (is_bot, name) == (False, "")
+
+    def test_a_rule_reads_the_property_it_names(self):
+        # A property other than the user agent and the IP is reached through the properties object
+        # rather than a call argument, so this is the case that silently matches nothing if the
+        # lookup regresses.
+        is_bot, name, _category = self._classify(
+            [_custom_bot(name="Load test", key=CustomBotField.FIELD_LIB, pattern="posthog-python")],
+            {"$raw_user_agent": CHROME_USER_AGENT, "$lib": "posthog-python"},
+        )
+
+        assert (is_bot, name) == (True, "Load test")
+
+    def test_built_in_bots_are_named_before_a_project_rule(self):
+        # multiMatchAnyIndex reports whichever pattern matches earliest in the string, so the
+        # built-ins only keep their say while they are checked in their own branch.
+        _is_bot, name, _category = self._classify(
+            [_custom_bot(name="Mine", pattern="GPTBot")],
+            {"$raw_user_agent": "Mozilla/5.0 (compatible; GPTBot/1.0)"},
+        )
+
+        assert name == "GPTBot"
+
+    def test_a_project_rule_beats_the_no_user_agent_bucket(self):
+        # Server logs arrive without a user agent. A project that named the IP wants its own name
+        # on those, not the generic empty-user-agent bucket.
+        _is_bot, name, category = self._classify(
+            [
+                _custom_bot(
+                    name="Office crawler",
+                    key=CustomBotField.FIELD_IP,
+                    matcher=CustomBotMatcher.CIDR,
+                    pattern="192.0.2.0/24",
+                )
+            ],
+            {"$ip": "192.0.2.55"},
+        )
+
+        assert (name, category) == ("Office crawler", "custom")
+
+    def test_a_missing_user_agent_still_falls_in_the_no_user_agent_bucket(self):
+        # Project rules move the empty-user-agent check out of the pattern array into its own
+        # branch, so it has to keep classifying events no rule claims.
+        is_bot, _name, category = self._classify(
+            [_custom_bot(pattern="AcmeBot")],
+            {"$ip": "203.0.113.9"},
+        )
+
+        assert (is_bot, category) == (True, "no_user_agent")

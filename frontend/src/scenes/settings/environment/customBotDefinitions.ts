@@ -1,9 +1,26 @@
-import { CustomBotDefinition, CustomBotMatcher } from '~/queries/schema/schema-general'
+import { CustomBotDefinition, CustomBotField, CustomBotMatcher } from '~/queries/schema/schema-general'
 
 export const CUSTOM_BOT_CATEGORY = 'custom'
 export const MAX_CUSTOM_BOT_DEFINITIONS = 50
 export const MAX_PATTERN_LENGTH = 200
 export const MAX_NAME_LENGTH = 100
+
+// Mirrors CUSTOM_BOT_FIELDS in
+// products/web_analytics/backend/hogql_queries/custom_bot_definitions.py
+export const CUSTOM_BOT_FIELD_OPTIONS: { value: CustomBotField; label: string }[] = [
+    { value: CustomBotField.RawUserAgent, label: 'Raw user agent' },
+    { value: CustomBotField.IP, label: 'IP address' },
+    { value: CustomBotField.Lib, label: 'Library' },
+    { value: CustomBotField.Host, label: 'Host' },
+    { value: CustomBotField.Pathname, label: 'Path name' },
+    { value: CustomBotField.CurrentURL, label: 'Current URL' },
+]
+
+const MATCHER_LABELS: Record<CustomBotMatcher, string> = {
+    [CustomBotMatcher.Contains]: 'contains',
+    [CustomBotMatcher.Regex]: 'matches regex',
+    [CustomBotMatcher.Cidr]: 'is in range',
+}
 
 // Mirrors TRAFFIC_TYPE_BY_CATEGORY in
 // products/web_analytics/backend/hogql_queries/custom_bot_definitions.py
@@ -20,6 +37,42 @@ export const CUSTOM_BOT_CATEGORY_OPTIONS: { value: string; label: string }[] = [
     { value: 'headless_browser', label: 'Headless browser' },
 ]
 
+export function fieldLabel(key: CustomBotField): string {
+    return CUSTOM_BOT_FIELD_OPTIONS.find((option) => option.value === key)?.label ?? key
+}
+
+/** Comparing an IP to a network range is the only sensible default, and only works on an IP. */
+export function matcherOptionsFor(key: CustomBotField): { value: CustomBotMatcher; label: string }[] {
+    const matchers =
+        key === CustomBotField.IP
+            ? [CustomBotMatcher.Cidr, CustomBotMatcher.Contains, CustomBotMatcher.Regex]
+            : [CustomBotMatcher.Contains, CustomBotMatcher.Regex]
+    return matchers.map((matcher) => ({ value: matcher, label: MATCHER_LABELS[matcher] }))
+}
+
+export function defaultMatcherFor(key: CustomBotField): CustomBotMatcher {
+    return key === CustomBotField.IP ? CustomBotMatcher.Cidr : CustomBotMatcher.Contains
+}
+
+export function patternPlaceholderFor(key: CustomBotField, matcher: CustomBotMatcher): string {
+    if (matcher === CustomBotMatcher.Cidr) {
+        return '192.0.2.0/24'
+    }
+    if (matcher === CustomBotMatcher.Regex) {
+        return key === CustomBotField.RawUserAgent ? 'AcmeBot/[0-9]+' : '^/api/'
+    }
+    return (
+        {
+            [CustomBotField.RawUserAgent]: 'AcmeBot',
+            [CustomBotField.IP]: '192.0.2.',
+            [CustomBotField.Lib]: 'posthog-python',
+            [CustomBotField.Host]: 'scraper.example.com',
+            [CustomBotField.Pathname]: '/api/products',
+            [CustomBotField.CurrentURL]: 'example.com/api',
+        }[key] ?? 'AcmeBot'
+    )
+}
+
 // ClickHouse matches these patterns with hyperscan, which supports less than JavaScript does.
 // Mirrors _UNSUPPORTED_CONSTRUCTS in the Python module above, so a person sees the problem while
 // typing instead of on save.
@@ -35,6 +88,65 @@ const UNSUPPORTED_CONSTRUCTS: { pattern: RegExp; label: string }[] = [
     { pattern: /\\[zZGKCRX]/, label: 'unsupported escape' },
 ]
 
+/** An address as a number, with the width of its family. Null when it does not parse. */
+function parseIp(address: string): { value: bigint; width: bigint } | null {
+    if (!address.includes(':')) {
+        const octets = address.split('.')
+        if (octets.length !== 4) {
+            return null
+        }
+        let value = 0n
+        for (const octet of octets) {
+            if (!/^\d{1,3}$/.test(octet) || Number(octet) > 255) {
+                return null
+            }
+            value = (value << 8n) | BigInt(octet)
+        }
+        return { value, width: 32n }
+    }
+
+    const halves = address.split('::')
+    if (halves.length > 2) {
+        return null
+    }
+    const abbreviated = halves.length === 2
+    const head = halves[0] ? halves[0].split(':') : []
+    const tail = abbreviated && halves[1] ? halves[1].split(':') : []
+    const missing = 8 - head.length - tail.length
+    if (abbreviated ? missing < 0 : missing !== 0) {
+        return null
+    }
+    const groups = [...head, ...Array.from({ length: abbreviated ? missing : 0 }, () => '0'), ...tail]
+    let value = 0n
+    for (const group of groups) {
+        if (!/^[0-9a-f]{1,4}$/i.test(group)) {
+            return null
+        }
+        value = (value << 16n) | BigInt(parseInt(group, 16))
+    }
+    return { value, width: 128n }
+}
+
+/** Parse "192.0.2.0/24" or a bare address. The server validates with Python's `ipaddress`, which
+ * is the authority — this catches a typo while it is being typed. */
+function parseCidr(pattern: string): { value: bigint; width: bigint; prefix: bigint } | null {
+    const [address, prefixText, ...rest] = pattern.trim().split('/')
+    if (rest.length > 0) {
+        return null
+    }
+    const parsed = parseIp(address)
+    if (!parsed) {
+        return null
+    }
+    if (prefixText === undefined) {
+        return { ...parsed, prefix: parsed.width }
+    }
+    if (!/^\d{1,3}$/.test(prefixText) || BigInt(prefixText) > parsed.width) {
+        return null
+    }
+    return { ...parsed, prefix: BigInt(prefixText) }
+}
+
 export function validateCustomBotDefinition(definition: CustomBotDefinition): string | null {
     if (!definition.name.trim()) {
         return 'Give this bot a name.'
@@ -43,11 +155,21 @@ export function validateCustomBotDefinition(definition: CustomBotDefinition): st
         return `Name cannot be longer than ${MAX_NAME_LENGTH} characters.`
     }
     if (!definition.pattern.trim()) {
-        return 'Add a user agent to match.'
+        return definition.matcher === CustomBotMatcher.Cidr
+            ? 'Add an IP address or range to match.'
+            : 'Add a value to match.'
     }
     if (definition.pattern.length > MAX_PATTERN_LENGTH) {
         return `Pattern cannot be longer than ${MAX_PATTERN_LENGTH} characters.`
     }
+
+    if (definition.matcher === CustomBotMatcher.Cidr) {
+        if (definition.key !== CustomBotField.IP) {
+            return 'Ranges only work with the IP address property.'
+        }
+        return parseCidr(definition.pattern) ? null : 'This is not a valid IP address or range.'
+    }
+
     if (definition.matcher !== CustomBotMatcher.Regex) {
         return null
     }
@@ -64,18 +186,28 @@ export function validateCustomBotDefinition(definition: CustomBotDefinition): st
     return null
 }
 
-export function matchesUserAgent(definition: CustomBotDefinition, userAgent: string): boolean {
-    if (validateCustomBotDefinition(definition)) {
+/** Whether a rule matches one property value, mirroring how the rule is compiled for the query. */
+export function matchesValue(definition: CustomBotDefinition, value: string): boolean {
+    if (!value.trim() || validateCustomBotDefinition(definition)) {
         return false
+    }
+    if (definition.matcher === CustomBotMatcher.Cidr) {
+        const network = parseCidr(definition.pattern)
+        const candidate = parseIp(value.trim())
+        if (!network || !candidate || network.width !== candidate.width) {
+            return false
+        }
+        const mask = ((1n << network.prefix) - 1n) << (network.width - network.prefix)
+        return (network.value & mask) === (candidate.value & mask)
     }
     if (definition.matcher === CustomBotMatcher.Regex) {
         try {
-            return new RegExp(definition.pattern).test(userAgent)
+            return new RegExp(definition.pattern).test(value)
         } catch {
             return false
         }
     }
-    return userAgent.toLowerCase().includes(definition.pattern.trim().toLowerCase())
+    return value.toLowerCase().includes(definition.pattern.trim().toLowerCase())
 }
 
 export function sanitizeCustomBotDefinitions(definitions: CustomBotDefinition[]): CustomBotDefinition[] {
@@ -84,6 +216,7 @@ export function sanitizeCustomBotDefinitions(definitions: CustomBotDefinition[])
         .map((definition) => ({
             id: definition.id,
             name: definition.name.trim(),
+            key: definition.key,
             pattern: definition.pattern.trim(),
             matcher: definition.matcher,
             category: definition.category || CUSTOM_BOT_CATEGORY,

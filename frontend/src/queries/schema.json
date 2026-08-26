@@ -16618,23 +16618,32 @@
                 "id": {
                     "type": "string"
                 },
+                "key": {
+                    "$ref": "#/definitions/CustomBotField",
+                    "description": "The event property this rule reads."
+                },
                 "matcher": {
                     "$ref": "#/definitions/CustomBotMatcher"
                 },
                 "name": {
-                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the pattern matches.",
+                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
                     "type": "string"
                 },
                 "pattern": {
-                    "description": "Matched against the event's `$raw_user_agent`.",
+                    "description": "Matched against the property named by `key`.",
                     "type": "string"
                 }
             },
-            "required": ["name", "pattern", "matcher", "id"],
+            "required": ["name", "key", "pattern", "matcher", "id"],
             "type": "object"
         },
+        "CustomBotField": {
+            "description": "The event properties a project's own bot rule can match on.",
+            "enum": ["$raw_user_agent", "$ip", "$lib", "$host", "$pathname", "$current_url"],
+            "type": "string"
+        },
         "CustomBotMatcher": {
-            "enum": ["contains", "regex"],
+            "enum": ["contains", "regex", "cidr"],
             "type": "string"
         },
         "CustomChannelCondition": {

@@ -118,7 +118,7 @@ from products.logs.backend.models import TeamLogsConfig
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
     MAX_CUSTOM_BOT_DEFINITIONS,
     assert_patterns_compile as assert_custom_bot_patterns_compile,
-    compile_pattern as compile_custom_bot_pattern,
+    compiled_patterns as compiled_custom_bot_patterns,
     validate_definition as validate_custom_bot_definition,
 )
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
@@ -1765,9 +1765,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 except ValueError as error:
                     raise exceptions.ValidationError({"customBotDefinitions": f"{definition.name}: {error}"})
             try:
-                assert_custom_bot_patterns_compile(
-                    [compile_custom_bot_pattern(d.pattern, d.matcher.value) for d in definitions]
-                )
+                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(definitions))
             except ValueError as error:
                 raise exceptions.ValidationError({"customBotDefinitions": str(error)})
 
