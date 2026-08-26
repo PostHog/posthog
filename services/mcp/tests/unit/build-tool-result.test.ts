@@ -190,32 +190,80 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
 describe('buildToolResultPayload — agent notes', () => {
     const AGENT_NOTE = 'This response carries the current value, so it is a good moment to offer an alert.'
 
-    it('appends the note to the text channel when a formatted table replaces the serialized result', () => {
-        const payload = buildToolResultPayload({
-            handlerResult: withAgentNote(queryTrendsHandlerResult(), AGENT_NOTE),
-            toolMeta: queryTrendsToolMeta,
-            toolName: 'query-trends',
-            params: {},
-            suppressStructuredContentForFormattedResults: true,
-            distinctId: 'test-distinct-id',
-        })
+    // The note has to reach the model exactly once, whichever channel carries the payload.
+    // Which channel that is depends on whether a formatted table replaced the serialized
+    // result, and whether structuredContent survived alongside it.
+    const CHANNEL_CASES = [
+        {
+            name: 'formatted table, structuredContent suppressed',
+            withFormatted: true,
+            opts: { suppressStructuredContentForFormattedResults: true },
+            noteInText: true,
+            noteInStructured: false,
+        },
+        {
+            name: 'formatted table, structuredContent kept',
+            withFormatted: true,
+            opts: { suppressStructuredContentForFormattedResults: false },
+            noteInText: false,
+            noteInStructured: true,
+        },
+        {
+            name: 'no formatted table, note rides the serialized result',
+            withFormatted: false,
+            opts: {},
+            noteInText: true,
+            noteInStructured: true,
+        },
+        {
+            name: 'structuredContent pointer, payload carries the note',
+            withFormatted: false,
+            opts: { forceUiDataToMeta: true },
+            noteInText: false,
+            noteInStructured: true,
+        },
+        {
+            name: 'raw JSON output',
+            withFormatted: false,
+            opts: { params: { output_format: 'json' } },
+            noteInText: true,
+            noteInStructured: true,
+        },
+    ]
 
-        expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n_agentNote: ${JSON.stringify(AGENT_NOTE)}`)
-    })
+    it.each(CHANNEL_CASES)(
+        'reaches the model once — $name',
+        ({ withFormatted, opts, noteInText, noteInStructured }) => {
+            const { params, ...rest } = opts as Record<string, unknown>
+            const payload = buildToolResultPayload({
+                handlerResult: withAgentNote(queryTrendsHandlerResult(withFormatted), AGENT_NOTE),
+                toolMeta: queryTrendsToolMeta,
+                toolName: 'query-trends',
+                params: params ?? {},
+                distinctId: 'test-distinct-id',
+                ...rest,
+            })
 
-    it('does not duplicate the note when the serialized result already carries it', () => {
+            const text = payload.content[0]!.text
+            expect(text.split(AGENT_NOTE).length - 1).toBe(noteInText ? 1 : 0)
+            expect(JSON.stringify(payload.structuredContent ?? {}).includes(AGENT_NOTE)).toBe(noteInStructured)
+        }
+    )
+
+    it('keeps raw JSON output parseable', () => {
         const payload = buildToolResultPayload({
             handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
-            params: {},
+            params: { output_format: 'json' },
             distinctId: 'test-distinct-id',
         })
 
-        const occurrences = payload.content[0]!.text.split(AGENT_NOTE).length - 1
-        expect(occurrences).toBe(1)
+        expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ _agentNote: AGENT_NOTE })
     })
 
+    // The pointer string is an exact-match sentinel: append anything and estimateResponseTokens
+    // silently measures the pointer instead of the payload it stands for.
     it('counts the structured payload for token estimation when a note is present', () => {
         const payload = buildToolResultPayload({
             handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
@@ -230,30 +278,17 @@ describe('buildToolResultPayload — agent notes', () => {
         expect(estimateResponseTokens(payload)).toBe(estimateTokens(payload.structuredContent))
     })
 
-    it('does not append the note when structuredContent already carries it', () => {
+    it('ignores an _agentNote this module did not attach', () => {
         const payload = buildToolResultPayload({
-            handlerResult: withAgentNote(queryTrendsHandlerResult(), AGENT_NOTE),
+            handlerResult: { ...queryTrendsHandlerResult(), _agentNote: 'from an API response' },
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            suppressStructuredContentForFormattedResults: false,
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'test-distinct-id',
         })
 
-        expect(payload.structuredContent).toMatchObject({ _agentNote: AGENT_NOTE })
         expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
-    })
-
-    it('leaves raw JSON output machine-parseable, carrying the note as a field', () => {
-        const payload = buildToolResultPayload({
-            handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
-            toolMeta: queryTrendsToolMeta,
-            toolName: 'query-trends',
-            params: { output_format: 'json' },
-            distinctId: 'test-distinct-id',
-        })
-
-        expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ _agentNote: AGENT_NOTE })
     })
 })
 
