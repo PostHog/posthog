@@ -33,6 +33,15 @@ NO_DATA_YET = (
 
 HAS_DATA = "Their project has data flowing, so whatever they name is something you can act on now."
 
+# This offer ends on its own question, so it is the message's closing ask and nothing follows it.
+INSTRUMENT_OFFER = (
+    "Offer to add PostHog to their codebase and open a pull request for them to review, "
+    "and ask which repository to add it to. Make it something they accept, not something "
+    "you have started. End on that question."
+)
+
+FINDINGS_OFFER = "Offer to walk them through one of the findings that is waiting."
+
 _NAMED_SOURCE_LIMIT = 3
 
 
@@ -78,9 +87,7 @@ def _joining_brief(facts: OnboardingFacts) -> list[str]:
     status = _status_line(facts)
     if status:
         brief.append(status)
-    if facts.signal_reports_waiting:
-        brief.append("Offer to walk them through one of the findings.")
-    brief.append(_closing_question(facts, researched=True))
+    brief.extend(_offer_and_close(facts, researched=True))
     return brief
 
 
@@ -115,25 +122,25 @@ def _status_line(facts: OnboardingFacts) -> str | None:
     return f"Tell them PostHog is already watching {enabled}. Then say the write-ups land in {_WHERE}."
 
 
-def _offer_line(facts: OnboardingFacts) -> str | None:
-    if not facts.has_events:
-        return (
-            "Offer to add PostHog to their codebase and open a pull request for them to review, "
-            "and ask which repository to add it to. Make it something they accept, not something "
-            "you have started."
-        )
-    if facts.signal_reports_waiting:
-        return "Offer to walk them through one of the findings that is waiting."
-    return None
-
-
 def _closing_question(facts: OnboardingFacts, *, researched: bool) -> str:
-    """The one question the message ends on."""
     if not researched:
         return NO_RESEARCH_QUESTION
     if facts.has_events and not facts.signal_reports_waiting:
         return NOTHING_YET
     return TOP_OF_MIND
+
+
+def _offer_and_close(facts: OnboardingFacts, *, researched: bool) -> list[str]:
+    """The offer and the question the message ends on, which is always one ask.
+
+    Nothing connected means the instrumentation offer is both, because the repository
+    it asks for is a better place to land than whatever a second question would add.
+    """
+    if not facts.has_events:
+        return [INSTRUMENT_OFFER]
+    lines = [FINDINGS_OFFER] if facts.signal_reports_waiting else []
+    lines.append(_closing_question(facts, researched=researched))
+    return lines
 
 
 def build_opening_brief(facts: OnboardingFacts) -> list[str]:
@@ -157,11 +164,7 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     if status:
         brief.append(status)
 
-    offer = _offer_line(facts)
-    if offer:
-        brief.append(offer)
-
-    brief.append(_closing_question(facts, researched=scraped or unreachable))
+    brief.extend(_offer_and_close(facts, researched=scraped or unreachable))
     return brief
 
 
