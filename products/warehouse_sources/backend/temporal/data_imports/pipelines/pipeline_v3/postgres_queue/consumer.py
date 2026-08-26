@@ -238,6 +238,7 @@ class DeltaBatchConsumerAdapter:
                 job_id=batch.job_id,
                 team_id=batch.team_id,
                 error=reason,
+                run_uuid=batch.run_uuid,
             )
         except Exception as e:
             # Leave the job for the reconcile sweep rather than crashing the consumer.
@@ -706,7 +707,7 @@ def _get_job_status_and_error(*, job_id: str, team_id: int) -> tuple[str, str | 
     return ExternalDataJob.objects.filter(id=job_id, team_id=team_id).values_list("status", "latest_error").first()
 
 
-def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:
+def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str, run_uuid: str = "") -> None:
     from products.data_warehouse.backend.facade.api import update_external_job_status
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 

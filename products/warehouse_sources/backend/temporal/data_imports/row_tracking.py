@@ -21,7 +21,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, billable_destination_multiplier
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -170,14 +170,15 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
             if current_billing_cycle_start is not None:
                 current_billing_cycle_start_dt = parser.parse(current_billing_cycle_start)
 
-                # Get all completed rows for all teams in org
+                # Rows bill once per destination the run delivered to. A run is complete
+                # only when every destination took it, so the count is exact.
                 rows_synced_in_billing_period_dict = ExternalDataJob.objects.filter(
                     Q(finished_at__gte=F("pipeline__created_at") + timedelta(days=7)),
                     team_id__in=all_teams_in_org,
                     finished_at__gte=current_billing_cycle_start_dt,
                     billable=True,
                     status=ExternalDataJob.Status.COMPLETED,
-                ).aggregate(total_rows=Sum("rows_synced"))
+                ).aggregate(total_rows=Sum(F("rows_synced") * billable_destination_multiplier()))
 
             return (
                 organization.id,

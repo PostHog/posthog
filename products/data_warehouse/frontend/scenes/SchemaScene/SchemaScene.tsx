@@ -45,6 +45,7 @@ const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
     'sync-method': 'Sync method',
     columns: 'Columns and filters',
     descriptions: 'Descriptions',
+    destinations: 'Destinations',
     schedule: 'Schedule',
     'danger-zone': 'Danger zone',
 }

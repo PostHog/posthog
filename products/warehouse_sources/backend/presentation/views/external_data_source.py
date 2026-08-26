@@ -111,6 +111,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+    ExternalDataSourceDestination,
     PendingSourceCredential,
     auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
@@ -162,6 +163,11 @@ from products.warehouse_sources.backend.facade.types import (
     DataWarehouseManagedViewSetKind,
     ExternalDataSourceType,
     ManagedWarehouseSQLMode,
+)
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    DestinationLinkSerializer,
+    SourceDestinationsSerializer,
+    set_source_destinations,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
@@ -1978,6 +1984,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "store_credentials",
         "source_prefix",
         "revenue_analytics_config",
+        "destinations",
         "create_webhook",
         "update_webhook_inputs",
         "delete_webhook",
@@ -4933,6 +4940,48 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         serializer = DirectConnectionSourceOptionSerializer(options, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+    @extend_schema(
+        request=DestinationLinkSerializer,
+        responses={200: SourceDestinationsSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=True)
+    def destinations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read or replace the destinations every table on this source syncs to.
+
+        A table with its own override ignores this set until the override is cleared.
+        """
+        source = self.get_object()
+
+        if request.method == "GET":
+            attached = [
+                str(link.destination_id)
+                for link in ExternalDataSourceDestination.objects.for_team(self.team_id)
+                .filter(source_id=source.id, enabled=True)
+                .exclude(destination__deleted=True)
+            ]
+            return Response(status=status.HTTP_200_OK, data={"destination_ids": attached})
+
+        serializer = DestinationLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Editor on the source isn't enough on its own: this replaces the destination set every
+        # table without its own override inherits, and (like `destroy`) never resolves a schema
+        # through DRF's object permissions, so a table locked below the source would otherwise be
+        # rerouted to a destination its editor never had access to.
+        schemas = list(
+            ExternalDataSchema.objects.exclude(deleted=True)
+            .filter(team_id=self.team_id, source_id=source.id)
+            .select_related("table")
+        )
+        self._assert_can_write_schemas(schemas)
+
+        attached = set_source_destinations(
+            team_id=self.team_id,
+            source_id=source.id,
+            destination_ids=serializer.validated_data["destination_ids"],
+        )
+        return Response(status=status.HTTP_200_OK, data={"destination_ids": attached})
 
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:

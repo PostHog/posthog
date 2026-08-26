@@ -55,6 +55,7 @@ import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
+import { DestinationsSection } from './DestinationsSection'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
@@ -120,6 +121,8 @@ export function ConfigurationTab({
                     <ApiVersionSection sourceId={sourceId} source={source} schema={schema} />
                 </div>
             )
+        case 'destinations':
+            return <DestinationsSection schemaId={schema.id} />
         case 'columns':
             return (
                 <ColumnsAndRowFiltersSection
