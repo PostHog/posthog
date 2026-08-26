@@ -1273,10 +1273,7 @@ mod tests {
             let guards: usize = costs[r.clone()].iter().map(|c| c.0).sum();
             let ops: usize = costs[r.clone()].iter().map(|c| c.1).sum();
             assert!(guards <= 128, "chunk carries {guards} compares");
-            assert!(
-                ops + 1 <= 128,
-                "chunk carries {ops} ops plus the quorum write"
-            );
+            assert!(ops < 128, "chunk carries {ops} ops plus the quorum write");
         }
         assert_eq!(
             ranges.len(),
@@ -1295,10 +1292,7 @@ mod tests {
         assert_contiguous_cover(&ranges, costs.len());
         for r in &ranges {
             let ops: usize = costs[r.clone()].iter().map(|c| c.1).sum();
-            assert!(
-                ops + 1 <= 128,
-                "chunk carries {ops} ops plus the quorum write"
-            );
+            assert!(ops < 128, "chunk carries {ops} ops plus the quorum write");
         }
     }
 
