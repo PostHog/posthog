@@ -7,11 +7,10 @@ description: >
   (`DataVisualizationNode`, `chartSettings.yAxis[].settings.formatting`).
   Use when the agent is about to add a `formula` purely to convert units
   (e.g. dividing seconds by 60 to display minutes), when a `math_property`
-  or SQL column is a duration, currency, ratio, or large count, when a SQL
-  query returns a percentage or rate column, or whenever the user mentions
-  "format the y-axis", "duration", "seconds", "minutes", "hours",
-  "milliseconds", "ms", "percentage", "%%", "double percent", "currency",
-  "decimals", "axis label", or "axis unit" in the context of a graph insight.
+  or SQL column is a duration, currency, ratio, or large count, or whenever
+  the user mentions "format the y-axis", "duration", "seconds", "minutes",
+  "hours", "milliseconds", "ms", "percentage", "%%", "currency", "decimals",
+  "axis label", or "axis unit" in the context of a graph insight.
 ---
 
 # Formatting insight axes
@@ -203,39 +202,25 @@ Formatting is per column, on `chartSettings.yAxis[].settings.formatting` for a c
 }
 ```
 
-`style` is one of `none`, `number`, `short`, `percent` — there is no `duration` or `currency` here.
-Express those with `prefix` / `suffix`, or format them in the SQL itself.
+`style` is `none`, `number`, `short`, or `percent` — no `duration` or `currency`.
+Express those with `prefix` / `suffix`, or in the SQL itself.
 
-### `percent` owns both the sign and the scale
-
-Two rules, and mixing either one with hand-rolled formatting is the most common way a SQL insight ships broken:
-
-1. **It appends the `%` itself.**
-   Adding `suffix: "%"` on top renders `47.3%%`.
-   Leave `suffix` off entirely when `style` is `percent`.
-2. **It multiplies the value by 100.**
-   `percent` is the SQL equivalent of the trends `percentage_scaled` format, and there is no unscaled variant.
-   Feed it a 0-1 ratio.
-   If the SQL already returns 0-100, the chart reads `4730%`.
-
-So pick one of the two consistent shapes, never a mix of both:
+`percent` both appends the `%` sign and multiplies the value by 100 (like the trends `percentage_scaled` format; there is no unscaled variant).
+So feed it a 0-1 ratio and leave `suffix` unset — pick one shape, never a mix:
 
 | SQL returns                       | `formatting`                                             | Renders |
 | --------------------------------- | -------------------------------------------------------- | ------- |
 | a 0-1 ratio (`a / b`)             | `{"style": "percent", "decimalPlaces": 1}`               | `47.3%` |
 | 0-100 (`round(100.0 * a / b, 1)`) | `{"style": "number", "suffix": "%", "decimalPlaces": 1}` | `47.3%` |
 
-Prefer the first: keep the `100.0 *` out of the query and let the formatter own the unit, the same way `aggregationAxisFormat` does for trends.
-The stored column then stays a plain ratio for anything else that reads it.
-
-An axis or series label may of course still say "%" — `leftYAxisSettings.label`, `xAxisLabel`, and `settings.display.label` are free text and are not part of the value formatting.
+A mix renders broken: `style: "percent"` plus a `"%"` suffix gives `47.3%%`, and `percent` on an already-scaled 0-100 column gives `4730%`.
+Prefer the ratio form — it keeps the `100.0 *` out of the query, so the stored column stays a plain ratio for anything else that reads it.
 
 ## Updating an existing insight
 
-If you are updating an insight and notice it already uses one of these
-anti-patterns — a trends `formula`/`postfix` pair, or a SQL column with both
-`style: "percent"` and a `"%"` suffix — fix it in the same
-`posthog:insight-update` call: drop the divide-by-N or the `100.0 *`, drop the
-literal `%`, and let the format own the unit. The underlying values stay the
-same, only the labels change. Do not go scanning unrelated insights for this
-pattern — fix only the ones you are already touching.
+If an insight you are already editing uses one of these anti-patterns — a
+trends `formula`/`postfix` pair, or a SQL column with both `style: "percent"`
+and a `"%"` suffix — fix it in the same `posthog:insight-update` call: drop the
+divide-by-N or `100.0 *` and the literal `%`, and let the format own the unit.
+Values stay the same, only labels change. Do not scan unrelated insights — fix
+only the ones you are already touching.
