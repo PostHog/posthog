@@ -13,6 +13,13 @@ import { registerCodexSubscription } from "@posthog/ui/shell/posthogAnalyticsImp
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
+// The codex login host self-terminates ~10 minutes after sign-in starts (see
+// LOGIN_TIMEOUT_MS in the subscription-login adapter). Once it is gone, finishing
+// in the browser can no longer land. Give the poll a small grace past that
+// deadline so a last-moment success still lands, then stop it instead of polling
+// for the settings page's whole mounted life.
+const LOGIN_POLL_TIMEOUT_MS = 10 * 60 * 1000 + 15 * 1000;
+
 // Sign-in uses Codex's own login flow. The app never reads ~/.codex credentials.
 export function CodexSubscriptionSettings() {
   const subscription = useCodexSubscription();
@@ -51,6 +58,19 @@ export function CodexSubscriptionSettings() {
     const timer = setTimeout(() => setLaunching(false), 4000);
     return () => clearTimeout(timer);
   }, [launching]);
+
+  // Bound the sign-in poll. If the user never finishes, the backend host dies at
+  // its own deadline and cannot report back, so drop the waiting state. That
+  // stops the poll and reverts the card to "Connect ChatGPT account" instead of
+  // showing an active sign-in forever.
+  useEffect(() => {
+    if (!awaitingLogin) return;
+    const timer = setTimeout(
+      () => setAwaitingLogin(false),
+      LOGIN_POLL_TIMEOUT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [awaitingLogin]);
   const connecting = login.isPending || launching;
   const signOut = useMutation({
     ...hostTRPC.agent.codexSubscriptionSignOut.mutationOptions(),
