@@ -36,26 +36,35 @@ def _inputs(schema_name: str = "pages") -> SourceInputs:
 
 
 class TestWebflowSource:
-    def test_409_conflict_message_is_recognised_as_non_retryable(self) -> None:
-        # Webflow returns 409 on /products when the site has no ecommerce; the raised
-        # HTTPError message embeds a volatile site id and URL, so we must match on a
-        # stable substring that excludes them.
+    @parameterized.expand(
+        [
+            # Webflow embeds a volatile site id and URL in each raised message, so every pattern
+            # must match on a stable substring that excludes them.
+            (
+                "409_conflict",
+                "409 Client Error: Conflict for url: "
+                "https://api.webflow.com/v2/sites/691afa9e7404e1259a4d0802/products?limit=100&offset=0",
+                "409 Client Error: Conflict",
+            ),
+            (
+                "406_not_acceptable",
+                "406 Client Error: Not Acceptable for url: "
+                "https://api.webflow.com/v2/sites/691afa9e7404e1259a4d0802/collections",
+                "406 Client Error: Not Acceptable",
+            ),
+            (
+                "deleted_collection",
+                "Webflow collection for schema 'collection_blog' was not found on site 'abc123'",
+                "Webflow collection for schema",
+            ),
+        ]
+    )
+    def test_message_is_recognised_as_non_retryable(
+        self, _name: str, raised_message: str, expected_pattern: str
+    ) -> None:
         errors = WebflowSource().get_non_retryable_errors()
-        raised_message = (
-            "409 Client Error: Conflict for url: "
-            "https://api.webflow.com/v2/sites/691afa9e7404e1259a4d0802/products?limit=100&offset=0"
-        )
         matches = [pattern for pattern in errors if pattern in raised_message]
-        assert matches == ["409 Client Error: Conflict"]
-
-    def test_deleted_collection_message_is_recognised_as_non_retryable(self) -> None:
-        # _resolve_collection_id raises this when a collection's slug no longer resolves at sync
-        # time; the message embeds a volatile schema name and site id, so we must match on a stable
-        # substring that excludes them.
-        errors = WebflowSource().get_non_retryable_errors()
-        raised_message = "Webflow collection for schema 'collection_blog' was not found on site 'abc123'"
-        matches = [pattern for pattern in errors if pattern in raised_message]
-        assert matches == ["Webflow collection for schema"]
+        assert matches == [expected_pattern]
 
     def test_get_schemas_includes_static_and_dynamic_collections(self) -> None:
         with patch(
