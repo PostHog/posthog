@@ -453,7 +453,7 @@ A fetch batch can publish more frontier records than it consumed. This can occur
 
 **11.5** The provider domain is the effective top-level domain plus one when only the ICANN section is active. For example, it is `posthog.com` for `app.posthog.com` and `vercel.app` for `myapp.vercel.app`. This document does not use the ambiguous term `root domain`.
 
-**11.6** Every metric label defined by this lane uses a fixed set of values. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
+**11.6** Every metric label defined by this lane uses a fixed set of values. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Image scrub sources use `inline` or `url`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
 
 **11.7** The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
 
@@ -606,10 +606,11 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.4** The record has these Kafka headers:
 
-| Header             | Value                                                                                               |
-| ------------------ | --------------------------------------------------------------------------------------------------- |
-| `content-type`     | The normalized media type accepted under requirement 14.10, in lowercase and without parameters     |
-| `content-encoding` | The response content codings in the order in which the server applied them, normalized to lowercase |
+| Header                 | Value                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `content-type`         | The normalized media type accepted under requirement 14.10, in lowercase and without parameters     |
+| `content-encoding`     | The response content codings in the order in which the server applied them, normalized to lowercase |
+| `capture-timestamp-ms` | The Unix timestamp from the replay Kafka record where the collector first saw the URL               |
 
 **17.5** The fetcher omits `content-encoding` when the response has no content coding or specifies `identity`. The scrubber treats a missing header as `identity`.
 
@@ -617,9 +618,9 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.7** After content decoding, the scrubber checks that the bytes match `content-type` before it sends them to the image scrubber.
 
-**17.8** Existing inline image records keep their current format: the key is an `image:<pseudo-team>:<hash>` ref, the value is the raw image bytes, and no transport headers are required.
+**17.8** Inline image records use an `image:<pseudo-team>:<hash>` key and raw image bytes. They carry `capture-timestamp-ms` from the source replay Kafka record.
 
-**17.9** This design does not add a dead-letter topic. The existing image-scrubber dead-letter path and its replay preserve the original key, value, `content-type`, and `content-encoding`. The dead-letter path can add diagnostic headers and update its replay counter.
+**17.9** This design does not add a dead-letter topic. The existing image-scrubber dead-letter path and its replay preserve the original key, value, `content-type`, `content-encoding`, and `capture-timestamp-ms`. The dead-letter path can add diagnostic headers and update its replay counter.
 
 **17.10** The maximum record size is the response byte limit in requirement 5.10 plus the maximum key, header, and Kafka protocol overhead. The fetcher producer, image-scrub topic, existing image-scrub dead-letter topic, and their consumers must accept that size.
 
@@ -630,6 +631,8 @@ ai_research_session_replay_image_fetch_retry_1h
 **17.13** Data preparation converts each distinct ref to the deterministic object key and performs one direct S3 read. A missing object leaves the image placeholder in place and does not require a recrawl.
 
 **17.14** Inline images keep their existing sharded S3 storage and Parquet index.
+
+**17.15** After a successful S3 write, the scrubber observes capture-to-S3 duration in a fixed-bucket histogram. The `source` label is `inline` or `url`. The scrubber does not observe a URL candidate when the conditional write finds an existing object.
 
 ## External specifications
 

@@ -3,14 +3,15 @@ import type {
   PiRpcClientOptions,
 } from "@posthog/agent/pi/rpc-client";
 import type { PiRuntime } from "@posthog/agent/pi/runtime";
+import type { TaskContextInput } from "@posthog/agent/pi/task-system-prompt";
 
 export interface PiRpcClientFactory {
   create(
     input: Pick<
       PiRpcClientOptions,
-      "cwd" | "model" | "sessionFile" | "projectTrusted"
+      "model" | "sessionFile" | "projectTrusted"
     > & {
-      taskId: string;
+      taskContext: TaskContextInput;
     },
   ): Promise<PiRpcClient>;
 }
