@@ -258,7 +258,13 @@ function summarizeNode(
     schema: JSONSchema,
     toolName: string,
     fieldPath: string | undefined,
-    depth: number
+    depth: number,
+    // A union reached directly (via a property or another union) is addressable by
+    // variant index, so each variant gets its own `<path>.<index>` drill hint. A
+    // union reached through an array's `items` is NOT: a numeric path segment there
+    // indexes the array and resolves back to `items`, not a variant. In that case the
+    // variants keep the shared path and fall back to first-match resolution.
+    unionIndexable = true
 ): NodeSummary {
     // Union: summarize each non-null variant. A lone non-null variant (a nullable
     // wrapper) collapses to that variant so we don't emit a pointless 1-way union.
@@ -274,12 +280,27 @@ function summarizeNode(
         if (nonNull.length === 1) {
             // Unwrap a nullable wrapper. Count it against `depth` so a pathological
             // chain of nested nullable unions still terminates at MAX_SUMMARY_DEPTH.
-            return summarizeNode(nonNull[0]!, toolName, fieldPath, depth + 1)
+            return summarizeNode(nonNull[0]!, toolName, fieldPath, depth + 1, unionIndexable)
         }
+        // Give each variant its own indexed drill path (`<path>.<index>`) so a complex
+        // property shared across variants under one name — e.g. `config` across the
+        // batch-export destination variants, each a different shape — resolves to the
+        // right variant instead of the first one `findNamedChild` matches. The index is
+        // the position in the raw anyOf/oneOf array, matching what `findIndexedChild`
+        // resolves; null variants are skipped in the output but keep their raw index.
+        const indexVariants = unionIndexable && fieldPath !== undefined
+        const variants: NodeSummary[] = []
+        unionVariants.forEach((variant, index) => {
+            if (variant.type === 'null') {
+                return
+            }
+            const variantPath = indexVariants ? `${fieldPath}.${index}` : fieldPath
+            variants.push(summarizeNode(variant, toolName, variantPath, depth + 1))
+        })
         return {
             type: getTypeString(schema),
             properties: {},
-            variants: nonNull.map((v) => summarizeNode(v, toolName, fieldPath, depth + 1)),
+            variants,
         }
     }
 
@@ -289,7 +310,9 @@ function summarizeNode(
         if (depth >= MAX_SUMMARY_DEPTH) {
             return { type: 'array', properties: {}, items: { type: describeItems(items), properties: {} } }
         }
-        return { type: 'array', properties: {}, items: summarizeNode(items, toolName, fieldPath, depth + 1) }
+        // Items reached through an array are not directly index-addressable, so a union
+        // under `items` must not hand out `<path>.<index>` variant hints.
+        return { type: 'array', properties: {}, items: summarizeNode(items, toolName, fieldPath, depth + 1, false) }
     }
 
     // Object with properties: list field names + drill-down hints (one level deep).

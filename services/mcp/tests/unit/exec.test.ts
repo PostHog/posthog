@@ -1099,11 +1099,14 @@ describe('exec tool', () => {
                 expect(variantFields).toContain('id')
                 expect(variantFields).toContain('type')
 
-                // The property-filter union moves behind its own drill-down hint.
-                const propsEntry = variants!.map((v) => v.properties?.properties).find((p) => p?.hint !== undefined)
-                expect(propsEntry?.hint).toBe(
-                    `DO NOT GUESS — you MUST run \`schema query-retention ${path}.properties\` before populating this field`
-                )
+                // Each entity variant hides its property-filter union behind its own
+                // variant-indexed drill hint, so both variants' unions stay reachable
+                // (following a shared path would resolve only the first variant).
+                const propsHints = variants!.map((v) => v.properties?.properties?.hint)
+                expect(propsHints).toEqual([
+                    `DO NOT GUESS — you MUST run \`schema query-retention ${path}.0.properties\` before populating this field`,
+                    `DO NOT GUESS — you MUST run \`schema query-retention ${path}.1.properties\` before populating this field`,
+                ])
             }
         )
     })
