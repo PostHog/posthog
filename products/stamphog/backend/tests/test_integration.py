@@ -31,6 +31,7 @@ from products.stamphog.backend.logic.channel_resolution import (
     resolve_destination,
 )
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
+from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
@@ -1534,7 +1535,11 @@ def test_daily_digest_posts_to_a_name_matched_channel_it_was_never_invited_to(
     assert [p["thread_ts"] for p in posted] == [None, "1234.5678"]
     # The thread's notification preview is the change itself, with the PR number only inside the link.
     assert posted[1]["text"] == "Add util helper"
-    assert "/pull/101|" in posted[1]["blocks"][0]["text"]["text"]
+    # The thread leads with whose judgment picked its contents, then one section per change.
+    thread_blocks = posted[1]["blocks"]
+    assert thread_blocks[0]["elements"][0]["text"] == _THREAD_LEAD
+    sections = [b["text"]["text"] for b in thread_blocks if b.get("type") == "section"]
+    assert any("/pull/101|" in text for text in sections)
     assert PullRequestAudience.objects.for_team(team.id).get(pull_request=pr).digest_run_id == run.id
 
 

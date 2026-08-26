@@ -18,6 +18,15 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class NotebookCellLimitExceeded(Exception):
+    """Raised when a write would grow a notebook past its cell ceiling.
+
+    Lives here rather than beside the validator because it crosses the product boundary:
+    Max writes notebooks through the facade, and its tool has to catch this to tell the
+    model the notebook is full instead of retrying the save.
+    """
+
+
 @dataclass(frozen=True)
 class NotebookData:
     """A notebook's persisted state, as other products read it."""
