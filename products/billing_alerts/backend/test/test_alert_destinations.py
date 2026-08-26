@@ -194,6 +194,20 @@ class TestBillingAlertDestinations(APIBaseTest):
             BILLING_ALERT_EVENT_IDS
         )
 
+    def test_create_destination_rejects_a_duplicate_of_a_disabled_group(self) -> None:
+        self._sync_webhook_template()
+        alert = self._alert()
+        payload = {"type": "webhook", "webhook_url": "https://example.com/billing-alert"}
+        first = self.client.post(f"{self.url}{alert.id}/destinations/", payload, format="json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+        HogFunction.objects.filter(id__in=first.json()["hog_function_ids"]).update(enabled=False)
+
+        second = self.client.post(f"{self.url}{alert.id}/destinations/", payload, format="json")
+
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert second.json()["detail"] == "This destination is already configured for this alert."
+        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(BILLING_ALERT_EVENT_IDS)
+
     def test_create_destination_locks_alert_before_duplicate_check(self) -> None:
         self._sync_webhook_template()
         alert = self._alert()
@@ -226,6 +240,56 @@ class TestBillingAlertDestinations(APIBaseTest):
         assert HogFunction.objects.filter(
             id__in=[destination.id for destination in destinations], deleted=True
         ).count() == len(destinations)
+
+    def test_delete_destination_removes_a_group_whose_config_is_readable(self) -> None:
+        self._sync_webhook_template()
+        alert = self._alert()
+        created = self.client.post(
+            f"{self.url}{alert.id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/billing-alert"},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        hog_function_ids = created.json()["hog_function_ids"]
+
+        response = self.client.post(
+            f"{self.url}{alert.id}/destinations/delete/",
+            {"hog_function_ids": hog_function_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).count() == 0
+
+    def test_delete_destination_removes_a_group_widened_by_an_unreadable_row(self) -> None:
+        self._sync_webhook_template()
+        alert = self._alert()
+        created = self.client.post(
+            f"{self.url}{alert.id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/billing-alert"},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        hog_function_ids = created.json()["hog_function_ids"]
+        unreadable = self._destination(alert, BILLING_ALERT_EVENT_IDS[0])
+
+        partial = self.client.post(
+            f"{self.url}{alert.id}/destinations/delete/",
+            {"hog_function_ids": hog_function_ids},
+            format="json",
+        )
+
+        assert partial.status_code == status.HTTP_400_BAD_REQUEST
+        assert "can no longer be read" in partial.json()["detail"]
+
+        response = self.client.post(
+            f"{self.url}{alert.id}/destinations/delete/",
+            {"hog_function_ids": [*hog_function_ids, str(unreadable.id)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=[*hog_function_ids, unreadable.id], deleted=False).count() == 0
 
     def test_delete_destination_rejects_another_alerts_hog_function(self) -> None:
         alert = self._alert()

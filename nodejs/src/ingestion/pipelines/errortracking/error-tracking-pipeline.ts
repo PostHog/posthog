@@ -12,6 +12,7 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -31,6 +32,14 @@ import { createFetchPersonChunkStep } from '~/ingestion/common/steps/event-proce
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import {
+    EventUsageBatchContext,
+    createEventUsageBeforeBatchStep,
+    createFlushEventUsageStep,
+    createRecordEventUsageAfterIngestStep,
+    createRecordEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
+import { resolveExceptionUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { TopHogRegistry, count } from '~/ingestion/framework/extensions/tophog'
@@ -57,7 +66,7 @@ export type ErrorTrackingPipeline = BatchingPipeline<
     ErrorTrackingPipelineInput,
     ErrorTrackingPipelineOutput,
     { message: Message },
-    Record<never, object>,
+    EventUsageBatchContext,
     { message: Message } & BatchingContext,
     OverflowOutput
 >
@@ -93,6 +102,7 @@ export interface ErrorTrackingPipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 /**
@@ -136,6 +146,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         topHog,
+        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
     } = config
 
     const preCymbal = newCommonIngestionPipeline<ErrorTrackingPipelineInput, { message: Message }, OverflowOutput>({
@@ -145,6 +156,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         concurrentBatches: 1,
         topHog,
     })
+        .beforeBatch((b) => b.pipe(createEventUsageBeforeBatchStep(createEventUsageBatch)))
         // Header-only steps: parse Kafka headers and apply token-level restrictions.
         // Cheap; runs per-event before we touch the body.
         .parseHeaders()
@@ -203,6 +215,8 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             .pipe(createErrorTrackingPrepareEventStep())
             // Map group types to indexes (read-only, no new group types created)
             .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
+            // After Cymbal, so an exception it suppresses is never billed.
+            .pipe(createRecordEventUsageStep(resolveExceptionUsageKey))
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
             .pipe(createEmitEventStep({ outputs }), {
                 topHog: [
@@ -215,7 +229,9 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
                     })),
                 ],
             })
+            .pipe(createRecordEventUsageAfterIngestStep())
             .pipe(createRecordIngestionLagStep())
+            .afterBatch((b) => b.pipe(createFlushEventUsageStep()))
             .build()
     )
 }
