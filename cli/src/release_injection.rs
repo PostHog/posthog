@@ -68,6 +68,12 @@ pub fn inject_release_id(directory: &Path, release_id: &str, resign: bool) -> Re
         let Ok(mut data) = fs::read(path) else {
             continue;
         };
+        // A slot that already holds `id` is still written and re-signed below. Cargo hardlinks
+        // `target/<profile>/<bin>` to `deps/<bin>-<hash>`, and `codesign` re-signs into a new
+        // inode, which splits that link: after the first path is re-signed, its twin still holds
+        // the injected bytes with the now-invalid signature. Only a second write and re-sign of
+        // the twin — which the walk reaches as a path of its own — makes it runnable again, so
+        // "already injected" must never short-circuit into a skip.
         if patch_all_slots(&mut data, id) {
             let macho = is_macho(&data);
             // Check the signature before overwriting the file, so we can tell whether re-signing
@@ -257,6 +263,17 @@ mod tests {
         let other = b"11111111-2222-4333-8444-555555555555";
         assert!(patch_all_slots(&mut data, other));
         assert_eq!(&data[MAGIC.len()..], other);
+    }
+
+    #[test]
+    fn a_slot_that_already_holds_the_id_is_still_reported() {
+        // The hardlinked twin of a re-signed Mach-O (cargo's `deps/<bin>-<hash>` and `<bin>`)
+        // already carries the id but not a valid signature, and only gets one because the walk
+        // writes and re-signs it again. A "nothing changed, skip" shortcut here would leave it
+        // unrunnable on macOS.
+        let mut data = marker(REAL);
+        assert!(patch_all_slots(&mut data, REAL));
+        assert_eq!(&data[MAGIC.len()..], REAL);
     }
 
     #[test]
