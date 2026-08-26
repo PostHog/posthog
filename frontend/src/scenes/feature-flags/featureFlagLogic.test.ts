@@ -354,6 +354,43 @@ describe('featureFlagLogic', () => {
             }
         })
 
+        it('times out a save that never returns and offers a retry', async () => {
+            jest.useFakeTimers()
+            // Reject only when the save's own timeout aborts the request, mirroring how fetch
+            // rejects on abort. This drives the real setTimeout/AbortController path in the loader.
+            const updateSpy = jest.spyOn(api, 'update').mockImplementation(
+                (_url, _data, options) =>
+                    new Promise((_resolve, reject) => {
+                        options?.signal?.addEventListener('abort', () => {
+                            const abortError = new Error('The operation was aborted')
+                            abortError.name = 'AbortError'
+                            reject(abortError)
+                        })
+                    })
+            )
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                const settled = expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                jest.advanceTimersByTime(30_000)
+                await settled
+
+                expect(toastSpy).toHaveBeenCalledTimes(1)
+                const [message, options] = toastSpy.mock.calls[0] as [
+                    string,
+                    { button?: { label: string } } | undefined,
+                ]
+                expect(message).toContain('timed out')
+                expect(options?.button?.label).toBe('Retry')
+            } finally {
+                updateSpy.mockRestore()
+                toastSpy.mockRestore()
+                jest.useRealTimers()
+            }
+        })
+
         it('links the duplicate-key toast to the flag already using that key', async () => {
             useMocks({
                 patch: {
