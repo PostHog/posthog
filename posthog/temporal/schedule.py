@@ -863,10 +863,6 @@ schedules = [
     create_sync_events_retention_schedule,
     create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
-    create_batch_trace_summarization_schedule,
-    create_batch_generation_summarization_schedule,
-    create_trace_clustering_coordinator_schedule,
-    create_generation_clustering_coordinator_schedule,
     create_intent_clustering_coordinator_schedule,
     create_eval_reports_schedule,
     create_count_trigger_schedule,
@@ -912,6 +908,13 @@ schedules = [
 ]
 
 if settings.CLOUD_DEPLOYMENT:
+    # AI observability summarization and clustering need the AI gateway, which only exists in
+    # cloud. On a self-hosted or DEBUG=0 install these coordinators discover teams, spawn the
+    # labeling activity, and fail on the cloud-only guard in llm_endpoint.py every run.
+    schedules.append(create_batch_trace_summarization_schedule)
+    schedules.append(create_batch_generation_summarization_schedule)
+    schedules.append(create_trace_clustering_coordinator_schedule)
+    schedules.append(create_generation_clustering_coordinator_schedule)
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
     # deployment's own Redis index, so per-deployment scoping is inherent.
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
