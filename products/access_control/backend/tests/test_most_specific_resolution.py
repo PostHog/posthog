@@ -42,7 +42,7 @@ class BaseMostSpecificResolutionTest(BaseUserAccessControlTest):
         self._clear_uac_caches()
 
     def _resolve(self):
-        return self.user_access_control.resolve_object_access(self.dashboard)
+        return self.user_access_control.resolve_most_specific_object_access(self.dashboard)
 
 
 @pytest.mark.ee
@@ -141,7 +141,7 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
             )
         self._clear_uac_caches()
 
-        resolved = self.user_access_control.resolve_object_access(self.table)
+        resolved = self.user_access_control.resolve_most_specific_object_access(self.table)
 
         assert resolved is not None
         assert resolved.access_level == expected_level
@@ -151,7 +151,7 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
 @pytest.mark.ee
 class TestResolveResourceAccess(BaseMostSpecificResolutionTest):
     def test_resource_without_resource_level_controls_resolves_to_system_default(self):
-        resolved = self.user_access_control.resolve_resource_access("project")
+        resolved = self.user_access_control.resolve_most_specific_resource_access("project")
 
         assert resolved is not None
         assert resolved.source == "system_default"

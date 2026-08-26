@@ -405,7 +405,7 @@ def _most_specific_tier(
 def oracle_most_specific_object_level(
     specs: list[RowSpec], order: list[AccessControlLevel]
 ) -> Optional[AccessControlLevel]:
-    # Mirrors resolve_object_access (RFC 557), restated from the RFC rather than the code:
+    # Mirrors resolve_most_specific_object_access (RFC 557), restated from the RFC rather than the code:
     # the nearest scope with any rule decides (object rows before resource rows), and inside a
     # scope the most specific subject decides: member -> max(roles) -> the everyone-row. A more
     # specific rule wins even when it gives a lower level. None when no rule matches.
@@ -901,7 +901,7 @@ class TestMostSpecificResolverProperties(BaseAccessControlPropertyTest):
 
     @given(data=object_resource_and_rows(), membership_level=membership_levels_st, own=st.booleans())
     @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_resolve_object_access_matches_oracle(self, data, membership_level, own):
+    def test_resolve_most_specific_object_access_matches_oracle(self, data, membership_level, own):
         resource, model_cls, specs = data
         self._set_membership_level(membership_level)
         creator = self.user if own else self.other_user
@@ -914,12 +914,12 @@ class TestMostSpecificResolverProperties(BaseAccessControlPropertyTest):
             is_creator=own and model_has_created_by(model_cls),
             is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN,
         )
-        resolved = self._fresh_uac().resolve_object_access(obj)
+        resolved = self._fresh_uac().resolve_most_specific_object_access(obj)
         assert resolved is not None and resolved.access_level == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)
     @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_resolve_resource_access_matches_oracle(self, data, membership_level):
+    def test_resolve_most_specific_resource_access_matches_oracle(self, data, membership_level):
         resource, specs = data
         self._set_membership_level(membership_level)
         self._materialize(specs, resource, obj=None)
@@ -927,7 +927,7 @@ class TestMostSpecificResolverProperties(BaseAccessControlPropertyTest):
         expected = oracle_most_specific_resource_access(
             resource, specs, is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN
         )
-        resolved = self._fresh_uac().resolve_resource_access(resource)
+        resolved = self._fresh_uac().resolve_most_specific_resource_access(resource)
         assert resolved is not None and resolved.access_level == expected
 
     @given(data=object_resource_and_rows(), membership_level=membership_levels_st, own=st.booleans())
@@ -944,7 +944,7 @@ class TestMostSpecificResolverProperties(BaseAccessControlPropertyTest):
 
         uac = self._fresh_uac()
         legacy_explicit = uac.get_user_access_level(obj, explicit=True)
-        resolved = uac.resolve_object_access(obj)
+        resolved = uac.resolve_most_specific_object_access(obj)
 
         assert resolved is not None
         assert (legacy_explicit is None) == (resolved.source == "system_default")
@@ -962,7 +962,7 @@ class TestMostSpecificResolverProperties(BaseAccessControlPropertyTest):
 
         uac = self._fresh_uac()
         current = uac.get_user_access_level(obj)
-        proposed = uac.resolve_object_access(obj)
+        proposed = uac.resolve_most_specific_object_access(obj)
         assert current is not None and proposed is not None
 
         order = ordered_access_levels(resource)

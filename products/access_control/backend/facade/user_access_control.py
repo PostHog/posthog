@@ -962,7 +962,7 @@ class UserAccessControl:
             source_resource=resource,
         )
         self._report_resolved_access_divergence(
-            "resource", resource, access, lambda: self.resolve_resource_access(resource)
+            "resource", resource, access, lambda: self.resolve_most_specific_resource_access(resource)
         )
         return access
 
@@ -1570,7 +1570,9 @@ class UserAccessControl:
         if not explicit:
             # explicit=True changes the enforced answer but not the future one, so comparing
             # there would report divergence that is really just the flag
-            self._report_resolved_access_divergence("object", resource, access, lambda: self.resolve_object_access(obj))
+            self._report_resolved_access_divergence(
+                "object", resource, access, lambda: self.resolve_most_specific_object_access(obj)
+            )
         return access.access_level if access else None
 
     def bulk_object_access_levels(
@@ -1639,7 +1641,7 @@ class UserAccessControl:
             by_subject[self._row_subject(ac)].append(ac)
         return [group for group in by_subject.values() if group]
 
-    def resolve_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
+    def resolve_most_specific_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
         """Future source of truth for object access — NOT enforced yet, see the section comment.
 
         This method has no `explicit` parameter. It always returns the full answer. For the
@@ -1683,12 +1685,12 @@ class UserAccessControl:
                 )
 
         if self.has_access_levels_for_resource(resource):
-            access_for_resource = self.resolve_resource_access(resource)
+            access_for_resource = self.resolve_most_specific_resource_access(resource)
             if access_for_resource:
                 return access_for_resource
 
         if parent and self.has_access_levels_for_resource(parent):
-            access_for_parent = self.resolve_resource_access(parent)
+            access_for_parent = self.resolve_most_specific_resource_access(parent)
             if access_for_parent:
                 return replace(access_for_parent, source="parent_resource")
 
@@ -1699,7 +1701,7 @@ class UserAccessControl:
             source_resource=RESOURCE_INHERITANCE_MAP.get(resource, resource),
         )
 
-    def resolve_resource_access(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
+    def resolve_most_specific_resource_access(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
         """Future source of truth for resource access — NOT enforced yet, see the section comment.
 
         The guards are the same as in `access_level_for_resource`. Only the row step differs:
@@ -1707,7 +1709,7 @@ class UserAccessControl:
         """
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
-            return self.resolve_resource_access(parent_resource)
+            return self.resolve_most_specific_resource_access(parent_resource)
 
         if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return ResolvedAccess(
@@ -1783,7 +1785,7 @@ class UserAccessControl:
         # The event carries no object ids and no emails. Aggregate counts are enough for the migration.
         posthoganalytics.capture(
             distinct_id=self._user.distinct_id,
-            event="rbac shadow resolution divergence",
+            event="most_specific_access_control_decision_diverged",
             properties={
                 "kind": kind,
                 "resource": resource,
