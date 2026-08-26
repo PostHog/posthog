@@ -8,8 +8,9 @@ frozen here, so the count can fall but never rise.
 it resolves through the Django app registry, so no import linter can see the edge. Test modules stay
 out of scope on that channel.
 
-`drives(<Kind>)` lines read tests only: a test outside a product that executes a query runner in the
-product's `backend/hogql_queries/` garage, by kind string or by import. `hogli product:lint` keeps
+`drives(...)` lines read tests only: a test outside a product that executes a query runner in the
+product's `backend/hogql_queries/` garage, `drives(<Kind>)` for a query kind it builds and runs and
+`drives(<Name>)` for anything it imports from there. `hogli product:lint` keeps
 that garage in the product's contract-check inputs while a line stands, so the isolated-test skip
 stays sound; a new line is a new outside test driving product code, which belongs in the product.
 

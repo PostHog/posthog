@@ -27,8 +27,8 @@ The third channel is the opposite: it reads tests only. Core drives a product's 
 query's kind string, so a test outside the product can execute a runner in `backend/hogql_queries/`
 with no import. The isolated-test skip is sound for that garage only while no such test exists, so
 every one is counted as the disallowed kind `drives(<Kind>)`, and `hogli product:lint` keeps the
-garage in the contract-check inputs while a line for it stands. A test that imports a runner (through
-the facade or directly) is counted the same way.
+garage in the contract-check inputs while a line for it stands. A test that imports anything the
+garage defines (through the facade or directly) is counted the same way, as `drives(<Name>)`.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ import textwrap
 import warnings
 import functools
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -602,8 +602,12 @@ def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], label_by
 
 # Core's query dispatch table: `if kind == "X": from products.<p>... import XRunner`, and the
 # garage the runners it dispatches to live in. The kind channel is what makes that garage
-# computable, so it must be one of the computed set.
+# computable, so it must be one of the computed set. Some branches compare against the
+# `NodeKind` enum instead of a literal; its values are read off the generated enum module.
 QUERY_DISPATCHER = REPO_ROOT / "posthog" / "hogql_queries" / "query_runner.py"
+NODE_KIND_ENUM = REPO_ROOT / "posthog" / "schema_enums.py"
+_NODE_KIND_CLASS_RE = re.compile(r"^class NodeKind\(.*?\):\n(.*?)(?=^class |\Z)", re.MULTILINE | re.DOTALL)
+_ENUM_MEMBER_RE = re.compile(r"^\s+(\w+)\s*=\s*[\"'](\w+)[\"']", re.MULTILINE)
 QUERY_GARAGE = "backend/hogql_queries/"
 assert QUERY_GARAGE in COMPUTED_GARAGES
 
@@ -622,14 +626,40 @@ def garage_label(product: str, garage: str) -> str:
     return f"{product}:{garage}"
 
 
-def _kinds_in_dispatcher(source: str) -> dict[str, str]:
+@dataclass(frozen=True, slots=True, order=True)
+class _Garage:
+    """One computed garage of one product."""
+
+    product: str
+    location: str
+
+    @property
+    def label(self) -> str:
+        return garage_label(self.product, self.location)
+
+
+@dataclass(frozen=True, slots=True)
+class _KindDrive:
+    """A product query kind a test both builds and runs."""
+
+    product: str
+    kind: str
+
+
+def _node_kind_values(source: str) -> dict[str, str]:
+    """`NodeKind` member name -> kind string, read off the enum's source without importing it."""
+    match = _NODE_KIND_CLASS_RE.search(source)
+    return dict(_ENUM_MEMBER_RE.findall(match.group(1))) if match else {}
+
+
+def _kinds_in_dispatcher(source: str, node_kinds: Mapping[str, str] | None = None) -> dict[str, str]:
     """Query kind -> owning product, for every kind whose dispatch branch imports from a product."""
     tree = ast.parse(source)
     kinds: dict[str, str] = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
-        for kind in _compared_kinds(node.test):
+        for kind in _compared_kinds(node.test, node_kinds or {}):
             for statement in node.body:
                 if (
                     isinstance(statement, ast.ImportFrom)
@@ -640,21 +670,26 @@ def _kinds_in_dispatcher(source: str) -> dict[str, str]:
     return kinds
 
 
-def _compared_kinds(test: ast.expr) -> list[str]:
-    """The literals of `kind == "X"` or `kind in ("X", "Y")`; empty for any other test."""
+def _compared_kinds(test: ast.expr, node_kinds: Mapping[str, str]) -> list[str]:
+    """The kinds of `kind == "X"`, `kind == NodeKind.X`, or `kind in (...)`; empty for any other test."""
     if not (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name) and test.left.id == "kind"):
         return []
     target = test.comparators[0]
-    if isinstance(target, ast.Constant) and isinstance(target.value, str):
-        return [target.value]
-    if isinstance(target, ast.Tuple):
-        return [e.value for e in target.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
-    return []
+    members = target.elts if isinstance(target, ast.Tuple) else [target]
+    kinds = []
+    for member in members:
+        if isinstance(member, ast.Constant) and isinstance(member.value, str):
+            kinds.append(member.value)
+        elif isinstance(member, ast.Attribute) and isinstance(member.value, ast.Name) and member.value.id == "NodeKind":
+            if member.attr in node_kinds:
+                kinds.append(node_kinds[member.attr])
+    return kinds
 
 
 def product_query_kinds(products: Iterable[str] | None = None) -> dict[str, str]:
     """Query kind -> owning product, read off core's dispatch table."""
-    kinds = _kinds_in_dispatcher(QUERY_DISPATCHER.read_text(encoding="utf-8"))
+    node_kinds = _node_kind_values(NODE_KIND_ENUM.read_text(encoding="utf-8"))
+    kinds = _kinds_in_dispatcher(QUERY_DISPATCHER.read_text(encoding="utf-8"), node_kinds)
     if products is not None:
         wanted = set(products)
         kinds = {kind: product for kind, product in kinds.items() if product in wanted}
@@ -735,20 +770,28 @@ class _Executions:
     """Which functions of a module execute queries, directly or through a helper they call.
 
     A test method that builds a query and hands it to `self._run(...)` executes it one call away;
-    following one hop by name covers that without walking a real call graph."""
+    following one hop by name covers that without walking a real call graph. Helpers resolve inside
+    the function's own class (or the module for a plain function), so two classes with a method of
+    the same name never answer for each other."""
 
-    def __init__(self, tree: ast.Module) -> None:
-        self._direct = {node.name: _executes_directly(node) for node in ast.walk(tree) if isinstance(node, _Function)}
+    def __init__(self) -> None:
+        self._direct: dict[int, bool] = {}
 
-    def executes(self, function: _Function) -> bool:
-        if self._direct.get(function.name):
+    def _executes_directly(self, function: _Function) -> bool:
+        if id(function) not in self._direct:
+            self._direct[id(function)] = _executes_directly(function)
+        return self._direct[id(function)]
+
+    def executes(self, function: _Function, scope: ast.AST) -> bool:
+        if self._executes_directly(function):
             return True
+        helpers = {node.name: node for node in ast.iter_child_nodes(scope) if isinstance(node, _Function)}
         called = {_callee_name(node) for node in ast.walk(function) if isinstance(node, ast.Call)}
-        return any(self._direct.get(name) for name in called if name)
+        return any(self._executes_directly(helpers[name]) for name in called if name in helpers)
 
 
-def kind_drives(tree: ast.Module, kinds: dict[str, str]) -> Counter[tuple[str, str]]:
-    """(owning product, kind) -> mentions, for every kind this module both builds and executes.
+def kind_drives(tree: ast.Module, kinds: dict[str, str]) -> Counter[_KindDrive]:
+    """Drive -> mentions, for every kind this module both builds and executes.
 
     Building alone is not a drive: a test that checks a schema or a formatter constructs the query
     and never runs it. Execution is a dispatcher call or a test-client request. A kind built inside
@@ -759,31 +802,31 @@ def kind_drives(tree: ast.Module, kinds: dict[str, str]) -> Counter[tuple[str, s
     if not mentions:
         return Counter()
     parents = _parent_map(tree)
-    executions = _Executions(tree)
+    executions = _Executions()
     scope_executes: dict[int, bool] = {}
-    found: Counter[tuple[str, str]] = Counter()
+    found: Counter[_KindDrive] = Counter()
     for node, kind in mentions:
         function, class_def = _enclosing(node, parents)
+        scope: ast.AST = class_def if class_def is not None else tree
         if function is not None and function.name.startswith("test"):
-            executes = executions.executes(function)
+            executes = executions.executes(function, scope)
         else:
-            scope: ast.AST = class_def if class_def is not None else tree
             if id(scope) not in scope_executes:
                 scope_executes[id(scope)] = _executes_directly(scope)
             executes = scope_executes[id(scope)]
         if executes:
-            found[(kinds[kind], kind)] += 1
+            found[_KindDrive(kinds[kind], kind)] += 1
     return found
 
 
-def _garage_targets(products: list[str] | None) -> set[tuple[str, str]]:
-    """(product, garage) for every computed garage that exists, in the products the scan covers.
+def _garage_targets(products: list[str] | None) -> set[_Garage]:
+    """Every computed garage that exists, in the products the scan covers.
 
     Every product with the directory counts, not only those in the dispatch table: the import
     channel applies to all of them, and a garage the scan never looked at must not read as clean."""
     owners = [d.name for d in PRODUCTS_DIR.iterdir() if d.is_dir()] if products is None else products
     return {
-        (product, garage)
+        _Garage(product, garage)
         for garage in COMPUTED_GARAGES
         for product in owners
         if (PRODUCTS_DIR / product / garage.rstrip("/")).exists()
@@ -855,9 +898,9 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
     """Every use of every crossing class in consumer code, sorted, one entry per kind per module.
 
     Plus every `apps.get_model` reference to any product model from outside the owning product,
-    and, from test modules only, every drive of a computed garage: a query kind the test builds
-    and runs (see `kind_drives`), or an import of anything the garage defines, by any re-export
-    path. One pass over the tree serves all three channels."""
+    and, from test modules only, every drive of a computed garage: `drives(<Kind>)` for a query
+    kind the test builds and runs (see `kind_drives`), `drives(<Name>)` for an import of anything
+    the garage defines, by any re-export path. One pass over the tree serves all three channels."""
     # Consumed more than once below; a generator argument would silently empty the later passes.
     products = list(products) if products is not None else None
     classes = crossing_classes(products)
@@ -865,13 +908,13 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
     owning_dir |= {label: PRODUCTS_DIR / product for label, product in product_model_labels(products).items()}
     kinds = product_query_kinds(products)
     garages = _garage_targets(products)
-    owning_dir |= {garage_label(p, g): PRODUCTS_DIR / p for p, g in garages}
+    owning_dir |= {garage.label: PRODUCTS_DIR / garage.product for garage in garages}
     if not owning_dir:
         return []
 
     seeds = {_Export(c.defining_module, c.class_name): c.label for c in classes}
-    for product, garage in sorted(garages):
-        seeds |= _garage_exports(product, garage)
+    for garage in sorted(garages):
+        seeds |= _garage_exports(garage.product, garage.location)
     # Tests are read for garage exports only and consumer code for model classes only, so a test
     # that imports a model class (most API tests do) is never parsed for nothing.
     names_by_scope = {
@@ -881,7 +924,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
     candidates = _candidates(_KindHint.for_kinds(kinds) if kinds else None)
     origins = _grow_origins(candidates, seeds)
     origin_modules = {export.module for export in origins}
-    query_products = {p for p, g in garages if g == QUERY_GARAGE}
+    query_products = {garage.product for garage in garages if garage.location == QUERY_GARAGE}
     product_by_label = _app_labels()
     # Django resolves a model name case-insensitively, so the get_model scan matches on the lowered form.
     label_by_lower = {label.lower(): label for label in owning_dir}
@@ -920,9 +963,11 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
                 parents = parents or _parent_map(tree)
                 counts[(label, candidate.dotted, classify_use(node, parents))] += 1
         if is_test and candidate.mentions_query_kind:
-            for (product, kind), count in kind_drives(tree, kinds).items():
-                if product in query_products and not candidate.path.is_relative_to(PRODUCTS_DIR / product):
-                    counts[(garage_label(product, QUERY_GARAGE), candidate.dotted, f"drives({kind})")] += count
+            for drive, count in kind_drives(tree, kinds).items():
+                if drive.product in query_products and not candidate.path.is_relative_to(PRODUCTS_DIR / drive.product):
+                    counts[(garage_label(drive.product, QUERY_GARAGE), candidate.dotted, f"drives({drive.kind})")] += (
+                        count
+                    )
         if not is_test and candidate.mentions_get_model:
             for label, count in _get_model_uses(tree, product_by_label, label_by_lower).items():
                 if not candidate.path.is_relative_to(owning_dir[label]):
@@ -1005,9 +1050,10 @@ BASELINE_HEADER = """\
 # from outside the owning product, which covers every product model, not only the allowance ones.
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
 # historical registry, which is the only way a migration can.
-# And the kind `drives(<Kind>)`, read from tests only: a test outside the product that executes a
-# query runner in the product's backend/hogql_queries/ garage, by kind string or by import. While
-# a line stands for a garage, `hogli product:lint` keeps it in the contract-check inputs.
+# And the kind `drives(<Kind or Name>)`, read from tests only: a test outside the product that
+# executes a query runner in the product's backend/hogql_queries/ garage, by the query kind it
+# builds and runs, or by the name it imports from there. While a line stands for a garage,
+# `hogli product:lint` keeps it in the contract-check inputs.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.

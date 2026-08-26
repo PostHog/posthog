@@ -217,6 +217,24 @@ def get_query_runner(query, team, kind=None):
         from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
         return WebOverviewQueryRunner(query=query, team=team)
+    if kind == NodeKind.MARKETING_ANALYTICS_TABLE_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.table import MarketingAnalyticsTableQueryRunner
+
+        return MarketingAnalyticsTableQueryRunner(query=query, team=team)
+"""
+
+NODE_KIND_ENUM = """
+class OtherEnum(StrEnum):
+    X = "NotAKind"
+
+
+class NodeKind(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
+
+
+class After(StrEnum):
+    Y = "AlsoNotAKind"
 """
 
 KINDS = {"PathsQuery": "product_analytics", "WebOverviewQuery": "web_analytics"}
@@ -224,10 +242,16 @@ KINDS = {"PathsQuery": "product_analytics", "WebOverviewQuery": "web_analytics"}
 
 class TestGarageDrives:
     def test_dispatch_table_maps_product_kinds_only(self) -> None:
-        assert crossings._kinds_in_dispatcher(DISPATCHER) == {
+        node_kinds = crossings._node_kind_values(NODE_KIND_ENUM)
+        assert node_kinds == {
+            "EVENTS_NODE": "EventsNode",
+            "MARKETING_ANALYTICS_TABLE_QUERY": "MarketingAnalyticsTableQuery",
+        }
+        assert crossings._kinds_in_dispatcher(DISPATCHER, node_kinds) == {
             "PathsQuery": "product_analytics",
             "WebOverviewQuery": "web_analytics",
             "WebStatsTableQuery": "web_analytics",
+            "MarketingAnalyticsTableQuery": "marketing_analytics",
         }
 
     @pytest.mark.parametrize(
@@ -307,6 +331,19 @@ class TestGarageDrives:
                 """,
                 {("product_analytics", "PathsQuery"): 1},
             ),
+            # a same-named method in a later class does not answer for the one that executes
+            (
+                """
+                class TestRuns(APIBaseTest):
+                    def test_paths(self):
+                        self.client.post("/api/projects/1/query/", {"query": {"kind": "PathsQuery"}})
+
+                class TestBuilds(TestCase):
+                    def test_paths(self):
+                        assert {"kind": "PathsQuery"}["kind"]
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
             # execution in another class does not count for this class's fixture
             (
                 """
@@ -333,7 +370,8 @@ class TestGarageDrives:
         ],
     )
     def test_kind_drives(self, source: str, expected: dict[tuple[str, str], int]) -> None:
-        assert dict(crossings.kind_drives(ast.parse(textwrap.dedent(source)), KINDS)) == expected
+        drives = crossings.kind_drives(ast.parse(textwrap.dedent(source)), KINDS)
+        assert {(drive.product, drive.kind): count for drive, count in drives.items()} == expected
 
     def test_driven_garages_reads_the_products_lines(self, tmp_path: Path) -> None:
         baseline = tmp_path / "baseline.txt"
