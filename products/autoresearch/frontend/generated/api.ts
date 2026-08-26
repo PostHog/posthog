@@ -12,8 +12,14 @@ import type {
     AutoresearchListParams,
     AutoresearchPipelineApi,
     AutoresearchPipelineCreateApi,
+    AutoresearchTemplatesListParams,
     PaginatedAutoresearchPipelineListApi,
+    PaginatedTemplateInfoListApi,
     PatchedAutoresearchPipelineCreateApi,
+    ResolveTemplateRequestApi,
+    ResolvedTemplateApi,
+    ValidatePipelineRequestApi,
+    ValidatePipelineResponseApi,
 } from './api.schemas'
 
 export const getAutoresearchListUrl = (projectId: string, params?: AutoresearchListParams) => {
@@ -161,5 +167,78 @@ export const autoresearchDestroy = async (projectId: string, id: string, options
     return apiMutator<void>(getAutoresearchDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAutoresearchResolveTemplateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/resolve-template/`
+}
+
+/**
+ * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
+ * @summary Resolve a template
+ */
+export const autoresearchResolveTemplateCreate = async (
+    projectId: string,
+    resolveTemplateRequestApi: ResolveTemplateRequestApi,
+    options?: RequestInit
+): Promise<ResolvedTemplateApi> => {
+    return apiMutator<ResolvedTemplateApi>(getAutoresearchResolveTemplateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(resolveTemplateRequestApi),
+    })
+}
+
+export const getAutoresearchTemplatesListUrl = (projectId: string, params?: AutoresearchTemplatesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/templates/`
+}
+
+/**
+ * Return all built-in autoresearch prediction templates. Each entry describes what the template predicts, its default horizon and prediction mode, and whether it requires you to supply a target_event. After choosing a template, call autoresearch-resolve-template-create to get a fully resolved pipeline config ready to pass to autoresearch-create.
+ * @summary List available templates
+ */
+export const autoresearchTemplatesList = async (
+    projectId: string,
+    params?: AutoresearchTemplatesListParams,
+    options?: RequestInit
+): Promise<PaginatedTemplateInfoListApi> => {
+    return apiMutator<PaginatedTemplateInfoListApi>(getAutoresearchTemplatesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/validate/`
+}
+
+/**
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Warnings with severity='error' must be resolved before creation can proceed. Call this before autoresearch-create.
+ * @summary Validate a pipeline definition
+ */
+export const autoresearchValidateCreate = async (
+    projectId: string,
+    validatePipelineRequestApi?: ValidatePipelineRequestApi,
+    options?: RequestInit
+): Promise<ValidatePipelineResponseApi> => {
+    return apiMutator<ValidatePipelineResponseApi>(getAutoresearchValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(validatePipelineRequestApi),
     })
 }
