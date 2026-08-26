@@ -48,6 +48,14 @@ SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
+# Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
+# SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress
+# allowlist, and the box never needs to reach the hogland control plane.
+HOGLAND_API_URL: str | None = get_from_env("HOGLAND_API_URL", None, optional=True)
+HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional=True)
+# Projected ServiceAccount token file (rotating JWT). When set and readable it wins
+# over the static HOGLAND_API_TOKEN, which stays as a local-dev/bake-only fallback.
+HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 # The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
 # base URL is what selects it: no product slug on the path, attribution as one

@@ -137,6 +137,14 @@ class DataWarehouseTable:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class TableSourceLocation:
+    """Where a synced table is administered: the source and schema its detail page hangs off."""
+
+    source_id: UUID
+    schema_id: UUID
+
+
 # --- Job ---
 
 

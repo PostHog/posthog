@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import importlib.util
@@ -7,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 
 import unittest
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -81,30 +83,37 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
 
     def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
-        selection = _load_selection_module()
+        with tempfile.TemporaryDirectory() as root:
+            tmp_path = Path(root)
+            selection = _load_selection_module()
+            selection.REPO_ROOT = tmp_path
 
-        result = selection.ast_select_tests(
-            ["posthog/api/project.py"],
-            {
-                "posthog/api/test/test_project.py": selection.TestFeatures(
-                    path="posthog/api/test/test_project.py",
-                    imports_api_client=True,
-                    api_tokens=("project",),
-                ),
-                "posthog/api/test/test_user.py": selection.TestFeatures(
-                    path="posthog/api/test/test_user.py",
-                    imports_api_client=True,
-                    api_tokens=("user",),
-                ),
-            },
-        )
+            neighbor = tmp_path / "posthog" / "api" / "test" / "test_project.py"
+            neighbor.parent.mkdir(parents=True)
+            neighbor.touch()
 
-        self.assertIn("conventional_neighbors", result.groups)
-        self.assertIn("posthog_api_route_tokens", result.groups)
-        # same-app fallback includes all tests under posthog/api/
-        self.assertIn("same_app:posthog/api", result.groups)
-        self.assertIn("posthog/api/test/test_project.py", result.tests)
-        self.assertIn("posthog/api/test/test_user.py", result.tests)
+            result = selection.ast_select_tests(
+                ["posthog/api/project.py"],
+                {
+                    "posthog/api/test/test_project.py": selection.TestFeatures(
+                        path="posthog/api/test/test_project.py",
+                        imports_api_client=True,
+                        api_tokens=("project",),
+                    ),
+                    "posthog/api/test/test_user.py": selection.TestFeatures(
+                        path="posthog/api/test/test_user.py",
+                        imports_api_client=True,
+                        api_tokens=("user",),
+                    ),
+                },
+            )
+
+            self.assertIn("conventional_neighbors", result.groups)
+            self.assertIn("posthog_api_route_tokens", result.groups)
+            # same-app fallback includes all tests under posthog/api/
+            self.assertIn("same_app:posthog/api", result.groups)
+            self.assertIn("posthog/api/test/test_project.py", result.tests)
+            self.assertIn("posthog/api/test/test_user.py", result.tests)
 
     def test_snob_selection_filters_to_python_files(self) -> None:
         selection = _load_selection_module()
@@ -300,6 +309,43 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         selection = _load_selection_module()
 
         self.assertEqual(selection.segments_for_test_file(path), frozenset(expected))
+
+    @parameterized.expand(
+        [
+            (
+                "compat_targets_set",
+                "posthog/clickhouse ee/clickhouse",
+                ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py"],
+            ),
+            ("no_compat_targets", "", []),
+        ]
+    )
+    def test_selected_files_by_segment_reads_compat_targets_from_the_env(
+        self, _name: str, targets: str, expected_compat: list[str]
+    ) -> None:
+        selection = _load_selection_module()
+
+        selected = [
+            "ee/clickhouse/test_g.py",
+            "posthog/clickhouse/test_b.py",
+            "posthog/dags/test_e.py",
+            "posthog/models/test_a.py",
+            "posthog/temporal/tests/test_c.py",
+            "products/warehouse_sources/backend/test_d.py",
+        ]
+
+        with mock.patch.dict(os.environ, {"CLICKHOUSE_COMPAT_PYTEST_TARGETS": targets}):
+            by_segment = selection.selected_files_by_segment(selected)
+
+        self.assertEqual(
+            by_segment,
+            {
+                "core": ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py", "posthog/models/test_a.py"],
+                "poe": ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py"],
+                "temporal": ["posthog/temporal/tests/test_c.py"],
+                "compat": expected_compat,
+            },
+        )
 
     def test_narrowable_baseline_excludes_turbo_product_tests(self) -> None:
         selection = _load_selection_module()

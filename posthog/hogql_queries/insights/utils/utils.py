@@ -14,6 +14,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.timings import HogQLTimings
 
@@ -75,6 +76,7 @@ def get_response_hogql(
     team: Team,
     timings: HogQLTimings,
     modifiers: Optional[HogQLQueryModifiers] = None,
+    database: Optional[Database] = None,
 ) -> str:
     if len(queries) == 0:
         return ""
@@ -84,5 +86,8 @@ def get_response_hogql(
     # This only prints the query for the response payload — it never executes — and access to the
     # underlying warehouse tables is already enforced on the insight's executed query. Bypass warehouse
     # access control so building the printer's database doesn't fail closed in userless contexts.
+    # When the caller already built a database for the executed query, `database` reuses it here.
     with timings.measure("printing_hogql_for_response"):
-        return to_printed_hogql(response_hogql_query, team, modifiers, bypass_warehouse_access_control=True)
+        return to_printed_hogql(
+            response_hogql_query, team, modifiers, bypass_warehouse_access_control=True, database=database
+        )
