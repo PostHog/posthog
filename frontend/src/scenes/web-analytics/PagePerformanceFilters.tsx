@@ -13,6 +13,7 @@ import { WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { pagePerformanceLogic } from './pagePerformanceLogic'
 import { PathCleaningToggle } from './PathCleaningToggle'
+import { WebAnalyticsDeviceToggle, WebAnalyticsDomainSelector } from './WebAnalyticsFilters'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
 import { WebPropertyFilters } from './WebPropertyFilters'
@@ -50,6 +51,8 @@ export const PagePerformanceFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Ele
                         dateTo={dateTo}
                         onChange={setDates}
                     />
+                    <WebAnalyticsDomainSelector />
+                    <WebAnalyticsDeviceToggle />
                     <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                 </>

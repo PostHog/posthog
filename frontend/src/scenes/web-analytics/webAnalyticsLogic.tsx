@@ -3100,14 +3100,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
                 // regular Analytics tab). Date/interval are shared across tabs.
-                const botLogic = botAnalyticsLogic.findMounted()
-                const rawBotAnalyticsFilters = botLogic?.values.rawBotAnalyticsFilters ?? []
+                const rawBotAnalyticsFilters = botAnalyticsLogic.findMounted()?.values.rawBotAnalyticsFilters ?? []
                 if (rawBotAnalyticsFilters.length > 0) {
                     urlParams.set('filters', JSON.stringify(rawBotAnalyticsFilters))
-                } else if (botLogic) {
-                    // A leftover `filters` param here belongs to another tab; if it stayed, the next
-                    // URL restore would apply it as bot filters. Only scrub once the bot logic owns
-                    // the param, so a deep link keeps its filters until the scene mounts.
+                } else {
+                    // A seeded `filters` param belongs to the previous tab; scrub it so a URL restore
+                    // cannot adopt it as bot filters. The bots URL carries only the bot tab's own
+                    // filters, which `botAnalyticsLogic` writes back when it mounts.
                     urlParams.delete('filters')
                 }
                 if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
