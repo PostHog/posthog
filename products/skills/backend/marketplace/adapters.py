@@ -391,7 +391,7 @@ def _walk_full(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
         if total_bytes + candidate["body_bytes"] + candidate["file_bytes"] + candidate["meta_bytes"] > MAX_BUNDLE_BYTES:
             capped = True
             break
-        skill = LLMSkill.objects.get(id=candidate["id"])
+        skill = candidates.get(id=candidate["id"])
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
         export = skill_to_export(skill, files)
         if validate_for_export(export):
