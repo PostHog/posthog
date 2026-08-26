@@ -803,7 +803,7 @@ class LLMSkillViewSet(
         response["Content-Disposition"] = 'attachment; filename="skills-bundle.zip"'
         # Counts only: names are unbounded and would blow past proxy header limits for heavy users.
         response["X-Skills-Included"] = str(len(bundle.included))
-        response["X-Skills-Dropped"] = str(len(bundle.dropped))
+        response["X-Skills-Dropped"] = str(bundle.dropped_count)
         response["X-Skills-Skipped"] = str(len(bundle.skipped))
         return response
 

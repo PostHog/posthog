@@ -280,10 +280,21 @@ class TestSkillBundle(APIBaseTest):
         assert response["X-Skills-Skipped"] == "1"
         assert response["X-Skills-Dropped"] == "0"
 
-    def test_skill_with_an_unsafe_legacy_path_is_skipped(self):
+    @parameterized.expand(
+        [
+            ("traversal", ["../escape.md"]),
+            ("not_canonical", ["refs\\guide.md"]),
+            ("case_collision", ["Refs/guide.md", "refs/Guide.md"]),
+            ("file_where_a_directory_is_needed", ["assets", "assets/logo.png"]),
+            ("file_where_the_sidecar_directory_is_needed", ["agents"]),
+        ]
+    )
+    def test_skill_with_an_unsafe_legacy_path_is_skipped(self, _label: str, paths: list[str]):
         self._create_skill("fine")
-        # Bypasses the serializer validation so the row looks like one that predates it.
-        LLMSkillFile.objects.create(skill=self._create_skill("escapes"), path="../escape.md", content="x")
+        unsafe = self._create_skill("unsafe")
+        # Bypasses the serializer validation so the rows look like ones that predate it.
+        for path in paths:
+            LLMSkillFile.objects.create(skill=unsafe, path=path, content="x")
         self._create_skill("Bad/Name")
 
         response = self._fetch(content="full")
@@ -293,6 +304,31 @@ class TestSkillBundle(APIBaseTest):
         assert response["X-Skills-Skipped"] == "2"
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
             assert not any(".." in name or name.startswith("/") for name in archive.namelist())
+
+    def test_a_bundled_sidecar_file_overrides_the_generated_one(self):
+        skill = self._create_skill("mine")
+        LLMSkillFile.objects.create(skill=skill, path="agents/openai.yaml", content="interface: custom\n")
+
+        response = self._fetch(content="full")
+
+        assert self._skill_dirs(response) == {"mine"}
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.read("mine/agents/openai.yaml").decode() == "interface: custom\n"
+
+    def test_an_invalid_skill_ahead_of_the_byte_cap_is_skipped_not_capping(self):
+        base = timezone.now()
+        for index, (name, body, description) in enumerate(
+            [("older-valid", "x", "fine"), ("newest-invalid-and-huge", "x" * 10_000, "d" * 1025)]
+        ):
+            skill = self._create_skill(name, body=body, description=description)
+            LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
+
+        with patch.object(adapters, "MAX_BUNDLE_BYTES", 5_000):
+            response = self._fetch(content="full")
+
+        assert self._skill_dirs(response) == {"older-valid"}
+        assert response["X-Skills-Skipped"] == "1"
+        assert response["X-Skills-Dropped"] == "0"
 
     def test_skill_the_user_is_blocked_from_reading_is_left_out(self):
         cache.clear()
@@ -342,6 +378,7 @@ class TestSkillBundle(APIBaseTest):
         assert "description: Forecast quota usage." in stub
         assert "source: posthog-skills-store" in stub
         assert 'call skill-get {"skill_name": "mine"}' in stub
+        assert "body_next_offset" in stub
         assert "The real instructions" not in stub
 
     def test_unknown_content_is_400(self):

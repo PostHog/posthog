@@ -112,8 +112,9 @@ This skill lives in the PostHog skills store. This file is a pointer for discove
 Before you act on it:
 
 1. Run `call skill-get {{"skill_name": "{name}"}}` with the PostHog MCP `exec` tool.
-2. Follow the returned `body` as the instructions for this skill.
-3. If the body references bundled files, fetch each one with `call skill-file-get {{"skill_name": "{name}", "file_path": "<path>"}}` and write it into this directory before you use it.
+2. If the response has a non-null `body_next_offset`, call `skill-get` again with `"body_offset"` set to that value and append the returned `body`. Repeat until `body_next_offset` is null.
+3. Follow the complete `body` as the instructions for this skill.
+4. If the body references bundled files, fetch each one with `call skill-file-get {{"skill_name": "{name}", "file_path": "<path>"}}` and write it into this directory before you use it.
 """
 
 

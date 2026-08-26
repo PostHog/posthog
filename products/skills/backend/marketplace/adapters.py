@@ -4,11 +4,12 @@ Everything that touches the database for export/marketplace lives here, so the
 serialization and git synthesis stay unit-testable without booting the app.
 """
 
-from typing import Any, Literal
+from collections.abc import Iterator
+from typing import Any, Literal, TypeVar
 
 from django.core.cache import cache
-from django.db.models import F, Func, IntegerField, Max, Q, QuerySet, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import F, Func, IntegerField, Max, Q, QuerySet, Sum, TextField
+from django.db.models.functions import Cast, Coalesce
 
 import structlog
 from rest_framework import serializers
@@ -17,10 +18,11 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from ..api.skill_serializers import validate_skill_file_path
-from ..api.skill_services import SKILL_NAME_PATTERN, skill_names_owned_by
+from ..api.skill_services import SKILL_NAME_PATTERN, normalize_skill_file_path, skill_names_owned_by
 from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
 from .packaging import (
+    CODEX_METADATA_PATH,
     SPEC_DESCRIPTION_MAX_LENGTH,
     SkillExport,
     SkillFileExport,
@@ -210,7 +212,7 @@ def _team_plugin_version(team: Team) -> str:
 class SkillBundle:
     zip_bytes: bytes
     included: list[str]
-    dropped: list[str]
+    dropped_count: int
     skipped: list[str]
 
 
@@ -220,12 +222,27 @@ BundleContent = Literal["stub", "full"]
 @frozen
 class _BundleWalk:
     trees: dict[str, FileTree]
-    dropped: list[str]
+    dropped_count: int
     skipped: list[str]
 
 
-def _octet_length(field: str) -> Func:
-    return Func(F(field), function="OCTET_LENGTH", output_field=IntegerField())
+def _octet_length(expression: F | Cast) -> Func:
+    return Func(expression, function="OCTET_LENGTH", output_field=IntegerField())
+
+
+_Row = TypeVar("_Row")
+
+
+def _candidate_batches(rows: "QuerySet[LLMSkill, _Row]") -> Iterator[_Row]:
+    """Yield candidate rows in cap-sized slices so a user with thousands of skills never has them
+    all in memory at once; the caller stops iterating once the bundle is capped."""
+    offset = 0
+    while True:
+        batch = list(rows[offset : offset + MAX_BUNDLE_SKILLS])
+        if not batch:
+            return
+        yield from batch
+        offset += len(batch)
 
 
 def _bundle_candidates(team: Team, user: User, readable_skills: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
@@ -254,85 +271,128 @@ def build_skill_bundle(
     ``readable_skills`` is the caller's access-filtered view of the team's skills. The walk only
     selects from it, so a skill the list endpoint would hide from the user stays out of the bundle.
 
-    Newest first. The walk stops at the first skill that would cross the count or byte cap; every
-    skill after it is ``dropped`` and only its name is read. Skills that fail the spec check or
-    carry a name or path the harness could not unpack safely are ``skipped`` and do not count.
-    Scouts are excluded because the scout harness loads its own skill.
+    Newest first. Skills that fail the spec check or carry a name or path the harness could not
+    unpack safely are ``skipped``; they do not count toward the caps and are checked before them.
+    The walk stops at the first skill that would cross the count or byte cap; everything after it
+    is counted as dropped and never read. Scouts are excluded because the scout harness loads its
+    own skill.
     """
     candidates = _bundle_candidates(team, user, readable_skills)
     walk = _walk_stubs(candidates) if content == "stub" else _walk_full(candidates)
 
     if walk.skipped:
         logger.warning("skills_bundle_skipped", team_id=team.id, user_id=user.id, skills=walk.skipped)
-    if walk.dropped:
-        logger.warning("skills_bundle_dropped_over_cap", team_id=team.id, user_id=user.id, skills=walk.dropped)
+    if walk.dropped_count:
+        logger.warning(
+            "skills_bundle_dropped_over_cap", team_id=team.id, user_id=user.id, dropped_count=walk.dropped_count
+        )
 
     return SkillBundle(
         zip_bytes=build_skills_bundle_zip(walk.trees),
         included=list(walk.trees),
-        dropped=walk.dropped,
+        dropped_count=walk.dropped_count,
         skipped=walk.skipped,
     )
 
 
+def _dropped_count(candidates: QuerySet[LLMSkill], trees: dict[str, FileTree], skipped: list[str]) -> int:
+    # Every candidate the walk did not include or skip was dropped at the cap. One count query
+    # instead of holding the tail of names in memory for a user with thousands of skills.
+    return candidates.count() - len(trees) - len(skipped)
+
+
 def _walk_stubs(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
     trees: dict[str, FileTree] = {}
-    dropped: list[str] = []
     skipped: list[str] = []
-    for row in candidates.values("name", "description", "version"):
-        name = row["name"]
+    for row in _candidate_batches(candidates.values("name", "description", "version")):
         if len(trees) >= MAX_BUNDLE_SKILLS:
-            dropped.append(name)
-            continue
-        stub = SkillStub(name=name, description=row["description"], version=row["version"])
-        if not SKILL_NAME_PATTERN.match(name) or not _stub_is_spec_valid(stub):
+            return _BundleWalk(trees=trees, dropped_count=_dropped_count(candidates, trees, skipped), skipped=skipped)
+        name = row["name"]
+        if not _name_and_description_are_valid(name, row["description"]):
             skipped.append(name)
             continue
-        trees[name] = build_skill_stub_tree(stub)
-    return _BundleWalk(trees=trees, dropped=dropped, skipped=skipped)
+        trees[name] = build_skill_stub_tree(
+            SkillStub(name=name, description=row["description"], version=row["version"])
+        )
+    return _BundleWalk(trees=trees, dropped_count=0, skipped=skipped)
 
 
-def _stub_is_spec_valid(stub: SkillStub) -> bool:
-    return bool(stub.description.strip()) and len(stub.description) <= SPEC_DESCRIPTION_MAX_LENGTH
+def _name_and_description_are_valid(name: str, description: str) -> bool:
+    return (
+        SKILL_NAME_PATTERN.match(name) is not None
+        and bool(description.strip())
+        and len(description) <= SPEC_DESCRIPTION_MAX_LENGTH
+    )
+
+
+_GENERATED_ENTRIES = ("SKILL.md", CODEX_METADATA_PATH)
+
+
+def _bundle_paths_are_safe(paths: list[str]) -> bool:
+    """True when a skill's archive entries unpack cleanly into a home directory on any filesystem.
+
+    Every stored path must already be canonical (a legacy ``refs\\guide.md`` would be archived
+    verbatim and land as one flat file, or collide with ``refs/guide.md``), no two entries may
+    collide case-insensitively, and no entry may name a directory another entry needs
+    (``assets`` next to ``assets/logo.png``), counting the generated SKILL.md and Codex sidecar.
+    """
+    seen = {entry.lower() for entry in _GENERATED_ENTRIES}
+    for path in paths:
+        try:
+            canonical = normalize_skill_file_path(path)
+        except ValueError:
+            return False
+        if canonical != path:
+            return False
+        lowered = path.lower()
+        # A bundled file at the sidecar path replaces the generated one, see build_skill_tree.
+        if lowered in seen and lowered != CODEX_METADATA_PATH.lower():
+            return False
+        seen.add(lowered)
+    for lowered in seen:
+        parts = lowered.split("/")
+        if any("/".join(parts[:depth]) in seen for depth in range(1, len(parts))):
+            return False
+    return True
 
 
 def _walk_full(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
-    # Names and column byte counts only. Bodies and files load later, and only for skills that fit,
-    # so a user with many or very large skills does not cost the worker more than the bundle cap.
-    sized = list(
-        candidates.values("id", "name").annotate(
-            body_bytes=_octet_length("body"),
-            file_bytes=Coalesce(Sum(_octet_length("files__content")), 0),
-        )
+    # Names, descriptions and column byte counts only. A skill's row and files load one skill at a
+    # time, and only once it has passed every check, so a user with many or very large skills does
+    # not cost the worker more than the bundle cap.
+    sized = candidates.values("id", "name", "description").annotate(
+        body_bytes=_octet_length(F("body")),
+        file_bytes=Coalesce(Sum(_octet_length(F("files__content"))), 0),
+        # metadata and allowed_tools render into SKILL.md and have no per-field size limit.
+        meta_bytes=_octet_length(Cast(F("metadata"), TextField()))
+        + _octet_length(Cast(F("allowed_tools"), TextField())),
     )
 
-    rows: dict[Any, LLMSkill] = {}
     trees: dict[str, FileTree] = {}
-    dropped: list[str] = []
     skipped: list[str] = []
     total_bytes = 0
     capped = False
-    for index, candidate in enumerate(sized):
+    for candidate in _candidate_batches(sized):
         name = candidate["name"]
-        if capped or len(trees) >= MAX_BUNDLE_SKILLS:
+        if len(trees) >= MAX_BUNDLE_SKILLS:
             capped = True
-            dropped.append(name)
+            break
+        # Skips are decided before the cap so an invalid skill never caps the bundle. Validity is
+        # cheap: the name and description are in the row, and the paths are a small query.
+        if not _name_and_description_are_valid(name, candidate["description"]):
+            skipped.append(name)
+            continue
+        paths = list(LLMSkillFile.objects.filter(skill_id=candidate["id"]).values_list("path", flat=True))
+        if not _bundle_paths_are_safe(paths):
+            skipped.append(name)
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail
         # the exact check below too. Checking first keeps its content out of memory entirely.
-        if total_bytes + candidate["body_bytes"] + candidate["file_bytes"] > MAX_BUNDLE_BYTES:
+        if total_bytes + candidate["body_bytes"] + candidate["file_bytes"] + candidate["meta_bytes"] > MAX_BUNDLE_BYTES:
             capped = True
-            dropped.append(name)
-            continue
-        if candidate["id"] not in rows:
-            rows = LLMSkill.objects.in_bulk([c["id"] for c in sized[index : index + MAX_BUNDLE_SKILLS]])
-        skill = rows[candidate["id"]]
+            break
+        skill = LLMSkill.objects.get(id=candidate["id"])
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
-        # The zip is unpacked into a home directory by a client that trusts it, so the archive
-        # entry names must come from validated data. Current writes validate; legacy rows may not.
-        if not SKILL_NAME_PATTERN.match(skill.name) or not _skill_files_are_tree_safe(files):
-            skipped.append(name)
-            continue
         export = skill_to_export(skill, files)
         if validate_for_export(export):
             skipped.append(name)
@@ -341,8 +401,8 @@ def _walk_full(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
         tree_bytes = file_tree_bytes(tree)
         if total_bytes + tree_bytes > MAX_BUNDLE_BYTES:
             capped = True
-            dropped.append(name)
-            continue
+            break
         total_bytes += tree_bytes
         trees[name] = tree
-    return _BundleWalk(trees=trees, dropped=dropped, skipped=skipped)
+    dropped_count = _dropped_count(candidates, trees, skipped) if capped else 0
+    return _BundleWalk(trees=trees, dropped_count=dropped_count, skipped=skipped)
