@@ -33,6 +33,7 @@ interface InboxSignalsFilterActions {
   setSort: (field: SignalSortField, direction: SignalSortDirection) => void;
   setSearchQuery: (query: string) => void;
   toggleSourceProduct: (source: SourceProduct) => void;
+  setSourceProductFilter: (sources: SourceProduct[]) => void;
   togglePriority: (priority: SignalReportPriority) => void;
   setPriorityFilter: (priorities: SignalReportPriority[]) => void;
   setPrFilter: (prFilter: InboxPrFilter) => void;
@@ -92,6 +93,8 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
             : [...current, source];
           return { sourceProductFilter: next };
         }),
+      setSourceProductFilter: (sources) =>
+        set({ sourceProductFilter: Array.from(new Set(sources)) }),
       togglePriority: (priority) =>
         set((state) => {
           const current = state.priorityFilter;
