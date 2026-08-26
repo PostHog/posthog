@@ -69,8 +69,9 @@ pub struct Args {
     /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
     /// release id onto the uploaded symbol sets: the previous behavior. EXPERIMENTAL `event`
     /// leaves symbol sets unbound; the chunks already carry the release id in their injected
-    /// snippet, so the release is resolved per event rather than per symbol set. Also settable
-    /// via `POSTHOG_RELEASE_MODE`.
+    /// snippet, so the release is resolved per event rather than per symbol set. In `event` mode
+    /// the upload always overwrites changed content, so `--force` is implied and
+    /// `--skip-on-conflict` has no effect. Also settable via `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",

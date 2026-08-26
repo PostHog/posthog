@@ -54,7 +54,9 @@ pub struct ProcessArgs {
     /// release id onto the uploaded symbol sets: the previous behavior. EXPERIMENTAL `event`
     /// injects the release id into each chunk as `_posthogReleaseId` (alongside
     /// content-addressed chunk ids) so the SDK reports the release per event; symbol sets stay
-    /// release-independent. Also settable via `POSTHOG_RELEASE_MODE`.
+    /// release-independent. In `event` mode the upload always overwrites changed content, so
+    /// `--force` is implied and `--skip-on-conflict` has no effect. Also settable via
+    /// `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
