@@ -1418,6 +1418,43 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('network error mid-stream recovery', () => {
+        it('reconnects with null content instead of re-sending the message when the stream drops after opening', async () => {
+            jest.useFakeTimers()
+            try {
+                // First send: the POST resolves (server accepted the message) but the response stream
+                // then drops with a network error — the mobile background-tab case. The retry must
+                // reconnect and replay, not re-send the message, which would start a second generation.
+                const streamSpy = jest
+                    .spyOn(api.conversations, 'stream')
+                    .mockResolvedValueOnce({
+                        body: { getReader: () => ({ read: () => Promise.reject(new TypeError('Failed to fetch')) }) },
+                    } as unknown as Response)
+                    .mockResolvedValueOnce({
+                        body: { getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }) },
+                    } as unknown as Response)
+
+                logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+                logic.actions.streamConversation(
+                    { content: 'hello', conversation: MOCK_CONVERSATION_ID, agent_mode: null },
+                    0
+                )
+
+                // Advance past the retry backoff (1000ms for the first attempt).
+                await jest.advanceTimersByTimeAsync(1100)
+
+                expect(streamSpy).toHaveBeenCalledTimes(2)
+                expect(streamSpy.mock.calls[0][0]).toEqual(expect.objectContaining({ content: 'hello' }))
+                // The reconnect carries null content — the message is not sent a second time.
+                expect(streamSpy.mock.calls[1][0]).toEqual(
+                    expect.objectContaining({ conversation: MOCK_CONVERSATION_ID, content: null })
+                )
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+    })
+
     describe('processNotebookUpdate', () => {
         it('navigates to notebook when not already on notebook page', async () => {
             router.actions.push(urls.ai())
