@@ -516,6 +516,37 @@ def create_from_template(
         tile_type = template_tile.get("type")
         if tile_type == "INSIGHT":
             query = template_tile.get("query", None)
+            if not query and template_tile.get("filters"):
+                # Pre-query templates carry the tile definition in legacy `filters`, which
+                # _create_tile_for_insight never reads — convert instead of minting a blank insight.
+                from posthog.schema import (  # noqa: PLC0415 — keeps the heavy schema module off the django setup path
+                    InsightVizNode,
+                )
+
+                from posthog.hogql_queries.legacy_compatibility.filter_to_query import (  # noqa: PLC0415 — top-level import cycles through posthog.models.filters
+                    filter_to_query,
+                )
+
+                try:
+                    # allow_variables matches migration 0530 — template tiles may carry template variables
+                    query = InsightVizNode(
+                        source=filter_to_query(template_tile["filters"], allow_variables=True)
+                    ).model_dump(exclude_none=True)
+                except Exception:
+                    logger.exception(
+                        "dashboard_template_tile_filters_conversion_failed",
+                        template_id=str(template.id),
+                        team_id=dashboard.team_id,
+                    )
+            if not query:
+                # Template tiles aren't schema-validated, so a tile without a query would mint an
+                # insight with neither query nor filters — a permanently blank chart. Skip it.
+                logger.warning(
+                    "dashboard_template_insight_tile_without_query_skipped",
+                    template_id=str(template.id),
+                    team_id=dashboard.team_id,
+                )
+                continue
             _create_tile_for_insight(
                 dashboard,
                 name=template_tile.get("name"),

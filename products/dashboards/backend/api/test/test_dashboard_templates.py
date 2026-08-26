@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db.models import Q
@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import User
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -20,7 +21,9 @@ from products.dashboards.backend.api.dashboard_templates import (
     MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION,
     organization_dashboard_template_limit_detail,
 )
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.product_analytics.backend.facade.models import Insight
 
 
 def assert_template_equals(received, expected):
@@ -1728,3 +1731,55 @@ class TestCustomerDashboardTemplateCopyBetweenProjects(APIBaseTest):
         )
         resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": str(tpl.id)}, format="json")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestCreateFromTemplate(BaseTest):
+    def test_insight_tile_without_query_creates_no_empty_shell_insight(self):
+        template = DashboardTemplate.objects.create(
+            team=self.team,
+            template_name="mixed tiles",
+            dashboard_filters={},
+            tiles=[
+                {"type": "INSIGHT", "name": "queryless", "layouts": {}},
+                {
+                    "type": "INSIGHT",
+                    "name": "real",
+                    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
+                    "layouts": {},
+                },
+            ],
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="from template", filters={})
+
+        create_from_template(dashboard, template)
+
+        insights = Insight.objects.filter(team=self.team)
+        assert insights.count() == 1
+        assert insights.get().query is not None
+
+    def test_insight_tile_with_legacy_filters_converts_to_query(self):
+        template = DashboardTemplate.objects.create(
+            team=self.team,
+            template_name="legacy tiles",
+            dashboard_filters={},
+            tiles=[
+                {
+                    "type": "INSIGHT",
+                    "name": "DAUs",
+                    "filters": {
+                        "insight": "TRENDS",
+                        "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                    },
+                    "layouts": {},
+                },
+            ],
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="from legacy template", filters={})
+
+        create_from_template(dashboard, template)
+
+        insight = Insight.objects.get(team=self.team)
+        assert insight.query is not None
+        assert insight.query["kind"] == "InsightVizNode"
+        assert insight.query["source"]["kind"] == "TrendsQuery"
+        assert insight.query["source"]["series"][0]["event"] == "$pageview"
