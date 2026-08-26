@@ -33,6 +33,11 @@ struct DeclarationRange {
     collect_remote_urls: bool,
 }
 
+struct UrlFunctionScan {
+    resume_at: usize,
+    source: Option<String>,
+}
+
 const OTHER_CSS_PROPERTY: &str = "other";
 const CUSTOM_CSS_PROPERTY: &str = "custom-property";
 
@@ -352,22 +357,23 @@ fn rewrite_value(
             continue;
         }
         if function_at(bytes, position, b"url") {
-            let Some((end, source)) = parse_url_function(value, position) else {
-                position += 1;
+            let start = position;
+            let UrlFunctionScan { resume_at, source } = scan_url_function(value, start);
+            position = resume_at;
+            let Some(source) = source else {
                 continue;
             };
-            let original = &value[position..end];
+            let original = &value[start..resume_at];
             if let Some(replacement) =
                 replacement_url(ctx, &source, property, collect_remote_urls, refs)
             {
                 if replacement != original {
-                    output.push_str(&value[copied_to..position]);
+                    output.push_str(&value[copied_to..start]);
                     output.push_str(&replacement);
-                    copied_to = end;
+                    copied_to = resume_at;
                     changed = true;
                 }
             }
-            position = end;
             continue;
         }
         position += 1;
@@ -424,36 +430,44 @@ fn replacement_url(
     }
 }
 
-fn parse_url_function(value: &str, start: usize) -> Option<(usize, String)> {
+fn scan_url_function(value: &str, start: usize) -> UrlFunctionScan {
     let bytes = value.as_bytes();
+    let Some(resume_at) = matching_paren(bytes, start + 3) else {
+        return UrlFunctionScan {
+            resume_at: bytes.len(),
+            source: None,
+        };
+    };
+    let contents_end = resume_at - 1;
     let mut position = start + 4;
     skip_whitespace(bytes, &mut position);
     let source = if matches!(bytes.get(position), Some(b'\'' | b'"')) {
         let content_start = position + 1;
-        let end = skip_quoted(bytes, position)?;
+        let Some(end) = skip_quoted(bytes, position) else {
+            return UrlFunctionScan {
+                resume_at,
+                source: None,
+            };
+        };
         let content_end = end - 1;
         position = end;
         skip_whitespace(bytes, &mut position);
-        if bytes.get(position) != Some(&b')') {
-            return None;
+        if position != contents_end {
+            return UrlFunctionScan {
+                resume_at,
+                source: None,
+            };
         }
-        let source = value[content_start..content_end].to_string();
-        if source.as_bytes().contains(&b'\\') {
-            return None;
-        }
-        source
+        &value[content_start..content_end]
     } else {
-        let content_start = position;
-        while !matches!(bytes.get(position), None | Some(b')')) {
-            position += 1;
-        }
-        let source = value[content_start..position].trim().to_string();
-        if source.is_empty() || source.as_bytes().contains(&b'\\') {
-            return None;
-        }
-        source
+        &value[position..contents_end]
     };
-    (bytes.get(position) == Some(&b')')).then_some((position + 1, source))
+    let source = source.trim();
+    UrlFunctionScan {
+        resume_at,
+        source: (!source.is_empty() && !source.as_bytes().contains(&b'\\'))
+            .then(|| source.to_string()),
+    }
 }
 
 fn select_image_set_candidate(contents: &str) -> Option<String> {
@@ -516,8 +530,8 @@ fn split_image_set_candidates(contents: &str) -> Option<Vec<&str>> {
 fn parse_image_set_source(candidate: &str) -> Option<(String, &str)> {
     let bytes = candidate.as_bytes();
     if function_at(bytes, 0, b"url") {
-        let (end, source) = parse_url_function(candidate, 0)?;
-        return Some((source, &candidate[end..]));
+        let UrlFunctionScan { resume_at, source } = scan_url_function(candidate, 0);
+        return Some((source?, &candidate[resume_at..]));
     }
     if matches!(bytes.first(), Some(b'\'' | b'"')) {
         let end = skip_quoted(bytes, 0)?;
@@ -675,6 +689,14 @@ mod tests {
         let rewritten = rewrite(&ctx, &css, CssContext::DeclarationList).expect("image changes");
         assert!(rewritten.css.contains(escaped_url));
         assert!(!rewritten.css.contains(&original));
+    }
+
+    #[test]
+    fn repeated_unterminated_urls_do_not_rescan_the_suffix() {
+        let allow = AllowLists::default();
+        let ctx = Ctx::new(&allow);
+        let css = format!("background-image:{}", "url(".repeat(20_000));
+        assert!(rewrite(&ctx, &css, CssContext::DeclarationList).is_none());
     }
 
     #[test]
