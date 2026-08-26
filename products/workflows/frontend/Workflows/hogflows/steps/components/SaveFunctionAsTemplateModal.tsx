@@ -56,8 +56,8 @@ export function SaveFunctionAsTemplateModal({
         <LemonModal
             isOpen={saveModalOpen}
             onClose={handleClose}
-            title="Save as template"
-            description="Save this step to your library so you can reuse it in other workflows"
+            title="Save step to library"
+            description="Saved steps show up under Library, and in the add-step panel of every workflow."
             footer={
                 <>
                     <LemonButton onClick={handleClose}>Cancel</LemonButton>
@@ -75,7 +75,7 @@ export function SaveFunctionAsTemplateModal({
                         }
                         disabledReason={!templateName ? 'Please enter a template name' : undefined}
                     >
-                        Save template
+                        Save to library
                     </LemonButton>
                 </>
             }

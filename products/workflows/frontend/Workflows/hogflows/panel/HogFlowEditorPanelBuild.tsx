@@ -318,34 +318,36 @@ function savedTemplateToAction(template: MessageTemplate): CreateActionType | nu
 }
 
 function SavedTemplatesChooser(): JSX.Element | null {
-    const { savedFunctionTemplates } = useValues(savedFunctionTemplatesLogic)
-    const { loadSavedFunctionTemplates } = useActions(savedFunctionTemplatesLogic)
+    const { savedFunctionTemplates, savedFunctionTemplatesLoading } = useValues(savedFunctionTemplatesLogic)
 
-    useEffect(() => {
-        loadSavedFunctionTemplates()
-    }, [loadSavedFunctionTemplates])
+    if (savedFunctionTemplatesLoading) {
+        return null
+    }
 
     const actions = savedFunctionTemplates
         .map((template) => ({ template, action: savedTemplateToAction(template) }))
         .filter((x): x is { template: MessageTemplate; action: CreateActionType } => x.action !== null)
-
-    if (actions.length === 0) {
-        return null
-    }
 
     return (
         <>
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 From your library <LemonDivider className="flex-1" />
             </span>
-            {actions.map(({ template, action }) => (
-                <HogFlowEditorToolbarNode key={template.id} action={action}>
-                    <div className="py-1 flex-1">
-                        <div>{template.name}</div>
-                        {template.description && <div className="text-xs text-muted">{template.description}</div>}
-                    </div>
-                </HogFlowEditorToolbarNode>
-            ))}
+            {actions.length === 0 ? (
+                <p className="mb-0 px-2 py-1 text-xs text-muted">
+                    Nothing saved yet. Set up a webhook or destination step, then choose "Save step to library" to reuse
+                    it here.
+                </p>
+            ) : (
+                actions.map(({ template, action }) => (
+                    <HogFlowEditorToolbarNode key={template.id} action={action}>
+                        <div className="py-1 flex-1">
+                            <div>{template.name}</div>
+                            {template.description && <div className="text-xs text-muted">{template.description}</div>}
+                        </div>
+                    </HogFlowEditorToolbarNode>
+                ))
+            )}
         </>
     )
 }

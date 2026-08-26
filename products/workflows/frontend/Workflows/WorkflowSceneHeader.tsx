@@ -116,9 +116,10 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             opensFloatingUi
                             onClick={showSaveAsTemplateModal}
                             data-attr="workflow-menubar-save-as-template"
+                            tooltip="Reuse this whole workflow as the starting point for new ones."
                         >
                             <IconScreen />
-                            Save as template
+                            Save as workflow template
                         </SceneMenuBarItem>
                         {hasStagedDraft && (
                             <>
@@ -241,9 +242,10 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             menuItem
                                             onClick={showSaveAsTemplateModal}
                                             data-attr="workflow-save-as-template-btn"
+                                            tooltip="Reuse this whole workflow as the starting point for new ones."
                                         >
                                             <IconScreen />
-                                            Save as template
+                                            Save as workflow template
                                         </ButtonPrimitive>
                                     </ScenePanelActionsSection>
                                     <ScenePanelDivider />

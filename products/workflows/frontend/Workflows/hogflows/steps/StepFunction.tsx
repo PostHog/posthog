@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconBookmark } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { workflowLogic } from '../../workflowLogic'
 import { savedFunctionTemplatesLogic } from '../savedFunctionTemplatesLogic'
@@ -41,10 +42,22 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
             />
             {canSaveAsTemplate && (
                 <>
-                    <div className="flex justify-end mt-2">
-                        <LemonButton size="xsmall" type="secondary" onClick={openSaveModal}>
-                            Save as template
+                    <LemonDivider className="my-2" />
+                    <div className="flex flex-col gap-1">
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconBookmark />}
+                            onClick={openSaveModal}
+                            fullWidth
+                            center
+                            data-attr="workflow-step-save-to-library"
+                        >
+                            Save step to library
                         </LemonButton>
+                        <p className="mb-0 text-xs text-secondary">
+                            Add this step to your template library so you can drop it into other workflows without
+                            setting it up again.
+                        </p>
                     </div>
                     <SaveFunctionAsTemplateModal template={template} inputs={inputs} mappings={mappings} />
                 </>

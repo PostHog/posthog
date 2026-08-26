@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -116,5 +116,10 @@ export const savedFunctionTemplatesLogic = kea<savedFunctionTemplatesLogicType>(
         saveFunctionTemplateFailure: () => {
             lemonToast.error("Couldn't save the template. Try again, and if it keeps happening contact support.")
         },
+    }),
+    // Load on mount so `savedFunctionTemplatesLoading` is already true on the first render, and
+    // consumers never have to tell "empty" apart from "not asked yet".
+    afterMount(({ actions }) => {
+        actions.loadSavedFunctionTemplates()
     }),
 ])

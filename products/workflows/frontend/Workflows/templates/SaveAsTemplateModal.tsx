@@ -27,7 +27,10 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
             <LemonModal
                 onClose={hideSaveAsTemplateModal}
                 isOpen={saveAsTemplateModalVisible}
-                title={isEditMode ? 'Update template' : 'Save as template'}
+                title={isEditMode ? 'Update workflow template' : 'Save workflow as template'}
+                description={
+                    isEditMode ? undefined : 'Your template shows up in the list when you create a new workflow.'
+                }
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={hideSaveAsTemplateModal}>

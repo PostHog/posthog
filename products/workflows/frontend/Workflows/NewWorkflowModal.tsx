@@ -30,6 +30,9 @@ export function NewWorkflowModal(): JSX.Element {
             description={
                 <div className="flex flex-col gap-2">
                     <div>Choose a template or start with a blank slate</div>
+                    <div className="text-xs text-secondary">
+                        To add your own, open a workflow and choose "Save as workflow template" from its options menu.
+                    </div>
                     <div className="flex gap-2 items-center">
                         <LemonInput
                             type="search"

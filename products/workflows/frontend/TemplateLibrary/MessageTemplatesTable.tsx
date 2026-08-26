@@ -5,11 +5,12 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
-import { IconTrash } from '@posthog/icons'
+import { IconLetter, IconTrash, IconWebhooks } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -26,10 +27,17 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
-    const { filteredTemplates, templates, templatesLoading, search, createdByFilter, typeFilter } =
+    const { filteredTemplates, templates, templatesLoading, search, createdByFilter, typeFilter, hasActiveFilters } =
         useValues(messageTemplatesLogic)
-    const { deleteTemplate, createTemplate, duplicateTemplate, setSearch, setCreatedByFilter, setTypeFilter } =
-        useActions(messageTemplatesLogic)
+    const {
+        deleteTemplate,
+        createTemplate,
+        duplicateTemplate,
+        setSearch,
+        setCreatedByFilter,
+        setTypeFilter,
+        clearFilters,
+    } = useActions(messageTemplatesLogic)
 
     // Destination templates provide the icon and name shown on saved webhook/destination cards
     const destinationTemplatesLogic = hogFunctionTemplateListLogic({ type: 'destination' })
@@ -41,18 +49,37 @@ export function MessageTemplatesTable(): JSX.Element {
     const destinationTemplatesById = Object.fromEntries(destinationTemplates.map((t) => [t.id, t]))
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
+    const showNoResults = !templatesLoading && templates.length > 0 && filteredTemplates.length === 0
 
     return (
         <div className="templates-section" data-attr="message-templates-table">
             {showProductIntroduction && (
                 <ProductIntroduction
-                    productName="Message template"
-                    thingName="message template"
-                    description="Create and manage reusable message templates for your workflows."
+                    productName="Template library"
+                    thingName="template"
+                    titleOverride="Save your first template"
+                    description="Templates are emails, webhooks, and destinations you set up once and reuse across your workflows. Start one here, or open a workflow and save a step you already configured."
                     docsURL="https://posthog.com/docs/workflows"
-                    action={() => {
-                        router.actions.push(urls.workflowsLibraryTemplateNew())
-                    }}
+                    actionElementOverride={
+                        <>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconLetter />}
+                                onClick={() => router.actions.push(urls.workflowsLibraryTemplateNew())}
+                                data-attr="empty-state-new-email-template"
+                            >
+                                New email template
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconWebhooks />}
+                                onClick={() => router.actions.push(urls.workflowsLibraryTemplateNewFunction())}
+                                data-attr="empty-state-new-function-template"
+                            >
+                                New webhook template
+                            </LemonButton>
+                        </>
+                    }
                     customHog={HedgehogReadingIsMagic}
                     isEmpty
                 />
@@ -94,6 +121,17 @@ export function MessageTemplatesTable(): JSX.Element {
             </div>
             {templatesLoading ? (
                 <Spinner className="text-6xl" />
+            ) : showNoResults ? (
+                <div className="flex flex-col items-center gap-2 py-8 text-center" data-attr="templates-no-results">
+                    <p className="mb-0 text-secondary">
+                        {hasActiveFilters ? 'No templates match your filters.' : 'No templates to show right now.'}
+                    </p>
+                    {hasActiveFilters && (
+                        <LemonButton type="secondary" size="small" onClick={clearFilters}>
+                            Clear filters
+                        </LemonButton>
+                    )}
+                </div>
             ) : (
                 <div className="MessageTemplatesGrid">
                     {filteredTemplates.map((template, index) => (
