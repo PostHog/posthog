@@ -63,7 +63,7 @@ jobs:
               run: uv build tools/hogli --out-dir dist
 
             - name: Validate metadata
-              run: uvx twine check dist/*
+              run: uvx twine check dist/*.whl dist/*.tar.gz
 
             - name: Smoke-test built wheel
               shell: bash
@@ -78,14 +78,18 @@ jobs:
             - name: Generate build provenance attestation
               uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
               with:
-                  subject-path: 'dist/*'
+                  subject-path: |
+                      dist/*.whl
+                      dist/*.tar.gz
 
             - name: Publish to PyPI
-              run: uv publish dist/*
+              run: uv publish dist/*.whl dist/*.tar.gz
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
               with:
-                  files: dist/*
+                  files: |
+                      dist/*.whl
+                      dist/*.tar.gz
                   body_path: /tmp/hogli-release-notes.md
                   prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
