@@ -54,7 +54,7 @@ export class SessionBatchMetrics {
 
     private static readonly urlsDropped = new Counter({
         name: 'recording_blob_ingestion_v2_urls_dropped_total',
-        help: 'Number of distinct session URLs dropped because the per-block URL cap was reached',
+        help: 'Number of session URLs dropped because the per-block URL cap was reached (counted per event, not distinct URLs)',
     })
 
     // S3-specific metrics
