@@ -27,14 +27,20 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
+import {
+  showChannelPane,
+  useChannelPaneStore,
+} from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useSidebarSearchStore } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelHotkeys } from "./ChannelHotkeys";
 
-function press(digit: string, modifiers: Partial<KeyboardEventInit> = {}) {
+function press(key: string, modifiers: Partial<KeyboardEventInit> = {}) {
   document.dispatchEvent(
     new KeyboardEvent("keydown", {
-      key: digit,
-      code: `Digit${digit}`,
+      key,
+      code: /^\d$/.test(key) ? `Digit${key}` : `Key${key.toUpperCase()}`,
       bubbles: true,
       cancelable: true,
       ...modifiers,
@@ -52,6 +58,11 @@ describe("ChannelHotkeys", () => {
       { id: "eng-id", name: "eng", path: "/eng" },
     ];
     useCurrentChannelStore.setState({ currentChannelId: null });
+    useSidebarSearchStore.setState({
+      focusRequest: 0,
+    });
+    useSidebarStore.setState({ open: false });
+    showChannelPane();
   });
 
   // The regression: this component is rendered ALONE — no sidebar at all.
@@ -108,5 +119,15 @@ describe("ChannelHotkeys", () => {
     render(<ChannelHotkeys />);
     press("1", { metaKey: true });
     expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+  });
+
+  it("opens the space list and requests focus for its search", () => {
+    render(<ChannelHotkeys />);
+
+    press("s", { metaKey: true, shiftKey: true });
+
+    expect(useSidebarStore.getState().open).toBe(true);
+    expect(useChannelPaneStore.getState().pane).toBe("list");
+    expect(useSidebarSearchStore.getState().focusRequest).toBe(1);
   });
 });

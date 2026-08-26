@@ -18,6 +18,7 @@ import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   selectActivityItem,
+  selectActivityReport,
   useActivitySelection,
 } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import {
@@ -256,6 +257,7 @@ export function ChannelsSidebar() {
                 className="min-h-0 flex-1"
                 selectedId={selectedActivityId}
                 onActivate={selectActivityItem}
+                onReportActivate={selectActivityReport}
               />
             ) : feedId ? (
               <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />

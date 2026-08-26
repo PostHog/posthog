@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -307,7 +309,11 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AZUREBLOB_BATCH_EXPORT,
 ]
 
-jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+const SAVE_FAILS_ID = 'test-save-fails-id'
+const SAVE_FAILS_DETAIL = 'Prefix is not valid'
+
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
     lemonToast: {
         error: jest.fn(),
         success: jest.fn(),
@@ -343,6 +349,13 @@ describe('batchExportConfigFormLogic', () => {
                 return [200, fx]
             }
         }
+        // Same shape as the AwsS3 fixture, but its PATCH always fails, for the save-error path.
+        getMocks[`/api/environments/:team_id/batch_exports/${SAVE_FAILS_ID}`] = {
+            ...AWS_S3_BATCH_EXPORT,
+            id: SAVE_FAILS_ID,
+        }
+        patchMocks[`/api/environments/:team_id/batch_exports/${SAVE_FAILS_ID}/`] = async () =>
+            [400, { detail: SAVE_FAILS_DETAIL }] as unknown as [number, BatchExportConfiguration]
         useMocks({
             get: {
                 ...getMocks,
@@ -689,6 +702,29 @@ describe('batchExportConfigFormLogic', () => {
                     prefix: 'updated-prefix/',
                 },
             })
+        })
+    })
+
+    describe('failed update', () => {
+        // A rejected save produced no toast and no inline error, so the button appeared to do
+        // nothing. The edits stay on the form for a retry, which makes the toast the only signal
+        // the user gets.
+        it('surfaces the API error and keeps the unsaved changes', async () => {
+            await initLogic({ service: null, id: SAVE_FAILS_ID })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                prefix: 'updated-prefix/',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'submitConfigurationSuccess'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(SAVE_FAILS_DETAIL)
+            expect(logic.values.configurationChanged).toBe(true)
         })
     })
 

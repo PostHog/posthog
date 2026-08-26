@@ -9,9 +9,10 @@ use flate2::Compression;
 use metrics::{counter, gauge, histogram};
 use rand::Rng;
 use tokio::sync::Semaphore;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
+use crate::readiness;
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 
 /// Default cap on the serialized JSON size of one /ingest request body. The
@@ -158,11 +159,7 @@ impl HttpTransport {
 
     /// Check if a worker is ready by probing its health endpoint.
     pub async fn check_ready(&self, worker_url: &str) -> bool {
-        let url = format!("{worker_url}/_ready");
-        match self.client.get(&url).send().await {
-            Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
-        }
+        readiness::check_ready(&self.client, worker_url).await
     }
 
     /// Wait until all workers are ready, polling with backoff.
@@ -172,29 +169,7 @@ impl HttpTransport {
         worker_urls: &[String],
         shutdown: &lifecycle::Handle,
     ) -> anyhow::Result<()> {
-        let poll_interval = Duration::from_secs(2);
-
-        loop {
-            let mut all_ready = true;
-            for url in worker_urls {
-                if !self.check_ready(url).await {
-                    warn!(worker = %url, "Worker not ready");
-                    all_ready = false;
-                }
-            }
-
-            if all_ready {
-                info!(workers = worker_urls.len(), "All workers ready");
-                return Ok(());
-            }
-
-            tokio::select! {
-                _ = shutdown.shutdown_recv() => {
-                    anyhow::bail!("Shutdown received while waiting for workers");
-                }
-                _ = tokio::time::sleep(poll_interval) => {}
-            }
-        }
+        readiness::wait_for_workers_ready(&self.client, worker_urls, shutdown).await
     }
 
     /// Send a sub-batch to a worker. Returns the number of accepted messages.
@@ -307,12 +282,14 @@ impl HttpTransport {
                     return Err(SendError {
                         error: TransportError::PayloadTooLarge(String::new()),
                         messages: reassemble(sent, messages, queue),
+                        fence_guard: None,
                     });
                 }
                 ChunkOutcome::Failed { error, messages } => {
                     return Err(SendError {
                         error,
                         messages: reassemble(sent, messages, queue),
+                        fence_guard: None,
                     });
                 }
             }
@@ -559,7 +536,7 @@ fn approx_message_size(msg: &SerializedKafkaMessage) -> usize {
 /// Split a sub-batch into chunks whose estimated serialized size stays under
 /// `max_body_bytes`, preserving message order. A single message estimated
 /// above the cap gets its own chunk — it can't be split further.
-fn split_by_size(
+pub(crate) fn split_by_size(
     messages: Vec<SerializedKafkaMessage>,
     max_body_bytes: usize,
 ) -> Vec<Vec<SerializedKafkaMessage>> {
@@ -588,6 +565,45 @@ fn split_by_size(
 pub struct SendError {
     pub error: TransportError,
     pub messages: Vec<SerializedKafkaMessage>,
+    /// Set on a fenced worker stream send. Hold it until `messages` are stashed: the
+    /// worker stream keeps fencing new arrivals until every guard from that fence is
+    /// dropped, so nothing enqueued before the stash lands can reach the
+    /// worker ahead of the fenced groups on the next stream.
+    pub fence_guard: Option<FenceGuard>,
+}
+
+/// Tells a fencing worker stream that one fenced send's messages are stashed.
+pub struct FenceGuard {
+    /// One release per fenced send this guard stands for: a split sub-batch
+    /// fenced across several chunks merges their guards into one.
+    released: Vec<tokio::sync::mpsc::UnboundedSender<()>>,
+}
+
+impl FenceGuard {
+    pub(crate) fn new(released: tokio::sync::mpsc::UnboundedSender<()>) -> Self {
+        Self {
+            released: vec![released],
+        }
+    }
+
+    /// Fold `other` into this guard, so both release only when this one drops.
+    pub(crate) fn merge(&mut self, mut other: FenceGuard) {
+        self.released.append(&mut other.released);
+    }
+}
+
+impl Drop for FenceGuard {
+    fn drop(&mut self) {
+        for released in &self.released {
+            let _ = released.send(());
+        }
+    }
+}
+
+impl std::fmt::Debug for FenceGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FenceGuard")
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -612,6 +628,15 @@ pub enum TransportError {
 
     #[error("All retries exhausted")]
     RetriesExhausted,
+
+    #[error("Worker stream failed: {0}")]
+    WorkerStreamFailed(&'static str),
+
+    #[error("Worker stream busy: {0}")]
+    WorkerStreamBusy(&'static str),
+
+    #[error("Worker stream closed without resolving the send")]
+    WorkerStreamClosed,
 }
 
 impl TransportError {
@@ -629,7 +654,24 @@ impl TransportError {
             TransportError::PayloadTooLarge(_) => false,
             TransportError::WorkerError(_) => true,
             TransportError::RetriesExhausted => false,
+            // Worker stream failures resolve through the deferral path, not the HTTP
+            // retry loop — never retried in place.
+            TransportError::WorkerStreamFailed(_) => false,
+            // A busy worker stream is transient backpressure (like WorkerBusy), so the
+            // fenced work re-routes as retriable rather than a worker fault.
+            TransportError::WorkerStreamBusy(_) => true,
+            TransportError::WorkerStreamClosed => false,
         }
+    }
+
+    /// Backpressure the worker signalled deliberately (503 or a busy worker stream).
+    /// Distinct from `is_retriable`: connection errors and 5xx are retriable
+    /// too, but they are worker faults and must count against passive health.
+    pub fn is_backpressure(&self) -> bool {
+        matches!(
+            self,
+            TransportError::WorkerBusy(_) | TransportError::WorkerStreamBusy(_)
+        )
     }
 }
 
@@ -679,6 +721,16 @@ mod tests {
     #[test]
     fn test_worker_busy_is_retriable() {
         assert!(TransportError::WorkerBusy("at capacity".into()).is_retriable());
+    }
+
+    #[test]
+    fn test_only_busy_errors_are_backpressure() {
+        assert!(TransportError::WorkerBusy("at capacity".into()).is_backpressure());
+        assert!(TransportError::WorkerStreamBusy("busy").is_backpressure());
+        assert!(!TransportError::HttpStatus(500, "boom".into()).is_backpressure());
+        assert!(!TransportError::WorkerError("boom".into()).is_backpressure());
+        assert!(!TransportError::WorkerStreamFailed("nack").is_backpressure());
+        assert!(!TransportError::RetriesExhausted.is_backpressure());
     }
 
     #[test]

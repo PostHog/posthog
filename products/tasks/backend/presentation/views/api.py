@@ -3084,6 +3084,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if outcome == "invalid_origin":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {
+                        "type": "validation_error",
+                        "code": "invalid_input",
+                        "detail": "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud.",
+                        "attr": "origin_product",
+                    }
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if outcome.startswith("auth_error:"):
             detail = outcome.split(":", 1)[1]
             return Response(
