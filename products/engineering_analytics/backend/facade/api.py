@@ -58,8 +58,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from posthog.rbac.user_access_control import UserAccessControl
-
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 

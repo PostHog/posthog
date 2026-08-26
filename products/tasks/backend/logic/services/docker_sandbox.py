@@ -17,6 +17,7 @@ import subprocess
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
@@ -1220,6 +1221,15 @@ class DockerSandbox(SandboxBase):
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)
 
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return self._read_health_boot_phases_ms(AGENT_SERVER_PORT)
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return self._read_health_boot_metrics(AGENT_SERVER_PORT)
+
+    def agent_server_health_url(self) -> str:
+        return f"http://127.0.0.1:{AGENT_SERVER_PORT}/health"
+
     def create_snapshot(self, *, timeout_seconds: int | None = None) -> str:
         # timeout_seconds bounds Modal's snapshot RPC; docker commits have no equivalent knob.
         if not self.is_running():
@@ -1297,6 +1307,17 @@ def _base_dockerfile_path() -> str:
     return os.path.join(settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base")
 
 
+def _base_image_source_sha(dockerfile_path: str) -> str:
+    digest = hashlib.sha256()
+    for path in [
+        Path(dockerfile_path),
+        *sorted(Path(settings.BASE_DIR, "products/desktop/packages/agent-shadow").rglob("*")),
+    ]:
+        if path.is_file():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def _none_if_blank(value: str) -> str | None:
     """Normalize a docker inspect label value: a missing label prints as ``<no value>``."""
     value = value.strip()
@@ -1333,8 +1354,7 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
     This is the only place that reaches out to npm.
     """
     dockerfile_path = _base_dockerfile_path()
-    with open(dockerfile_path, "rb") as dockerfile:
-        current_dockerfile_sha = hashlib.sha256(dockerfile.read()).hexdigest()
+    current_dockerfile_sha = _base_image_source_sha(dockerfile_path)
 
     latest = _resolve_latest_agent_version()
 
@@ -1395,7 +1415,10 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
         DEFAULT_IMAGE_NAME,
         dockerfile_path,
         build_args={"COMMIT_HASH": cache_bust},
-        labels={_AGENT_VERSION_LABEL: latest or "unknown"},
+        labels={
+            _AGENT_VERSION_LABEL: latest or "unknown",
+            _DOCKERFILE_SHA_LABEL: current_dockerfile_sha,
+        },
         force=True,
     )
 

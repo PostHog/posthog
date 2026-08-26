@@ -17,7 +17,10 @@ from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
+    WorkflowTaskRateCapped,
     WorkflowTaskSlackContext,
+    WorkflowTaskTeamRateCapped,
+    WorkflowTaskUsageLimited,
     create_workflow_task,
 )
 from products.workflows.backend.models import HogFlow
@@ -146,7 +149,11 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             ),
             409: OpenApiResponse(
                 response=WorkflowTaskRejectedSerializer,
-                description="The workflow already has its maximum runs in flight, or the idempotency key belongs to another workflow",
+                description=(
+                    "The task was not created: the workflow is at its in-flight or daily limit, "
+                    "the project is at its daily limit of workflow-created tasks, "
+                    "the owner is over the AI usage limit, or the idempotency key belongs to another workflow"
+                ),
             ),
             422: OpenApiResponse(
                 response=WorkflowTaskRejectedSerializer,
@@ -205,6 +212,41 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             )
             return _rejected(
                 f"Workflow already has {error.in_flight} tasks in flight (limit {error.limit}).",
+                status.HTTP_409_CONFLICT,
+            )
+        except WorkflowTaskRateCapped as error:
+            logger.info(
+                "workflow_task_create_rate_capped",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                cap=error.cap,
+            )
+            return _rejected(
+                f"This workflow reached its daily limit of {error.cap} tasks. "
+                "The event was skipped. Task creation resumes automatically within 24 hours.",
+                status.HTTP_409_CONFLICT,
+            )
+        except WorkflowTaskTeamRateCapped as error:
+            logger.info(
+                "workflow_task_create_team_rate_capped",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                cap=error.cap,
+            )
+            return _rejected(
+                f"This project reached its daily limit of {error.cap} tasks created by workflows. "
+                "The event was skipped. Task creation resumes automatically within 24 hours.",
+                status.HTTP_409_CONFLICT,
+            )
+        except WorkflowTaskUsageLimited:
+            logger.info(
+                "workflow_task_create_usage_limited",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+            )
+            return _rejected(
+                "The workflow owner is over the AI usage limit, so no task was created. "
+                "Task creation resumes when the limit resets.",
                 status.HTTP_409_CONFLICT,
             )
 

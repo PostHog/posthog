@@ -86,6 +86,18 @@ class ChangeKind(StrEnum):
     STRUCTURAL = "structural"  # SSIM caught a perceptual change; pixel diff was below threshold
 
 
+class FlakinessState(StrEnum):
+    """How unstable a snapshot's rendering is against its current baseline.
+
+    Derived, not stored. A snapshot is scored on the alternate hashes the
+    classifier can still match, so the score resets when the baseline moves.
+    """
+
+    UNSTABLE = "unstable"  # Rendered a variant inside the recency window
+    SETTLED = "settled"  # Has variants against this baseline, but rendered none recently
+    CLEAN = "clean"  # No live variants against the current baseline
+
+
 class ActorType(StrEnum):
     """Who performed an action — human user, AI agent, or automated system."""
 

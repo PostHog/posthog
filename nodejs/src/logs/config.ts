@@ -68,6 +68,12 @@ export type LogsIngestionConsumerConfig = {
     LOGS_RETENTION_ENABLED_TEAMS: string
     /** When `true`, retention rules are never evaluated (rows keep the team default via the batch header). */
     LOGS_RETENTION_KILLSWITCH: boolean
+    /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
+    LOGS_PATTERN_MASKING_ENABLED_TEAMS: string
+    /** Ceiling on body chars fed to the pattern masker; longer bodies are cut first (CPU guard). */
+    LOGS_PATTERN_MASKING_MAX_INPUT_CHARS: number
+    /** Truncation applied to the masked pattern, after masking (so more real content survives the cut). */
+    LOGS_PATTERN_MASKING_MAX_OUTPUT_CHARS: number
     /**
      * When `true`, rows removed by drop rules are credited back to the billed usage metrics
      * (`bytes_ingested` / `records_ingested`). When `false` (default), the credit is only
@@ -119,6 +125,10 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         // Off in prod until per-team rollout; on in dev for local end-to-end testing.
         LOGS_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_RETENTION_KILLSWITCH: false,
+        // Off by default: enabling forces decode+re-encode for allowlisted teams.
+        LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
+        LOGS_PATTERN_MASKING_MAX_INPUT_CHARS: DEFAULT_PATTERN_MAX_INPUT_CHARS,
+        LOGS_PATTERN_MASKING_MAX_OUTPUT_CHARS: DEFAULT_PATTERN_MAX_OUTPUT_CHARS,
         LOGS_BILLING_PRORATE_ENABLED: false,
         LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '',
         LOGS_TRANSFORMATIONS_KILLSWITCH: false,

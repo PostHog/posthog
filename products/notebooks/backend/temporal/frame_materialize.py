@@ -52,9 +52,11 @@ from posthog.schema import QueryStatus
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
@@ -79,7 +81,6 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
@@ -89,6 +90,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseTooManyRowsOrBytesError,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend import frame_store
 
 logger = structlog.get_logger(__name__)
@@ -384,19 +386,37 @@ class _GeneratedSQL:
     print_ast_seconds: float
 
 
+def _printing_context(team: Team, user: User | None) -> HogQLContext:
+    """One context for every print pass of a materialization.
+
+    A frame is printed twice whenever a column needs stringifying, and the second pass used
+    to build its own context, database and access controls from scratch. They depend only on
+    (team, user), which do not change between passes, so the passes share them — the executor
+    reuses a database already on the context and documents that callers may do this.
+    """
+    return HogQLContext(
+        team_id=team.pk,
+        user=user,
+        user_access_control=UserAccessControl(user=user, team=team) if user else None,
+    )
+
+
 def _generate_sql(
     team: Team,
     user: User | None,
-    query: "str | ast.SelectQuery | ast.SelectSetQuery",
+    query: "ast.SelectQuery | ast.SelectSetQuery",
     *,
     output_format: str | None,
+    context: HogQLContext,
 ) -> _GeneratedSQL:
     """Print HogQL to guarded ClickHouse SQL with the standing caps applied."""
     executor = HogQLQueryExecutor(
-        query=query,
+        # Cloned because the executor applies the row ceiling to the node it is handed, in
+        # place, and the wrapper pass nests the same node.
+        query=clone_expr(query, True),
         team=team,
         user=user,
-        user_access_control=UserAccessControl(user=user, team=team) if user else None,
+        context=context,
         limit_context=LimitContext.NOTEBOOK_MATERIALIZE,
         settings=_capped_settings(team.pk),
         pretty=False,
@@ -404,12 +424,25 @@ def _generate_sql(
     if output_format:
         executor.context.output_format = output_format
     started = time.perf_counter()
-    sql, context = executor.generate_clickhouse_sql()
+    # A placeholder is named `hogql_val_{len(values)}`, and the executor shares this dict by
+    # reference rather than resetting it. Carrying a previous pass's entries would number this
+    # pass's placeholders from where that one stopped and ship its dead values to ClickHouse, so
+    # each pass prints against an empty dict and keeps the numbering a single pass would produce.
+    context.values.clear()
+    sql, resolved = executor.generate_clickhouse_sql()
     seconds = time.perf_counter() - started
+    # The executor keeps the database it built on its own `dataclasses.replace` copy, so
+    # without this hand-back the shared context still looks empty and the next pass builds a
+    # second one. It resets the per-execution state it shares by reference, so a database
+    # carried across passes is the reuse it already accounts for.
+    if context.database is None:
+        context.database = resolved.database
     recorded = executor.timings.to_dict()
     return _GeneratedSQL(
         sql=sql,
-        values=context.values,
+        # Copied because the shared dict is cleared for the next pass, and a caller holds this
+        # pass's SQL and values together (the DESCRIBE between the passes reads them).
+        values=dict(resolved.values),
         seconds=seconds,
         parse_seconds=_hogql_leaf_seconds(recorded, "query"),
         resolve_seconds=_hogql_leaf_seconds(recorded, "prepare_ast_for_printing"),
@@ -518,7 +551,11 @@ def _print_clickhouse_sql(
     where the s3() function argument defines the object format and a FORMAT clause would
     be invalid inside the INSERT.
     """
-    plain = _generate_sql(team, user, query, output_format=None)
+    # Parsed once and reused: the wrapper pass nests this node instead of re-parsing the
+    # source, which is the other half of what the second pass used to redo from scratch.
+    parsed = parse_select(query)
+    context = _printing_context(team, user)
+    plain = _generate_sql(team, user, parsed, output_format=None, context=context)
     describe_started = time.perf_counter()
     described = describe(plain.sql, plain.values)
     describe_seconds = time.perf_counter() - describe_started
@@ -538,15 +575,15 @@ def _print_clickhouse_sql(
     if not any(function for _name, function in conversions):
         if output_format is None:
             return printed(None)
-        return printed(_generate_sql(team, user, query, output_format=output_format))
+        return printed(_generate_sql(team, user, parsed, output_format=output_format, context=context))
     select_fields: list[ast.Expr] = [
         ast.Alias(expr=ast.Call(name=function, args=[ast.Field(chain=[name])]), alias=name)
         if function
         else ast.Field(chain=[name])
         for name, function in conversions
     ]
-    stringified = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=parse_select(query)))
-    return printed(_generate_sql(team, user, stringified, output_format=output_format))
+    stringified = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=parsed))
+    return printed(_generate_sql(team, user, stringified, output_format=output_format, context=context))
 
 
 class FrameTooLargeError(Exception):

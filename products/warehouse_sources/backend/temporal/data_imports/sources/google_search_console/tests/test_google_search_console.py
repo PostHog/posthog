@@ -848,6 +848,38 @@ def test_query_connection_error_bubbles_after_max_retries(monkeypatch):
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
 
 
+def test_query_retries_read_timeout_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        requests.ReadTimeout("Read timed out."),
+        requests.ReadTimeout("Read timed out."),
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 3
+
+
+def test_query_read_timeout_bubbles_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = requests.ReadTimeout("Read timed out.")
+
+    # A persistent read timeout exhausts the inline budget and surfaces the real
+    # ReadTimeout (retryable at the activity level).
+    with pytest.raises(requests.ReadTimeout):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+
+
 def test_query_retries_transient_token_refresh_error_then_succeeds(monkeypatch):
     monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
     monkeypatch.setattr(gsc, "_throttle", lambda _site: None)

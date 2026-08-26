@@ -138,7 +138,7 @@ return response.body
             required: false,
             default: 5,
             description:
-                'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once.',
+                'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once. Daily limits on how many tasks a workflow and project can create also apply.',
         },
         {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other

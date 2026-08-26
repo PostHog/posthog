@@ -73,6 +73,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            cdpUsageReporter: this.cdpUsageReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
