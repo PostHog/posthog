@@ -1,18 +1,20 @@
 import { useState } from 'react'
 
-import { IconChevronRight, IconComment, IconGithub, IconLetter } from '@posthog/icons'
+import { IconChevronRight, IconComment, IconGithub, IconImage, IconLetter } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 import { urls } from 'scenes/urls'
 
 import type {
     ConversationsTicketImageApi,
     ConversationsTicketSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import { safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -88,27 +90,40 @@ export function conversationsChannelIcon(source: string): JSX.Element | null {
 /** How many attachment thumbnails to show before pointing at the ticket for the rest. */
 const IMAGE_PREVIEW_COUNT = 4
 
-/** One attachment thumbnail that opens the full image. Drops out when the image can no longer be fetched. */
+/**
+ * One attachment thumbnail that opens the full image. Only an image PostHog serves loads inline: the
+ * URL comes from ticket rich content, which is not origin-validated, and an inline `<img>` makes every
+ * viewer's browser fetch it on render. Any other host is a click-to-open tile that loads nothing.
+ * Drops out when the image can no longer be fetched.
+ */
 function TicketImageThumbnail({ image }: { image: ConversationsTicketImageApi }): JSX.Element | null {
     const [failed, setFailed] = useState(false)
-    if (failed) {
+    const trusted = isTrustedPostHogUrl(image.url)
+    const href = trusted ? image.url : safeHttpUrl(image.url)
+    if (failed || !href) {
         return null
     }
+    const label = image.author ? `Attachment from ${image.author}` : 'Ticket attachment'
     return (
         <li>
             <Link
-                to={image.url}
+                to={href}
                 target="_blank"
-                className="block size-16 rounded border overflow-hidden bg-surface-secondary"
+                className="flex items-center justify-center size-16 rounded border overflow-hidden bg-surface-secondary"
                 title={image.author ? `Attached by ${image.author}` : undefined}
+                aria-label={trusted ? undefined : label}
             >
-                <img
-                    src={image.url}
-                    alt={image.author ? `Attachment from ${image.author}` : 'Ticket attachment'}
-                    className="size-full object-cover"
-                    loading="lazy"
-                    onError={() => setFailed(true)}
-                />
+                {trusted ? (
+                    <img
+                        src={href}
+                        alt={label}
+                        className="size-full object-cover"
+                        loading="lazy"
+                        onError={() => setFailed(true)}
+                    />
+                ) : (
+                    <IconImage className="text-xl text-secondary" />
+                )}
             </Link>
         </li>
     )
