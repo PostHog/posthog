@@ -32,6 +32,7 @@ import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInb
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import {
   findContinuableImplementationTask,
+  findLatestDiscussionTask,
   getTaskPrUrl,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
@@ -64,6 +65,8 @@ interface ReportVerdictBannerProps {
   variant?: ReportVerdictBannerVariant;
   /** Key that fires the primary action (triage mode passes "f"). */
   actionHotkey?: string;
+  /** Hide the full banner after the reader starts or resumes report work. */
+  initialEngagementOnly?: boolean;
   /**
    * Called after an action opens the report's conversation dock. Surfaces
    * without a dock (the triage card) navigate to the report here.
@@ -80,6 +83,7 @@ export function ReportVerdictBanner({
   report,
   variant = "full",
   actionHotkey,
+  initialEngagementOnly = false,
   onEngaged,
 }: ReportVerdictBannerProps) {
   const compact = variant === "header-actions";
@@ -115,6 +119,13 @@ export function ReportVerdictBanner({
   const existingPrUrl =
     livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
   const hasExistingPr = !!existingPrUrl || !!continuableTask;
+  const startedTaskId = useReportChatPanelStore(
+    (state) => state.startedTaskIdByReport[report.id] ?? null,
+  );
+  const hasPriorEngagement =
+    startedTaskId !== null ||
+    hasExistingPr ||
+    findLatestDiscussionTask(reportTasks) !== null;
 
   const verdict = deriveReportVerdict(report, { hasExistingPr });
 
@@ -124,6 +135,7 @@ export function ReportVerdictBanner({
   const rememberStartedTask = useReportChatPanelStore(
     (s) => s.rememberStartedTask,
   );
+  const [engaged, setEngaged] = useState(false);
 
   const { createPrReport, isCreatingPr } = useCreatePrReport({
     reportId: report.id,
@@ -135,6 +147,7 @@ export function ReportVerdictBanner({
     // put instead of opening an empty dock or, in triage, navigating away.
     onTaskCreated: (task) => {
       rememberStartedTask(report.id, task.id);
+      setEngaged(true);
       setChatOpen(true);
       onEngaged?.();
     },
@@ -181,6 +194,7 @@ export function ReportVerdictBanner({
     fireAction("open_pr");
     // The conversation opens docked beside the report — the full task page
     // stays one click away in the dock header.
+    setEngaged(true);
     setChatOpen(true);
     onEngaged?.();
   }, [continuableTask, fireAction, setChatOpen, onEngaged]);
@@ -236,6 +250,13 @@ export function ReportVerdictBanner({
     handleContinuePr,
     handleCreatePr,
   ]);
+
+  if (
+    initialEngagementOnly &&
+    (reportTasksLoading || engaged || hasPriorEngagement)
+  ) {
+    return null;
+  }
 
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
@@ -332,6 +353,7 @@ export function ReportVerdictBanner({
         variant="outline"
         onClick={() => {
           fireAction("discuss");
+          setEngaged(true);
           setChatOpen(true);
           onEngaged?.();
         }}
@@ -387,7 +409,7 @@ export function ReportVerdictBanner({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-lg border p-4",
+        "flex select-none flex-col gap-3 rounded-lg border p-4",
         TONE_CLASS[verdict.tone],
       )}
     >

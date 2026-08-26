@@ -99,7 +99,13 @@ function ReportDetailContent({
           primaryAction={
             <ReportDetailActions report={report} placement="header" />
           }
-          aboveSummary={<ReportVerdictBanner report={report} />}
+          aboveSummary={
+            <ReportVerdictBanner
+              key={report.id}
+              report={report}
+              initialEngagementOnly
+            />
+          }
           summarySection={{ Icon: FileTextIcon, title: "Summary" }}
           footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
