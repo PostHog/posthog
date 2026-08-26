@@ -22,11 +22,13 @@ def merge_queue_branch_predicate(branch_sql: str) -> str:
     return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
 
 
-# The base duration-percentile population, for runs and jobs alike: successful instances
-# only. Cancelled/skipped (superseded) and failed instances end early, so including them
-# answers "how long until CI stopped", not "how long does CI take to pass". Jobs use this
-# as-is — a seconds-long job (the gate job itself) is a legitimate duration sample.
-DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'"
+SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"
+CONCLUSIVE_RUN_CONDITION = "status = 'completed' AND conclusion IN ('success', 'failure', 'timed_out')"
+
+# Duration percentiles use successful instances because cancelled, skipped, and failed instances
+# end early. Including them answers "how long until CI stopped", not "how long does CI take to pass".
+# Jobs use this as-is because a seconds-long job can be a legitimate duration sample.
+DURATION_PERCENTILE_CONDITION = SUCCESSFUL_RUN_CONDITION
 
 # A run that settled in under this many seconds with a benign conclusion did no real CI work — the
 # common shape is a gate job deciding the rest of the workflow should be skipped (path filters,

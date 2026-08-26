@@ -35,6 +35,8 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    CONCLUSIVE_RUN_CONDITION,
+    SUCCESSFUL_RUN_CONDITION,
     run_started_floor_constant,
     window_pair_predicates,
 )
@@ -55,10 +57,10 @@ _RUNS_SELECT = """
     SELECT
         countIf(__CUR__) AS run_count,
         countIf(__PREV__) AS run_count_prev,
-        countIf(status = 'completed' AND conclusion = 'success' AND __CUR__)
-            / nullIf(countIf(status = 'completed' AND __CUR__), 0) AS success_rate,
-        countIf(status = 'completed' AND conclusion = 'success' AND __PREV__)
-            / nullIf(countIf(status = 'completed' AND __PREV__), 0) AS success_rate_prev,
+        countIf(__SUCCESSFUL__ AND __CUR__)
+            / nullIf(countIf(__CONCLUSIVE__ AND __CUR__), 0) AS success_rate,
+        countIf(__SUCCESSFUL__ AND __PREV__)
+            / nullIf(countIf(__CONCLUSIVE__ AND __PREV__), 0) AS success_rate_prev,
         countIf(run_attempt > 1 AND __CUR__) AS rerun_cycles,
         countIf(run_attempt > 1 AND __PREV__) AS rerun_cycles_prev,
         countIf(head_branch = 'master' AND __CUR__) AS master_runs,
@@ -119,12 +121,12 @@ def query_default_branch(
     return "main" if (main_runs or 0) > (master_runs or 0) else "master"
 
 
-# Pass rate per bucket over completed runs, all branches — the population the headline pass rate uses.
-# Division through nullIf yields NULL for a bucket with no completed run (a gap, not 0%).
+# Pass rate per bucket over conclusive runs on all branches, matching the headline population.
+# Division through nullIf yields NULL for a bucket with no conclusive run, which is a gap rather than 0%.
 _PASS_RATE_SERIES_SELECT = """
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate
+        countIf(__SUCCESSFUL__) / nullIf(countIf(__CONCLUSIVE__), 0) AS success_rate
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {date_from} __DATE_TO__
     GROUP BY bucket_start
@@ -191,8 +193,8 @@ def query_success_rate_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[PassRateBucket]:
-    """Pass rate per bucket across the window, oldest first: completed runs that succeeded, all branches —
-    the same population as the headline pass rate. Empty buckets carry ``success_rate`` None (a gap)."""
+    """Pass rate per bucket across the window, oldest first: successful runs divided by conclusive runs
+    on all branches, matching the headline population. Empty buckets carry ``success_rate`` None."""
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "run_started_floor": run_started_floor_constant(date_from),
@@ -204,6 +206,8 @@ def query_success_rate_series(
         _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity, "run_started_at"))
+        .replace("__SUCCESSFUL__", SUCCESSFUL_RUN_CONDITION)
+        .replace("__CONCLUSIVE__", CONCLUSIVE_RUN_CONDITION)
     )
     response = curated.run(sql, query_type="engineering_analytics.success_rate_series", placeholders=placeholders)
     rate_by_bucket = {
@@ -354,6 +358,8 @@ def query_repo_overview(
         .replace("__PREV__", run_windows.previous)
         .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
+        .replace("__SUCCESSFUL__", SUCCESSFUL_RUN_CONDITION)
+        .replace("__CONCLUSIVE__", CONCLUSIVE_RUN_CONDITION)
     )
     runs_response = curated.run(
         runs_sql, query_type="engineering_analytics.repo_overview_runs", placeholders=placeholders

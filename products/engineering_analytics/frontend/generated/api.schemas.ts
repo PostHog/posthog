@@ -848,7 +848,7 @@ export interface PassRateBucketApi {
     /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
     bucket_start: string
     /**
-     * Fraction (0-1) of completed runs started in this bucket that succeeded. Null when the bucket had no completed run (a gap, not a 0% pass rate).
+     * Fraction (0-1) of conclusive runs started in this bucket that succeeded. Skipped, cancelled, and action_required runs are excluded. Null when the bucket had no conclusive run (a gap, not a 0% pass rate).
      * @nullable
      */
     success_rate: number | null
@@ -879,7 +879,7 @@ export interface RepoOverviewApi {
     cost_series: CostPerMergeBucketApi[]
     /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     time_to_green_series: TimeToGreenBucketApi[]
-    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+    /** CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, and action_required runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false. */
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
@@ -890,12 +890,12 @@ export interface RepoOverviewApi {
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
     run_count_prev: number
     /**
-     * Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.
+     * Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, and action_required runs are excluded. Null if no run reached a verdict.
      * @nullable
      */
     success_rate: number | null
     /**
-     * Success rate over the previous window. Null if none completed.
+     * Conclusive-run success rate over the previous window. Null if no run reached a verdict.
      * @nullable
      */
     success_rate_prev: number | null
@@ -1271,10 +1271,12 @@ export interface WorkflowHealthItemApi {
     workflow_name: string
     /** Total runs started in the window. */
     run_count: number
+    /** Completed runs with conclusion 'success'. */
     successful_run_count: number
+    /** Completed runs with conclusion 'success', 'failure', or 'timed_out'. This is the success_rate denominator. */
     conclusive_run_count: number
     /**
-     * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
+     * Fraction of conclusive runs that succeeded (0-1). Conclusive runs ended in success, failure, or timed_out; skipped, cancelled, and action_required runs are excluded. Null if no run reached a verdict.
      * @nullable
      */
     success_rate: number | null
@@ -1322,10 +1324,11 @@ export interface WorkflowHealthItemApi {
     /** Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy. */
     rerun_cycles?: number
     /**
-     * Success rate over the equal-length window before date_from - the delta baseline. Null when that window had no completed runs.
+     * Conclusive-run success rate over the equal-length window before date_from - the delta baseline. Null when that window had no conclusive runs.
      * @nullable
      */
     success_rate_prev?: number | null
+    /** Successful runs that did real CI work. This is the p50/p95 sample count. */
     percentile_run_count?: number
 }
 

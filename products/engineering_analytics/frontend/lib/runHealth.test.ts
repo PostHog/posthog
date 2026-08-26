@@ -41,16 +41,17 @@ describe('runHealth', () => {
         expect(computeHealthSummary(runs).state).toBe(expected)
     })
 
-    it('counts only conclusion=success as a pass, matching the backend success_rate', () => {
-        // Skipped/neutral are completed but not successes — the header must not inflate pass rate past
-        // what the Workflows table shows for the same window.
+    it('excludes non-verdict conclusions from the pass rate', () => {
         const summary = computeHealthSummary([
             { conclusion: 'success', durationSeconds: 600, startedAt: at(9) },
             { conclusion: 'skipped', durationSeconds: 600, startedAt: at(10) },
+            { conclusion: 'cancelled', durationSeconds: 600, startedAt: at(11) },
+            { conclusion: 'action_required', durationSeconds: 600, startedAt: at(12) },
         ])
-        expect(summary.completedRuns).toBe(2)
+        expect(summary.completedRuns).toBe(4)
+        expect(summary.conclusiveRuns).toBe(1)
         expect(summary.passedRuns).toBe(1)
-        expect(summary.passRate).toBe(0.5)
+        expect(summary.passRate).toBe(1)
         expect(summary.failures).toBe(0)
         expect(summary.state).toBe('healthy')
     })
@@ -66,6 +67,8 @@ describe('runHealth', () => {
         expect(summary.passRate).toBe(0.5)
         expect(summary.failures).toBe(1)
         expect(summary.reruns).toBe(1)
+        expect(summary.medianSeconds).toBe(120)
+        expect(summary.p95Seconds).toBe(120)
     })
 
     it.each([
@@ -136,8 +139,7 @@ describe('runHealth', () => {
         ['every settled workflow failing → failing', [fleetRow(true), fleetRow(true)], 'failing'],
         ['some failing, some green → degraded', [fleetRow(true), fleetRow(false)], 'degraded'],
         ['green but flaky (low success + a real failure) → degraded', [fleetRow(false, 0.7, at(9))], 'degraded'],
-        // Low success driven by skips/cancels, never a decisive failure → healthy, not flaky (matches the
-        // single-workflow verdict).
+        // A stale rate without an observed failure stays healthy instead of creating a false flaky verdict.
         ['green, low success, no failures → healthy', [fleetRow(false, 0.7, null)], 'healthy'],
         ['all green and healthy → healthy', [fleetRow(false, 0.99), fleetRow(false)], 'healthy'],
     ])('classifies fleet state: %s', (_name, rows, expected) => {
@@ -164,34 +166,51 @@ describe('runHealth', () => {
     })
 
     it.each([
-        // Weighted by completed runs — an unweighted mean of per-row rates would say 0.75 here.
+        // Weighted by conclusive runs, so skipped and cancelled volume cannot lower the rate.
         [
-            'weights the fleet rate by completed runs, not per-row average',
+            'weights the fleet rate by conclusive runs, not per-row average',
             [
-                { runCount: 2, successRate: 1, latestRunFailed: false, buckets: [{ completed: 2, successes: 2 }] },
                 {
-                    runCount: 6,
+                    runCount: 2,
+                    successRate: 1,
+                    latestRunFailed: false,
+                    buckets: [{ completed: 2, successes: 2, failures: 0 }],
+                },
+                {
+                    runCount: 10,
                     successRate: 0.5,
                     latestRunFailed: true,
                     buckets: [
-                        { completed: 3, successes: 2 },
-                        { completed: 3, successes: 1 },
+                        { completed: 5, successes: 2, failures: 1 },
+                        { completed: 5, successes: 1, failures: 2 },
                     ],
                 },
             ],
             0.625,
         ],
-        // Nothing settled anywhere → null, never a misleading 0%.
+        // Completed runs without a verdict produce null, never a misleading 0%.
         [
-            'null when nothing has completed',
-            [{ runCount: 3, successRate: null, latestRunFailed: null, buckets: [{ completed: 0, successes: 0 }] }],
+            'null when nothing reached a verdict',
+            [
+                {
+                    runCount: 3,
+                    successRate: null,
+                    latestRunFailed: false,
+                    buckets: [{ completed: 3, successes: 0, failures: 0 }],
+                },
+            ],
             null,
         ],
         // Rows without buckets (per-push rows) contribute nothing rather than crashing or zeroing the rate.
         [
             'rows without buckets are tolerated',
             [
-                { runCount: 4, successRate: 0.5, latestRunFailed: false, buckets: [{ completed: 4, successes: 2 }] },
+                {
+                    runCount: 4,
+                    successRate: 0.5,
+                    latestRunFailed: false,
+                    buckets: [{ completed: 4, successes: 2, failures: 2 }],
+                },
                 { runCount: 9, successRate: 1, latestRunFailed: false },
             ],
             0.5,

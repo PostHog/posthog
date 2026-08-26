@@ -212,10 +212,8 @@ def detect_broken_default_branch(
                 continue
             if item.conclusive_run_count < min_runs or not item.latest_run_failed:
                 continue
-            # `success_rate` counts cancelled/skipped in its denominator, which pins any
-            # heavy-cancel workflow under the floor and makes this guard a no-op.
-            conclusive_success_rate = item.successful_run_count / item.conclusive_run_count
-            if conclusive_success_rate > max_success_rate:
+            conclusive_success_rate = item.success_rate
+            if conclusive_success_rate is None or conclusive_success_rate > max_success_rate:
                 continue
             repo = f"{item.repo.owner}/{item.repo.name}"
             latest_conclusion = item.latest_run_conclusion or "failure"

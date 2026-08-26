@@ -122,7 +122,7 @@ export interface WorkflowHealthRow {
     repoName: string
     workflowName: string
     runCount: number
-    /** Over completed runs only; null when nothing has settled yet. */
+    /** Over conclusive runs only; null when no run reached a pass-or-fail verdict. */
     successRate: number | null
     p50Seconds: number | null
     p95Seconds: number | null

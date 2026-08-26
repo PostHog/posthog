@@ -94,8 +94,8 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
             />
 
             <div className="text-xs text-tertiary">
-                Pass rate and durations cover completed runs only. A run that hasn't settled is excluded, never counted
-                as a failure. Health is workflow-level, not per-job.
+                Pass rate covers runs that succeeded, failed, or timed out. Skipped, canceled, and action-required runs
+                are excluded. Durations cover successful runs only. Health is workflow-level, not per-job.
                 {fleetTruncated && ` Showing the top ${WORKFLOW_HEALTH_LIMIT} workflows by run count.`}
             </div>
         </div>

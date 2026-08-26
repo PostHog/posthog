@@ -124,15 +124,16 @@ export function RepoOverviewScene(): JSX.Element {
                     <Section id="ci-health" title="CI health" busy={overviewLoading}>
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                             <WindowComparisonCard
-                                title="CI runs that passed"
+                                title="CI pass rate"
                                 value={overview?.success_rate}
                                 previousValue={overview?.success_rate_prev}
-                                formatValue={percent}
+                                formatValue={(value) => percent(value, 1)}
                                 share
                                 deltaUnit="pt"
+                                deltaPrecision={1}
                                 loading={overviewPending}
-                                tooltip="Share of completed CI runs that passed, all branches."
-                                emptyText="Not enough completed CI runs in the window yet."
+                                tooltip="Share of runs that passed among runs that succeeded, failed, or timed out. Skipped, canceled, and action-required runs are excluded."
+                                emptyText="No CI runs reached a pass-or-fail result in the window."
                             />
 
                             <WindowComparisonCard

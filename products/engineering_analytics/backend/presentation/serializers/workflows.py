@@ -186,8 +186,15 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
         extra_kwargs = {
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
             "run_count": {"help_text": "Total runs started in the window."},
+            "successful_run_count": {"help_text": "Completed runs with conclusion 'success'."},
+            "conclusive_run_count": {
+                "help_text": "Completed runs with conclusion 'success', 'failure', or 'timed_out'. This is the "
+                "success_rate denominator."
+            },
             "success_rate": {
-                "help_text": "Fraction of completed runs that succeeded (0-1). Null if no completed runs.",
+                "help_text": "Fraction of conclusive runs that succeeded (0-1). Conclusive runs ended in "
+                "success, failure, or timed_out; skipped, cancelled, and action_required runs are excluded. "
+                "Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "p50_seconds": {
@@ -232,9 +239,12 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "help_text": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy."
             },
             "success_rate_prev": {
-                "help_text": "Success rate over the equal-length window before date_from - the delta baseline. "
-                "Null when that window had no completed runs.",
+                "help_text": "Conclusive-run success rate over the equal-length window before date_from - the "
+                "delta baseline. Null when that window had no conclusive runs.",
                 "allow_null": True,
+            },
+            "percentile_run_count": {
+                "help_text": "Successful runs that did real CI work. This is the p50/p95 sample count."
             },
         }
 
@@ -286,8 +296,9 @@ class PassRateBucketSerializer(DataclassSerializer):
                 "help_text": "Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday)."
             },
             "success_rate": {
-                "help_text": "Fraction (0-1) of completed runs started in this bucket that succeeded. "
-                "Null when the bucket had no completed run (a gap, not a 0% pass rate).",
+                "help_text": "Fraction (0-1) of conclusive runs started in this bucket that succeeded. "
+                "Skipped, cancelled, and action_required runs are excluded. Null when the bucket had no "
+                "conclusive run (a gap, not a 0% pass rate).",
                 "allow_null": True,
             },
         }
@@ -338,9 +349,9 @@ class RepoOverviewSerializer(DataclassSerializer):
     )
     success_rate_series = PassRateBucketSerializer(
         many=True,
-        help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
-        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole "
-        "series is empty when include_series=false.",
+        help_text="CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, "
+        "oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, and action_required "
+        "runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false.",
     )
     open_to_merge_series = OpenToMergeBucketSerializer(
         many=True,
@@ -364,11 +375,12 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "Same count over the equal-length window immediately before date_from — the delta baseline."
             },
             "success_rate": {
-                "help_text": "Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.",
+                "help_text": "Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, "
+                "and action_required runs are excluded. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "success_rate_prev": {
-                "help_text": "Success rate over the previous window. Null if none completed.",
+                "help_text": "Conclusive-run success rate over the previous window. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
