@@ -1,5 +1,12 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { mkdir, mkdtemp, readlink, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +25,7 @@ import {
   getCodexSubscriptionHomeDir,
   prepareCodexHome,
   stripMcpServers,
+  writeBackSubscriptionLogin,
 } from "./codex-home";
 
 const noopLog = { debug() {}, info() {}, warn() {}, error() {} };
@@ -203,8 +211,10 @@ describe("prepareCodexHome", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("builds a persistent subscription home that per-run cleanup never removes", async () => {
-    await createSkill(bundledSkillsDir, "query-data");
+  it("seeds the stored login into the run's own home for subscription sessions", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    await writeFile(path.join(subscriptionHome, "auth.json"), '{"token":1}');
 
     const codexHome = await prepareCodexHome({
       appDataPath,
@@ -214,22 +224,174 @@ describe("prepareCodexHome", () => {
       log: noopLog,
     });
 
-    expect(codexHome).toBe(getCodexSubscriptionHomeDir(appDataPath));
-    expect(existsSync(path.join(codexHome, "skills", "query-data"))).toBe(true);
+    // The session runs against its isolated per-run home, never the shared one.
+    expect(codexHome).toBe(path.join(appDataPath, "codex-home", taskRunId));
+    expect(readFileSync(path.join(codexHome, "auth.json"), "utf-8")).toBe(
+      '{"token":1}',
+    );
 
-    // The stored ChatGPT login must survive every session cleanup.
-    await writeFile(path.join(codexHome, "auth.json"), "{}");
+    // Cleanup removes the seeded copy; the stored login survives.
     await cleanupCodexHome(appDataPath, taskRunId);
-    expect(existsSync(path.join(codexHome, "auth.json"))).toBe(true);
+    expect(existsSync(codexHome)).toBe(false);
+    expect(existsSync(path.join(subscriptionHome, "auth.json"))).toBe(true);
+  });
 
-    // A later session refresh rebuilds skills without touching the login.
-    await prepareCodexHome({
+  it.skipIf(process.platform === "win32")(
+    "writes the seeded login so only its owner can read it",
+    async () => {
+      const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+      await mkdir(subscriptionHome, { recursive: true });
+      await writeFile(path.join(subscriptionHome, "auth.json"), "{}");
+
+      const codexHome = await prepareCodexHome({
+        appDataPath,
+        taskRunId,
+        subscription: true,
+        bundledSkillsDir,
+        log: noopLog,
+      });
+
+      const mode = statSync(path.join(codexHome, "auth.json")).mode & 0o777;
+      expect(mode).toBe(0o600);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "re-seeding a retried run keeps the login owner-only",
+    async () => {
+      const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+      await mkdir(subscriptionHome, { recursive: true });
+      await writeFile(path.join(subscriptionHome, "auth.json"), "{}");
+
+      const first = await prepareCodexHome({
+        appDataPath,
+        taskRunId,
+        subscription: true,
+        bundledSkillsDir,
+        log: noopLog,
+      });
+      // Codex rewrites auth.json during the run; don't count on its mode.
+      await chmod(path.join(first, "auth.json"), 0o644);
+
+      const second = await prepareCodexHome({
+        appDataPath,
+        taskRunId,
+        subscription: true,
+        bundledSkillsDir,
+        log: noopLog,
+      });
+      expect(statSync(path.join(second, "auth.json")).mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it("throws for a subscription session without a stored login", async () => {
+    await expect(
+      prepareCodexHome({
+        appDataPath,
+        taskRunId,
+        subscription: true,
+        bundledSkillsDir,
+        log: noopLog,
+      }),
+    ).rejects.toThrow("Subscription login not found");
+  });
+
+  it("gives concurrent subscription runs isolated homes seeded from the same login", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    await writeFile(path.join(subscriptionHome, "auth.json"), '{"token":1}');
+    await createSkill(bundledSkillsDir, "query-data");
+
+    const [homeA, homeB] = await Promise.all([
+      prepareCodexHome({
+        appDataPath,
+        taskRunId: "run-a",
+        subscription: true,
+        bundledSkillsDir,
+        log: noopLog,
+      }),
+      prepareCodexHome({
+        appDataPath,
+        taskRunId: "run-b",
+        subscription: true,
+        bundledSkillsDir,
+        log: noopLog,
+      }),
+    ]);
+
+    expect(homeA).not.toBe(homeB);
+    for (const home of [homeA, homeB]) {
+      expect(readFileSync(path.join(home, "auth.json"), "utf-8")).toBe(
+        '{"token":1}',
+      );
+      expect(existsSync(path.join(home, "skills", "query-data"))).toBe(true);
+    }
+  });
+
+  it("writeBackSubscriptionLogin carries refreshed tokens into the stored login", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    const storedLogin = path.join(subscriptionHome, "auth.json");
+    await writeFile(storedLogin, '{"token":1}');
+
+    const codexHome = await prepareCodexHome({
       appDataPath,
+      taskRunId,
       subscription: true,
       bundledSkillsDir,
       log: noopLog,
     });
-    expect(existsSync(path.join(codexHome, "auth.json"))).toBe(true);
+    // Codex rotates its OAuth tokens mid-run and persists them in its home.
+    await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
+
+    await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
+    expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":2}');
+    if (process.platform !== "win32") {
+      // The pre-existing store must end up owner-only once rewritten.
+      expect(statSync(storedLogin).mode & 0o777).toBe(0o600);
+    }
+
+    await cleanupCodexHome(appDataPath, taskRunId);
+    expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":2}');
+  });
+
+  it("writeBackSubscriptionLogin does not resurrect a login after sign-out", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    await writeFile(path.join(subscriptionHome, "auth.json"), '{"token":1}');
+
+    const codexHome = await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+    await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
+
+    // The user signed out while the session was still running.
+    await rm(path.join(subscriptionHome, "auth.json"));
+
+    await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
+    expect(existsSync(path.join(subscriptionHome, "auth.json"))).toBe(false);
+  });
+
+  it("writeBackSubscriptionLogin is a no-op for runs without a seeded login", async () => {
+    await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+
+    await expect(
+      writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog }),
+    ).resolves.toBeUndefined();
+    expect(
+      existsSync(
+        path.join(getCodexSubscriptionHomeDir(appDataPath), "auth.json"),
+      ),
+    ).toBe(false);
   });
 
   it("rejects an unsafe taskRunId instead of escaping the codex-home dir", async () => {

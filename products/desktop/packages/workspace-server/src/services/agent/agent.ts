@@ -97,6 +97,7 @@ import {
   cleanupCodexHome,
   getCodexSubscriptionHomeDir,
   prepareCodexHome,
+  writeBackSubscriptionLogin,
 } from "./codex-home";
 import {
   clearSubscriptionLogin,
@@ -1870,6 +1871,14 @@ For git operations while detached:
         await session.agent.cleanup();
       } catch {
         this.log.debug("Agent cleanup failed", { taskRunId });
+      }
+
+      if (session.config.codexModelAccess === "own-subscription") {
+        await writeBackSubscriptionLogin({
+          appDataPath: this.storagePaths.appDataPath,
+          taskRunId,
+          log: this.log,
+        });
       }
 
       await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(

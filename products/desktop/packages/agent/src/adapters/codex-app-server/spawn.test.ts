@@ -125,7 +125,7 @@ describe("buildAppServerArgs", () => {
   it("emits no gateway provider without apiBaseUrl, so codex uses its own login", () => {
     const args = buildAppServerArgs({
       binaryPath: "/bundle/codex",
-      codexHome: "/appdata/codex-home-subscription",
+      codexHome: "/appdata/codex-home/run-1",
     });
 
     expect(args.some((arg) => arg.startsWith("model_provider"))).toBe(false);

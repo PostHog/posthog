@@ -24,7 +24,12 @@ export function getCodexHomeDir(
   return path.join(appDataPath, "codex-home", taskRunId);
 }
 
-/** Persistent CODEX_HOME holding the user's own ChatGPT login; never deleted by session cleanup. */
+/**
+ * Holds ONLY the user's own ChatGPT login (`auth.json`): the `account/login/start`
+ * flow writes it here, and subscription sessions seed it into their per-run
+ * CODEX_HOME. It never serves as a session's CODEX_HOME itself — concurrent
+ * sessions would race to rebuild its skills dir and see each other's threads.
+ */
 export function getCodexSubscriptionHomeDir(appDataPath: string): string {
   return path.join(appDataPath, "codex-home-subscription");
 }
@@ -56,21 +61,21 @@ export async function cleanupCodexHome(
  * privileges, minus its `mcp_servers` tables: PostHog sessions only get the MCP
  * servers PostHog injects per thread (see {@link stripMcpServers}).
  *
+ * With `subscription`, the stored ChatGPT login is copied from the subscription
+ * home into the run's home so the session bills the user's own plan; refreshed
+ * tokens flow back via {@link writeBackSubscriptionLogin} at cleanup.
+ *
  * Returns the CODEX_HOME path to hand to the spawned process.
  */
 export async function prepareCodexHome(options: {
   appDataPath: string;
-  taskRunId?: string;
+  taskRunId: string;
+  /** Seed the stored ChatGPT login into the run's home (own-subscription sessions). */
   subscription?: boolean;
   bundledSkillsDir: string;
   log: AgentScopedLogger;
 }): Promise<string> {
-  if (!options.subscription && options.taskRunId === undefined) {
-    throw new Error("taskRunId is required for a per-run codex home");
-  }
-  const codexHome = options.subscription
-    ? getCodexSubscriptionHomeDir(options.appDataPath)
-    : getCodexHomeDir(options.appDataPath, options.taskRunId as string);
+  const codexHome = getCodexHomeDir(options.appDataPath, options.taskRunId);
   const skillsDir = path.join(codexHome, "skills");
 
   // A retried run reuses its taskRunId, so wipe any stale links before rebuilding.
@@ -107,7 +112,64 @@ export async function prepareCodexHome(options: {
     }
   }
 
+  if (options.subscription) {
+    const storedLogin = path.join(
+      getCodexSubscriptionHomeDir(options.appDataPath),
+      "auth.json",
+    );
+    if (!fs.existsSync(storedLogin)) {
+      throw new Error("Subscription login not found");
+    }
+    const login = await fs.promises.readFile(storedLogin);
+    const runLogin = path.join(codexHome, "auth.json");
+    await fs.promises.writeFile(runLogin, login, { mode: 0o600 });
+    // writeFile's mode only applies on create; a retried run overwrites.
+    await fs.promises.chmod(runLogin, 0o600);
+  }
+
   return codexHome;
+}
+
+/**
+ * Copies a refreshed login from the run's CODEX_HOME back into the persistent
+ * subscription store before the run's home is deleted. Codex rotates its OAuth
+ * tokens during runs and persists them via the file credentials store, so
+ * without this the stored login goes stale and own-subscription sessions start
+ * failing until the user signs in again.
+ *
+ * Skips when the stored login is gone — the user signed out mid-run, and the
+ * write-back must not resurrect it.
+ */
+export async function writeBackSubscriptionLogin(options: {
+  appDataPath: string;
+  taskRunId: string;
+  log: AgentScopedLogger;
+}): Promise<void> {
+  const runLogin = path.join(
+    getCodexHomeDir(options.appDataPath, options.taskRunId),
+    "auth.json",
+  );
+  const storedLogin = path.join(
+    getCodexSubscriptionHomeDir(options.appDataPath),
+    "auth.json",
+  );
+  try {
+    if (!fs.existsSync(runLogin) || !fs.existsSync(storedLogin)) {
+      return;
+    }
+    const refreshed = await fs.promises.readFile(runLogin);
+    if (refreshed.equals(await fs.promises.readFile(storedLogin))) {
+      return;
+    }
+    await fs.promises.writeFile(storedLogin, refreshed, { mode: 0o600 });
+    // writeFile's mode only applies on create; the store predates the write.
+    await fs.promises.chmod(storedLogin, 0o600);
+  } catch (err) {
+    options.log.warn("Failed to write back refreshed subscription login", {
+      taskRunId: options.taskRunId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 const MCP_SERVERS_HEADER = /^\[\[?\s*mcp_servers\s*(?:[.\]])/;
