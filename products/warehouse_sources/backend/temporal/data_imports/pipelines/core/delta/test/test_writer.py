@@ -481,6 +481,41 @@ class TestLegacyDltTableReconciliation:
                 primary_keys=["id"],
             )
 
+    @pytest.mark.asyncio
+    async def test_incremental_merge_uses_fallback_key_when_primary_missing_from_batch(self, tmp_path: Path) -> None:
+        """Some sources emit rows in more than one shape for the same table (e.g. a record
+        sub-type that carries no `uuid`, only `id`). Configuring more than one primary key
+        candidate must let a batch merge on whichever one it actually has, instead of raising
+        MissingPrimaryKeysException just because the first-listed key is absent from this batch."""
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table(
+                {"uuid": ["u1"], "id": [None], "name": ["a"]},
+                schema=pa.schema(
+                    [
+                        pa.field("uuid", pa.string()),
+                        pa.field("id", pa.string()),
+                        pa.field("name", pa.string()),
+                    ]
+                ),
+            ),
+        )
+
+        helper = make_local_table_ref(delta_path)
+        batch = pa.table({"id": ["2"], "name": ["b"]})
+
+        result = await DeltaWriter(helper).write(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["uuid", "id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 2
+        assert set(final.column("name").to_pylist()) == {"a", "b"}
+
 
 class TestAppendDecimalReconciliation:
     """Appending a decimal column that outgrew decimal128 must reconcile to the stored type.
