@@ -5,7 +5,7 @@ import time
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
@@ -73,9 +73,22 @@ from products.conversations.backend.person_lookup import _get_persons_by_email
 from .. import reply_dedupe
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import Organization, User
 
 logger = structlog.get_logger(__name__)
+
+
+class UserTicketAssignee(TypedDict):
+    id: int
+    type: Literal["user"]
+
+
+class RoleTicketAssignee(TypedDict):
+    id: str
+    type: Literal["role"]
+
+
+TicketAssignee = UserTicketAssignee | RoleTicketAssignee
 
 
 class TicketErrorSerializer(serializers.Serializer):
@@ -904,14 +917,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         assignee_submitted = assignee is not ...
         data = {k: v for k, v in request.data.items() if k != "assignee"}
 
+        validated_assignee: TicketAssignee | None = None
+        if assignee_submitted:
+            validated_assignee = validate_assignee(assignee)
+            validate_assignee_membership(validated_assignee, self.organization)
+
         serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self._save_ticket_fields(serializer, instance, before, explicit_status="status" in data)
 
         if assignee_submitted:
-            assign_ticket(
+            _assign_ticket(
                 instance,
-                assignee,
+                validated_assignee,
                 self.organization,
                 request.user,
                 self.team_id,
@@ -1610,10 +1628,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         )
 
 
-def validate_assignee(assignee) -> None:
+def validate_assignee(assignee: object) -> TicketAssignee | None:
     """Validate assignee payload structure."""
     if assignee is None:
-        return
+        return None
     if not isinstance(assignee, dict):
         raise serializers.ValidationError({"assignee": "must be an object"})
     if "type" not in assignee or "id" not in assignee:
@@ -1630,8 +1648,10 @@ def validate_assignee(assignee) -> None:
         except (ValueError, AttributeError):
             raise serializers.ValidationError({"assignee": "role id must be a valid UUID"})
 
+    return cast(TicketAssignee, assignee)
 
-def validate_assignee_membership(assignee, organization) -> None:
+
+def validate_assignee_membership(assignee: TicketAssignee | None, organization: Organization) -> None:
     """Validate that the assignee belongs to the organization."""
     if assignee is None:
         return
@@ -1645,8 +1665,14 @@ def validate_assignee_membership(assignee, organization) -> None:
 
 
 def assign_ticket(
-    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
-):
+    ticket: Ticket,
+    assignee: object,
+    organization: Organization,
+    user: User | None,
+    team_id: int,
+    was_impersonated: bool,
+    trigger: Trigger | None = None,
+) -> None:
     """
     Assign a ticket to a user or role.
 
@@ -1659,9 +1685,20 @@ def assign_ticket(
         was_impersonated: Whether the session is impersonated
         trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
-    validate_assignee(assignee)
-    validate_assignee_membership(assignee, organization)
+    validated_assignee = validate_assignee(assignee)
+    validate_assignee_membership(validated_assignee, organization)
+    _assign_ticket(ticket, validated_assignee, organization, user, team_id, was_impersonated, trigger)
 
+
+def _assign_ticket(
+    ticket: Ticket,
+    assignee: TicketAssignee | None,
+    organization: Organization,
+    user: User | None,
+    team_id: int,
+    was_impersonated: bool,
+    trigger: Trigger | None = None,
+) -> None:
     with transaction.atomic():
         # Lock the ticket to prevent concurrent modifications
         Ticket.objects.select_for_update().get(id=ticket.id, team_id=team_id)

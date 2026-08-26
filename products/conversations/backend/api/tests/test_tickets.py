@@ -1266,30 +1266,29 @@ class TestTicketAssignment(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(expected_error, str(response.json()))
 
-    def test_assign_to_user_not_in_organization(self):
-        other_user = User.objects.create(email="other@example.com")
+    @parameterized.expand(
+        [
+            ("user", "not a member of this organization"),
+            ("role", "does not belong to this organization"),
+        ]
+    )
+    def test_invalid_assignee_membership_does_not_update_ticket(self, assignee_type: str, expected_error: str) -> None:
+        if assignee_type == "user":
+            assignee_id: int | str = User.objects.create(email="other@example.com").id
+        else:
+            other_org = Organization.objects.create(name="Other Org")
+            assignee_id = str(Role.objects.create(name="Other Role", organization=other_org).id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"assignee": {"id": other_user.id, "type": "user"}},
+            {"assignee": {"id": assignee_id, "type": assignee_type}, "status": Status.PENDING},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not a member of this organization", str(response.json()))
+        self.assertIn(expected_error, str(response.json()))
         self.assertEqual(TicketAssignment.objects.count(), 0)
-
-    def test_assign_to_role_not_in_organization(self):
-        other_org = Organization.objects.create(name="Other Org")
-        other_role = Role.objects.create(name="Other Role", organization=other_org)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"assignee": {"id": str(other_role.id), "type": "role"}},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("does not belong to this organization", str(response.json()))
-        self.assertEqual(TicketAssignment.objects.count(), 0)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.NEW)
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
