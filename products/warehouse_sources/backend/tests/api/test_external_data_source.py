@@ -2868,6 +2868,7 @@ class TestExternalDataSource(APIBaseTest):
                     "enabled_columns": None,
                     "row_filters": None,
                     "available_columns": [],
+                    "source_column_metadata_available": False,
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
