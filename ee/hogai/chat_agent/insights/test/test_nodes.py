@@ -4,8 +4,9 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.apps import apps
 from django.utils import timezone
+
+from asgiref.sync import sync_to_async
 
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -22,6 +23,7 @@ from posthog.schema import (
 )
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.manager import ArtifactManager
@@ -49,9 +51,6 @@ def create_mock_query_executor():
 
     mock_executor.arun_and_format_query = mock_arun_and_format_query
     return mock_executor
-
-
-InsightViewed = apps.get_model("product_analytics", "InsightViewed")
 
 
 @patch("ee.hogai.chat_agent.insights.nodes.AssistantQueryExecutor", create_mock_query_executor)
@@ -97,19 +96,10 @@ class TestInsightSearchNode(BaseTest):
             saved=True,
         )
 
-        # Create InsightViewed records
-        InsightViewed.objects.create(
-            team=self.team,
-            user=self.user,
-            insight=self.insight1,
-            last_viewed_at=timezone.now(),
-        )
-
-        InsightViewed.objects.create(
-            team=self.team,
-            user=self.user,
-            insight=self.insight2,
-            last_viewed_at=timezone.now(),
+        record_insight_views(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={self.insight1.id: timezone.now(), self.insight2.id: timezone.now()},
         )
 
     def _insight_to_dict(self, insight: Insight) -> InsightDict:
@@ -142,12 +132,10 @@ class TestInsightSearchNode(BaseTest):
 
     async def test_load_insights_page_unique_only(self):
         """Test that load_insights_page returns unique insights only."""
-        # Update existing insight view to simulate multiple views
-        await InsightViewed.objects.filter(
-            team=self.team,
-            user=self.user,
-            insight=self.insight1,
-        ).aupdate(last_viewed_at=timezone.now())
+        # Record the same insight again to simulate multiple views
+        await sync_to_async(record_insight_views)(
+            team_id=self.team.id, user_id=self.user.id, last_viewed_at_by_insight_id={self.insight1.id: timezone.now()}
+        )
 
         first_page = await self.node._load_insights_page(0)
 
@@ -464,8 +452,7 @@ class TestInsightSearchNode(BaseTest):
 
     def test_run_with_no_insights(self):
         """Test arun method when no insights exist - should raise NoInsightsException."""
-        # Clear all insights (done outside async context)
-        InsightViewed.objects.all().delete()
+        # Clear all insights (done outside async context); their view rows cascade
         Insight.objects.all().delete()
 
         conversation = Conversation.objects.create(team=self.team, user=self.user)
@@ -500,11 +487,8 @@ class TestInsightSearchNode(BaseTest):
             },
             created_by=self.user,
         )
-        await InsightViewed.objects.acreate(
-            team=other_team,
-            user=self.user,
-            insight=other_insight,
-            last_viewed_at=timezone.now(),
+        await sync_to_async(record_insight_views)(
+            team_id=other_team.id, user_id=self.user.id, last_viewed_at_by_insight_id={other_insight.id: timezone.now()}
         )
 
         # Load first page to test team filtering
@@ -854,11 +838,10 @@ class TestInsightSearchNode(BaseTest):
             created_by=self.user,
             saved=True,
         )
-        await InsightViewed.objects.acreate(
-            team=self.team,
-            user=self.user,
-            insight=insight,
-            last_viewed_at=timezone.now() - timedelta(days=1),
+        await sync_to_async(record_insight_views)(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={insight.id: timezone.now() - timedelta(days=1)},
         )
 
         await self.node._load_insights_page(0)
@@ -892,11 +875,8 @@ class TestInsightSearchNode(BaseTest):
             created_by=self.user,
             saved=True,
         )
-        await InsightViewed.objects.acreate(
-            team=self.team,
-            user=self.user,
-            insight=insight,
-            last_viewed_at=timezone.now(),
+        await sync_to_async(record_insight_views)(
+            team_id=self.team.id, user_id=self.user.id, last_viewed_at_by_insight_id={insight.id: timezone.now()}
         )
 
         await self.node._load_insights_page(0)
