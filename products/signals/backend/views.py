@@ -1712,7 +1712,7 @@ class SignalReportViewSet(
         summary="List a report's signals",
         description="Fetch a report's signals from ClickHouse. Repeat emissions can be collapsed into one entry "
         "per source object; the report's signal_count always remains the raw emission count.",
-        responses={200: ReportSignalsResponseSerializer},
+        responses={200: OpenApiResponse(response=ReportSignalsResponseSerializer)},
     )
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request: ValidatedRequest, pk=None, **kwargs):
