@@ -1,3 +1,4 @@
+import re
 import uuid
 import asyncio
 from contextlib import asynccontextmanager
@@ -157,6 +158,27 @@ async def get_all_rows_for_team(team_id: int) -> int:
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
 dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
+# Statuses the billing service itself returns for its own transient failures
+# (request timeout, rate limiting, upstream/gateway issues), as opposed to a
+# genuine client-side error.
+_TRANSIENT_BILLING_SERVICE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+_BILLING_SERVICE_BAD_STATUS_RE = re.compile(r"Billing service returned bad status code: (\d+)")
+
+
+def _is_transient_billing_service_error(exc: Exception) -> bool:
+    # handle_billing_service_error() raises a plain Exception for any non-2xx billing
+    # response, so a billing-service-side timeout or gateway error doesn't match the
+    # requests.exceptions.RequestException branch below and needs its own check.
+    if type(exc) is not Exception or not exc.args:
+        return False
+
+    match = _BILLING_SERVICE_BAD_STATUS_RE.fullmatch(str(exc.args[0]))
+    if not match:
+        return False
+
+    return int(match.group(1)) in _TRANSIENT_BILLING_SERVICE_STATUS_CODES
+
 
 async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: FilteringBoundLogger) -> bool:
     if not EE_AVAILABLE:
@@ -294,6 +316,14 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
 
         return False
     except Exception as e:
+        if _is_transient_billing_service_error(e):
+            # Same rationale as the RequestException branch above: a timeout or gateway
+            # error from the billing service itself is a transient infra issue, and the
+            # check already fails open.
+            await logger.awarning(f"BillingLimits: Billing service returned a transient error, failing open: {e}")
+
+            return False
+
         await logger.adebug(f"BillingLimits: Failed with exception {e}")
         capture_exception(e)
 

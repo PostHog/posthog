@@ -352,3 +352,45 @@ class TestRowTracking(BaseTest):
             assert await self._run(source, 10) is False
 
         mock_capture_exception.assert_not_called()
+
+    @parameterized.expand([("request_timeout", 408), ("bad_gateway", 502), ("service_unavailable", 503)])
+    @pytest.mark.asyncio
+    async def test_row_tracking_fails_open_on_transient_billing_service_status_without_capturing_exception(
+        self, _name, status_code
+    ):
+        # handle_billing_service_error() raises a plain Exception (not a requests error)
+        # for a bad billing response, so a billing-service-side timeout or gateway error
+        # doesn't match the requests.exceptions.RequestException case above. It must still
+        # fail open like any other billing-check error without being reported to error
+        # tracking.
+        source = await self._create_source()
+
+        with (
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture_exception,
+        ):
+            mock_get_billing.side_effect = Exception(f"Billing service returned bad status code: {status_code}")
+
+            assert await self._run(source, 10) is False
+
+        mock_capture_exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_row_tracking_captures_exception_for_non_transient_billing_service_status(self):
+        # A bad status code outside the known-transient set (e.g. a validation error)
+        # still indicates a real bug worth investigating, so it must keep being reported.
+        source = await self._create_source()
+
+        with (
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture_exception,
+        ):
+            mock_get_billing.side_effect = Exception("Billing service returned bad status code: 400")
+
+            assert await self._run(source, 10) is False
+
+        mock_capture_exception.assert_called_once()
