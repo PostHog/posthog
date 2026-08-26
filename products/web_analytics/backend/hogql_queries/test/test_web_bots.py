@@ -14,19 +14,24 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, WebBotsBreakdown, WebBotsTableQuery
 
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.web_bots import WebBotsTableQueryRunner
 
 GOOGLEBOT_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 HUMAN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-_STRING = r"'(?:[^']|'')*'"
-_BOT_LITERAL_ARRAY = re.compile(rf"\[{_STRING}(?:, {_STRING}){{19,}}\]")
+_STRING = re.compile(r"'(?:[^']|'')*'")
+_LITERAL_ARRAY = re.compile(rf"\[{_STRING.pattern}(?:, {_STRING.pattern}){{19,}}\]")
 _IP_GROUP_MATCH = re.compile(r"\bin\(tupleElement\(IPv6CIDRToRange\(")
 _ADJACENT_IP_GROUPS = re.compile(r"/\* bot ip range \*/(?:, /\* bot ip range \*/)+")
 
+# Both the pattern list and each label list run one entry longer than the table, because
+# HogQL appends the empty user agent sentinel. Keying the collapse on that length leaves an
+# unrelated array, such as a property filter holding many values, visible in the snapshot.
+_BOT_ARRAY_LENGTH = len(BOT_DEFINITIONS) + 1
+
 
 def _end_of_call(query: str, call_start: int) -> int:
-    """Index just past the closing paren of the call that starts at `call_start`."""
     depth = 0
     for index in range(query.index("(", call_start), len(query)):
         if query[index] == "(":
@@ -38,16 +43,20 @@ def _end_of_call(query: str, call_start: int) -> int:
     raise ValueError("unbalanced parentheses in captured query")
 
 
-def _collapse_bot_tables(query: str) -> str:
-    """Replace the inlined bot definition tables with markers.
+def _collapse_array(array: re.Match[str]) -> str:
+    length = len(_STRING.findall(array.group(0)))
+    if length != _BOT_ARRAY_LENGTH:
+        return array.group(0)
+    return f"[/* {length} bot literals */]"
 
-    The bot gate expands into every query: the user agent patterns and labels from
-    BOT_DEFINITIONS, plus one IPv6 range check per prefix group in BOT_IP_DEFINITIONS,
-    repeated for each column that classifies traffic. Left verbatim they bury the query
-    shape this snapshot exists to protect, and any change to the tables rewrites the
-    snapshot. The tables themselves are covered by test_bot_definitions.py, and the
-    expression built from them by test_traffic_type_snapshot.ambr.
-    """
+
+# The bot gate expands into every query: the user agent patterns and labels from
+# BOT_DEFINITIONS, plus one IPv6 range check per prefix group in BOT_IP_DEFINITIONS,
+# repeated for each column that classifies traffic. Left verbatim they bury the query
+# shape this snapshot exists to protect, and any change to the tables rewrites the
+# snapshot. The tables keep their own coverage in test_bot_definitions.py, and the
+# expression built from them in test_traffic_type_snapshot.ambr.
+def _collapse_bot_tables(query: str) -> str:
     parts: list[str] = []
     position = 0
     while (match := _IP_GROUP_MATCH.search(query, position)) is not None:
@@ -56,7 +65,7 @@ def _collapse_bot_tables(query: str) -> str:
         position = _end_of_call(query, match.start())
     parts.append(query[position:])
     collapsed = _ADJACENT_IP_GROUPS.sub("/* bot ip ranges */", "".join(parts))
-    return _BOT_LITERAL_ARRAY.sub(lambda array: f"[/* {array.group(0).count(', ') + 1} bot literals */]", collapsed)
+    return _LITERAL_ARRAY.sub(_collapse_array, collapsed)
 
 
 @snapshot_clickhouse_queries
