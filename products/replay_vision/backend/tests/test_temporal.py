@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
-from django.db import IntegrityError, connections
+from django.db import IntegrityError, OperationalError, connections, transaction
 from django.utils import timezone
 
 import httpx
@@ -82,6 +82,7 @@ from products.replay_vision.backend.temporal.activities.observation_state import
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
+    SCANNER_ADMISSION_BUSY_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
     ConsentWithdrawnError,
     FailureKind,
@@ -535,6 +536,66 @@ class TestCreateObservationActivity:
         exists = ReplayObservation.objects.filter(scanner=scanner, session_id="sess-scanner-limit").exists()
         assert exists is expect_created
 
+    def _admit(self, scanner: ReplayScanner, session_id: str) -> CreateObservationOutput:
+        return create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id=session_id,
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id=f"wf-{session_id}",
+            )
+        )
+
+    def test_fresh_admission_cache_admits_without_running_the_budget_aggregates(self) -> None:
+        # The fast path is the point of the cache: an admission inside the TTL must not re-run
+        # compute_scanner_budget, or every capped admission pays the aggregate queries again.
+        scanner = _make_scanner(credit_limit=1_000)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-cache-warmup").was_created
+            with patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.compute_scanner_budget",
+                side_effect=AssertionError("aggregates ran on a fresh cache"),
+            ):
+                assert self._admit(scanner, "sess-cache-fast").was_created
+
+    def test_warm_cache_admission_still_refuses_at_the_limit(self) -> None:
+        # The cold path refuses via fresh aggregates (covered above); this pins the warm path: the
+        # first admission's cached spend must refuse the second, not just the next refresh.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-warm-a").was_created
+            assert not self._admit(scanner, "sess-warm-b").was_created
+        assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 1
+
+    def test_admission_cache_from_a_previous_period_does_not_block_a_new_period(self) -> None:
+        # A period rollover must invalidate the cache: a scanner that exhausted last period's cap
+        # admits again once the period turns, even while the stale cache still reads as exhausted.
+        scanner = _make_scanner(credit_limit=100)
+        ReplayScanner.all_origins.filter(pk=scanner.pk).update(
+            admission_budget_used=100,
+            admission_credits_since_refresh=50,
+            admission_budget_refreshed_at=timezone.now(),
+            admission_budget_period_start=timezone.now() - dt.timedelta(days=400),
+        )
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-rollover").was_created
+
+    def test_failed_insert_refunds_its_cached_admission(self) -> None:
+        # The cached counter must stay transactional with the insert: an increment that survived a
+        # rolled-back insert would make a cap that fits one observation refuse the retry forever.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            with (
+                patch.object(ReplayObservation.objects, "create", side_effect=RuntimeError("insert failed")),
+                pytest.raises(RuntimeError),
+            ):
+                self._admit(scanner, "sess-refund")
+            assert self._admit(scanner, "sess-refund").was_created
+
     def test_concurrent_admissions_cannot_exceed_scanner_credit_limit(self) -> None:
         # Two applies for different sessions race with a cap that fits exactly one observation. Without the
         # per-scanner lock both read a used=0 budget, both pass, and both reserve a PENDING row (overshoot).
@@ -556,6 +617,12 @@ class TestCreateObservationActivity:
                         workflow_id=f"wf-{session_id}",
                     )
                 ).was_created
+            except ApplicationError as e:
+                if e.type != SCANNER_ADMISSION_BUSY_ERROR_TYPE:
+                    raise
+                # The lock timeout refused the loser; in production Temporal retries it and the
+                # re-run reads the winner's spend. Either way the cap held: nothing was admitted.
+                created[session_id] = False
             finally:
                 # Dropping the worker's own connection avoids stranding its lock transaction past teardown.
                 connections.close_all()
@@ -602,6 +669,81 @@ class TestCreateObservationActivity:
 
         assert sorted(created.values()) == [True, True]
         assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 2
+
+    def test_contended_admission_fails_fast_as_retryable_busy_and_keeps_its_claim(self) -> None:
+        # A held scanner row must map to a retryable ScannerAdmissionBusy, not surface as a raw
+        # OperationalError (which nothing marks retryable-by-design) — and the enqueue claim must
+        # survive so the in-flight caps keep counting the retrying apply.
+        scanner = _make_scanner(credit_limit=100)
+        lock_taken = threading.Event()
+        release_lock = threading.Event()
+
+        def hold_scanner_lock() -> None:
+            try:
+                with transaction.atomic():
+                    ReplayScanner.all_origins.select_for_update().filter(pk=scanner.pk).first()
+                    lock_taken.set()
+                    release_lock.wait(timeout=30)
+            finally:
+                connections.close_all()
+
+        holder = threading.Thread(target=hold_scanner_lock)
+        holder.start()
+        assert lock_taken.wait(timeout=30)
+        try:
+            with (
+                patch(
+                    "products.replay_vision.backend.temporal.activities.create_observation.release_enqueue_claim"
+                ) as release,
+                pytest.raises(ApplicationError) as err,
+            ):
+                create_observation_activity(
+                    CreateObservationInputs(
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
+                        session_id="sess-busy",
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        triggered_by_user_id=None,
+                        workflow_id="wf-busy",
+                    )
+                )
+        finally:
+            release_lock.set()
+            holder.join(timeout=30)
+
+        assert err.value.type == SCANNER_ADMISSION_BUSY_ERROR_TYPE
+        assert err.value.non_retryable is False
+        release.assert_not_called()
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-busy").exists()
+
+    def test_non_lock_operational_error_propagates_and_releases_the_claim(self) -> None:
+        # The busy guard keys on LockNotAvailable alone: a statement timeout must still fail the
+        # attempt as an OperationalError (and give the claim back), not masquerade as retry-forever busy.
+        scanner = _make_scanner(credit_limit=100)
+        error = OperationalError("canceling statement due to statement timeout")
+        error.__cause__ = psycopg.errors.QueryCanceled()
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.compute_scanner_budget",
+                side_effect=error,
+            ),
+            patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.release_enqueue_claim"
+            ) as release,
+            pytest.raises(OperationalError),
+        ):
+            create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-timeout",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-timeout",
+                )
+            )
+        release.assert_called_once()
 
     def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
         # The admission lock is per scanner row: two different capped scanners on one team must both
