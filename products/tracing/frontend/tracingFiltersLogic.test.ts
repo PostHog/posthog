@@ -193,6 +193,41 @@ describe('tracingFiltersLogic', () => {
             const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
             expect(logic.values.suppressAutoOpenFilter).toBe(inner.values[inner.values.length - 1])
         })
+
+        // The row buttons are one click away from each other, so a repeat click used to stack an
+        // identical chip and a `+` after a `-` used to leave a pair matching no span. The
+        // suppression assertion pins the merged entry, not the discarded incoming one — the bar
+        // matches by identity, so a stale reference pops the editor open on a chip nobody touched.
+        it('folds a repeat click into the chip already there', () => {
+            logic.actions.addFilter('http.method', 'GET')
+            logic.actions.addFilter('http.method', 'GET')
+
+            const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(inner.values).toEqual([
+                {
+                    key: 'http.method',
+                    value: ['GET'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.SpanAttribute,
+                },
+            ])
+            expect(logic.values.suppressAutoOpenFilter).toBe(inner.values[0])
+        })
+
+        it('cancels a standing exclusion instead of contradicting it', () => {
+            logic.actions.addFilter('http.method', 'GET', PropertyOperator.IsNot)
+            logic.actions.addFilter('http.method', 'GET', PropertyOperator.Exact)
+
+            const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(inner.values).toEqual([
+                {
+                    key: 'http.method',
+                    value: ['GET'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.SpanAttribute,
+                },
+            ])
+        })
     })
 
     describe('refreshDeferredFilters', () => {

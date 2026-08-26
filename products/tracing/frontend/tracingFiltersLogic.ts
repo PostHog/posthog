@@ -25,6 +25,8 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { mergeSpanFilter } from 'products/tracing/frontend/spanFilterAdd'
+
 export const DEFAULT_DATE_RANGE: DateRange = { date_from: '-1h', date_to: null }
 export const DEFAULT_TIMEZONE: string = 'UTC'
 export const DEFAULT_SERVICE_NAMES: string[] = []
@@ -554,14 +556,19 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
     listeners(({ actions, values }) => ({
         addFilter: ({ key, value, operator, propertyType }) => {
             const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
-            const newFilterValue = { key, value: [value], operator, type: propertyType } as UniversalFiltersGroupValue
 
-            const newGroup: UniversalFiltersGroup = {
-                ...currentGroup,
-                values: [...currentGroup.values, newFilterValue],
-            }
+            // Reconciled rather than appended, so clicking the same attribute row twice does not
+            // stack a duplicate chip, and including a value cancels a standing exclusion of it.
+            const merged = mergeSpanFilter(currentGroup.values, {
+                key,
+                value: [value],
+                operator,
+                type: propertyType,
+            } as UniversalFiltersGroupValue)
 
-            actions.suppressAutoOpenForFilter(newFilterValue)
+            const newGroup: UniversalFiltersGroup = { ...currentGroup, values: merged.values }
+
+            actions.suppressAutoOpenForFilter(merged.filter as UniversalFiltersGroupValue)
             // Update the chips immediately, but defer the actual query — added from inside the
             // trace drawer, so re-querying now would only change data the drawer is covering.
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, true)

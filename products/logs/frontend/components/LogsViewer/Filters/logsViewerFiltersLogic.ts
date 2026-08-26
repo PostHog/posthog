@@ -34,7 +34,10 @@ import {
     SEVERITY_LEVEL_FILTER,
     setFacetIncluded,
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
-import { LogsFilterTarget } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterAdd'
+import {
+    LogsFilterTarget,
+    mergeFilterIntoValues,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterAdd'
 
 export const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
@@ -366,17 +369,17 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         addFilter: ({ key, value, operator, propertyType }) => {
             const currentGroup = values.filters.filterGroup.values[0] as UniversalFiltersGroup
 
+            // Reconciled rather than appended, so clicking the same attribute row twice does not
+            // stack a duplicate chip, and including a value cancels a standing exclusion of it.
+            // Same rules the search bar and the facet rail apply.
             const newGroup: UniversalFiltersGroup = {
                 ...currentGroup,
-                values: [
-                    ...currentGroup.values,
-                    {
-                        key,
-                        value: [value],
-                        operator,
-                        type: propertyType,
-                    } as UniversalFiltersGroupValue,
-                ],
+                values: mergeFilterIntoValues(currentGroup.values, {
+                    key,
+                    value: [value],
+                    operator,
+                    type: propertyType,
+                } as UniversalFiltersGroupValue),
             }
 
             actions.setFilterGroup({ ...values.filters.filterGroup, values: [newGroup] }, false)
