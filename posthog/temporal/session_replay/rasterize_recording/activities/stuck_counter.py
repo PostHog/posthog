@@ -1,9 +1,9 @@
-from dataclasses import dataclass
 from datetime import timedelta
 
 import structlog
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.redis import get_async_client, get_client
 
 logger = structlog.get_logger(__name__)
@@ -27,7 +27,7 @@ def _stuck_key(team_id: int, session_id: str) -> str:
     return f"{_STUCK_KEY_PREFIX}:{team_id}:{session_id}"
 
 
-@dataclass
+@frozen
 class BumpStuckCounterInput:
     team_id: int
     session_id: str
