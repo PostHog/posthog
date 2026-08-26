@@ -16,11 +16,7 @@ from posthog.dataclasses import frozen
 from posthog.permissions import posthog_feature_flag_enabled
 
 from products.context_layer.backend import store
-from products.context_layer.backend.enablement import (
-    RestrictedProjectsError,
-    enable_context_layer,
-    organization_has_private_projects,
-)
+from products.context_layer.backend.enablement import enable_context_layer
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
     PAGE_MAX_BYTES,
@@ -81,7 +77,6 @@ __all__ = [
     "PageNotFoundError",
     "RepoLockUnavailableError",
     "RepoNotFoundError",
-    "RestrictedProjectsError",
     "WikiPage",
     "WikiHealthFinding",
     "WikiHealthReport",
@@ -96,7 +91,6 @@ __all__ = [
     "is_context_layer_enabled",
     "land_commit_bundle",
     "land_dream_branch",
-    "organization_has_private_projects",
     "page_frontmatter_channel_id",
     "proposed_channel_page_path",
     "resolve_channel_page",
@@ -141,11 +135,6 @@ def get_sandbox_mount(organization_id: uuid.UUID | str) -> ContextLayerMount | N
     """A short-lived bundle URL for cloning the wiki into a sandbox, or None
     when the organization has no wiki. The presign is minted here, at clone
     time, so the sandbox never holds storage credentials."""
-    if organization_has_private_projects(organization_id):
-        # The wiki API goes dark when any project turns private; the sandbox
-        # mount must go dark with it or excluded members could read restricted
-        # context from any task's sandbox.
-        return None
     try:
         export = store.get_bundle_export(organization_id)
     except store.ContextLayerStoreError:

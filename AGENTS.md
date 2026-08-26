@@ -70,6 +70,11 @@ NEVER share sensitive information in a PR description. Users may share sensitive
 
 **Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
+### Local review before opening
+
+When instructed to open a PR or a draft PR, run `hogli review` once on the committed branch before `gh pr create` — it runs the same Greptile reviewer that comments on every PR, so findings become pre-push edits instead of bot comments and CI re-runs.
+Invoke `/reviewing-before-pr` for the full flow: auth and the no-access fallback, the run-once contract, the `no-greptile` label gate (`hogli review --check`), and recording findings in the PR description.
+
 ### Rules
 
 - Scope is optional but encouraged when the change is specific to a feature area
@@ -221,6 +226,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Python tests: do not add doc comments
 - Python: leave `__init__.py` alone unless a check asks for it. Whether a directory needs one depends on what sits above it. `hogli product:lint` and `posthog/test/repo_invariants/test_pytest_module_collisions.py` say where, and print the fix
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
+- Node.js Jest tests: use `.test.ts` by default. Use `.serial.test.ts` only when shared mutable infrastructure cannot be isolated, such as tests that reset a shared database.
 - Tests: when adding coverage, prefer extending a relevant existing test over creating a new standalone test when practical. Prefer parameterized cases (use the `parameterized` library in Python and `test.each` in Jest) when testing variations of the same behavior
 - Tests must earn their place: every new test has to catch a realistic regression no existing test already catches (if you can't name it, don't add it), assert observable behavior through the public interface rather than implementation details, and stay cheap — deterministic, isolated, and at the lowest level that catches the bug (see `/writing-tests`)
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
@@ -263,6 +269,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
+- `/reviewing-before-pr` — when instructed to open a PR or a draft PR: one local Greptile review (`hogli review`) of the committed branch, before `gh pr create`
 
 **Invoke when in the area:**
 

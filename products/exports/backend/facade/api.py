@@ -1,7 +1,7 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
 from collections.abc import Collection
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.http.response import HttpResponseBase
@@ -9,6 +9,8 @@ from django.http.response import HttpResponseBase
 import structlog
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
+
+from posthog.hogql.constants import LimitContext
 
 from posthog.models import Team, User
 from posthog.storage import object_storage
@@ -131,13 +133,31 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
     )
 
 
+# The limit contexts an export writer can pin, keyed by the string it stores in export_context.
+# The API rejects this key from clients, so only PostHog's own writers reach this map.
+_PINNABLE_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
+
+
+def export_limit_context(export_context: dict | None) -> LimitContext:
+    requested = (export_context or {}).get("limit_context")
+    if isinstance(requested, str):
+        return _PINNABLE_EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY)
+    return LimitContext.QUERY
+
+
 def _validate_adhoc_export_context(export_context: dict) -> None:
-    """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch)
-    assumes an InsightVizNode-wrapped source; anything else renders a JSON dump instead
-    of a chart, so reject it here with a real error instead."""
+    """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch) draws a
+    chart for an InsightVizNode-wrapped source, or for a DataVisualizationNode over HogQL. Anything
+    else renders a JSON dump instead of a chart, so reject it here with a real error instead."""
     source = export_context.get("source")
-    if not isinstance(source, dict) or source.get("kind") != "InsightVizNode":
-        raise ValueError("export_context.source must be an InsightVizNode-wrapped query")
+    if isinstance(source, dict):
+        kind = source.get("kind")
+        if kind == "InsightVizNode":
+            return
+        inner = source.get("source")
+        if kind == "DataVisualizationNode" and isinstance(inner, dict) and inner.get("kind") == "HogQLQuery":
+            return
+    raise ValueError("export_context.source must be an InsightVizNode- or DataVisualizationNode-wrapped query")
 
 
 def get_delivery_image_url(*, team_id: int, asset_id: int, expiry_delta: timedelta) -> str | None:
@@ -164,11 +184,18 @@ def render_png_export(
     created_by: User,
     export_context: dict | None = None,
     insight_id: int | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
 ) -> tuple[ExportedAsset, bytes | None]:
     """Render a PNG export synchronously and return the asset together with its content bytes.
 
     Blocks until the export workflow finishes (typically a few seconds). On failure the
     returned bytes are None and ``asset.exception`` carries the error.
+
+    ``is_system`` marks the asset as created by an internal process, which excludes it from
+    the user's export listings and the per-team export quota. ``expires_after`` overrides
+    the format's default TTL; pass it when the render backs a short-lived delivery URL so
+    the stored bytes do not outlive their only consumer by months.
     """
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
@@ -178,6 +205,8 @@ def render_png_export(
         raise ValueError("Provide exactly one of export_context or insight_id")
     if export_context is not None:
         _validate_adhoc_export_context(export_context)
+        if not UserAccessControl(user=created_by, team=team).check_access_level_for_resource("query", "viewer"):
+            raise ValueError("You need query access to render this export")
     if insight_id is not None:
         insight = Insight.objects.filter(id=insight_id, team_id=team.id, deleted=False).first()
         # Object-level access matters here: created_by may not be allowed to view the insight.
@@ -192,6 +221,9 @@ def render_png_export(
         export_format=ExportedAsset.ExportFormat.PNG,
         export_context=export_context,
         insight_id=insight_id,
+        is_system=is_system,
+        # None keeps the model's format-default TTL (see ExportedAsset.save).
+        expires_after=expires_after,
     )
 
     async def _run() -> None:
