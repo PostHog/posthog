@@ -227,6 +227,55 @@ def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organizatio
         assert run["status"] == "Cancelled"
 
 
+@pytest.mark.parametrize("ordering", [None, "-data_interval_start"])
+def test_get_batch_export_runs_filtered_by_status(client: HttpClient, team, user, ordering):
+    batch_export = create_batch_export(team, create_destination())
+    # Runs are only returned when their data interval falls inside the default window of the last 7 days.
+    interval_end = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+    runs = {}
+    for hours, run_status in enumerate(
+        [
+            BatchExportRun.Status.COMPLETED,
+            BatchExportRun.Status.FAILED,
+            BatchExportRun.Status.FAILED_RETRYABLE,
+            BatchExportRun.Status.RUNNING,
+        ]
+    ):
+        runs[run_status] = create_run(
+            batch_export,
+            status=run_status,
+            data_interval_start=interval_end - dt.timedelta(hours=hours + 1),
+            data_interval_end=interval_end - dt.timedelta(hours=hours),
+        )
+
+    client.force_login(user)
+    query_params = {"ordering": ordering} if ordering else {}
+
+    data = get_batch_export_runs_ok(
+        client,
+        team.pk,
+        batch_export.id,
+        status=[BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE],
+        **query_params,
+    )
+    assert {run["id"] for run in data["results"]} == {
+        str(runs[BatchExportRun.Status.FAILED].id),
+        str(runs[BatchExportRun.Status.FAILED_RETRYABLE].id),
+    }
+
+    data = get_batch_export_runs_ok(client, team.pk, batch_export.id, **query_params)
+    assert {run["id"] for run in data["results"]} == {str(run.id) for run in runs.values()}
+
+
+def test_get_batch_export_runs_rejects_unknown_status(client: HttpClient, team, user):
+    batch_export = create_batch_export(team, create_destination())
+    client.force_login(user)
+
+    response = get_batch_export_runs(client, team.pk, batch_export.id, status=["NotAStatus"])
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
 def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user):
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
