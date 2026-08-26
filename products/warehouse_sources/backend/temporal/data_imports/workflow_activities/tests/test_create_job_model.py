@@ -11,7 +11,6 @@ from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
-from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
@@ -244,10 +243,7 @@ class TestCreateJobActivityStatusOrdering:
             billable=True,
         )
 
-        # The activity re-raises an app-DB failure as NonReportableError so its driver wording can't
-        # reach the finalization's source classification. What this test guards is the status
-        # ordering below, which is unchanged.
-        with pytest.raises(NonReportableError):
+        with pytest.raises(OperationalError):
             create_external_data_job_model_activity(inputs)
 
         schema.refresh_from_db()

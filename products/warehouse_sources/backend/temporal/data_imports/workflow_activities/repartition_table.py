@@ -61,7 +61,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_REPARTITION_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
-from products.warehouse_sources.backend.temporal.data_imports.util import reraise_app_db_errors
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import workload_reporting
 
 LOGGER = get_logger(__name__)
@@ -230,7 +229,6 @@ def _maybe_flag_pre_extraction(
 
 
 @activity.defn
-@reraise_app_db_errors
 def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
     # Sync activity (runs in the worker's thread pool) so its ORM access is safe off the event loop;
     # the async repartition primitive is driven via async_to_sync, like import_data_activity_sync.

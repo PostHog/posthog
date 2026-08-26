@@ -34,7 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
-from products.warehouse_sources.backend.temporal.data_imports.util import reraise_app_db_errors
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
@@ -217,7 +216,6 @@ class CreateExternalDataJobModelActivityOutputs:
 
 
 @activity.defn
-@reraise_app_db_errors
 def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
 ) -> CreateExternalDataJobModelActivityOutputs:

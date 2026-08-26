@@ -65,7 +65,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
-from products.warehouse_sources.backend.temporal.data_imports.util import POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -95,6 +94,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     EnrichTableSemanticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
     ImportDataActivityInputs,
     import_data_activity_sync,
 )

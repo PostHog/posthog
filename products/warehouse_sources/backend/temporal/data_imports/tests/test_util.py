@@ -4,8 +4,6 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import InterfaceError, InternalError, OperationalError
-
 import botocore.exceptions
 from parameterized import parameterized
 
@@ -13,11 +11,9 @@ from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
 from products.warehouse_sources.backend.temporal.data_imports.util import (
-    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
     NonRetryableException,
     _is_transient_s3_connection_error,
     prepare_s3_files_for_querying,
-    reraise_app_db_errors,
 )
 
 _UTIL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.util"
@@ -30,46 +26,6 @@ def test_non_retryable_exception_is_non_reportable_error():
     # condition out of error tracking; without it, the activity interceptor reports a fresh
     # "bug" for every occurrence of an error a source already classified as non-retryable.
     assert issubclass(NonRetryableException, NonReportableError)
-
-
-@parameterized.expand(
-    [
-        # Our pooler while the primary is briefly unreachable. A customer's own pooler produces the
-        # identical string, which is why this activity's wording must not reach the finalization's
-        # source classification.
-        ("pooler_cooldown", OperationalError, "server login has been failing, cached error: (server_login_retry)"),
-        ("stale_connection", InterfaceError, "connection already closed"),
-        # A pooled connection left on a demoted standby by a failover.
-        ("failover_read_only", InternalError, "cannot execute UPDATE in a read-only transaction"),
-    ]
-)
-def test_app_db_error_in_a_non_import_activity_carries_the_platform_message(
-    _name: str, error_cls: type[Exception], message: str
-):
-    @reraise_app_db_errors
-    def activity_body():
-        raise error_cls(message)
-
-    with pytest.raises(NonReportableError) as exc_info:
-        activity_body()
-
-    assert str(exc_info.value) == POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
-    assert message not in str(exc_info.value)
-
-
-def test_non_failover_internal_error_is_not_swallowed():
-    # InternalError also covers corrupted data and indexes. Those are defects that have to keep
-    # escaping so error tracking sees them, rather than retrying behind the platform message.
-    error = InternalError('index "posthog_team_pkey" contains unexpected zero page at block 0')
-
-    @reraise_app_db_errors
-    def activity_body():
-        raise error
-
-    with pytest.raises(InternalError) as exc_info:
-        activity_body()
-
-    assert exc_info.value is error
 
 
 def _fake_s3(**kwargs):
