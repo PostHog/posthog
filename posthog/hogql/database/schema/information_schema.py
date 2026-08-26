@@ -1060,6 +1060,30 @@ def _can_read_data_quality(context: "HogQLContext") -> bool:
     ) or access_control.check_access_level_for_resource("warehouse_table", "viewer")
 
 
+def _visible_data_quality_checks(team_id: int, checks: list[Any], denied: set[str]) -> list[Any]:
+    """The checks a caller may see, by the rule the REST surfaces apply.
+
+    A check is out of reach on either count: its own subject is denied, or its definition reads one
+    that is. Subject names come from the subjects themselves rather than the copy denormalized onto
+    the check, which only a run rewrites, so a rename cannot carry a denied subject back into a list.
+    """
+    if not denied:
+        return checks
+    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
+    current_names = data_quality.resolve_subject_names(
+        team_id, [(check.subject_type, check.subject_uuid) for check in checks if check.subject_uuid]
+    )
+    return [
+        check
+        for check in checks
+        if not _references_denied_table(
+            [current_names.get((check.subject_type, str(check.subject_uuid)), check.subject_name)], denied
+        )
+        and not data_quality.check_reads_denied_subject(team_id, check.check_type, check.config, denied)
+    ]
+
+
 def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
     """Load the team's data quality check definitions as information_schema rows (fail-soft).
 
@@ -1094,12 +1118,44 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
                 check.last_run_at.isoformat() if check.last_run_at else None,
                 check.created_at.isoformat(),
             ]
-            for check in queryset
-            if not _references_denied_table([check.subject_name], denied)
+            for check in _visible_data_quality_checks(team_id, list(queryset), denied)
         ]
     except Exception:
         logger.exception("information_schema: failed to load data quality checks", team_id=team_id)
         return []
+
+
+def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
+    """Exclude, in SQL, every run whose definition read a subject the caller is denied.
+
+    A run is judged on the definition it executed, snapshotted on the row, so editing a check cannot
+    rewrite what its history discloses. A referencing run that predates the snapshot has no
+    definition left to judge, so it is withheld rather than assumed harmless.
+    """
+    from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
+
+    subjects = set(runs.values_list("subject_type", "subject_uuid", "subject_name").distinct())
+    current_names = data_quality.resolve_subject_names(
+        team_id, [(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]
+    )
+    blocked_subjects = [
+        subject_uuid
+        for subject_type, subject_uuid, stamped in subjects
+        if _references_denied_table([current_names.get((subject_type, str(subject_uuid)), stamped)], denied)
+    ]
+    if blocked_subjects:
+        runs = runs.exclude(subject_uuid__in=blocked_subjects)
+
+    referencing = list(data_quality.referencing_check_types())
+    blocked_definitions = Q()
+    for check_type, config in (
+        runs.filter(check_type__in=referencing).values_list("check_type", "check_config").distinct()
+    ):
+        if config is not None and data_quality.check_reads_denied_subject(team_id, check_type, config, denied):
+            blocked_definitions |= Q(check_type=check_type, check_config=config)
+    if blocked_definitions:
+        runs = runs.exclude(blocked_definitions)
+    return runs.exclude(check_config__isnull=True, check_type__in=referencing)
 
 
 def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
@@ -1121,16 +1177,10 @@ def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozense
             base = base.filter(subject_name__in=allowed)
         # Drop denied subjects in SQL (not by scanning rows in Python) so the window is a bounded
         # LIMIT rather than a full-history scan that skips denied rows one by one. The distinct set of
-        # subject names is small, so resolving which are denied is cheap; excluding them before the
-        # window still drops denied rows before it applies.
+        # subjects and of referencing definitions is small, so deciding which are denied is cheap;
+        # excluding them before the window still drops denied rows before it applies.
         if denied:
-            blocked = {
-                name
-                for name in base.values_list("subject_name", flat=True).distinct()
-                if _references_denied_table([name], denied)
-            }
-            if blocked:
-                base = base.exclude(subject_name__in=blocked)
+            base = _without_denied_runs(team_id, base, denied)
         return [
             [
                 str(run.id),
@@ -1173,9 +1223,7 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
         if allowed is not None:
             checks_qs = checks_qs.filter(subject_name__in=allowed)
         by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
-        for check in checks_qs:
-            if _references_denied_table([check.subject_name], denied):
-                continue
+        for check in _visible_data_quality_checks(team_id, list(checks_qs), denied):
             # A hard-deleted subject has no id to key a rollup on, and its checks only skip.
             if check.subject_uuid is None:
                 continue

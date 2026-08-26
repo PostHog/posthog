@@ -519,6 +519,26 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
+    def test_listing_a_subjects_checks_leaves_out_the_ones_reading_a_denied_subject(self) -> None:
+        # The parent gate cleared "customers", but a check under it names the denied "orders" in its
+        # config, which the routes that address one check already refuse to serve.
+        allowed = self._make_view("customers")
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config={"query": "SELECT 1 FROM orders"},
+            fingerprint=uuid4().hex,
+        )
+        self._deny_the_view()
+
+        listed = self.client.get(f"{self._checks_url(allowed.id)}/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+
     @parameterized.expand([("pinned", True), ("recorded before pinning", False)])
     def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self, _name: str, pinned: bool) -> None:
         # Authorizing history against the definition the check carries *now* lets a member point a

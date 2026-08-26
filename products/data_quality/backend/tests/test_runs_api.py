@@ -182,6 +182,29 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert self.client.get(f"{self.url}{denied.id}/").status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(f"{self.url}{sweep.id}/").status_code == status.HTTP_404_NOT_FOUND
 
+    def test_history_withholds_a_suite_whose_run_read_a_denied_subject(self) -> None:
+        # The run sits on the allowed subject, so its own uuid clears the filter. What it read is in
+        # the definition it executed, and the counters report on those rows too.
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite_run,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=self.customers.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM orders"},
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+        )
+        self._check(self.orders)
+        self._deny_orders()
+
+        listed = self.client.get(self.url)
+
+        assert [row["id"] for row in listed.json()["results"]] == []
+        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+
     def _sweep_covering(self, view: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         """A multi-subject sweep whose counters include one check run against this view."""
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
@@ -219,6 +242,33 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         assert {row["subject_name"] for row in listed.json()["results"]} == {"customers"}
         assert {row["subject_uuid"] for row in health.json()} == {str(self.customers.id)}
+
+    def test_the_overview_hides_a_check_that_reads_a_denied_subject(self) -> None:
+        # The parent is allowed, but the config names "orders" and the status answers questions
+        # about its rows, so listing the check is a directory entry for a table the member cannot read.
+        self._check(
+            self.customers,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+        self._deny_orders()
+
+        listed = self.client.get(self.checks_url)
+        health = self.client.get(f"{self.checks_url}health/")
+
+        assert listed.json()["results"] == []
+        assert health.json() == []
+
+    def test_the_overview_hides_a_denied_subject_renamed_since_its_last_run(self) -> None:
+        # subject_name is only rewritten when the check runs, so matching denial against it serves
+        # the subject's checks for the whole window between a rename and the next run.
+        self._check(self.orders, subject_name="orders_legacy")
+        self._deny_orders()
+
+        listed = self.client.get(self.checks_url)
+
+        assert listed.json()["results"] == []
 
     def test_the_overview_leaves_out_orphans_but_keeps_their_history(self) -> None:
         # An orphan has no subject page to link to, nothing to run, and no rollup to sit under, so

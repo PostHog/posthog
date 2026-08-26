@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import ClassVar, cast
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -162,6 +162,42 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         if self._reads_unreadable_subject(check_type, config):
             raise PermissionDenied("You don't have access to a table or view this check reads.")
 
+    def _denied_checks(self, checks: list[DataQualityCheck], denied: set[str]) -> set[UUID]:
+        """The ids of the checks this caller may not see, over a page of them.
+
+        A check is out of reach on either count: its own subject is denied, or its definition reads
+        one that is. Subject names come from the subjects themselves rather than from the copy
+        denormalized onto the check, which only a run rewrites, so a rename cannot carry a denied
+        subject back into a list.
+        """
+        current_names = api.resolve_subject_names(
+            self.team_id, [(check.subject_type, check.subject_uuid) for check in checks if check.subject_uuid]
+        )
+        return {
+            check.id
+            for check in checks
+            if api.is_subject_denied(
+                current_names.get((check.subject_type, str(check.subject_uuid)), check.subject_name), denied
+            )
+            or self._reads_unreadable_subject(check.check_type, check.config)
+        }
+
+    def _denied_definitions(self, runs: QuerySet[DataQualityCheckRun]) -> Q:
+        """Match the runs whose executed definition read a subject the caller is denied.
+
+        Only the types that can read past their own subject are considered, and each distinct
+        definition is judged once, so the scan stays small however long the history is. A referencing
+        run recorded before the config snapshot has no definition left to judge and is matched too,
+        since what it read cannot be established.
+        """
+        referencing = list(api.referencing_check_types())
+        matched = Q(check_config__isnull=True, check_type__in=referencing)
+        definitions = runs.filter(check_type__in=referencing).values_list("check_type", "check_config").distinct()
+        for check_type, config in definitions:
+            if config is not None and self._reads_unreadable_subject(check_type, config):
+                matched |= Q(check_type=check_type, check_config=config)
+        return matched
+
     def _readable_runs(self, runs: list[DataQualityCheckRun]) -> list[DataQualityCheckRun]:
         """Drop the runs that read a subject the caller cannot be shown to be allowed."""
         if not self._can_be_object_denied():
@@ -269,6 +305,19 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
         if check_type := self.request.query_params.get("check_type"):
             queryset = queryset.filter(check_type=check_type)
         return queryset.order_by("-created_at")
+
+    def filter_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
+        # The parent gate cleared this subject, but a check under it can read a second one. Its
+        # config names that subject, and its status answers questions about the rows behind it.
+        queryset = super().filter_queryset(queryset)
+        # Listing only. The routes that address one check keep answering 403 with what is wrong,
+        # which tells the caller more than the 404 that hiding the row would give them.
+        if self.action != "list":
+            return queryset
+        denied = self._denied_subject_names()
+        if not denied:
+            return queryset
+        return queryset.exclude(id__in=self._denied_checks(list(queryset), denied))
 
     def get_serializer_context(self) -> dict:
         return {
@@ -543,8 +592,7 @@ class DataQualityCheckOverviewViewSet(
         denied = self._denied_subject_names()
         if not denied:
             return queryset
-        hidden = [check.id for check in queryset if api.is_subject_denied(check.subject_name, denied)]
-        return queryset.exclude(id__in=hidden)
+        return queryset.exclude(id__in=self._denied_checks(list(queryset), denied))
 
     @extend_schema(
         description="Health rollup for every table and view in the project that has checks.",
@@ -608,40 +656,51 @@ class DataQualityRunViewSet(
         either.
         """
         queryset = super().filter_queryset(queryset)
-        denied_uuids = self._denied_subject_uuids()
-        if not denied_uuids:
+        denied = self._denied_subject_names()
+        if not denied:
             return queryset
-        covering_denied = (
-            DataQualityCheckRun.objects.for_team(self.team_id)
-            .filter(subject_uuid__in=denied_uuids)
-            .values("suite_run_id")
-        )
-        return queryset.exclude(subject_uuid__in=denied_uuids).exclude(id__in=covering_denied)
+        runs = DataQualityCheckRun.objects.for_team(self.team_id)
+        denied_uuids = self._denied_subject_uuids()
+        if denied_uuids:
+            queryset = queryset.exclude(subject_uuid__in=denied_uuids).exclude(
+                id__in=runs.filter(subject_uuid__in=denied_uuids).values("suite_run_id")
+            )
+        # A run's declared subject is not the only one it read, so the same test the check routes
+        # apply to a definition has to reach the suites reporting on it.
+        return queryset.exclude(id__in=runs.filter(self._denied_definitions(runs)).values("suite_run_id"))
 
     def _denied_subject_uuids(self) -> set[UUID]:
         """The ids of the subjects this caller is denied, as suite and check runs record them.
 
-        Read from the names already denormalized onto checks and their runs rather than resolved one
-        subject at a time, so a restricted member's page costs two queries instead of one per
-        subject. That inherits the denormalized name's rename window, which every check-list surface
-        shares.
+        Resolved from the subjects themselves rather than from the name denormalized onto a check,
+        so a subject renamed since its last run still matches its own denial.
         """
         denied = self._denied_subject_names()
         if not denied:
             return set()
         checks = DataQualityCheck.objects.for_team(self.team_id).values_list(
-            "saved_query_id", "table_id", "subject_name"
+            "subject_type", "saved_query_id", "table_id", "subject_name"
         )
-        named_subjects = [(saved_query_id or table_id, name) for saved_query_id, table_id, name in checks]
+        stamped = {
+            (subject_type, str(saved_query_id or table_id)): name
+            for subject_type, saved_query_id, table_id, name in checks
+            if saved_query_id or table_id
+        }
         # A hard-deleted check leaves its runs behind with the FK nulled, so its subject would drop
         # out of the set above while its suites still report on it.
-        named_subjects += (
-            DataQualityCheckRun.objects.for_team(self.team_id)
+        stamped |= {
+            (subject_type, str(subject_uuid)): name
+            for subject_type, subject_uuid, name in DataQualityCheckRun.objects.for_team(self.team_id)
             .filter(quality_check__isnull=True)
-            .values_list("subject_uuid", "subject_name")
+            .values_list("subject_type", "subject_uuid", "subject_name")
             .distinct()
-        )
-        return {uuid for uuid, name in named_subjects if uuid and api.is_subject_denied(name, denied)}
+        }
+        current_names = api.resolve_subject_names(self.team_id, stamped.keys())
+        return {
+            UUID(subject_uuid)
+            for (subject_type, subject_uuid), name in stamped.items()
+            if api.is_subject_denied(current_names.get((subject_type, subject_uuid), name), denied)
+        }
 
     @extend_schema(
         description="Run the named checks now, or every enabled check in the project when none are named. "

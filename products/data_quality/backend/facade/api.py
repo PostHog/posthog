@@ -30,15 +30,17 @@ from ..logic.serialization import compute_fingerprint, from_config_entry, to_con
 from ..logic.subject_access import (
     PinnedSubject,
     ReferencedSubjects,
+    check_reads_denied_subject,
     check_type_reads_beyond_subject,
     denied_subject_names,
     is_subject_denied,
     pinned_subjects,
     referenced_subject_names,
     referenced_subjects,
+    referencing_check_types,
     unconfirmable_subject_names,
 )
-from ..logic.subjects import resolve_subject
+from ..logic.subjects import resolve_subject, resolve_subject_names
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
 from .contracts import CheckTypeInfo
 
@@ -55,6 +57,7 @@ __all__ = [
     "SubjectRef",
     "SubjectUnresolvableError",
     "UnknownCheckTypeError",
+    "check_reads_denied_subject",
     "check_type_reads_beyond_subject",
     "checks_for_subject",
     "compile_check",
@@ -72,8 +75,10 @@ __all__ = [
     "quality_audit_mode",
     "referenced_subject_names",
     "referenced_subjects",
+    "referencing_check_types",
     "related_subject_ref",
     "resolve_subject",
+    "resolve_subject_names",
     "roll_up_health",
     "set_gate_materialization_on_checks",
     "soft_delete_check",
