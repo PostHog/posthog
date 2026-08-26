@@ -51,6 +51,14 @@ jobs:
                       exit 1
                   fi
 
+            - name: Extract release notes from the changelog
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#hogli-v}"
+                  python tools/hogli/scripts/release_notes.py "$tag_version" > /tmp/hogli-release-notes.md
+
             - name: Build sdist and wheel
               run: uv build tools/hogli --out-dir dist
 
@@ -79,5 +87,5 @@ jobs:
               uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
               with:
                   files: dist/*
-                  generate_release_notes: true
+                  body_path: /tmp/hogli-release-notes.md
                   prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}

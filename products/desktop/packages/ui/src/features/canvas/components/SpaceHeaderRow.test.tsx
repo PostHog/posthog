@@ -77,6 +77,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [{ id: "chan-1", name: "space" }] }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useInboxActivityPreview", () => ({
+  useInboxActivityPreview: () => ({ reports: [] }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
   useChannelStarMutations: () => ({ star: vi.fn(), unstar: vi.fn() }),
 }));
