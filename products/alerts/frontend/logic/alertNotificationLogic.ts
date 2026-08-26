@@ -516,10 +516,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             }
             lemonToast.success(`Test delivery started for ${deliveryTargets.join(' and ')}.`)
         },
-        sendTestDeliveryFailure: ({ errorObject }) => {
-            const detail = errorObject?.detail
-            lemonToast.error(typeof detail === 'string' ? detail : 'Unable to send the test. Try again.')
-        },
     })),
 
     afterMount(({ actions, props }) => {

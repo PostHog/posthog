@@ -88,7 +88,15 @@ def produce_internal_event(
         producer = get_producer(topic=kafka_topic)
         return producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
     except Exception as e:
-        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        # Identify the event by ids, not payload: properties can carry credentials
+        # (e.g. tokenized delivery URLs) and person data, which must not reach logs.
+        logger.exception(
+            "Failed to produce internal event",
+            team_id=team_id,
+            event_name=data.event.event,
+            event_uuid=data.event.uuid,
+            error=e,
+        )
         raise
 
 
