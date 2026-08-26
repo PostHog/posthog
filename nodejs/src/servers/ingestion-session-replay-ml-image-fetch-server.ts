@@ -49,6 +49,14 @@ const STORE_BATCH_BUDGET_MS = 50_000
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048
 
+const BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS = [
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+    KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
+]
+
 /** The addon holds a 15 MB native library and `index.ts` imports every server, so it loads on first use. */
 let anonymizer: typeof import('@posthog/replay-anonymizer') | undefined
 function getAnonymizer(): typeof import('@posthog/replay-anonymizer') {
@@ -215,7 +223,9 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES
         )
         const deadLetterTopic = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC
-        const deadLetters = deadLetterTopic ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic) : null
+        const deadLetters = deadLetterTopic
+            ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)
+            : null
 
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,

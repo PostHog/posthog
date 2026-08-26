@@ -376,16 +376,57 @@ describe('UrlFetchConsumer', () => {
         expect(completed).toHaveBeenCalledTimes(1)
     })
 
+    it('quarantines rejected records concurrently', async () => {
+        const harness = build()
+        const first = message([candidate('a')])
+        first.value = Buffer.from('{')
+        const second = message([candidate('b')])
+        second.value = Buffer.from('{')
+        second.offset = 1
+        const releases: Array<() => void> = []
+        harness.park.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    releases.push(resolve)
+                })
+        )
+
+        const sourceBatch = harness.consumer.handleBatch([first, second], NOW_MS)
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(harness.park).toHaveBeenCalledTimes(2)
+
+        for (const release of releases) {
+            release()
+        }
+        await expect(sourceBatch).resolves.toBeUndefined()
+    })
+
+    it('does not quarantine rejected records before other batch work succeeds', async () => {
+        const harness = build()
+        const invalid = message([candidate('a')])
+        invalid.value = Buffer.from('{')
+        harness.history.readError = new Error('read failed')
+
+        await expect(harness.consumer.handleBatch([invalid, message([candidate('b')])], NOW_MS)).rejects.toThrow(
+            'read failed'
+        )
+
+        expect(harness.park).not.toHaveBeenCalled()
+    })
+
     it('keeps the source batch uncommitted when quarantine publication fails', async () => {
         const harness = build()
         const invalid = message([candidate('a')])
         invalid.value = Buffer.from('{')
         harness.park.mockRejectedValue(new Error('DLQ unavailable'))
         const deadLetterFailed = jest.spyOn(ImageFetchConsumerMetrics, 'incDeadLetterFailed')
+        const dropped = jest.spyOn(ImageFetchConsumerMetrics, 'incDropped')
 
         await expect(harness.consumer.handleBatch([invalid], NOW_MS)).rejects.toThrow('DLQ unavailable')
 
         expect(deadLetterFailed).toHaveBeenCalledWith('malformed')
+        expect(dropped).not.toHaveBeenCalled()
         expect(harness.run).not.toHaveBeenCalled()
         expect(harness.history.readKeys).toEqual([])
     })

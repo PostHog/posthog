@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { UrlDropReason } from './collected-urls-record'
+import { MAX_RECORD_BYTES, UrlDropReason } from './collected-urls-record'
 
 export type FrontierDeadLetterReason = UrlDropReason | 'multiple'
 type FrontierRecordVersion = '1' | '2' | 'unsupported' | 'unknown'
@@ -15,8 +15,13 @@ export interface FrontierDeadLetterSink {
 export class KafkaFrontierDeadLetterSink implements FrontierDeadLetterSink {
     constructor(
         private readonly producer: KafkaProducerWrapper,
-        private readonly topic: string
-    ) {}
+        private readonly topic: string,
+        blockedDestinations: readonly string[]
+    ) {
+        if (blockedDestinations.includes(topic)) {
+            throw new Error(`SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC cannot use image-fetch topic ${topic}`)
+        }
+    }
 
     public async park(message: Message, reason: FrontierDeadLetterReason): Promise<void> {
         await this.producer.produce({
@@ -35,7 +40,7 @@ export class KafkaFrontierDeadLetterSink implements FrontierDeadLetterSink {
 }
 
 function classifyFrontierRecordVersion(value: Buffer | null): FrontierRecordVersion {
-    if (!value) {
+    if (!value || value.length > MAX_RECORD_BYTES) {
         return 'unknown'
     }
     try {

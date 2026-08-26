@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 
@@ -19,6 +20,13 @@ import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
+const DEAD_LETTER_BATCH_BUDGET_MS = 50_000
+const DEAD_LETTER_PUBLISH_CONCURRENCY = 8
+
+type RejectedFrontierRecord = {
+    message: Message
+    reasons: UrlDropReason[]
+}
 
 export interface UrlFetchConsumerOptions {
     seenTtlSeconds: number
@@ -46,6 +54,7 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
+        const rejectedRecords: RejectedFrontierRecord[] = []
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
         let originCount = 0
@@ -58,19 +67,15 @@ export class UrlFetchConsumer {
             for (const message of messages) {
                 const parsed = this.parse(message)
                 if (!parsed.ok) {
-                    await this.parkRejectedRecord(message, [parsed.reason])
-                    drops.set(parsed.reason, (drops.get(parsed.reason) ?? 0) + 1)
+                    rejectedRecords.push({ message, reasons: [parsed.reason] })
                     continue
                 }
                 ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
                 if (parsed.rejected.length > 0) {
-                    await this.parkRejectedRecord(
+                    rejectedRecords.push({
                         message,
-                        parsed.rejected.map((rejected) => rejected.reason)
-                    )
-                }
-                for (const rejected of parsed.rejected) {
-                    drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
+                        reasons: parsed.rejected.map((rejected) => rejected.reason),
+                    })
                 }
                 for (const candidate of parsed.candidates) {
                     const existing = candidatesByRef.get(candidate.originalRef)
@@ -100,6 +105,7 @@ export class UrlFetchConsumer {
             registrableDomainCandidateCounts = [...registrableDomains.values()]
 
             if (this.options.dryRun || candidates.length === 0) {
+                await this.parkRejectedRecords(rejectedRecords, drops)
                 return
             }
 
@@ -155,6 +161,7 @@ export class UrlFetchConsumer {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
             }
+            await this.parkRejectedRecords(rejectedRecords, drops)
         } finally {
             ImageFetchConsumerMetrics.finishBatch()
             this.recordMetrics(
@@ -180,16 +187,78 @@ export class UrlFetchConsumer {
         }
     }
 
-    private async parkRejectedRecord(message: Message, reasons: UrlDropReason[]): Promise<void> {
+    private async parkRejectedRecords(
+        records: RejectedFrontierRecord[],
+        drops: Map<UrlDropReason, number>
+    ): Promise<void> {
+        const deadlineAtMonotonicMs = performance.now() + DEAD_LETTER_BATCH_BUDGET_MS
+        const limit = pLimit(DEAD_LETTER_PUBLISH_CONCURRENCY)
+        let firstFailure: unknown
+        const outcomes = await Promise.allSettled(
+            records.map(({ message, reasons }) =>
+                limit(async () => {
+                    if (firstFailure) {
+                        throw firstFailure
+                    }
+                    try {
+                        await this.parkRejectedRecord(message, reasons, deadlineAtMonotonicMs)
+                    } catch (error) {
+                        firstFailure = error
+                        throw error
+                    }
+                })
+            )
+        )
+        for (const outcome of outcomes) {
+            if (outcome.status === 'rejected') {
+                throw outcome.reason
+            }
+        }
+        for (const { reasons } of records) {
+            for (const reason of reasons) {
+                drops.set(reason, (drops.get(reason) ?? 0) + 1)
+            }
+        }
+    }
+
+    private async parkRejectedRecord(
+        message: Message,
+        reasons: UrlDropReason[],
+        deadlineAtMonotonicMs: number
+    ): Promise<void> {
         if (!this.deadLetters) {
             return
         }
         const reason = this.deadLetterReason(reasons)
+        const remainingMs = deadlineAtMonotonicMs - performance.now()
+        if (remainingMs <= 0) {
+            const error = new Error('image-fetch dead-letter batch exceeded its publish budget')
+            ImageFetchConsumerMetrics.incDeadLetterFailed(reason)
+            logger.error('🌐', 'ml_image_fetch_dead_letter_publish_failed', { reason, error: error.name })
+            throw error
+        }
+        let timeout: NodeJS.Timeout | undefined
         try {
-            await this.deadLetters.park(message, reason)
+            await Promise.race([
+                this.deadLetters.park(message, reason),
+                new Promise<never>((_, reject) => {
+                    timeout = setTimeout(
+                        () => reject(new Error('image-fetch dead-letter batch exceeded its publish budget')),
+                        remainingMs
+                    )
+                }),
+            ])
         } catch (error) {
             ImageFetchConsumerMetrics.incDeadLetterFailed(reason)
+            logger.error('🌐', 'ml_image_fetch_dead_letter_publish_failed', {
+                reason,
+                error: error instanceof Error ? error.name : 'unknown',
+            })
             throw error
+        } finally {
+            if (timeout) {
+                clearTimeout(timeout)
+            }
         }
         ImageFetchConsumerMetrics.incDeadLettered(reason)
     }
