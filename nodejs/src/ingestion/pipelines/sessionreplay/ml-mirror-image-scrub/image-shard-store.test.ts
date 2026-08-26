@@ -47,7 +47,7 @@ describe('ImageShardStore', () => {
         const send = jest.fn().mockResolvedValueOnce({})
         const store = new ImageShardStore({ send } as unknown as S3Client, 'bucket', 'images', 1_000, 'node')
 
-        await store.writeUrlImage(urlImage)
+        await expect(store.writeUrlImage(urlImage)).resolves.toBe('created')
 
         const put = send.mock.calls[0][0] as PutObjectCommand
         expect(put.input).toMatchObject({
@@ -65,7 +65,7 @@ describe('ImageShardStore', () => {
         const send = jest.fn().mockRejectedValueOnce(exists)
         const store = new ImageShardStore({ send } as unknown as S3Client, 'bucket', 'images', 1_000, 'node')
 
-        await store.writeUrlImage(urlImage)
+        await expect(store.writeUrlImage(urlImage)).resolves.toBe('already_exists')
 
         expect(send).toHaveBeenCalledTimes(1)
         expect((send.mock.calls[0][0] as PutObjectCommand).input.IfNoneMatch).toBe('*')
@@ -79,7 +79,7 @@ describe('ImageShardStore', () => {
         const send = jest.fn().mockRejectedValueOnce(conflict).mockResolvedValueOnce({})
         const store = new ImageShardStore({ send } as unknown as S3Client, 'bucket', 'images', 1_000, 'node')
 
-        await store.writeUrlImage(urlImage)
+        await expect(store.writeUrlImage(urlImage)).resolves.toBe('created')
 
         expect(send).toHaveBeenCalledTimes(2)
         expect(send.mock.calls.map(([command]) => (command as PutObjectCommand).input.IfNoneMatch)).toEqual(['*', '*'])
