@@ -206,6 +206,158 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
                 user_access_control=self._uac(allowed=False),
             )
 
+    @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
+    def test_update_person_mapping_round_trips_on_the_same_source_and_starts_one_backfill(self, start_backfill):
+        source = self._create(user_access_control=self._uac(allowed=True))
+        start_backfill.reset_mock()
+        CustomPropertySource.objects.filter(id=source.id).update(
+            consecutive_failures=3, last_sync_error="previous sync failure"
+        )
+
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={
+                "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
+                "column_descriptions": {"seats": " Seat count "},
+            },
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert view is not None and view.id == source.id
+        assert view.column_property_map == {"plan": "plan_tier", "seats": "seat_count"}
+        assert view.column_descriptions == {"seats": "Seat count"}
+        assert view.consecutive_failures == 3 and view.last_sync_error == "previous sync failure"
+        start_backfill.assert_called_once()
+
+    @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
+    def test_update_person_mapping_noop_does_not_start_a_backfill(self, start_backfill):
+        source = self._create(user_access_control=self._uac(allowed=True))
+        start_backfill.reset_mock()
+
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"column_property_map": {"plan": "plan_tier"}},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert view is not None and view.id == source.id
+        start_backfill.assert_not_called()
+
+    @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
+    def test_update_person_descriptions_does_not_start_a_backfill(self, start_backfill):
+        source = self._create(user_access_control=self._uac(allowed=True))
+        start_backfill.reset_mock()
+
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"column_descriptions": {"plan": " Plan tier "}},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
+        start_backfill.assert_not_called()
+
+    @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
+    def test_update_disabled_person_mapping_requires_editor_without_starting_a_backfill(self, start_backfill):
+        source = self._create(is_enabled=False, user_access_control=self._uac(allowed=True))
+        start_backfill.reset_mock()
+
+        with self.assertRaises(api.ResourceForbiddenError):
+            api.update_custom_property_source(
+                team_id=self.team.id,
+                source_id=source.id,
+                fields={"column_property_map": {"plan": "plan_tier", "seats": "seat_count"}},
+                user_access_control=self._uac(allowed=False),
+            )
+
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"column_property_map": {"plan": "plan_tier", "seats": "seat_count"}},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert view is not None and view.column_property_map["seats"] == "seat_count"
+        start_backfill.assert_not_called()
+
+    def test_update_person_mapping_replacement_drops_descriptions_for_removed_columns(self):
+        source = self._create(
+            column_property_map={"plan": "plan_tier", "seats": "seat_count"},
+            column_descriptions={"plan": "Plan tier", "seats": "Seat count"},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        view = api.update_custom_property_source(
+            team_id=self.team.id,
+            source_id=source.id,
+            fields={"column_property_map": {"plan": "plan_tier"}},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert view is not None and view.column_descriptions == {"plan": "Plan tier"}
+
+    @parameterized.expand(
+        [
+            ("empty_map", {"column_property_map": {}}, "non-empty object"),
+            ("null_map", {"column_property_map": None}, "non-empty object"),
+            ("blank_property", {"column_property_map": {"plan": ""}}, "non-empty property names"),
+            (
+                "description_outside_map",
+                {"column_descriptions": {"unmapped": "Unknown column"}},
+                "present in column_property_map",
+            ),
+        ]
+    )
+    @patch("products.customer_analytics.backend.facade.api._start_person_backfill_if_enabled")
+    def test_update_person_mapping_rejects_invalid_input_before_persistence_or_backfill(
+        self, _name, fields, expected_message, start_backfill
+    ):
+        source = self._create(user_access_control=self._uac(allowed=True))
+        start_backfill.reset_mock()
+
+        with self.assertRaisesMessage(api.CustomPropertySourceValidationError, expected_message):
+            api.update_custom_property_source(team_id=self.team.id, source_id=source.id, fields=fields)
+
+        row = CustomPropertySource.objects.unscoped().get(id=source.id)
+        assert row.column_property_map == {"plan": "plan_tier"}
+        start_backfill.assert_not_called()
+
+    @parameterized.expand(["column_property_map", "column_descriptions"])
+    def test_update_account_source_rejects_profile_mapping_fields(self, field):
+        source = self._create(
+            definition_id=self.account_def.id,
+            external_data_schema_id=None,
+            saved_query_id=self.saved_query.id,
+            source_column="mrr",
+            column_property_map=None,
+        )
+
+        value = {"mrr": "account_mrr"} if field == "column_property_map" else {"mrr": "Account MRR"}
+        with self.assertRaisesMessage(api.CustomPropertySourceValidationError, "not external_data_schema"):
+            api.update_custom_property_source(
+                team_id=self.team.id,
+                source_id=source.id,
+                fields={field: value},
+            )
+
+    def test_update_person_mapping_is_team_scoped(self):
+        source = self._create(user_access_control=self._uac(allowed=True))
+        other_team = self.organization.teams.create(name="other")
+
+        view = api.update_custom_property_source(
+            team_id=other_team.id,
+            source_id=source.id,
+            fields={"column_property_map": {"plan": "other_plan"}},
+            user_access_control=self._uac(allowed=True),
+        )
+
+        assert view is None
+        source.refresh_from_db()
+        assert source.column_property_map == {"plan": "plan_tier"}
+
     def test_delete_person_source_requires_warehouse_source_editor(self):
         # Deleting a person source permanently stops its billable warehouse-driven updates, so it needs
         # external_data_source editor access, not account-scope editor alone.

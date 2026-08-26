@@ -1249,6 +1249,8 @@ class CustomPropertySourceViewSet(
                 fields=write.validated_data,
                 user_access_control=_warehouse_scoped_uac(self),
             )
+        except api.CustomPropertySourceValidationError as e:
+            raise ValidationError(str(e))
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         if source is None:

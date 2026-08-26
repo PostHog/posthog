@@ -1539,7 +1539,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         help_text=(
             "Person and group sources only: {warehouse_column: description} giving each mapped column a "
             "human-facing description, seeded from the warehouse column's information_schema "
-            "description. Optional per column. Create-only."
+            "description. Optional per column."
         ),
     )
     key_column = serializers.CharField(
@@ -1788,14 +1788,29 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
 
 
 class CustomPropertySourceUpdateSerializer(serializers.Serializer):
-    """Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
-    they are intentionally absent — only these reach the facade's update."""
+    """Writable fields for updating a source. Binding and definition fields are create-only, so they
+    are intentionally absent — only these reach the facade's update."""
 
     source_column = serializers.CharField(
         max_length=400, required=False, help_text="Column in the view whose value is written to the property."
     )
     key_column = serializers.CharField(
         max_length=400, required=False, help_text="Column in the view whose value matches an account's external_id."
+    )
+    column_property_map = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: {warehouse_column: property_name} mapping the columns this "
+            "source writes onto the person or group."
+        ),
+    )
+    column_descriptions = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column."
+        ),
     )
     is_enabled = serializers.BooleanField(
         required=False, help_text="Whether the source syncs; re-enabling it resets the failure count."

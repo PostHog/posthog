@@ -1706,7 +1706,9 @@ def _validate_column_property_map(column_property_map: Any) -> dict[str, str]:
     return column_property_map
 
 
-def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[str]) -> dict[str, str]:
+def _validate_column_descriptions(
+    column_descriptions: Any, mapped_columns: set[str], *, reject_unmapped: bool = False
+) -> dict[str, str]:
     """Optional {warehouse_column: description} for a person source. Descriptions are keyed by the
     same warehouse columns the source maps; unknown columns and blank descriptions are dropped."""
     if column_descriptions is None:
@@ -1716,6 +1718,10 @@ def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[
     cleaned: dict[str, str] = {}
     for column, description in column_descriptions.items():
         if column not in mapped_columns:
+            if reject_unmapped:
+                raise CustomPropertySourceValidationError(
+                    "column_descriptions keys must be present in column_property_map."
+                )
             continue
         if description is None or (isinstance(description, str) and not description.strip()):
             continue
@@ -2150,27 +2156,49 @@ def create_custom_property_source(
     return _to_custom_property_source_view(source, user_access_control)
 
 
+@transaction.atomic
 def update_custom_property_source(
     *, team_id: int, source_id: str, fields: dict[str, Any], user_access_control: "UserAccessControl | None" = None
 ) -> contracts.CustomPropertySourceView | None:
-    """Apply ``fields`` (source_column / key_column / is_enabled) to a team-scoped source. Re-enabling
-    (is_enabled False→True) resets the failure streak and clears the last error. Returns None (→ 404)
-    when no source matches."""
-    source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
+    """Apply writable fields to a team-scoped source. Re-enabling (is_enabled False→True) resets the
+    failure streak and clears the last error. Returns None (→ 404) when no source matches."""
+    source = (
+        CustomPropertySource.objects.for_team(team_id)
+        .select_for_update(of=("self",))
+        .select_related("definition")
+        .filter(id=source_id)
+        .first()
+    )
     if source is None:
         return None
+    fields = dict(fields)
+    profile_mapping_fields = {"column_property_map", "column_descriptions"}.intersection(fields)
+    if profile_mapping_fields:
+        if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
+            raise CustomPropertySourceValidationError(
+                "An account property source uses saved_query + source_column, not external_data_schema."
+            )
+        validated_map = _validate_column_property_map(fields.get("column_property_map", source.column_property_map))
+        if "column_property_map" in fields:
+            fields["column_property_map"] = validated_map
+        if "column_descriptions" in fields:
+            fields["column_descriptions"] = _validate_column_descriptions(
+                fields["column_descriptions"], set(validated_map), reject_unmapped=True
+            )
+        elif "column_property_map" in fields:
+            fields["column_descriptions"] = _validate_column_descriptions(
+                source.column_descriptions, set(validated_map)
+            )
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
     columns_changed = any(
-        attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
+        attr in fields and fields[attr] != getattr(source, attr)
+        for attr in ("source_column", "key_column", "column_property_map")
     )
-    # A profile source's backfill drives a real warehouse run, so any change that will trigger one —
-    # re-enabling, or changing the mapped columns while it stays enabled — requires the caller's editor
-    # access on the warehouse object, not account-scope editor alone (matching create). Both routes reach
-    # _start_person_backfill_if_enabled below via ``reenabling or columns_changed``; ``is_enabled`` here is
-    # the post-update state that decides whether that helper actually starts a backfill.
+    # Profile mapping fields always require editor access to the bound warehouse object, including while
+    # disabled. Existing re-enable/column changes require it when they will trigger a backfill.
     will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
     binding = _profile_binding(source)
-    if binding is not None and will_be_enabled and (reenabling or columns_changed):
+    if binding is not None and (profile_mapping_fields or (will_be_enabled and (reenabling or columns_changed))):
         _assert_warehouse_editor(team_id, binding, user_access_control)
     for attr, value in fields.items():
         setattr(source, attr, value)

@@ -2053,6 +2053,30 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert body["column_property_map"] == {"plan": "plan_tier"}
         assert body["saved_query"] is None
 
+    def test_patch_person_source_mapping_round_trip_and_validation(self):
+        source_id = self._create_person_source()
+
+        patched = self.client.patch(
+            f"{self.endpoint}{source_id}/",
+            {
+                "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
+                "column_descriptions": {"seats": " Seat count "},
+            },
+            format="json",
+        )
+
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["id"] == source_id
+        assert patched.json()["column_property_map"] == {"plan": "plan_tier", "seats": "seat_count"}
+        assert patched.json()["column_descriptions"] == {"seats": "Seat count"}
+
+        invalid = self.client.patch(f"{self.endpoint}{source_id}/", {"column_property_map": {}}, format="json")
+        assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
+
+        cleared = self.client.patch(f"{self.endpoint}{source_id}/", {"column_descriptions": None}, format="json")
+        assert cleared.status_code == status.HTTP_200_OK, cleared.content
+        assert cleared.json()["column_descriptions"] == {}
+
     @patch("products.customer_analytics.backend.presentation.views.views.report_user_action")
     def test_mapping_lifecycle_emits_usage_events(self, report_user_action):
         definition, schema = self._person_definition_and_schema()
@@ -2175,6 +2199,15 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         )
         assert created.status_code == status.HTTP_201_CREATED, created.content
         assert created.json()["external_data_schema"] == str(schema.id)
+
+        patched = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/",
+            {"column_property_map": {"plan": "group_plan_tier"}},
+            format="json",
+        )
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["id"] == created.json()["id"]
+        assert patched.json()["column_property_map"] == {"plan": "group_plan_tier"}
 
     @parameterized.expand(
         [
