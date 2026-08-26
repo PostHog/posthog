@@ -803,6 +803,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 f"Requesting Modal network enforcement for {len(config.outbound_domain_allowlist)} domains",
             )
 
+        sandbox_class = get_sandbox_class_for_run_backend(ctx.sandbox_backend)
         try:
             with StepTimer(
                 "sandbox_creation",
@@ -811,7 +812,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 runtime=runtime,
                 sandbox_backend=sandbox_backend,
             ) as sandbox_creation_timer:
-                sandbox = get_sandbox_class_for_run_backend(ctx.sandbox_backend).create(config)
+                sandbox = sandbox_class.create(config)
                 # The provider's TTL clock starts here — the usage ledger anchors its
                 # kill deadline on this boundary, not on when the row is opened below.
                 sandbox_created_at = timezone.now()
@@ -837,7 +838,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     config.snapshot_source = "none"
                     config.snapshot_restored = False
                     config.image_fallback = None
-                    sandbox = Sandbox.create(config)
+                    sandbox = sandbox_class.create(config)
                     sandbox_created_at = timezone.now()
                     actual_used_snapshot = False
                 sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)

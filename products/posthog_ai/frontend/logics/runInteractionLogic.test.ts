@@ -400,7 +400,7 @@ describe('runInteractionLogic', () => {
             runtime_adapter: 'claude',
             model: 'claude-sonnet-5',
             reasoning_effort: 'high',
-            initial_permission_mode: 'plan',
+            initial_permission_mode: 'auto',
         })
 
         await expectLogic(logic, () => {
