@@ -95,7 +95,7 @@ export function ActivityFeedList({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="flex h-10 shrink-0 items-center gap-2 border-border border-b pr-2 pl-3">
+      <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-border border-b py-1 pr-2 pl-3">
         <span className="font-bold text-base">Activity</span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <ActivityUnreadsToggle />
