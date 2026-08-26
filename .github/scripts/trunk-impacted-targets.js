@@ -1350,7 +1350,7 @@ const PROTO_TREES = new Map([
     ['kafka_assigner', { crates: ['kafka-assigner-proto'], domains: [] }],
     ['personhog', { crates: ['personhog-proto'], domains: [PYTHON, NODE] }],
     ['prometheus', { crates: ['prometheus-rw-proto'], domains: [] }],
-    ['usage_ingestion', { crates: ['usage-ingestion-proto'], domains: [] }],
+    ['usage_ingestion', { crates: ['usage-ingestion-proto'], domains: [NODE], stubDir: 'usage-ingestion' }],
 ])
 
 // A file directly under proto/ is treated as impacting all trees, since it's not
