@@ -405,7 +405,7 @@ def _most_specific_tier(
 def oracle_most_specific_object_level(
     specs: list[RowSpec], order: list[AccessControlLevel]
 ) -> Optional[AccessControlLevel]:
-    # Mirrors resolve_most_specific_object_access (RFC 557), restated from the RFC rather than the code:
+    # Mirrors resolve_most_specific_object_access, restated from the rules rather than the code:
     # the nearest scope with any rule decides (object rows before resource rows), and inside a
     # scope the most specific subject decides: member -> max(roles) -> the everyone-row. A more
     # specific rule wins even when it gives a lower level. None when no rule matches.
@@ -894,7 +894,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
 
 
 class TestMostSpecificResolverProperties(BaseAccessControlPropertyTest):
-    # The most-specific resolvers (RFC 557) are shadow code: read-only until the migration
+    # The most-specific resolvers are shadow code: read-only until the migration
     # repoints enforcement onto them. These properties pin their semantics to an independent
     # oracle so the migration flips onto tested behavior, and pin the two laws the migration
     # relies on: the explicit-equivalence and the single widening cause.

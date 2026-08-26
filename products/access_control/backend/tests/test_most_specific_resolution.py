@@ -10,7 +10,7 @@ from products.access_control.backend.tests.test_user_access_control import BaseU
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
-# Named specification of the RFC 557 headline semantics plus the cases the property-based
+# Named specification of the most-specific resolution semantics plus the cases the property-based
 # harness (test_user_access_control_pbt.py) cannot generate: the RESOURCE_FALLBACK_MAP ladder,
 # resolution without the entitlement, resources without resource-level controls, and the
 # shadow-divergence telemetry. Exhaustive combination coverage lives in the harness's

@@ -6,7 +6,7 @@ SCANNED_ROOTS = ("posthog", "ee", "products")
 
 
 def test_shadow_resolvers_have_no_callers_outside_their_module():
-    # The most-specific resolvers (RFC 557) are shadow code. Until the migration completes,
+    # The most-specific resolvers are shadow code. Until the migration completes,
     # enforcement and display must use the enforced methods: get_user_access_level,
     # check_access_level_for_object, access_level_for_resource. A caller anywhere else is
     # almost certainly a mistake. Extend ALLOWED only in a migration PR.
@@ -25,5 +25,5 @@ def test_shadow_resolvers_have_no_callers_outside_their_module():
     assert not offenders, (
         f"These files reference the WIP most-specific resolvers: {offenders}. "
         "They are not enforced yet — call get_user_access_level / access_level_for_resource instead, "
-        "or extend ALLOWED here as part of the RFC 557 cutover."
+        "or extend ALLOWED here as part of the migration cutover."
     )

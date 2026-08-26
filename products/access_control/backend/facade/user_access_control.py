@@ -1765,7 +1765,7 @@ class UserAccessControl:
     ) -> None:
         """Capture a PostHog event when the enforced resolution and the most-specific one disagree.
 
-        This is read-only telemetry for the RFC 557 migration. It does not change the enforced
+        This is read-only telemetry for the resolution migration. It does not change the enforced
         answer. `proposed_fn` runs only after the guards pass, so a skipped call does not pay
         for the second resolution. Subclasses are skipped: SubjectAccessControl resolves
         another subject's access for display, and those divergences do not describe this user.
