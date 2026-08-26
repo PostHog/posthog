@@ -25,6 +25,7 @@ from google.auth import exceptions as google_auth_exceptions
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -323,6 +324,25 @@ class TestGoogleAdsNonRetryableErrors:
         friendly = self.non_retryable["access_not_configured"]
         assert friendly is not None
         assert "admin" in friendly.lower()
+
+
+class TestGoogleAdsQuotaRetryableErrors:
+    def setup_method(self):
+        self.retryable = GoogleAdsSource().get_retryable_errors()
+
+    def test_exhausted_quota_is_retryable(self):
+        # `_call_with_transient_retry` re-raises the gRPC `ResourceExhausted` once its short in-line
+        # budget runs out. Its canonical message must stay classified as retryable so the quota
+        # exhaustion resumes on the next Temporal retry rather than being tracked as a bug.
+        error_msg = str(google_api_exceptions.ResourceExhausted("Resource has been exhausted (e.g. check quota)."))
+        assert error_message_matches(error_msg, self.retryable)
+
+    def test_receive_limit_abort_is_not_retryable(self):
+        # A RESOURCE_EXHAUSTED abort carrying "Received message larger than max" is deterministic —
+        # a retry re-requests the same oversized page and fails the same way. It must not match the
+        # retryable pattern, so it still surfaces as a real error.
+        error_msg = str(google_api_exceptions.ResourceExhausted("Received message larger than max (100 vs. 4)"))
+        assert not error_message_matches(error_msg, self.retryable)
 
 
 class TestGoogleAdsLookbackDefault:
