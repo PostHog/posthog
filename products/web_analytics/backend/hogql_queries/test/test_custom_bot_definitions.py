@@ -131,6 +131,9 @@ class TestValidation:
             ("not an address", "not-an-ip"),
             ("prefix too long", "192.0.2.0/33"),
             ("empty", "   "),
+            # Python's ip_network keeps a zone identifier that ClickHouse toIPv6 later rejects, so a
+            # saved rule would break every query reading a bot field. Reject it at validation.
+            ("zone-scoped ipv6", "fe80::1%eth0"),
         ]
     )
     def test_rejects_unusable_ip_ranges(self, _name: str, pattern: str):

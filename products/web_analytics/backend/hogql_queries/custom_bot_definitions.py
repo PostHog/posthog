@@ -160,10 +160,16 @@ def validate_pattern(pattern: str, matcher: str, key: str) -> None:
     if matcher == CIDR_MATCHER:
         if key != IP_FIELD:
             raise ValueError(f"IP ranges only work with the {CUSTOM_BOT_FIELDS[IP_FIELD]} property.")
+        stripped = pattern.strip()
+        # A zone identifier ("fe80::1%eth0") parses in Python but ClickHouse toIPv6 rejects it, and
+        # a scoped link-local address can never be an event $ip. Reject it here so it cannot save and
+        # then break every query that reads a bot field for the project.
+        if "%" in stripped:
+            raise ValueError(f"'{pattern}' is not a valid IP address or range: a zone identifier is not supported.")
         try:
             # strict=False so "12.34.56.78/24" is read as its network rather than rejected for
             # having host bits set.
-            ip_network(pattern.strip(), strict=False)
+            ip_network(stripped, strict=False)
         except ValueError as error:
             raise ValueError(f"'{pattern}' is not a valid IP address or range: {error}.") from error
         return
