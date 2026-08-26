@@ -1,11 +1,11 @@
 import {
   BellIcon,
-  BlueprintIcon,
   BookOpenTextIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
   Lightning,
+  ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
@@ -176,7 +176,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     pane: "canvases",
     label: "Canvases",
     analyticsId: "canvases",
-    Icon: BlueprintIcon,
+    Icon: ShapesIcon,
     href: "/canvases",
     onPick: () => navigateToCanvases(),
   },

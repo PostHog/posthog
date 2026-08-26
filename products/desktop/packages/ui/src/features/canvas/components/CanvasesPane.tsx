@@ -1,5 +1,6 @@
 import {
   BlueprintIcon,
+  CaretDownIcon,
   FunnelSimpleIcon,
   MagnifyingGlassIcon,
   RowsIcon,
@@ -8,63 +9,142 @@ import {
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
   Button,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
   cn,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Field,
+  FieldLabel,
   Input,
   MenuLabel,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Spinner,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
+import {
+  buildCanvasCreatorOptions,
+  type CanvasCreatorOption,
+} from "@posthog/ui/features/canvas/components/canvasCreatorOptions";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useId, useMemo, useRef, useState } from "react";
 
-function Filter({
+function CanvasFilterCombobox({
   label,
   value,
   options,
   onChange,
+  searchPlaceholder,
+  emptyLabel,
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: readonly CanvasCreatorOption[];
   onChange: (value: string) => void;
+  searchPlaceholder: string;
+  emptyLabel: string;
 }) {
+  const id = useId();
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const selected = options.find((option) => option.value === value) ?? null;
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredOptions = normalizedSearch
+    ? options.filter((option) =>
+        `${option.label} ${option.searchLabel ?? ""}`
+          .toLowerCase()
+          .includes(normalizedSearch),
+      )
+    : options;
+
   return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
-      <DropdownMenuSubContent>
-        <DropdownMenuRadioGroup value={value} onValueChange={onChange}>
-          {options.map((option) => (
-            <DropdownMenuRadioItem key={option.value} value={option.value}>
-              {option.label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Combobox<CanvasCreatorOption>
+        items={filteredOptions}
+        value={selected}
+        onValueChange={(option) => {
+          if (option) onChange(option.value);
+        }}
+        itemToStringLabel={(option) => option.label}
+        itemToStringValue={(option) => option.value}
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          setSearch("");
+        }}
+        inputValue={search}
+        onInputValueChange={(nextSearch) => setSearch(nextSearch ?? "")}
+        filter={null}
+        autoHighlight
+      >
+        <div ref={anchorRef}>
+          <ComboboxTrigger
+            render={
+              <Button
+                id={id}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full justify-between"
+                aria-label={`${label}: ${selected?.label ?? "None"}`}
+              >
+                <span className="min-w-0 truncate text-left">
+                  {selected?.label}
+                </span>
+                <CaretDownIcon className="shrink-0" />
+              </Button>
+            }
+          />
+        </div>
+        <ComboboxContent
+          anchor={anchorRef}
+          side="bottom"
+          sideOffset={4}
+          align="start"
+          className="w-[var(--anchor-width)]"
+        >
+          <ComboboxInput placeholder={searchPlaceholder} showTrigger={false} />
+          <ComboboxEmpty>{emptyLabel}</ComboboxEmpty>
+          <ComboboxList className="max-h-[min(18rem,calc(var(--available-height,18rem)-5rem))]">
+            {(option: CanvasCreatorOption) => (
+              <ComboboxItem
+                key={option.value || "all"}
+                value={option}
+                title={option.label}
+              >
+                {option.label}
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+    </Field>
   );
 }
 
 export function CanvasesPane({ className }: { className?: string }) {
   const { dashboards, isLoading } = useAllCanvases();
   const { channels } = useChannels();
+  const { data: currentUser } = useMeQuery();
   const navigate = useNavigate();
   const selectedId = useRouterState({
     select: (state) =>
@@ -88,18 +168,25 @@ export function CanvasesPane({ className }: { className?: string }) {
       ),
     [channels],
   );
-  const creators = useMemo(
+  const spaceOptions = useMemo<CanvasCreatorOption[]>(
     () => [
-      ...new Map(
-        dashboards
-          .filter((canvas) => canvas.createdByUuid)
-          .map((canvas) => [
-            canvas.createdByUuid as string,
-            canvas.createdBy ?? "Unknown",
-          ]),
-      ).entries(),
+      { value: "", label: "Every space" },
+      ...channels.map((channel) => ({
+        value: channel.id,
+        label: channelNames.get(channel.id) ?? channel.name,
+      })),
     ],
-    [dashboards],
+    [channelNames, channels],
+  );
+  const creatorOptions = useMemo(
+    () =>
+      buildCanvasCreatorOptions(
+        dashboards,
+        currentUser
+          ? { uuid: currentUser.uuid, name: userDisplayName(currentUser) }
+          : undefined,
+      ),
+    [currentUser, dashboards],
   );
   const shown = dashboards.filter(
     (canvas) =>
@@ -134,8 +221,8 @@ export function CanvasesPane({ className }: { className?: string }) {
       <div className="flex h-10 shrink-0 items-center gap-1 border-border border-b pr-2 pl-3">
         <span className="font-bold text-base">Canvases</span>
         <div className="ml-auto flex gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger
+          <Popover>
+            <PopoverTrigger
               render={
                 <Button
                   variant="default"
@@ -146,30 +233,31 @@ export function CanvasesPane({ className }: { className?: string }) {
                 </Button>
               }
             />
-            <DropdownMenuContent align="end">
-              <Filter
+            <PopoverContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="w-64"
+              aria-label="Filter canvases"
+            >
+              <CanvasFilterCombobox
                 label="Space"
                 value={spaceId}
                 onChange={setSpaceId}
-                options={[
-                  { value: "", label: "Every space" },
-                  ...channels.map((channel) => ({
-                    value: channel.id,
-                    label: channelNames.get(channel.id) ?? channel.name,
-                  })),
-                ]}
+                options={spaceOptions}
+                searchPlaceholder="Search spaces…"
+                emptyLabel="No spaces found."
               />
-              <Filter
+              <CanvasFilterCombobox
                 label="Created by"
                 value={creatorUuid}
                 onChange={setCreatorUuid}
-                options={[
-                  { value: "", label: "Anyone" },
-                  ...creators.map(([value, label]) => ({ value, label })),
-                ]}
+                options={creatorOptions}
+                searchPlaceholder="Search people…"
+                emptyLabel="No people found."
               />
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </PopoverContent>
+          </Popover>
           <Button
             variant="default"
             size="icon-xs"
