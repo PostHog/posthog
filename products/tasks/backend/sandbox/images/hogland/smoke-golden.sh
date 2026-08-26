@@ -82,17 +82,24 @@ create_t0=$(date +%s)
 # --name gives teardown a handle that survives never learning the id. No sizing
 # flags — restore inherits cpus/mem/disk from the snapshot.
 create_rc=0
-# --kind ci: registered kind (2h TTL backstop) so a killed runner cannot leak a
-#   64 GiB box forever. --access-type ssh-private: keep the box off the public
-#   internet; the runner reaches it over the tailnet. --timeout 30m: a 64 GiB
-#   restore may wait on Karpenter for a node.
+# --kind posthog-tasks-golden: an UNREGISTERED kind carries no server-side idle
+#   TTL, so an all-SSH smoke run is never reaped mid-check. The workflow's
+#   always() teardown deletes this box by name on cancel. --access-type
+#   ssh-private: keep the box off the public internet; the runner reaches it over
+#   the tailnet. --disk-mbps 0 --disk-iops 0: the bake baked the snapshot with
+#   uncapped disk, and production restores inherit that — but the CLI applies its
+#   own 125MB/s / 3000-IOPS defaults on restore rather than inheriting, so pass 0
+#   here too or the smoke measures a throttle production never sees.
+#   --timeout 30m: a 64 GiB restore may wait on Karpenter for a node.
 box_json=$(
     hogland box create \
         --snapshot-id "alias:$ALIAS" \
         --ssh-key "${SSH_KEY}.pub" \
         --name "$SMOKE_BOX_NAME" \
-        --kind ci \
+        --kind posthog-tasks-golden \
         --access-type ssh-private \
+        --disk-mbps 0 \
+        --disk-iops 0 \
         --no-connect \
         --timeout 30m
 ) || create_rc=$?
@@ -180,6 +187,10 @@ environ=$(sudo cat "/proc/$pid/environ" | tr "\0" "\n")
 printf "%s\n" "$environ" | grep -qx "IS_SANDBOX=1" || { echo "daemon env missing IS_SANDBOX=1" >&2; exit 1; }
 printf "%s\n" "$environ" | grep -q "^PATH=/opt/posthog/bin:" || { echo "daemon PATH does not start with /opt/posthog/bin" >&2; exit 1; }
 printf "%s\n" "$environ" | grep -q "^PYTHONPATH=" || { echo "daemon env missing PYTHONPATH" >&2; exit 1; }
+# HOME must be set: hogpanion hands exec children bare os.Environ(), and skills
+# resolve $HOME/.agents/skills while git reads /root/.gitconfig. Without HOME a
+# set -u task step dies. The drop-in sets HOME=/root.
+printf "%s\n" "$environ" | grep -qx "HOME=/root" || { echo "daemon env missing HOME=/root" >&2; exit 1; }
 # The /opt/posthog/bin-first PATH is what makes git resolve to the guard; confirm
 # the guard is actually there so the guarded path the daemon exposes is real.
 test -x /opt/posthog/bin/git || { echo "/opt/posthog/bin/git missing" >&2; exit 1; }
@@ -193,9 +204,10 @@ fi
 # (d) exec API: production reaches a task box only through hogpanion's exec API
 # (POST /v1/hogboxes/{id}/exec), never SSH. Assert a trivial command round-trips
 # through it so a golden that works over SSH but not via exec is caught. HOG_HOST
-# + HOG_TOKEN_COMMAND come from the workflow's bake-job env. Fail OPEN only when
-# the endpoint is unreachable/unimplemented (000/404/501) — the request path may
-# predate the CLI surface; a reachable endpoint that mis-executes is a hard fail.
+# + HOG_TOKEN_COMMAND come from the workflow's bake-job env. The request body is
+# {argv, timeout_seconds} — the schema requires `argv` (not `command`). Fail OPEN
+# only when the endpoint is genuinely unreachable (000) — a 404 is what a missing
+# box or a non-owner gets, i.e. a real regression that must not pass green.
 if [[ -n "${HOG_HOST:-}" && -n "${HOG_TOKEN_COMMAND:-}" ]]; then
     log "asserting box reachable via hogpanion exec API"
     exec_token=$(eval "$HOG_TOKEN_COMMAND" 2>/dev/null || true)
@@ -203,7 +215,7 @@ if [[ -n "${HOG_HOST:-}" && -n "${HOG_TOKEN_COMMAND:-}" ]]; then
         log "WARN: could not mint bearer for the exec assertion; relying on SSH assertions"
     else
         exec_out=$(mktemp)
-        exec_body='{"command":["/bin/sh","-c","echo golden-exec-ok"],"timeout_seconds":30}'
+        exec_body='{"argv":["/bin/sh","-c","echo golden-exec-ok"],"timeout_seconds":30}'
         http_code=$(curl -sS -o "$exec_out" -w '%{http_code}' \
             -X POST "$HOG_HOST/v1/hogboxes/$SMOKE_BOX_ID/exec" \
             -H "Authorization: bearer $exec_token" \
@@ -220,8 +232,8 @@ if [[ -n "${HOG_HOST:-}" && -n "${HOG_TOKEN_COMMAND:-}" ]]; then
                     exit 1
                 fi
                 ;;
-            000 | 404 | 501)
-                log "WARN: exec API unreachable/unimplemented (HTTP $http_code); relying on SSH assertions. Enable once the exec contract is confirmed (see runbook)."
+            000)
+                log "WARN: exec API unreachable (HTTP 000); relying on SSH assertions. Enable once the exec contract is confirmed (see runbook)."
                 ;;
             *)
                 log "FAIL: exec API POST returned HTTP $http_code"

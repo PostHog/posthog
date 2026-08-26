@@ -96,10 +96,20 @@ git --version
 git help -a | grep -q '[[:space:]]backfill'
 
 log "node 24"
+# The rootfs bakes node 22 into /usr/local/bin, which precedes /usr/bin (where
+# nodesource installs 24) on STATIC_ENV_PATH and in sudo's secure_path. Remove
+# the baked copy first, or `npm install @posthog/agent` and the runtime resolve
+# node 22, not 24.
+rm -f /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
     https://deb.nodesource.com/setup_24.x | bash -
 apt-get install -y --no-install-recommends nodejs
 rm -rf /var/lib/apt/lists/*
+node_version="$(node -v)"
+case "$node_version" in
+    v24.*) log "node ${node_version}" ;;
+    *) echo "expected node v24 after nodesource install, got ${node_version}" >&2; exit 1 ;;
+esac
 
 log "npm globals"
 npm install -g yarn pnpm typescript ts-node nodemon
@@ -225,6 +235,10 @@ if [ -d /etc/systemd/system ]; then
     # over Environment= regardless of order), routing hog-exec children through
     # /usr/bin/git instead of the wrapped /opt/posthog/bin/git. Per-box env still
     # reaches exec children through the adapter's per-exec env, not this drop-in.
+    # HOME/USER/LOGNAME: hogpanion runs as root with no User= and hands exec
+    # children bare os.Environ(), so nothing sets HOME. Skills resolve
+    # $HOME/.agents/skills and git reads /root/.gitconfig; without HOME a set -u
+    # task step dies. Pin them to root so exec children inherit a usable home.
     cat > "$dropin_dir/posthog-env.conf" <<EOF
 [Service]
 Environment="DEBIAN_FRONTEND=noninteractive"
@@ -234,6 +248,9 @@ Environment="AGENTSH_SERVER=http://127.0.0.1:18080"
 Environment="IS_SANDBOX=1"
 Environment="PYTHONPATH=/tmp/workspace"
 Environment="PATH=${STATIC_ENV_PATH}"
+Environment="HOME=/root"
+Environment="USER=root"
+Environment="LOGNAME=root"
 EOF
     systemctl daemon-reload
     # daemon-reload does NOT re-exec a running unit, so the drop-in's new

@@ -105,8 +105,12 @@ fi
 # learning the id.
 log "creating seed box (cold boot, $BOX_CPUS cpu / $BOX_MEM_MIB MiB / $BOX_DISK_GIB GiB)"
 create_rc=0
-# --kind ci: a registered kind carries a 2h TTL backstop, so a killed runner
-#   cannot leak a 64 GiB box forever (posthog-tasks-seed is unregistered, TTL 0).
+# --kind posthog-tasks-golden: an UNREGISTERED kind carries no server-side idle
+#   TTL, so the box is never reaped mid-bake. A registered kind like `ci` expires
+#   at max(LastUsedAt, CreatedAt)+2h, and only API calls bump LastUsedAt — this
+#   bake is all SSH, so a 30m-create + 90m-bake would exceed 2h and get reaped.
+#   The leak-on-cancel that no-TTL reintroduces is covered by the workflow's
+#   always() teardown step, which deletes both boxes by name.
 # --access-type ssh-private: keep the box off the public internet; the runner
 #   reaches it over the tailnet (default ssh-public DNATs a public port).
 # --disk-mbps 0 --disk-iops 0: match hogland's own bakes (CLI defaults 125MB/s /
@@ -116,7 +120,7 @@ box_json=$(
     hogland box create \
         --ssh-key "${SSH_KEY}.pub" \
         --name "$SEED_BOX_NAME" \
-        --kind ci \
+        --kind posthog-tasks-golden \
         --access-type ssh-private \
         --cpus "$BOX_CPUS" \
         --memory-mib "$BOX_MEM_MIB" \
@@ -143,10 +147,12 @@ log "seed box $SEED_BOX_ID ssh_command: $ssh_cmd"
 # Rebuild the ssh invocation from the returned command, injecting our key +
 # non-interactive options right after the `ssh` word (mirrors smoke-golden.sh).
 # IdentitiesOnly pins to our ephemeral key; BatchMode never prompts; accept-new
-# trusts the fresh host key silently; ServerAlive* turns a wedged session into a
-# dropped connection instead of a hang.
+# trusts the fresh host key silently. ServerAlive* guards the ONE long-lived
+# session the whole bake runs over: at 30s x 10 it tolerates a ~5m stall before
+# dropping. A loaded 4-vCPU box building git from source can stall well past the
+# old 15s x 3 (45s) window, which would drop the entire bake mid-step.
 read -r -a ssh_parts <<<"$ssh_cmd"
-ssh_opts=(-i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+ssh_opts=(-i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
 ssh_base=("${ssh_parts[0]}" "${ssh_opts[@]}" "${ssh_parts[@]:1}")
 
 log "waiting for ssh reachability (up to 5m)"
@@ -204,10 +210,11 @@ printf -v agent_version_escaped '%q' "$AGENT_VERSION"
 setup_rc=0
 # The ssh user is `hog`; setup-golden.sh installs apt packages, writes
 # /etc/environment and the systemd drop-in, and restarts hogpanion — all root
-# work — so run it through passwordless sudo. The env assignments precede the
-# command so sudo carries them into setup-golden.sh's environment.
+# work — so run it through passwordless sudo. `sudo env VAR=...` sets the child
+# env explicitly rather than relying on sudo's implied SETENV for leading
+# assignments (which a stricter sudoers policy would strip).
 "${ssh_base[@]}" \
-    "sudo AGENT_VERSION=$agent_version_escaped SKILLS_TARBALL=/tmp/golden-skills.tar.gz INSTALL_SKILLS=/tmp/install-skills.sh bash /tmp/setup-golden.sh" \
+    "sudo env AGENT_VERSION=$agent_version_escaped SKILLS_TARBALL=/tmp/golden-skills.tar.gz INSTALL_SKILLS=/tmp/install-skills.sh bash /tmp/setup-golden.sh" \
     || setup_rc=$?
 if [[ "$setup_rc" -ne 0 ]]; then
     log "FAIL: setup-golden.sh exited $setup_rc in the box; not snapshotting"
