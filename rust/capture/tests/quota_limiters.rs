@@ -16,11 +16,11 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
-use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
@@ -31,13 +31,13 @@ struct MemorySink {
 }
 
 #[async_trait]
-impl Event for MemorySink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+impl PublishEvents for MemorySink {
+    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         self.events.lock().unwrap().push(event);
         Ok(())
     }
 
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
     }
@@ -127,7 +127,7 @@ async fn setup_router_with_limits(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -1182,7 +1182,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -1275,7 +1275,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -1372,7 +1372,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -1806,7 +1806,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,

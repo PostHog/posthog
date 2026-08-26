@@ -7,7 +7,7 @@ use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
 use futures::stream;
 use limiters::redis::QuotaResource;
-use metrics::counter;
+use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -396,11 +396,17 @@ async fn ai_handler_inner(
         state.ai_events_overflow_limiter.as_ref(),
     );
 
-    // Step 9: Send event to Kafka
-    state.sink.send(processed_event).await.map_err(|e| {
-        warn!("Failed to send AI event to Kafka: {:?}", e);
-        e
-    })?;
+    // Step 9: Publish the event. One event per request on this endpoint, so
+    // the batch-size histogram records a single-event batch.
+    histogram!("capture_event_batch_size").record(1.0);
+    state
+        .outputs
+        .publish_one(processed_event)
+        .await
+        .map_err(|e| {
+            warn!("Failed to send AI event to Kafka: {:?}", e);
+            e
+        })?;
 
     // Log request details for debugging
     debug!("AI endpoint request validated and sent to Kafka successfully");

@@ -4,13 +4,14 @@
 //! metadata the pipeline produced.
 //!
 //! Supports both construction patterns used across existing tests:
-//! - `Arc::new(MockSink::new())` + `sink.get_events()` (analytics tests)
-//! - `Arc::new(MockSink { events: events_captured.clone() })` + manual
-//!   `events_captured.lock()` (recordings tests that share the handle with
-//!   the sink before wrapping in `Arc<dyn Event>`)
+//! - `MockSink::new()` + `sink.table()` into the pipeline + `sink.get_events()`
+//!   (analytics tests)
+//! - `OutputRegistry::single(MockSink { events: events_captured.clone() })` +
+//!   manual `events_captured.lock()` (recordings tests that keep the capture
+//!   handle rather than the mock)
 
 use crate::api::CaptureError;
-use crate::outputs::PublishEvents;
+use crate::outputs::{OutputRegistry, PublishEvents};
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
@@ -28,6 +29,13 @@ impl MockSink {
 
     pub fn get_events(&self) -> Vec<ProcessedEvent> {
         self.events.lock().unwrap().clone()
+    }
+
+    /// The degenerate output table over this mock. The clone shares the
+    /// capture buffer, so the caller keeps reading events back off the
+    /// handle it already holds after publishing through the table.
+    pub fn table(&self) -> Arc<OutputRegistry> {
+        Arc::new(OutputRegistry::single(self.clone()))
     }
 }
 

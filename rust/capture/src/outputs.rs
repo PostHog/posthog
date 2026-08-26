@@ -18,8 +18,12 @@ use crate::v0_request::ProcessedEvent;
 /// The leaf produce contract: run prep, publish, and fold internally and
 /// report the v0 whole-request result, so no caller sees a two-phase
 /// protocol.
+///
+/// `pub` rather than `pub(crate)` because the integration suites in
+/// `tests/` stand their own capturing sinks in as output leaves; there is
+/// no other reason to implement it outside this crate.
 #[async_trait]
-pub(crate) trait PublishEvents: Send + Sync {
+pub trait PublishEvents: Send + Sync {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError>;
 
     async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
@@ -39,7 +43,7 @@ enum Inner {
 }
 
 impl Output {
-    pub(crate) fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
+    pub fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
         Self {
             inner: Inner::Single(Box::new(leaf)),
         }
@@ -169,6 +173,32 @@ pub struct OutputRegistry {
 impl OutputRegistry {
     pub fn new(output: Output) -> Self {
         Self { output }
+    }
+
+    /// The degenerate table over one single-backend output: the shape every
+    /// non-failover deployment and every pipeline test uses.
+    pub fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
+        Self::new(Output::single(leaf))
+    }
+
+    /// Publish one event. Callers record `capture_event_batch_size`
+    /// themselves: the batch size is a property of the request being
+    /// served, not of the output it lands on, and recording it here would
+    /// hide the difference between a call site that batches and one that
+    /// does not.
+    pub async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        self.output.publish_one(event).await
+    }
+
+    /// Publish a batch. Per-event failures collapse to the whole-request
+    /// `CaptureError` until the response model lands.
+    pub async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.output.publish_batch(events).await
+    }
+
+    /// Flush buffered data before shutdown.
+    pub fn flush(&self) -> Result<(), anyhow::Error> {
+        self.output.flush()
     }
 }
 
