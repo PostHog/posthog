@@ -538,6 +538,21 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed); no champion model exists until the run completes and server-side promotion runs.
+ * @summary Start a training run
+ */
+export const autoresearchTrainCreateBodyIterationBudgetMax = 500
+
+export const AutoresearchTrainCreateBody = /* @__PURE__ */ zod.object({
+    iteration_budget: zod
+        .number()
+        .min(1)
+        .max(autoresearchTrainCreateBodyIterationBudgetMax)
+        .optional()
+        .describe('Override the pipeline iteration budget for this training run.'),
+})
+
+/**
  * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
  * @summary Resolve a template
  */

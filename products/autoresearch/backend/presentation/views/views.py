@@ -61,6 +61,7 @@ from .serializers import (
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
     RespondToSuggestionSerializer,
+    StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
     TrainingRunHistorySerializer,
@@ -173,7 +174,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "start_training",
+        "run_inference",
+        "run_validation",
+        "archive",
+        "pause",
+        "resume",
+    ]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
@@ -332,6 +344,151 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             inference_population=data.get("inference_population", {}),
         )
         return Response(ValidatePipelineResponseSerializer(instance=result).data)
+
+    @validated_request(
+        request_serializer=StartTrainingRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchTrainingRunSerializer,
+                description="The created training run. Poll status via the runs list endpoint.",
+            ),
+            400: OpenApiResponse(description="Pipeline is archived, or a training run is already in progress for it."),
+        },
+        summary="Start a training run",
+        description=(
+            "Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where "
+            "the autoresearch agent iterates on features and models, and returns the run immediately with "
+            "status 'running'. Poll the training run until it reaches a terminal status (completed or "
+            "failed); no champion model exists until the run completes and server-side promotion runs."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="train")
+    def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            training_run = api.start_training(
+                self.team_id,
+                self.kwargs["pk"],
+                iteration_budget=request.validated_data.get("iteration_budget"),
+                user_id=cast(User, request.user).id,
+            )
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchRunSerializer,
+                description="The created inference run. Check rows_scored and status.",
+            ),
+            400: OpenApiResponse(description="Pipeline has no champion model or is archived."),
+        },
+        summary="Run inference (score users)",
+        description=(
+            "Score the inference population using the champion model and emit autoresearch_prediction "
+            "events for each scored user. Updates the predicted_p_<target> person property. "
+            "In production this is triggered by the daily Temporal inference workflow."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="score")
+    def run_inference(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            run = api.score_pipeline(self.team_id, self.kwargs["pk"])
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchRunSerializer(instance=run).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchRunSerializer(many=True),
+                description=(
+                    "One AutoresearchRun per matured prediction date that was validated. "
+                    "Empty list when no prediction dates have matured yet."
+                ),
+            ),
+            400: OpenApiResponse(description="Pipeline is archived."),
+        },
+        summary="Run online validation",
+        description=(
+            "Validate predictions against realized outcomes for all matured prediction dates. "
+            "A prediction date is matured when today >= prediction_date + horizon_days. "
+            "Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. "
+            "Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. "
+            "Already-validated dates are skipped. In production this is triggered by the daily "
+            "Temporal validation workflow after inference runs."
+        ),
+    )
+    # pagination_class=None so the generated client types the response as a bare array of runs
+    # (matching what this returns) rather than a paginated envelope.
+    @action(detail=True, methods=["post"], url_path="validate-online", pagination_class=None)
+    def run_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            runs = api.validate_pipeline_online(self.team_id, self.kwargs["pk"])
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchRunSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchPipelineSerializer,
+                description="The pipeline after archiving.",
+            ),
+        },
+        summary="Archive a pipeline",
+        description="Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved.",
+    )
+    @action(detail=True, methods=["post"], url_path="archive")
+    def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._set_status("archived")
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchPipelineSerializer,
+                description="The pipeline after pausing.",
+            ),
+        },
+        summary="Pause a pipeline",
+        description="Pause daily scoring and training. The pipeline can be resumed later.",
+    )
+    @action(detail=True, methods=["post"], url_path="pause")
+    def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._set_status("paused")
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchPipelineSerializer,
+                description="The pipeline after resuming.",
+            ),
+        },
+        summary="Resume a pipeline",
+        description="Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.",
+    )
+    @action(detail=True, methods=["post"], url_path="resume")
+    def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._set_status("running")
+
+    def _set_status(self, status: str) -> Response:
+        try:
+            pipeline = api.set_pipeline_status(self.team_id, self.kwargs["pk"], status=status)
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
 
 @extend_schema(tags=["autoresearch"])
