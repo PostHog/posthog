@@ -5052,7 +5052,8 @@ const api = {
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
         ): Promise<PaginatedResponse<RawBatchExportRun>> {
-            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+            // Explode arrays, as the runs endpoint reads repeated parameters (`?status=Failed&status=Running`).
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params, true)).get()
         },
         async createBackfill(
             id: BatchExportConfiguration['id'],
