@@ -22,6 +22,8 @@ const mockPrompt = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ stopReason: "end_turn" }),
 );
 
+const mockPrepareContextWiki = vi.hoisted(() => vi.fn());
+
 const mockAcpClient = vi.hoisted(() => ({
   current: undefined as
     | {
@@ -142,6 +144,10 @@ vi.mock("@posthog/agent/gateway-models", () => ({
 
 vi.mock("@posthog/agent/adapters/claude/session/jsonl-hydration", () => ({
   hydrateSessionJsonl: mockHydrateSessionJsonl,
+}));
+
+vi.mock("./context-wiki", () => ({
+  prepareContextWiki: mockPrepareContextWiki,
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -278,10 +284,6 @@ describe("AgentService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // The Codex MCP reachability probe hits the network; default it to "reachable"
-    // so unrelated session tests stay deterministic and offline-safe.
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ body: null }));
-
     deps = createMockDependencies();
     service = new AgentService(
       deps.processTracking as never,
@@ -304,6 +306,99 @@ describe("AgentService", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  describe("context wiki mount", () => {
+    const credentials = {
+      apiHost: "https://app.posthog.test",
+      projectId: 1,
+    } as never;
+    const mount = {
+      path: "/mock/appData/context-wiki/org-1/head1",
+      commitsPath: "/api/organizations/org-1/context_layer/commits/",
+    };
+    const mountContextWiki = () =>
+      (
+        service as unknown as {
+          mountContextWiki: (value: unknown) => Promise<unknown>;
+        }
+      ).mountContextWiki(credentials);
+
+    const ENV_KEYS = [
+      "POSTHOG_API_KEY",
+      "POSTHOG_PERSONAL_API_KEY",
+      "POSTHOG_CONTEXT_LAYER_PATH",
+      "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
+    ];
+
+    beforeEach(() => {
+      for (const key of ENV_KEYS) {
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of ENV_KEYS) {
+        delete process.env[key];
+      }
+    });
+
+    // POSTHOG_API_KEY is what the auth sync just wrote, and it is deliberately
+    // absent while impersonating — so an impersonation credential must never
+    // reach the agent subprocess as a publish token.
+    it.each([
+      ["the auth sync wrote one", "synced-key", "synced-key"],
+      ["the session is impersonated", undefined, undefined],
+    ])(
+      "exposes a publish token only when %s",
+      async (_label, apiKey, expected) => {
+        if (apiKey) {
+          process.env.POSTHOG_API_KEY = apiKey;
+        }
+        mockPrepareContextWiki.mockResolvedValueOnce(mount);
+
+        const wiki = await mountContextWiki();
+
+        expect(wiki).toEqual({
+          path: mount.path,
+          commitsPath: mount.commitsPath,
+          personalApiKey: expected,
+        });
+      },
+    );
+
+    // The mount travels per-session precisely because the harness adapters
+    // snapshot process.env at spawn time — a global write here would let
+    // concurrent session starts leak one session's token into another.
+    it("never writes the wiki vars to shared process.env", async () => {
+      process.env.POSTHOG_API_KEY = "synced-key";
+      mockPrepareContextWiki.mockResolvedValueOnce(mount);
+
+      await mountContextWiki();
+
+      expect(process.env.POSTHOG_CONTEXT_LAYER_PATH).toBeUndefined();
+      expect(process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBeUndefined();
+      expect(process.env.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    });
+
+    it("threads the mount into agent.run as a per-session value", async () => {
+      process.env.POSTHOG_API_KEY = "synced-key";
+      mockPrepareContextWiki.mockResolvedValue(mount);
+
+      await service.startSession(baseSessionParams);
+
+      expect(mockAgentRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          contextWiki: {
+            path: mount.path,
+            commitsPath: mount.commitsPath,
+            personalApiKey: "synced-key",
+          },
+        }),
+      );
+    });
   });
 
   it("includes Modal models in Claude preview options", async () => {
@@ -593,25 +688,7 @@ describe("AgentService", () => {
       );
     });
 
-    it("passes identical MCP servers to both adapters when all servers are reachable", async () => {
-      await service.startSession({
-        ...baseSessionParams,
-        taskRunId: "run-claude",
-        adapter: "claude",
-      });
-
-      await service.startSession({
-        ...baseSessionParams,
-        taskRunId: "run-codex",
-        adapter: "codex",
-      });
-
-      const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
-      const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
-      expect(codexMcp).toEqual(claudeMcp);
-    });
-
-    it("drops unreachable MCP servers for codex but keeps them for claude", async () => {
+    it("passes the same MCP servers to codex as to claude without probing them first", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
@@ -628,10 +705,10 @@ describe("AgentService", () => {
         adapter: "codex",
       });
 
-      // Claude connects to MCP lazily, so an unreachable server is harmless.
-      expect(mockNewSession.mock.calls[0][0].mcpServers).toHaveLength(1);
-      // codex-acp dies on an unreachable server, so it must be pruned.
-      expect(mockNewSession.mock.calls[1][0].mcpServers).toHaveLength(0);
+      const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
+      const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
+      expect(claudeMcp).toHaveLength(1);
+      expect(codexMcp).toEqual(claudeMcp);
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {

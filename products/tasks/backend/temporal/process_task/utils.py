@@ -390,6 +390,7 @@ class RunState(BaseModel, extra="allow"):
     fast_mode: bool | None = None
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
+    handoff_resume_idle: bool = False
     snapshot_external_id: str | None = None
     snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None

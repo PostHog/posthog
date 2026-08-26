@@ -11,6 +11,7 @@ from products.tasks.backend.logic.repo_selection import (
     RepoSelectionRejectedError,
     RepoSelectionResult,
     RepoSelectionUnavailableError,
+    list_team_connected_repositories,
     resolve_team_github_integration,
     select_repository,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "RepoSelectionRejectedError",
     "RepoSelectionResult",
     "RepoSelectionUnavailableError",
+    "list_team_connected_repositories",
     "resolve_team_github_integration",
     "select_repository",
 ]

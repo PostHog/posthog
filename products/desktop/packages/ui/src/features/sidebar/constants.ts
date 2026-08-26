@@ -15,7 +15,12 @@ export const CHANNELS_SIDEBAR_MIN_WIDTH = 272;
 export const NAV_RAIL_WIDTH = 44;
 
 export const CUSTOMIZABLE_NAV_ITEMS = [
-  { id: "inbox", label: "Inbox", analyticsId: "inbox", defaultVisible: true },
+  {
+    id: "inbox",
+    label: "Self-driving",
+    analyticsId: "inbox",
+    defaultVisible: true,
+  },
   {
     id: "activity",
     label: "Activity",
@@ -32,6 +37,12 @@ export const CUSTOMIZABLE_NAV_ITEMS = [
     id: "command-center",
     label: "Command Center",
     analyticsId: "command_center",
+    defaultVisible: true,
+  },
+  {
+    id: "contexts",
+    label: "Context",
+    analyticsId: "contexts",
     defaultVisible: true,
   },
   {

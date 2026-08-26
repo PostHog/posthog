@@ -27,18 +27,23 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
+from products.engineering_analytics.backend.logic.sources import (
+    GitHubTables,
+    resolve_github_tables,
+    resolve_trunk_merge_queue_table,
+)
 from products.engineering_analytics.backend.logic.views import (
     issue_events,
     job_costs,
     pull_requests,
     team_members,
+    trunk_merge_queue,
     workflow_jobs,
     workflow_runs,
 )
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -124,6 +129,8 @@ class CuratedGitHubSource:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
+        self._trunk_table: str | None = None
+        self._trunk_table_resolved = False
 
     @property
     def team(self) -> Team:
@@ -172,6 +179,18 @@ class CuratedGitHubSource:
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+
+    def trunk_merge_queue_source(self) -> str | None:
+        """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
+        opt-in merge-queue endpoint synced (the normal state) or the requesting user can't access
+        one; either way consumers degrade to the GitHub-derived proxy. Resolved lazily on first
+        call and cached, so probing stays as cheap as the sibling sources."""
+        if not self._trunk_table_resolved:
+            self._trunk_table = resolve_trunk_merge_queue_table(self._team, self._user_access_control)
+            self._trunk_table_resolved = True
+        if self._trunk_table is None:
+            return None
+        return f"({trunk_merge_queue.build_query(self._trunk_table)})"
 
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""

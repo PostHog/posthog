@@ -9,7 +9,9 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 
 const {
@@ -22,6 +24,8 @@ const {
     globToRegExp,
     isProductDirectory,
     isTripwire,
+    listIsolatedProducts,
+    loadContractSurfaces,
     parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,
@@ -253,6 +257,7 @@ test('proto configuration at the root claims every tree', () => {
         'proto/ingestion/worker/v1/worker.proto',
         'proto/kafka_assigner/v1/service.proto',
         'proto/prometheus/v1/remote_write.proto',
+        'proto/usage_ingestion/v1/service.proto',
     ]) {
         for (const target of computeTargets([file], PROTO_CONTEXT)) {
             union.add(target)
@@ -867,6 +872,29 @@ test('nodejs is still the only workspace package importing a rust binding', () =
     }
     const packageDirs = workspaceGlobs.flatMap(expand)
 
+    // An incomplete checkout (e.g. a sparse CI checkout missing workspace
+    // manifests) would silently shrink the inspection set: expand() and the
+    // existsSync checks below skip whatever is absent. The git index stays
+    // complete even when the working tree is sparse, so any tracked manifest
+    // inside the workspace that is not on disk means the checkout dropped it.
+    const matcher = compileWorkspaceMatcher(workspaceGlobs)
+    const trackedManifests = execFileSync('git', ['ls-files', '-z', '--', ':(glob)**/package.json', 'package.json'], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+    })
+        .split('\0')
+        .filter(Boolean)
+    assert.ok(trackedManifests.length > 0, 'git ls-files found no manifests, so the checkout check below is vacuous')
+    for (const manifest of new Set(trackedManifests)) {
+        if (manifest !== 'package.json' && !matcher(manifest)) {
+            continue
+        }
+        assert.ok(
+            fs.existsSync(path.join(REPO_ROOT, manifest)),
+            `${manifest} is tracked by git but absent on disk — an incomplete checkout guts this guard`
+        )
+    }
+
     const bindingPackages = new Set()
     for (const dir of packageDirs) {
         if (!dir.startsWith('rust/')) {
@@ -1102,6 +1130,32 @@ test('editing the declarations that define the gate always cascades', () => {
         const targets = computeTargets([file], context)
         assert.equal(targets.includes('py:product:gamma'), true, file)
     }
+})
+
+// Isolation is the claim that a product's change can be tested alone, and the
+// contract-check script alone does not back it: without a turbo.json the task
+// keeps the root inputs, which are the product's whole backend. turbo-discover
+// reads the same pair, so a reader that accepted the script alone would call a
+// product isolated in one place and not the other.
+test('isolation needs both the contract-check script and a narrowed turbo.json', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'isolation-'))
+    const write = (product, files) => {
+        fs.mkdirSync(path.join(repoRoot, 'products', product), { recursive: true })
+        for (const [name, body] of Object.entries(files)) {
+            fs.writeFileSync(path.join(repoRoot, 'products', product, name), JSON.stringify(body))
+        }
+    }
+    const contractScript = { scripts: { 'backend:contract-check': 'true' } }
+    const narrowed = { tasks: { 'backend:contract-check': { inputs: ['backend/facade/**'] } } }
+    write('declared', { 'package.json': contractScript, 'turbo.json': narrowed })
+    write('script-only', { 'package.json': contractScript })
+    write('inputs-only', { 'turbo.json': narrowed })
+    write('neither', { 'package.json': {} })
+
+    const products = ['declared', 'inputs-only', 'neither', 'script-only']
+    const isolated = listIsolatedProducts(repoRoot, products, loadContractSurfaces(repoRoot, products))
+
+    assert.deepEqual([...isolated], ['declared'])
 })
 
 test('contract inputs honor negation and drop inputs outside the product', () => {

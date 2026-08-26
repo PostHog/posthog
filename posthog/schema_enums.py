@@ -602,6 +602,11 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BehavioralEventSource(StrEnum):
+    EVENTS = "events"
+    ACTIONS = "actions"
+
+
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -1454,6 +1459,7 @@ class ExternalDataSourceType(StrEnum):
     EBAY = "Ebay"
     COMMERCETOOLS = "Commercetools"
     LIGHTSPEED_RETAIL = "LightspeedRetail"
+    SHIPMAIL = "Shipmail"
     SHIP_STATION = "ShipStation"
     CONSTANT_CONTACT = "ConstantContact"
     MAILGUN = "Mailgun"
@@ -2586,6 +2592,15 @@ class ExternalDataSourceType(StrEnum):
     CAPTERRA = "Capterra"
     GOOGLE_POSTMASTER_TOOLS = "GooglePostmasterTools"
     GROWI = "Growi"
+    CLARIFY = "Clarify"
+    DATO_CMS = "DatoCMS"
+    WPS_OFFICE = "WPSOffice"
+    TERA_BOX = "TeraBox"
+    SIMON_DATA = "SimonData"
+    COMMISSION_JUNCTION = "CommissionJunction"
+    LIVEBLOCKS = "Liveblocks"
+    NATION_BUILDER = "NationBuilder"
+    TANA = "Tana"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2917,6 +2932,11 @@ class SessionsV2JoinMode(StrEnum):
 class InfinityValue(float, Enum):
     NUMBER_999999 = 999999
     NUMBER__999999 = -999999
+
+
+class InlineBehavioralType(StrEnum):
+    PERFORMED_EVENT = "performed_event"
+    PERFORMED_EVENT_MULTIPLE = "performed_event_multiple"
 
 
 class InsightFilterProperty(StrEnum):
@@ -3334,6 +3354,7 @@ class NodeKind(StrEnum):
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
+    WEB_AGENT_ANALYTICS_QUERY = "WebAgentAnalyticsQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
@@ -3625,6 +3646,7 @@ class PropertyFilterType(StrEnum):
     FEATURE = "feature"
     SESSION = "session"
     COHORT = "cohort"
+    BEHAVIORAL = "behavioral"
     RECORDING = "recording"
     LOG_ENTRY = "log_entry"
     GROUP = "group"
@@ -4079,6 +4101,13 @@ class TikTokAdsDefaultSources(StrEnum):
     TIKTOK = "tiktok"
 
 
+class TimeUnitType(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+
+
 class TraceOrderColumn(StrEnum):
     TIMESTAMP = "timestamp"
     DURATION = "duration"
@@ -4121,6 +4150,24 @@ class UserProductListReason(StrEnum):
     NEW_PRODUCT = "new_product"
     SALES_LED = "sales_led"
     ONBOARDING_DELEGATED = "onboarding_delegated"
+
+
+class WebAgentAnalyticsQueryType(StrEnum):
+    OVERVIEW = "overview"
+    ISSUES = "issues"
+    PAGE_REQUESTS = "page_requests"
+    TRANSITIONS = "transitions"
+    DEMAND = "demand"
+    ISSUE_VARIANTS = "issue_variants"
+    REQUEST_ANATOMY = "request_anatomy"
+    JOURNEY_SUMMARY = "journey_summary"
+    JOURNEYS = "journeys"
+    JOURNEY_DETAIL = "journey_detail"
+
+
+class WebAgentContentGrouping(StrEnum):
+    EXACT = "exact"
+    NORMALIZED = "normalized"
 
 
 class WebAnalyticsItemKind(StrEnum):

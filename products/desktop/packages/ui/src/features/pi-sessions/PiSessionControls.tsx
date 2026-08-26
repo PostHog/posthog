@@ -26,6 +26,10 @@ import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
+import {
+  ModelCostChip,
+  ModelCostFooter,
+} from "@posthog/ui/features/sessions/components/ModelCostChip";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
 import { useState } from "react";
 
@@ -211,9 +215,11 @@ export function PiModelSelector({
                   closeOnClick={false}
                 >
                   <span className="whitespace-nowrap">{modelLabel(model)}</span>
+                  <ModelCostChip modelId={model.id} />
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
+            <ModelCostFooter />
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         {thinkingLevel &&

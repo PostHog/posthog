@@ -1,6 +1,6 @@
 import type { RootLogger } from "@posthog/di/logger";
 import type { IPowerManager } from "@posthog/platform/power-manager";
-import { OAUTH_SCOPE_VERSION } from "@posthog/shared";
+import { NotAuthenticatedError, OAUTH_SCOPE_VERSION } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth";
 import type {
@@ -159,9 +159,8 @@ describe("AuthService", () => {
         string,
         { name: string; projects: { id: number; name: string }[] }
       >;
-      // Overrides the /api/code/invites/check-access/ response (defaults to
-      // granting access). May throw to simulate a network error.
-      checkAccess?: () => Response;
+      desktopAccessResponse?: (url: string) => Response;
+      redeemInviteCodeResponse?: () => Response;
     } = {},
   ) => {
     const accountKey = options.accountKey ?? "user-1";
@@ -197,12 +196,19 @@ describe("AuthService", () => {
           } as unknown as Response;
         }
 
-        if (options.checkAccess) {
-          return options.checkAccess();
+        if (
+          url.includes("/api/code/invites/redeem/") &&
+          options.redeemInviteCodeResponse
+        ) {
+          return options.redeemInviteCodeResponse();
+        }
+
+        if (options.desktopAccessResponse) {
+          return options.desktopAccessResponse(url);
         }
         return {
           ok: true,
-          json: vi.fn().mockResolvedValue({ has_access: true }),
+          json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
         } as unknown as Response;
       }) as unknown as typeof fetch,
     );
@@ -247,7 +253,7 @@ describe("AuthService", () => {
       orgProjectsMap: {},
       currentOrgId: null,
       currentProjectId: null,
-      hasCodeAccess: null,
+      desktopAccess: { projectId: null, status: "unchecked", reason: null },
       needsScopeReauth: false,
       sessionType: null,
       sessionExpiresAt: null,
@@ -416,7 +422,7 @@ describe("AuthService", () => {
       orgProjectsMap: {},
       currentOrgId: null,
       currentProjectId: 123,
-      hasCodeAccess: null,
+      desktopAccess: { projectId: 123, status: "unchecked", reason: null },
       needsScopeReauth: true,
       sessionType: null,
       sessionExpiresAt: null,
@@ -461,7 +467,7 @@ describe("AuthService", () => {
       },
       currentOrgId: "org-1",
       currentProjectId: 42,
-      hasCodeAccess: true,
+      desktopAccess: { projectId: 42, status: "allowed", reason: null },
       needsScopeReauth: false,
     });
 
@@ -857,6 +863,108 @@ describe("AuthService", () => {
     expect(preferencePort.get("user-1", "us")?.lastSelectedProjectId).toBe(99);
   });
 
+  it("does not restore a session when logout races with an OAuth login", async () => {
+    let releaseOAuthFlow = (): void => {};
+    oauthFlow.startFlow.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseOAuthFlow = () =>
+            resolve(
+              mockTokenResponse({
+                accessToken: "initial-access-token",
+                refreshToken: "initial-refresh-token",
+              }),
+            );
+        }),
+    );
+    stubAuthFetch();
+    await service.initialize();
+
+    const login = service.login("us");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.logout();
+    releaseOAuthFlow();
+    await login;
+
+    expect(service.getState().status).toBe("anonymous");
+    expect(sessionPort.getCurrent()).toBeNull();
+  });
+
+  it("does not restore a stored session when logout races with refresh", async () => {
+    seedStoredSession();
+    let releaseRefresh = (): void => {};
+    oauthFlow.refreshToken.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseRefresh = () => resolve(mockTokenResponse());
+        }),
+    );
+    stubAuthFetch();
+
+    const initialize = service.initialize();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.logout();
+    releaseRefresh();
+    await initialize;
+
+    expect(service.getState().status).toBe("anonymous");
+    expect(sessionPort.getCurrent()).toBeNull();
+  });
+
+  it("does not restore a session when logout races with a project selection", async () => {
+    const orgs = {
+      "org-1": {
+        name: "Org 1",
+        projects: [
+          { id: 42, name: "Project 42" },
+          { id: 84, name: "Project 84" },
+        ],
+      },
+    };
+    oauthFlow.startFlow.mockResolvedValue(
+      mockTokenResponse({
+        accessToken: "initial-access-token",
+        refreshToken: "initial-refresh-token",
+      }),
+    );
+    stubAuthFetch({ orgs });
+
+    let releaseEncryption = (): void => {};
+    let deferEncrypt = false;
+    const gatedCipher: IAuthTokenCipher = {
+      encrypt: (plaintext) =>
+        deferEncrypt
+          ? new Promise<string>((resolve) => {
+              releaseEncryption = () => resolve(plaintext);
+            })
+          : Promise.resolve(plaintext),
+      decrypt: (encrypted) => Promise.resolve(encrypted),
+    };
+    service = new AuthService(
+      preferencePort,
+      sessionPort,
+      oauthFlow as unknown as IAuthOAuthFlowService,
+      connectivity,
+      gatedCipher,
+      mockPowerManager as unknown as IPowerManager,
+      mockLogger,
+      null,
+    );
+    service.init();
+    await service.initialize();
+    await service.login("us");
+
+    deferEncrypt = true;
+    const selection = service.selectProject(84);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.logout();
+    releaseEncryption();
+    await selection;
+
+    expect(service.getState().status).toBe("anonymous");
+    expect(sessionPort.getCurrent()).toBeNull();
+  });
+
   it("restores the selected project after app restart while logged out", async () => {
     const orgs = {
       "org-1": {
@@ -1081,6 +1189,129 @@ describe("AuthService", () => {
       expect(sessionPort.getCurrent()).toBeNull();
     });
 
+    it("never re-presents a refresh token the server rejected", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Token revoked",
+        errorCode: "auth_error",
+      });
+
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      // Storage still holds the dead token, so this must fail without a request.
+      seedStoredSession();
+      await expect(service.getValidAccessToken()).rejects.toThrow(
+        NotAuthenticatedError,
+      );
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+    });
+
+    it("pauses rather than retires a token after an unclassified failure", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-24T00:00:00.000Z"));
+      try {
+        seedStoredSession();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Something weird",
+          errorCode: "unknown_error",
+        });
+
+        await service.initialize();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        // Held just under the cooldown, so the constant itself is pinned.
+        vi.setSystemTime(new Date("2026-08-24T00:00:14.900Z"));
+        await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        // And the pause lifts on its own, unlike a server rejection.
+        vi.setSystemTime(new Date("2026-08-24T00:00:15.100Z"));
+        await expect(service.getValidAccessToken()).rejects.toThrow();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("releases the refusal when a new grant bumps the session generation", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Token revoked",
+        errorCode: "auth_error",
+      });
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      oauthFlow.startFlow.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "fresh-access-token",
+          refreshToken: "stored-refresh-token",
+        }),
+      );
+      stubAuthFetch();
+      await service.login("us");
+
+      // Same token as the refused one, so only the generation bump can release
+      // it. Otherwise signing back in leaves the user locked out.
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "rotated-access-token",
+          refreshToken: "rotated-refresh-token",
+        }),
+      );
+      await service.refreshAccessToken();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+    });
+
+    it("pauses only the token that failed", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Something weird",
+        errorCode: "unknown_error",
+      });
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      // A different token is a different credential; the pause must not widen.
+      seedStoredSession({ refreshToken: "another-refresh-token" });
+      await expect(service.getValidAccessToken()).rejects.toThrow();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+    });
+
+    it("pauses the token when retries are exhausted", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-24T00:00:00.000Z"));
+      try {
+        seedStoredSession();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Boom",
+          errorCode: "server_error",
+        });
+
+        const restoring = service.initialize();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await restoring;
+        const spent = oauthFlow.refreshToken.mock.calls.length;
+        expect(spent).toBeGreaterThan(1);
+
+        // This exhausts the retry budget rather than failing on the first attempt.
+        await expect(service.getValidAccessToken()).rejects.toThrow();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(spent);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps restoring after a non-retryable unknown_error", async () => {
       seedStoredSession();
       oauthFlow.refreshToken.mockResolvedValue({
@@ -1142,6 +1373,39 @@ describe("AuthService", () => {
       }
     });
 
+    it("raises a not-authenticated error on the rejection itself", async () => {
+      vi.useFakeTimers();
+      try {
+        oauthFlow.startFlow.mockResolvedValue(
+          mockTokenResponse({
+            accessToken: "current-access-token",
+            refreshToken: "current-refresh-token",
+          }),
+        );
+        stubAuthFetch();
+
+        await service.initialize();
+        await service.login("us");
+
+        oauthFlow.refreshToken.mockReset();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Token revoked",
+          errorCode: "auth_error",
+        });
+
+        await vi.advanceTimersByTimeAsync(3_599_500);
+
+        // Raised by the rejection that tears the session down, so callers
+        // that stop on a dead session see it here, not one trigger later.
+        await expect(service.getValidAccessToken()).rejects.toBeInstanceOf(
+          NotAuthenticatedError,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("does not use the current access token when refresh token auth fails", async () => {
       vi.useFakeTimers();
       try {
@@ -1177,6 +1441,58 @@ describe("AuthService", () => {
   });
 
   describe("transient org fetch failures", () => {
+    it("does not replace the stored project with another org's first project during partial recovery", async () => {
+      seedStoredSession({ selectedProjectId: 84 });
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
+      );
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | Request) => {
+          const url = typeof input === "string" ? input : input.url;
+
+          if (url.includes("/api/users/@me/")) {
+            return {
+              ok: true,
+              json: vi.fn().mockResolvedValue({
+                uuid: "user-1",
+                organization: { id: "org-1" },
+              }),
+            } as unknown as Response;
+          }
+
+          if (url.includes("/api/organizations/org-1/")) {
+            return {
+              ok: true,
+              json: vi.fn().mockResolvedValue({
+                name: "Org 1",
+                teams: [{ id: 42, name: "Project 42" }],
+              }),
+            } as unknown as Response;
+          }
+
+          if (url.includes("/api/organizations/org-2/")) {
+            return {
+              ok: false,
+              status: 503,
+              json: vi.fn().mockResolvedValue({}),
+            } as unknown as Response;
+          }
+
+          return {
+            ok: true,
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
+          } as unknown as Response;
+        }) as unknown as typeof fetch,
+      );
+
+      await service.initialize();
+
+      expect(service.getState().currentProjectId).toBeNull();
+      expect(sessionPort.getCurrent()?.selectedProjectId).toBe(84);
+    });
+
     it("retries the org fetch on a transient network failure and keeps the selected project", async () => {
       seedStoredSession({ selectedProjectId: 84 });
       oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
@@ -1216,7 +1532,7 @@ describe("AuthService", () => {
 
           return {
             ok: true,
-            json: vi.fn().mockResolvedValue({ has_access: true }),
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
           } as unknown as Response;
         }) as unknown as typeof fetch,
       );
@@ -1279,7 +1595,7 @@ describe("AuthService", () => {
 
           return {
             ok: true,
-            json: vi.fn().mockResolvedValue({ has_access: true }),
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
           } as unknown as Response;
         }) as unknown as typeof fetch,
       );
@@ -1333,7 +1649,7 @@ describe("AuthService", () => {
 
           return {
             ok: true,
-            json: vi.fn().mockResolvedValue({ has_access: true }),
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
           } as unknown as Response;
         }) as unknown as typeof fetch,
       );
@@ -1383,7 +1699,7 @@ describe("AuthService", () => {
 
           return {
             ok: true,
-            json: vi.fn().mockResolvedValue({ has_access: true }),
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
           } as unknown as Response;
         }) as unknown as typeof fetch,
       );
@@ -1485,7 +1801,7 @@ describe("AuthService", () => {
           }
           return {
             ok: true,
-            json: vi.fn().mockResolvedValue({ has_access: true }),
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
           } as unknown as Response;
         }) as unknown as typeof fetch,
       );
@@ -1570,7 +1886,7 @@ describe("AuthService", () => {
           }
           return {
             ok: true,
-            json: vi.fn().mockResolvedValue({ has_access: true }),
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
           } as unknown as Response;
         }) as unknown as typeof fetch,
       );
@@ -1719,7 +2035,7 @@ describe("AuthService", () => {
 
           return {
             ok: true,
-            json: vi.fn().mockResolvedValue({ has_access: true }),
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
           } as unknown as Response;
         }) as unknown as typeof fetch,
       );
@@ -1856,69 +2172,11 @@ describe("AuthService", () => {
     });
   });
 
-  describe("redeemInviteCode uses authenticatedFetch", () => {
-    it("retries on 401 via authenticatedFetch", async () => {
-      oauthFlow.startFlow.mockResolvedValue(
-        mockTokenResponse({
-          accessToken: "initial-token",
-          refreshToken: "refresh-token",
-        }),
-      );
-      oauthFlow.refreshToken.mockResolvedValue(
-        mockTokenResponse({
-          accessToken: "refreshed-token",
-          refreshToken: "new-refresh-token",
-        }),
-      );
-
-      let redeemCallCount = 0;
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (input: string | Request) => {
-          const url = typeof input === "string" ? input : input.url;
-
-          if (url.includes("/api/users/@me/")) {
-            return {
-              ok: true,
-              json: vi.fn().mockResolvedValue({ uuid: "user-1" }),
-            } as unknown as Response;
-          }
-
-          if (url.includes("/invites/redeem/")) {
-            redeemCallCount++;
-            if (redeemCallCount === 1) {
-              return {
-                ok: false,
-                status: 401,
-                json: () => Promise.resolve({}),
-              } as unknown as Response;
-            }
-            return {
-              ok: true,
-              status: 200,
-              json: () => Promise.resolve({ success: true }),
-            } as unknown as Response;
-          }
-
-          return {
-            ok: true,
-            json: vi.fn().mockResolvedValue({ has_access: true }),
-          } as unknown as Response;
-        }) as unknown as typeof fetch,
-      );
-
-      await service.login("us");
-      const state = await service.redeemInviteCode("test-code");
-
-      expect(state.hasCodeAccess).toBe(true);
-      expect(redeemCallCount).toBe(2);
-    });
-  });
-
-  describe("code access resilience", () => {
+  describe("desktop access", () => {
     const okBody = (body: unknown): Response =>
       ({
         ok: true,
+        status: 200,
         json: vi.fn().mockResolvedValue(body),
       }) as unknown as Response;
 
@@ -1934,86 +2192,143 @@ describe("AuthService", () => {
 
     it.each([
       {
-        name: "grants access when the server reports has_access true",
-        checkAccess: () => okBody({ has_access: true }),
-        expected: true,
+        name: "allows an eligible project",
+        payload: { allowed: true, reason: null },
+        status: "allowed",
+        reason: null,
       },
       {
-        name: "denies access when the server explicitly reports no access",
-        checkAccess: () => okBody({ has_access: false }),
-        expected: false,
+        name: "preserves a legacy access denial",
+        payload: { allowed: false, reason: null },
+        status: "blocked",
+        reason: null,
       },
       {
-        name: "stays indeterminate when the check throws",
-        checkAccess: () => {
-          throw new Error("network down");
-        },
-        expected: null,
+        name: "blocks a Startup project",
+        payload: { allowed: false, reason: "startup_plan" },
+        status: "blocked",
+        reason: "startup_plan",
       },
       {
-        name: "stays indeterminate on a 2xx response without a has_access flag",
-        checkAccess: () => okBody({}),
-        expected: null,
+        name: "blocks a project with prepaid credits",
+        payload: { allowed: false, reason: "prepaid_credits" },
+        status: "blocked",
+        reason: "prepaid_credits",
       },
-    ])("$name", async ({ checkAccess, expected }) => {
-      stubAuthFetch({ checkAccess });
+      {
+        name: "shows an error for a malformed response",
+        payload: {},
+        status: "error",
+        reason: null,
+      },
+    ] as const)("$name", async ({ payload, status, reason }) => {
+      stubAuthFetch({ desktopAccessResponse: () => okBody(payload) });
 
       await service.initialize();
 
-      const state = service.getState();
-      expect(state.status).toBe("authenticated");
-      expect(state.hasCodeAccess).toBe(expected);
+      expect(service.getState().desktopAccess).toEqual({
+        projectId: 42,
+        status,
+        reason,
+      });
     });
 
-    it.each([
-      {
-        name: "a network error",
-        fail: (): Response => {
-          throw new Error("network down");
-        },
-      },
-      {
-        name: "a 401",
-        fail: (): Response =>
-          ({
-            ok: false,
-            status: 401,
-            json: vi.fn().mockResolvedValue({}),
-          }) as unknown as Response,
-      },
-    ])(
-      "keeps a confirmed grant when a later check hits $name",
-      async ({ fail }) => {
-        let shouldFail = false;
-        stubAuthFetch({
-          checkAccess: () =>
-            shouldFail ? fail() : okBody({ has_access: true }),
-        });
-
-        await service.initialize();
-        expect(service.getState().hasCodeAccess).toBe(true);
-
-        shouldFail = true;
-        await service.refreshAccessToken();
-
-        expect(service.getState().hasCodeAccess).toBe(true);
-      },
-    );
-
-    it("recovers within the retry loop when a later attempt succeeds", async () => {
-      let attempts = 0;
+    it("shows an error when the access request fails", async () => {
       stubAuthFetch({
-        checkAccess: () => {
-          attempts += 1;
-          if (attempts === 1) throw new Error("transient");
-          return okBody({ has_access: true });
+        desktopAccessResponse: () => {
+          throw new Error("network down");
         },
       });
 
       await service.initialize();
 
-      expect(service.getState().hasCodeAccess).toBe(true);
-      expect(attempts).toBeGreaterThanOrEqual(2);
+      expect(service.getState().desktopAccess).toEqual({
+        projectId: 42,
+        status: "error",
+        reason: null,
+      });
+    });
+
+    it("retries after a technical failure", async () => {
+      let available = false;
+      stubAuthFetch({
+        desktopAccessResponse: () => {
+          if (!available) throw new Error("network down");
+          return okBody({ allowed: true, reason: null });
+        },
+      });
+
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("error");
+
+      available = true;
+      const state = await service.retryDesktopAccess();
+
+      expect(state.desktopAccess).toEqual({
+        projectId: 42,
+        status: "allowed",
+        reason: null,
+      });
+    });
+
+    it("rechecks access after redeeming a legacy invite code", async () => {
+      let redeemed = false;
+      stubAuthFetch({
+        redeemInviteCodeResponse: () => {
+          redeemed = true;
+          return okBody({ success: true });
+        },
+        desktopAccessResponse: () =>
+          okBody(
+            redeemed
+              ? { allowed: true, reason: null }
+              : { allowed: false, reason: null },
+          ),
+      });
+
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("blocked");
+
+      const state = await service.redeemInviteCode("test-code");
+
+      expect(state.desktopAccess).toEqual({
+        projectId: 42,
+        status: "allowed",
+        reason: null,
+      });
+    });
+
+    it("rechecks access after selecting an eligible project", async () => {
+      const orgs = {
+        "org-1": {
+          name: "Org 1",
+          projects: [
+            { id: 1, name: "Blocked" },
+            { id: 2, name: "Allowed" },
+          ],
+        },
+      };
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({ scopedOrgs: ["org-1"] }),
+      );
+      stubAuthFetch({
+        orgs,
+        desktopAccessResponse: (url) =>
+          url.includes("/projects/2/")
+            ? okBody({ allowed: true, reason: null })
+            : okBody({ allowed: false, reason: "startup_plan" }),
+      });
+
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("blocked");
+
+      const state = await service.selectProject(2);
+
+      expect(state.desktopAccess).toEqual({
+        projectId: 2,
+        status: "allowed",
+        reason: null,
+      });
     });
   });
 });

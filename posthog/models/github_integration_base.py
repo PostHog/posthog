@@ -5,9 +5,10 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 :class:`UserGitHubIntegration` (user-scoped).
 """
 
+import json
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict, cast
@@ -15,6 +16,8 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Count, F, Func, JSONField, Value
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 import jwt
@@ -27,6 +30,7 @@ from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
+from posthog.utils import safe_cache_add, safe_cache_delete
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +51,12 @@ GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
+
+ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY = "account_name_heal_attempted_at"
+GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS = 5 * 60
+# Held only while a heal is in flight, and released as soon as it finishes. The TTL is the backstop
+# for a process that dies mid-heal, so it just has to outlast the 10s request timeout.
+GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
@@ -118,6 +128,21 @@ class GitHubIntegrationError(Exception):
         super().__init__(message)
         # Needed, so retry wrappers can make decisions without reparsing the response.
         self.status_code = status_code
+
+
+def _jsonb_merge(column: str, patch: dict[str, Any]) -> Func:
+    """Postgres ``column || patch``: a top-level key merge performed by the database.
+
+    Lets a writer that owns a few keys of a shared JSON column update them without reading the
+    column first, so keys it never looks at survive a concurrent write either way round.
+    """
+    return Func(
+        F(column),
+        Cast(Value(json.dumps(patch)), output_field=JSONField()),
+        template="%(expressions)s",
+        arg_joiner=" || ",
+        output_field=JSONField(),
+    )
 
 
 def _github_repo_optional_fields(repo: dict) -> dict:
@@ -246,6 +271,41 @@ class GitHubIntegrationBase:
             user_qs = user_qs.exclude(id=exclude_user_integration_id)
 
         return team_qs.count() + user_qs.count()
+
+    @staticmethod
+    def installation_reference_counts(
+        installation_ids: Iterable[str], *, include_personal: bool = True
+    ) -> dict[str, int]:
+        """PostHog rows referencing each GitHub App installation, keyed by installation id.
+
+        Batched form of :meth:`installation_reference_count` for list endpoints: one grouped
+        query per model for the whole page instead of a count pair per row. The returned count
+        includes every reference, so a caller checking "is this shared besides the current row"
+        tests ``> 1``. Pass ``include_personal=False`` to count team rows only — those are the
+        ones that keep the App installed on GitHub, since disconnecting the last team row
+        deletes the personal rows sharing it.
+        """
+        # Local imports: both model modules import this module at load time.
+        from posthog.models.integration import Integration
+        from posthog.models.user_integration import UserIntegration
+
+        ids = {installation_id for installation_id in installation_ids if installation_id}
+        counts: dict[str, int] = {}
+        if not ids:
+            return counts
+
+        models: list[type[Integration] | type[UserIntegration]] = [Integration]
+        if include_personal:
+            models.append(UserIntegration)
+        for model in models:
+            grouped = (
+                model.objects.filter(kind="github", integration_id__in=ids)
+                .values("integration_id")
+                .annotate(count=Count("id"))
+            )
+            for row in grouped:
+                counts[row["integration_id"]] = counts.get(row["integration_id"], 0) + row["count"]
+        return counts
 
     @classmethod
     def uninstall_app_installation(cls, installation_id: str) -> bool:
@@ -413,6 +473,10 @@ class GitHubIntegrationBase:
         # refresh rewrites it, including for integrations connected before this key existed.
         if isinstance(data.get("permissions"), dict):
             config["permissions"] = data["permissions"]
+        # Same reasoning for the "all" vs "selected" repository scope: an org owner can flip it on
+        # GitHub at any time, and the UI uses it to decide whether to list repositories at all.
+        if isinstance(data.get("repository_selection"), str):
+            config["repository_selection"] = data["repository_selection"]
         config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
         self.integration.config = config
         self.integration.sensitive_config = {
@@ -528,6 +592,71 @@ class GitHubIntegrationBase:
         suspended) and no mint has succeeded since. While True, the stored access token is
         stale — it survives disarming but GitHub will reject it once it expires server-side."""
         return bool(self.integration.config.get(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
+
+    def account_name_needs_heal(self) -> bool:
+        """True when the stored account name is missing or is the numeric installation id, which is
+        the placeholder written when ``GET /app/installations/{id}`` failed at connect time."""
+        installation_id = self.github_installation_id
+        account = self.integration.config.get("account")
+        name = account.get("name") if isinstance(account, dict) else None
+        return not name or str(name) == str(installation_id)
+
+    def ensure_account_name(self) -> bool:
+        """Replace a placeholder account name with the real GitHub login, at most once per cooldown.
+
+        Skips installations already marked unavailable, since the lookup would fail the same way.
+        Returns True when the name was healed. Persists the attempt timestamp either way so a broken
+        installation costs one GitHub call per cooldown window, not one per list request.
+        """
+        installation_id = self.github_installation_id
+        if not installation_id or self.installation_unavailable() or not self.account_name_needs_heal():
+            return False
+        now = int(time.time())
+        last_attempt = self.integration.config.get(ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY)
+        if isinstance(last_attempt, int | float) and now - last_attempt < GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS:
+            return False
+        # The attempt timestamp is only written once the request below returns, so a burst of
+        # concurrent list requests would all clear the cooldown check and each spend a GitHub call
+        # against the App-wide quota. Claim the row for the duration of the call so only the first
+        # of the burst goes out. A cache outage falls back to the cooldown alone rather than
+        # blocking the heal.
+        claim_key = f"github_account_name_heal:{type(self.integration).__name__}:{self.integration.pk}"
+        if not safe_cache_add(claim_key, True, GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS):
+            return False
+        try:
+            return self._fetch_and_store_account_name(installation_id, now)
+        finally:
+            safe_cache_delete(claim_key)
+
+    def _fetch_and_store_account_name(self, installation_id: str, now: int) -> bool:
+        healed_account: dict[str, Any] | None = None
+        try:
+            response = self.client_request(f"installations/{installation_id}")
+            if response.status_code == 200:
+                account = response.json().get("account") or {}
+                login = account.get("login")
+                if login:
+                    healed_account = {"type": account.get("type"), "name": login}
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: ensure_account_name failed",
+                installation_id=installation_id,
+                exc_info=True,
+            )
+        patch: dict[str, Any] = {ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY: now}
+        if healed_account is not None:
+            patch["account"] = healed_account
+        # `config` is one JSON column, so reading it here and writing the whole column back would drop
+        # anything a concurrent token refresh or installation webhook commits in between — a window a
+        # re-read narrows but never closes. Let Postgres merge the two keys this method owns into the
+        # stored value instead, so every other key survives whichever write lands last.
+        updated = (
+            type(self.integration).objects.filter(pk=self.integration.pk).update(config=_jsonb_merge("config", patch))
+        )
+        if not updated:
+            return False
+        self.integration.config = {**self.integration.config, **patch}
+        return healed_account is not None
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         """Called when the installation token refresh request fails.
@@ -1916,6 +2045,13 @@ class GitHubIntegrationBase:
         result = filtered[offset : offset + limit]
         has_more = offset + limit < len(filtered)
         return result, has_more
+
+    def count_cached_repositories(self, *, search: str = "") -> int:
+        """Size of the filtered set ``list_cached_repositories`` pages over. Call it right after
+        ``list_cached_repositories`` on the same instance so it reads the just-synced in-memory
+        cache rather than triggering a second sync."""
+        cached_repositories = self._get_stored_repository_list() or []
+        return len(self._filter_cached_repositories(cached_repositories, search))
 
     def list_all_cached_repositories(self, max_repos: int | None = None, *, allow_refresh: bool = True) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()

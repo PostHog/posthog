@@ -36,6 +36,16 @@ _MONGO_UNREACHABLE_MESSAGE = (
     "IP addresses are allowlisted in your database's network access settings."
 )
 
+# `_parse_connection_string` raises a ValueError when the string isn't a usable MongoDB URI: a
+# wrong or missing scheme, or a host/port that urlparse rejects. The raw reason gives the user
+# little to act on, so point at the expected scheme and format instead.
+_MONGO_INVALID_CONNECTION_STRING_MESSAGE = (
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+    "PostHog couldn't read your MongoDB connection string. It must start with mongodb:// or "
+    "mongodb+srv:// and follow the standard format, for example "
+    "mongodb+srv://user:password@cluster.mongodb.net/database. Check the connection string and try again."
+)
+
 _MONGO_UNESCAPED_CREDENTIALS_MESSAGE = (
     "Your MongoDB connection string is invalid: the username and password must be percent-encoded "
     "per RFC 3986. Escape any reserved characters (e.g. : / ? # [ ] @ %) in your credentials — for "
@@ -227,8 +237,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        except:
-            return False, "Invalid connection string"
+        except Exception:
+            return False, _MONGO_INVALID_CONNECTION_STRING_MESSAGE
 
         if not connection_params.get("database"):
             return False, DATABASE_NAME_REQUIRED_ERROR

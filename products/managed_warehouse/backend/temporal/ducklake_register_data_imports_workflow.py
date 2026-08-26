@@ -810,11 +810,27 @@ def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, tab
     # Best-effort: this runs in the register `finally`, so raising here would mask
     # the in-flight exception. A table left behind is picked up by the workflow's
     # cleanup finalizer activity, which retries with a fresh connection.
+    #
+    # A dead connection cannot recover, so retrying the drop or reporting the
+    # failure adds no value: the register activity already failed on the transport,
+    # and the finalizer retries the drop with a fresh connection.
+    if conn.closed:
+        LOGGER.warning(
+            "Skipped DuckLake registration cleanup on a closed connection; the workflow cleanup finalizer will retry",
+            schema_name=schema_name,
+        )
+        return
     for table_name in table_names:
         for attempt in range(1, _CLEANUP_DROP_ATTEMPTS + 1):
             try:
                 _drop_registration_table(conn, schema_name, table_name)
                 break
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                LOGGER.warning(
+                    "Aborted DuckLake registration cleanup on a broken connection; the workflow cleanup finalizer will retry",
+                    table_name=f"{schema_name}.{table_name}",
+                )
+                return
             except Exception as error:
                 if attempt == _CLEANUP_DROP_ATTEMPTS:
                     LOGGER.error(
@@ -853,7 +869,7 @@ def _sweep_query(schema_name: str) -> psql.Composed:
         "  ON sn.snapshot_id = t.begin_snapshot "
         "WHERE t.end_snapshot IS NULL "
         "  AND s.schema_name = {} "
-        "  AND regexp_matches(t.table_name, {}) "
+        "  AND t.table_name ~ {} "
         # DuckDB does not infer intervals from bare string literals; the
         # explicit CAST is what makes the age guard bind at all.
         "  AND (sn.snapshot_id IS NULL OR CAST(sn.snapshot_time AS TIMESTAMPTZ) < now() - CAST({} AS INTERVAL)) "

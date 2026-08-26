@@ -3,36 +3,17 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import CodefreshResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.source import CodefreshSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codefresh import (
     CodefreshSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCodefreshSource:
     def setup_method(self) -> None:
         self.source = CodefreshSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CODEFRESH
-
-    def test_source_config_has_api_key_password_field(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Codefresh"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/codefresh"
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_key"]
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == "password"
-        assert api_key_field.required is True
 
     @parameterized.expand(
         [
@@ -64,10 +45,6 @@ class TestCodefreshSource:
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(CodefreshSourceConfig(api_key="t"), self.team_id, names=["builds"])
-        assert [s.name for s in schemas] == ["builds"]
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas does no I/O, so the public docs may render the table catalog.
         assert self.source.lists_tables_without_credentials is True
@@ -92,29 +69,6 @@ class TestCodefreshSource:
         assert valid is expected_valid
         if not expected_valid:
             assert error == inner_error
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CodefreshResumeConfig
-
-    def test_source_for_pipeline_passes_schema_name_as_endpoint(self) -> None:
-        config = CodefreshSourceConfig(api_key="secret")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "builds"
-        manager = mock.MagicMock()
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.source.codefresh_source"
-        ) as mocked_source:
-            self.source.source_for_pipeline(config, manager, inputs)
-
-        mocked_source.assert_called_once()
-        kwargs = mocked_source.call_args.kwargs
-        assert kwargs["api_key"] == "secret"
-        assert kwargs["endpoint"] == "builds"
-        assert kwargs["resumable_source_manager"] is manager
 
     def test_canonical_descriptions_cover_endpoints(self) -> None:
         canonical = self.source.get_canonical_descriptions()

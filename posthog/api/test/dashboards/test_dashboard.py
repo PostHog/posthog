@@ -38,11 +38,12 @@ from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.api.dashboard import (
@@ -55,8 +56,6 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import InsightSerializer
-
-from ee.models.rbac.access_control import AccessControl
 
 valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
@@ -679,7 +678,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         "products.dashboards.backend.feature_flags.get_flags_from_service",
         return_value={"flags": {"dashboard-customization": {"enabled": True}}},
     )
-    def test_dashboard_customization_uses_remote_flag_evaluation(self, _mock_get_flags: MagicMock) -> None:
+    def test_dashboard_customization_uses_remote_flag_evaluation(self, mock_get_flags: MagicMock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, updated = self.dashboard_api.update_dashboard(
@@ -699,13 +698,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
             evaluation_runtime="all",
         )
-        self.assertGreater(len(_mock_get_flags.call_args_list), 0)
-        self.assertTrue(all(flag_call == expected_flag_call for flag_call in _mock_get_flags.call_args_list))
+        self.assertGreater(len(mock_get_flags.call_args_list), 0)
+        self.assertTrue(all(flag_call == expected_flag_call for flag_call in mock_get_flags.call_args_list))
 
-    @patch(
-        "products.dashboards.backend.feature_flags.get_flags_from_service",
-        side_effect=ConnectionError,
-    )
+    @patch("products.dashboards.backend.feature_flags.get_flags_from_service", side_effect=ConnectionError)
     def test_dashboard_customization_fails_closed_when_remote_evaluation_fails(
         self, _mock_get_flags: MagicMock
     ) -> None:

@@ -2643,6 +2643,27 @@ export const usersIntegrationsGithubInstallRequestsRetrieve = async (
     })
 }
 
+export const getUsersIntegrationsGithubInstallRequestsDestroyUrl = (uuid: string, requestId: string) => {
+    return `/api/users/${uuid}/integrations/github/install_requests/${requestId}/`
+}
+
+/**
+ * Delete one of the requesting user's install-approval requests, whatever its status.
+ *
+ * User-facing bookkeeping only: a later connect attempt records a fresh row.
+ * @summary Dismiss a GitHub install-approval request
+ */
+export const usersIntegrationsGithubInstallRequestsDestroy = async (
+    uuid: string,
+    requestId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsGithubInstallRequestsDestroyUrl(uuid, requestId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getUsersIntegrationsGithubPrepareCallbackCreateUrl = (uuid: string) => {
     return `/api/users/${uuid}/integrations/github/prepare_callback/`
 }
