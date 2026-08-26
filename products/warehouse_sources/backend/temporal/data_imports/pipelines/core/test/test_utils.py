@@ -405,6 +405,21 @@ def test_hex_encode_id_binary_columns(
         assert converted.schema.field(column_name).type == column_type
 
 
+def test_hex_encode_id_binary_columns_keeps_chunk_order_and_nulls():
+    chunked = pa.chunked_array(
+        [
+            pa.array([b"\xbd\xd6\x40", None], type=pa.binary()),
+            pa.array([None, b"\x01\xff"], type=pa.binary()),
+        ]
+    )
+    table = pa.table({"id": chunked})
+
+    converted = hex_encode_id_binary_columns(table)
+
+    assert converted.column("id").to_pylist() == ["bdd640", None, None, "01ff"]
+    assert converted.schema.field("id").type == pa.string()
+
+
 def test_binary_column_reporter_logs_each_column_once_across_batches():
     logger = MagicMock()
     reporter = BinaryColumnReporter(logger)

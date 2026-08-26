@@ -5,7 +5,7 @@ import math
 import uuid
 import decimal
 import datetime
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -613,18 +613,25 @@ def _is_id_like_column(column_name: str, primary_keys: Sequence[str] | None) -> 
     return any(lowered == key.lower() for key in (primary_keys or []))
 
 
-def _hex_array_or_report(
-    values: Any,
+def _hex_arrays_or_report(
+    value_chunks: Iterable[Sequence[bytes | None]],
     column_name: str,
     binary_reporter: Optional[BinaryColumnReporter],
-) -> Optional[pa.Array]:
+) -> Optional[list[pa.Array]]:
     """Lowercase-hex strings for one binary column, or None when the values can't be converted.
+
+    Takes the column one chunk at a time so the Python `bytes` and `str` objects of a whole
+    column are never live at once — an Arrow-native source hands over batches far larger than
+    the row path's, and this is the only step that leaves Arrow.
 
     Callers decide what None means: the row path drops the column, the Arrow path leaves it
     binary. Both report the same way.
     """
     try:
-        hex_array = pa.array([None if value is None else value.hex() for value in values], type=pa.string())
+        hex_arrays: list[pa.Array] = [
+            pa.array([None if value is None else value.hex() for value in chunk], type=pa.string())
+            for chunk in value_chunks
+        ]
     except (AttributeError, TypeError, ValueError) as e:
         if binary_reporter:
             binary_reporter.conversion_failed(column_name, e)
@@ -632,7 +639,7 @@ def _hex_array_or_report(
 
     if binary_reporter:
         binary_reporter.converted(column_name)
-    return hex_array
+    return hex_arrays
 
 
 class BinaryColumnReporter:
@@ -687,11 +694,14 @@ def hex_encode_id_binary_columns(
         if not _is_id_like_column(field.name, primary_keys):
             continue
 
-        hex_array = _hex_array_or_report(table.column(field.name).to_pylist(), field.name, binary_reporter)
-        if hex_array is None:
+        # Indexed, not by name: a batch carrying the same column name twice makes the name
+        # lookup raise instead of converting.
+        column = table.column(index)
+        hex_arrays = _hex_arrays_or_report((chunk.to_pylist() for chunk in column.chunks), field.name, binary_reporter)
+        if hex_arrays is None:
             continue
 
-        table = table.set_column(index, field.with_type(pa.string()), hex_array)
+        table = table.set_column(index, field.with_type(pa.string()), pa.chunked_array(hex_arrays, type=pa.string()))
 
     return table
 
@@ -1183,13 +1193,13 @@ def _process_batch(
             # and incremental merges on the synced table.
             if pa.types.is_binary(field.type):
                 if _is_id_like_column(str(field_name), primary_keys):
-                    hex_array = _hex_array_or_report(
-                        _to_list_array(columnar_table_data[field_name]), str(field_name), binary_reporter
+                    hex_arrays = _hex_arrays_or_report(
+                        [_to_list_array(columnar_table_data[field_name])], str(field_name), binary_reporter
                     )
-                    if hex_array is None:
+                    if hex_arrays is None:
                         drop_column_names.add(field_name)
                     else:
-                        columnar_table_data[field_name] = hex_array
+                        columnar_table_data[field_name] = hex_arrays[0]
                         py_type = str
                         unique_types_in_column = {str}
                         arrow_schema = arrow_schema.set(
@@ -1436,13 +1446,13 @@ def _process_batch(
         # schemas, or a declared type the values don't match).
         if issubclass(py_type, bytes):
             if _is_id_like_column(str(field_name), primary_keys):
-                hex_array = _hex_array_or_report(
-                    _to_list_array(columnar_table_data[field_name]), str(field_name), binary_reporter
+                hex_arrays = _hex_arrays_or_report(
+                    [_to_list_array(columnar_table_data[field_name])], str(field_name), binary_reporter
                 )
-                if hex_array is None:
+                if hex_arrays is None:
                     drop_column_names.add(field_name)
                 else:
-                    columnar_table_data[field_name] = hex_array
+                    columnar_table_data[field_name] = hex_arrays[0]
                     py_type = str
                     if arrow_schema:
                         arrow_schema = arrow_schema.set(
