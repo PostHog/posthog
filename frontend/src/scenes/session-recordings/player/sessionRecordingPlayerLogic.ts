@@ -2323,8 +2323,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 // fast-forwarding a multi-hour span saturates the main thread; only 'gap' segments
                 // are event-free, so only they are safe to jump with a seek
-                const remainingMs = segment.endTimestamp - (values.currentTimestamp ?? segment.startTimestamp)
-                if (segment.kind === 'gap' && remainingMs > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS) {
+                const remainingMs =
+                    segment.endTimestamp -
+                    clamp(
+                        values.currentTimestamp ?? segment.startTimestamp,
+                        segment.startTimestamp,
+                        segment.endTimestamp
+                    )
+                if (
+                    values.playingState === SessionPlayerState.PLAY &&
+                    segment.kind === 'gap' &&
+                    remainingMs > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
+                ) {
                     actions.seekToTimestamp(segment.endTimestamp)
                     return
                 }
@@ -2614,6 +2624,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setEndReached(false)
 
             if (nextTimestamp !== undefined) {
+                // resuming inside a long gap re-enters it without a segment change, so jump here too
+                const segment = values.segmentForTimestamp(nextTimestamp)
+                if (
+                    values.skipInactivitySetting &&
+                    segment?.kind === 'gap' &&
+                    segment.endTimestamp - nextTimestamp > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
+                ) {
+                    nextTimestamp = segment.endTimestamp
+                }
                 actions.seekToTimestamp(nextTimestamp, true)
             }
 

@@ -276,10 +276,26 @@ describe('sessionRecordingPlayerLogic', () => {
             }) as RecordingSegment
 
         it.each([
-            ['seeks over a gap past the threshold', 'gap', INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1, true],
-            ['fast-forwards a gap under the threshold', 'gap', 60_000, false],
-            ['fast-forwards a dense inactive window of any length', 'window', 35 * 3600 * 1000, false],
-        ] as const)('%s', async (_name, kind, durationMs, expectSeek) => {
+            [
+                'seeks over a gap past the threshold while playing',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                true,
+                true,
+            ],
+            ['fast-forwards a gap exactly at the threshold', 'gap', INSTANT_SKIP_INACTIVITY_THRESHOLD_MS, true, false],
+            [
+                'does not seek when paused, even over the threshold',
+                'gap',
+                INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1,
+                false,
+                false,
+            ],
+            ['fast-forwards a dense inactive window of any length', 'window', 35 * 3600 * 1000, true, false],
+        ] as const)('%s', async (_name, kind, durationMs, playing, expectSeek) => {
+            if (!playing) {
+                logic.actions.setPause()
+            }
             logic.actions.setCurrentTimestamp(START)
             const segment = inactiveSegment(kind, durationMs)
             const expectation = expectLogic(logic, () => logic.actions.setCurrentSegment(segment))
