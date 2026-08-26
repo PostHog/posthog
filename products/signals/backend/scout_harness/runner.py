@@ -53,6 +53,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
+from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -364,9 +365,9 @@ async def arun_signals_scout(
             reasoning_effort=reasoning_effort,
         )
         runtime_s = time.monotonic() - started
-        emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
-            run_id, team.parent_team_id or team.id
-        )
+        emitted_count, _, structured_output_count = await database_sync_to_async(
+            _read_run_metrics, thread_sensitive=False
+        )(run_id, team.parent_team_id or team.id)
         # A run that got all the way through closes the breaker: the lane works, so any streak
         # it had accumulated is stale and a standing auto-pause is lifted (this is also how the
         # half-open probe recovers a paused lane once its underlying cause is fixed). Any
@@ -384,6 +385,7 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            structured_output_count=structured_output_count,
             model=model,
             runtime_adapter=runtime_adapter,
         )
@@ -418,12 +420,12 @@ async def arun_signals_scout(
         # A partial run can still have emitted (and have a linked TaskRun) before failing,
         # so read both from the bridge row when it exists; otherwise it never ran far
         # enough to persist either.
-        emitted_count, failed_task_run_id = (
+        emitted_count, failed_task_run_id, structured_output_count = (
             await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
                 run_id, team.parent_team_id or team.id
             )
             if row_persisted
-            else (0, None)
+            else (0, None, 0)
         )
         # Advance the breaker before the event so the failure that trips it is the one whose
         # `error_message` explains the pause. Scheduled failures only: the threshold is sized
@@ -446,6 +448,7 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            structured_output_count=structured_output_count,
             model=model,
             runtime_adapter=runtime_adapter,
             error_type=type(exc).__name__,
@@ -1139,22 +1142,28 @@ def _run_row_exists(run_id: Any, team_id: int) -> bool:
     return SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).exists()
 
 
-def _read_run_metrics(run_id: Any, team_id: int) -> tuple[int, str | None]:
-    # The bridge row carries the authoritative emit tally (the emit tool bumps it in-run)
-    # and the FK to the linked TaskRun — the join key into LLM analytics, where the
-    # richer per-run metrics (tool calls, generations, tokens, cost) already live. Reading
-    # both here keeps that linkage on failed runs too, not just clean completions. Returns
-    # (0, None) when the row never persisted (failure before the first turn).
+def _read_run_metrics(run_id: Any, team_id: int) -> tuple[int, str | None, int]:
+    # The bridge row carries the authoritative emit tally (the emit tool bumps it in-run),
+    # the FK to the linked TaskRun — the join key into LLM analytics, where the richer
+    # per-run metrics (tool calls, generations, tokens, cost) already live — and the
+    # structured-output tally the record tool bumps under lock. Reading all three here keeps
+    # that linkage on failed runs too, not just clean completions. Returns (0, None, 0) when
+    # the row never persisted (failure before the first turn).
     row = (
         SignalScoutRun.objects.unscoped()
         .filter(team_id=team_id, id=run_id)
-        .values_list("emitted_count", "task_run_id")
+        .values_list("emitted_count", "task_run_id", "metadata")
         .first()
     )
     if row is None:
-        return 0, None
-    emitted_count, task_run_id = row
-    return emitted_count or 0, str(task_run_id) if task_run_id else None
+        return 0, None, 0
+    emitted_count, task_run_id, metadata = row
+    structured_output_count = (metadata or {}).get(STRUCTURED_OUTPUT_COUNT_KEY)
+    return (
+        emitted_count or 0,
+        str(task_run_id) if task_run_id else None,
+        structured_output_count if isinstance(structured_output_count, int) else 0,
+    )
 
 
 def _capture_run_started(
@@ -1338,6 +1347,7 @@ def _capture_run_finished(
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    structured_output_count: int | None = None,
     model: str | None = None,
     runtime_adapter: str | None = None,
     error_type: str | None = None,
@@ -1352,6 +1362,14 @@ def _capture_run_finished(
     emit volume — keyed on the team so it joins both to the emit-side `signal_emitted`
     events and to the team-level experiment exposure. Best-effort: a capture failure must
     never fail or mask the run outcome.
+
+    `structured_output_count` and `has_structured_output` mirror the emit pair for the
+    measurement channel: `emitted_count` stays 0 for a measurement scout, so a completed run
+    that recorded nothing looks identical to a healthy one without them. An alert on a
+    completed measurement run with a zero count catches a scout that stops measuring, which
+    neither the emit tally nor the failure-streak breaker (it counts `failed` runs only) can
+    see. `has_structured_output` matches the run row's derived flag (`bool(count)`). Both stay
+    absent when the count is unknown (a cancelled run reads no metrics).
 
     On `status='failed'`, `error_type` (the exception class) and a truncated `error_message`
     are attached so the failure rate is breakable down by cause without digging into worker
@@ -1371,6 +1389,9 @@ def _capture_run_finished(
         "runtime_seconds": round(runtime_s, 1),
         "emitted_count": emitted_count,
     }
+    if structured_output_count is not None:
+        properties["structured_output_count"] = structured_output_count
+        properties["has_structured_output"] = bool(structured_output_count)
     _attach_run_shape_props(
         properties,
         config=config,

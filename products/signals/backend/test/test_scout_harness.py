@@ -60,6 +60,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
+from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
@@ -1717,6 +1718,10 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
     assert props["skill_version"] == 1
     assert props["status"] == TaskRun.Status.COMPLETED.value
     assert props["emitted_count"] == 0
+    # A completed run that recorded no structured output carries a zero count and a false flag —
+    # the exact shape an alert watches for on a measurement scout that stopped measuring.
+    assert props["structured_output_count"] == 0
+    assert props["has_structured_output"] is False
     assert props["run_id"] == run_result.run_id
     # task_run_id is the join key into LLM analytics for the richer per-run metrics.
     assert props["task_run_id"] == str(session.task_run.id)
@@ -1724,6 +1729,43 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
     # The prompt-shape fork reaches the lifecycle event too (this team has no knowledge base),
     # so an event-based A/B readout can segment on it without joining back to the run row.
     assert props["business_knowledge_maintained"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_finished_event_carries_recorded_structured_output_count(ateam, aerrors_skill):
+    # A measurement scout records structured output through the counter on the run row. The
+    # finished event must surface that count so an alert can tell a run that measured from one
+    # that silently recorded nothing — the emit tally stays 0 for these scouts either way.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+
+    async def _start_and_record(*args, on_task_run_created=None, **kwargs):
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        # Stand in for the record tool bumping the counter under lock mid-run.
+        await database_sync_to_async(
+            SignalScoutRun.objects.filter(task_run=session.task_run).update, thread_sensitive=False
+        )(metadata={STRUCTURED_OUTPUT_COUNT_KEY: 100})
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_start_and_record),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    finished = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished")
+    props = finished.kwargs["properties"]
+    assert props["structured_output_count"] == 100
+    assert props["has_structured_output"] is True
 
 
 @pytest.mark.asyncio
