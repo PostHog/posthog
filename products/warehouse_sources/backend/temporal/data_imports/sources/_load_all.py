@@ -702,6 +702,7 @@ from .lokalise.source import LokaliseSource
 from .looker.source import LookerSource
 from .loop_returns.source import LoopReturnsSource
 from .loops.source import LoopsSource
+from .lovable.source import LovableSource
 from .luma.source import LumaSource
 from .m3ter.source import M3terSource
 from .mailchimp.source import MailchimpSource
@@ -1299,6 +1300,7 @@ from .zalando_zdirect.source import ZalandoZdirectSource
 from .zapier_supported_storage.source import ZapierSupportedStorageSource
 from .zapsign.source import ZapSignSource
 from .zellify.source import ZellifySource
+from .zenchef.source import ZenchefSource
 from .zendesk.source import ZendeskSource
 from .zendesk_sell.source import ZendeskSellSource
 from .zendesk_sunshine.source import ZendeskSunshineSource
