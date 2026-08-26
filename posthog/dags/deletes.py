@@ -311,9 +311,31 @@ class Dictionary(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def staged(self, run_key: str) -> StagedDictionary:
-        """Where this dictionary's rows go so another cluster can load them; see StagedDictionary."""
+    def staged(self) -> StagedDictionary:
+        """Where this dictionary's rows go so another cluster can load them; see StagedDictionary.
+
+        Keyed by the dictionary's own name, never by anything per-run. A dictionary outlives the
+        run that created it, and CREATE ... IF NOT EXISTS keys on that same name, so a per-run key
+        would leave the earlier definition pointing at an object no later run writes.
+        """
         raise NotImplementedError()
+
+    def recreate(
+        self,
+        client: Client,
+        shards: int,
+        max_execution_time: int,
+        max_memory_usage: int,
+        query: str | None = None,
+    ) -> None:
+        """Replace the dictionary, so no definition an earlier run left behind can survive.
+
+        CREATE ... IF NOT EXISTS keeps the existing source, which is right where that source is the
+        replicated table and wrong where it is a staged object whose query can change between
+        deploys.
+        """
+        self.drop(client)
+        self.create(client, shards, max_execution_time, max_memory_usage, query)
 
     def exists(self, client: Client) -> bool:
         results = client.execute(
@@ -368,9 +390,9 @@ class PendingDeletesDictionary(Dictionary):
     def query(self) -> str:
         return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name}"
 
-    def staged(self, run_key: str) -> StagedDictionary:
+    def staged(self) -> StagedDictionary:
         return StagedDictionary(
-            key=f"{run_key}/pending_deletes.parquet",
+            key=f"{self.name}.parquet",
             columns="team_id, deletion_type, key, created_at",
             structure="team_id Int64, deletion_type UInt8, key String, created_at DateTime",
         )
@@ -424,9 +446,9 @@ class AdhocEventDeletesDictionary(Dictionary):
     def query(self) -> str:
         return f"SELECT team_id, uuid, created_at FROM {self.source.qualified_name} WHERE (team_id, uuid) not in (SELECT team_id, uuid FROM {self.source.qualified_name} WHERE is_deleted = 1)"
 
-    def staged(self, run_key: str) -> StagedDictionary:
+    def staged(self) -> StagedDictionary:
         return StagedDictionary(
-            key=f"{run_key}/adhoc_event_deletes.parquet",
+            key=f"{self.name}.parquet",
             columns="team_id, uuid, created_at",
             structure="team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')",
         )
@@ -577,10 +599,17 @@ def _create_dictionary_everywhere(
     if not siblings:
         return
 
-    staged = dictionary.staged(context.run_id)
+    staged = dictionary.staged()
     cluster.any_host_by_role(partial(staged.export, source_query=dictionary.query), NodeRole.DATA).result()
+    recreate = partial(
+        dictionary.recreate,
+        shards=config.shards,
+        max_execution_time=config.max_execution_time,
+        max_memory_usage=config.max_memory_usage,
+        query=staged.query,
+    )
     for sibling in siblings:
-        sibling.map_all_hosts(partial(create, query=staged.query)).result()
+        sibling.map_all_hosts(recreate).result()
 
     context.log.info(
         f"Staged {dictionary.name} to {staged.key} for {[sibling.data_cluster_name for sibling in siblings]}"

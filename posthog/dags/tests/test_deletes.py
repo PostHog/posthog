@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from functools import partial
 from typing import cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from freezegun import freeze_time
@@ -678,7 +678,7 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
     assert events_after == len(recent_events)
 
 
-def _insert_pending_deletes(table: PendingDeletesTable, client: Client) -> None:
+def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:
     client.execute(
         table.populate_query,
         [
@@ -692,7 +692,7 @@ def _insert_pending_deletes(table: PendingDeletesTable, client: Client) -> None:
                 "created_by_id": None,
                 "team_id": 99999,
             }
-            for i in range(5)
+            for i in range(first_id, first_id + count)
         ],
     )
 
@@ -706,6 +706,7 @@ def test_a_staged_dictionary_holds_the_same_rows_as_the_source_table(cluster: Cl
     table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 12))
     dictionary = PendingDeletesDictionary(source=table)
     create = partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)
+    recreate = partial(dictionary.recreate, shards=1, max_execution_time=0, max_memory_usage=0)
 
     try:
         cluster.any_host(table.create).result()
@@ -714,10 +715,9 @@ def test_a_staged_dictionary_holds_the_same_rows_as_the_source_table(cluster: Cl
         cluster.any_host(create).result()
         from_source_table = cluster.any_host(dictionary.load).result()
 
-        staged = dictionary.staged(f"test_{uuid4()}")
+        staged = dictionary.staged()
         cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
-        cluster.any_host(dictionary.drop).result()
-        cluster.any_host(partial(create, query=staged.query)).result()
+        cluster.any_host(partial(recreate, query=staged.query)).result()
         from_staged_object = cluster.any_host(dictionary.load).result()
 
         assert from_staged_object == from_source_table
@@ -735,3 +735,49 @@ def test_staged_dictionary_escapes_quotes_inside_a_column_type() -> None:
         structure="team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')",
     )
     assert "DateTime64(6, \\'UTC\\')" in staged.query
+
+
+@pytest.mark.parametrize(
+    "dictionary",
+    [
+        PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 12))),
+        AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
+    ],
+    ids=["pending_deletes", "adhoc_event_deletes"],
+)
+def test_a_staged_dictionary_is_keyed_by_the_dictionary_name(dictionary) -> None:
+    # CREATE ... IF NOT EXISTS keys on the dictionary name, and a dictionary outlives the run that
+    # created it. Keying the object per run instead leaves that definition naming an object no
+    # later run writes, so a cluster loading from S3 serves the first run's rows for ever.
+    assert dictionary.staged().key == f"{dictionary.name}.parquet"
+
+
+@pytest.mark.django_db
+def test_a_rerun_stages_over_the_previous_runs_object(cluster: ClickhouseCluster):
+    # Every run writes the same key, so the export has to replace the object rather than add to it.
+    # An append leaves both runs' rows behind, and the cluster loading from S3 then holds rows the
+    # cluster reading the source table does not.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 13))
+    dictionary = PendingDeletesDictionary(source=table)
+    recreate = partial(dictionary.recreate, shards=1, max_execution_time=0, max_memory_usage=0)
+    staged = dictionary.staged()
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table, count=5)).result()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+
+        cluster.any_host(table.truncate).result()
+        cluster.any_host(partial(_insert_pending_deletes, table, count=2, first_id=100)).result()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+
+        cluster.any_host(partial(recreate, query=staged.query)).result()
+        from_staged_object = cluster.any_host(dictionary.load).result()
+
+        cluster.any_host(partial(recreate)).result()
+        from_source_table = cluster.any_host(dictionary.load).result()
+
+        assert from_staged_object == from_source_table
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
