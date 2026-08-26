@@ -3045,6 +3045,8 @@ export interface AccountsTableRow {
     id: string
     name: string
     externalId?: string | null
+    /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+    logoDomain?: string | null
     /** Requested direct Account fields, keyed by their typed field reference. */
     accountFields: Record<string, string | null>
     /** Sorted tag names. Omitted when the request does not select tags. */
@@ -9161,6 +9163,11 @@ export const externalDataSources = [
     'DatoCMS',
     'WPSOffice',
     'TeraBox',
+    'SimonData',
+    'CommissionJunction',
+    'Liveblocks',
+    'NationBuilder',
+    'Tana',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

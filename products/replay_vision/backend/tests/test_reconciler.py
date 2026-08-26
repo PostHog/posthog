@@ -37,6 +37,7 @@ from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
+    reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     reap_stuck_vision_action_runs_activity,
@@ -235,8 +236,12 @@ class _ReconcileMocks:
         self.reap_stuck_run_calls = 0
         self.upserted: list[uuid.UUID] = []
         self.deleted: list[uuid.UUID] = []
+        self.calls: list[Any] = []
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any = None, **_: Any) -> Any:
+        self.calls.append(activity_fn)
+        if activity_fn in (reap_childless_inline_scanners_activity, reap_backfill_schedules_activity):
+            return 0
         if activity_fn is reap_orphaned_observations_activity:
             self.reap_calls += 1
             if self.reap_error:
@@ -407,8 +412,26 @@ async def test_reconcile_workflow_pre_patch_skips_run_reaper() -> None:
 
 
 @pytest.mark.asyncio
+@parameterized.expand([("patched_syncs_first", True), ("pre_patch_reaps_first", False)])
+async def test_reconcile_workflow_orders_sync_before_reapers(_name: str, patched: bool) -> None:
+    # The reapers' combined start-to-close budget is larger than the workflow execution timeout, so
+    # running them ahead of the sync lets one slow reaper starve schedule sync on every tick. Replays
+    # of pre-patch executions must keep the old order or they fail the determinism check.
+    sid = uuid.uuid4()
+    fp = compute_schedule_fingerprint({"sample_rate": 0.5})
+    mocks = _ReconcileMocks(enabled=_enabled((sid, 1, fp)), existing=_existing())
+    result = await _run_reconcile(mocks, patched=patched)
+    synced_first = mocks.calls.index(list_enabled_scanners_activity) < mocks.calls.index(
+        reap_orphaned_observations_activity
+    )
+    assert synced_first is patched
+    # Either way the sync itself still happens.
+    assert result.upserted == [sid]
+
+
+@pytest.mark.asyncio
 async def test_reconcile_workflow_survives_reap_failure() -> None:
-    # The reaper is best-effort: its failure must not block schedule sync (and vice versa — it runs first).
+    # The reaper is best-effort: its failure must not block schedule sync, and vice versa.
     sid = uuid.uuid4()
     fp = compute_schedule_fingerprint({"sample_rate": 0.5})
     mocks = _ReconcileMocks(

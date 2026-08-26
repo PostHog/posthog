@@ -159,6 +159,38 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
     await expect(second).rejects.toThrow(/session has ended/);
   });
 
+  it("never hands a steer to the SDK while a compaction is running", async () => {
+    const sessionId = "s-steer-compacting";
+    const harness = installHarness(sessionId);
+    const first = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "first" }],
+    });
+    await tick();
+    echoTurn(harness.query, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+    harness.query._mockHelpers.sendMessage({
+      type: "system",
+      subtype: "status",
+      status: "compacting",
+    } as unknown as SDKMessage);
+    await tick();
+
+    const steer = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "change direction" }],
+      _meta: { steer: true },
+    });
+
+    await expect(steer).resolves.toMatchObject({ _meta: { steer: false } });
+    expect(harness.pushed).toHaveLength(1);
+
+    harness.query._mockHelpers.sendMessage(createSuccessResult());
+    await tick();
+    harness.query._mockHelpers.complete();
+    await expect(first).resolves.toBeDefined();
+  });
+
   it("never hands a prompt cancelled while queued to the SDK", async () => {
     const sessionId = "s-cancel-queued";
     const { agent, query, pushed, first, second } =

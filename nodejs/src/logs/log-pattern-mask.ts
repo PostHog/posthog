@@ -2,9 +2,9 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-export const PATTERN_VERSION = 1
+export const PATTERN_VERSION = 2
 
-export type MaskRuleName = 'timestamp' | 'uuid' | 'email' | 'hex0x' | 'hex' | 'ipv4' | 'num'
+export type MaskRuleName = 'timestamp' | 'uuid' | 'email' | 'host' | 'hex0x' | 'hex' | 'ipv4' | 'num'
 
 export type MaskRule = {
     name: MaskRuleName
@@ -24,6 +24,12 @@ export const MASK_RULES: readonly MaskRule[] = [
         replacement: '<UUID>',
     },
     { name: 'email', pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', replacement: '<EMAIL>' },
+    {
+        name: 'host',
+        pattern:
+            '\\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.){1,8}(?:ai|app|aws|bot|cloud|co|com|de|dev|eu|fr|gg|internal|io|jp|local|me|net|nl|org|sh|so|tv|uk|us|xyz)\\b',
+        replacement: '<HOST>',
+    },
     { name: 'hex0x', pattern: '\\b0x[0-9a-fA-F]+\\b', replacement: '<HEX>' },
     { name: 'hex', pattern: '\\b[0-9a-fA-F]{16,}\\b', replacement: '<HEX>' },
     { name: 'ipv4', pattern: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b', replacement: '<IP>' },
@@ -59,7 +65,7 @@ export function maskString(input: string): MaskResult {
     return { masked, ruleFires }
 }
 
-export type PatternBodyKind = 'empty' | 'invalid_json' | 'json_object_or_array' | 'json_string' | 'primitive'
+export type PatternBodyKind = 'empty' | 'plaintext' | 'json_object_or_array' | 'json_string' | 'primitive'
 
 export type LogPatternResult = {
     pattern: string
@@ -104,7 +110,8 @@ export function computeLogPattern(
     const inputCapped = body.length > maxInputChars
     const cappedBody = inputCapped ? body.slice(0, maxInputChars) : body
     const parsed = parseLogBodyForIngestion(cappedBody)
-    const bodyKind: PatternBodyKind = parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind
+    const bodyKind: PatternBodyKind =
+        parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind === 'invalid_json' ? 'plaintext' : parsed.kind
 
     let maskInput: string
     switch (parsed.kind) {

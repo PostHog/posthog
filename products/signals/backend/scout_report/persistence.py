@@ -60,6 +60,10 @@ from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGH
 
 logger = logging.getLogger(__name__)
 
+# The `reason` on a selection read out of the report's own text. Shared with the emit path so the two
+# writers of an inferred selection stay indistinguishable to anything reading the artefact.
+INFERRED_REPOSITORY_REASON = "Linked GitHub repository found in the report content."
+
 # Matches the grouping pipeline's signal rows (`assign_and_emit_signal_activity`): a scout-authored
 # report's backing rows live in the same `document_embeddings` space so read-side queries that filter
 # by `(product, document_type)` see them identically.
@@ -622,6 +626,43 @@ def set_scout_report_reviewers(
         extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(logins)},
     )
     return True
+
+
+def set_scout_report_inferred_repository(
+    *,
+    team_id: int,
+    report_id: str,
+    repository: str,
+    attribution: ArtefactAttribution,
+) -> None:
+    """Replace the report's `repo_selection` artefact with a repository read out of its own content.
+
+    Only for the inferred selection `emit_report` writes for a report that never asked for a PR, so
+    the result is stamped `autostart_eligible=False` here rather than trusted from the caller — this
+    entry point must not be able to mint a selection that opens a PR on its own.
+
+    Team-scoped fail-closed: a `report_id` the team doesn't own raises. The append opts out of the
+    model's autostart re-eval hook, since a target the report merely links is not a reason to act.
+    """
+    _validate_report_id(report_id)
+    with transaction.atomic():
+        if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=RepoSelectionResult(
+                repository=repository,
+                reason=INFERRED_REPOSITORY_REASON,
+                autostart_eligible=False,
+            ),
+            attribution=attribution,
+            reevaluate_autostart=False,
+        )
+    logger.info(
+        "signals_scout.edit_report: inferred repository refreshed",
+        extra={"team_id": team_id, "report_id": report_id, "repository": repository},
+    )
 
 
 def soft_delete_scout_signal(

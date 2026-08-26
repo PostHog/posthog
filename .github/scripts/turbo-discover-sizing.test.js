@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, PRODUCT_JOB_OVERHEAD_SECONDS, PRODUCT_SAFETY_FACTOR, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -52,13 +52,13 @@ test('getSegmentDuration still applies the segment exclude rules under an allowl
 // Sizing to the shared flat wall target: every shard carries
 // (target - overhead) of work, so walls land near the target in every lane.
 test('calculateShards sizes shards to the flat wall target', () => {
-    // 100 min of work, 5 min overhead: each shard gets 10 min of tests,
-    // walls land at the 15 min target.
-    assert.equal(calculateShards(6000, 300, 1), 10)
+    // 105 min of work, 5 min overhead: each shard gets 7 min of tests,
+    // walls land at the 12 min target.
+    assert.equal(calculateShards(6300, 300, 1), 15)
 })
 
 test('calculateShards rounds up, so the target is a ceiling, not an average', () => {
-    assert.equal(calculateShards(6001, 300, 1), 11)
+    assert.equal(calculateShards(6301, 300, 1), 16)
 })
 
 test('calculateShards keeps the floor and ceiling', () => {
@@ -66,10 +66,10 @@ test('calculateShards keeps the floor and ceiling', () => {
     assert.equal(calculateShards(100000, 300, 1), 50)
 })
 
-test('calculateShards degrades to 50% efficiency when overhead reaches the target', () => {
+test('calculateShards floors the work budget at half the overhead', () => {
     // Overhead above the target makes it unreachable; the work budget floors at
-    // the overhead itself instead of going negative.
-    assert.equal(calculateShards(6000, TARGET_WALL_SECONDS + 100, 1), Math.ceil(6000 / (TARGET_WALL_SECONDS + 100)))
+    // half the overhead instead of going negative.
+    assert.equal(calculateShards(6000, TARGET_WALL_SECONDS + 100, 1), Math.ceil(6000 / ((TARGET_WALL_SECONDS + 100) / 2)))
 })
 
 // Product sizing: with the junit-scaled marker the union's product sums are
@@ -95,8 +95,8 @@ test('buildMatrix splits a product to the shared wall target', () => {
 
     const matrix = buildMatrix(['big-one'], union, true)
 
-    // 2000s of work over a (target - overhead) budget per shard.
-    assert.equal(matrix.length, Math.ceil(2000 / (TARGET_WALL_SECONDS - O)))
+    // 2000s of work, with the safety factor, over a (target - overhead) budget per shard.
+    assert.equal(matrix.length, Math.ceil((2000 * PRODUCT_SAFETY_FACTOR) / (TARGET_WALL_SECONDS - O)))
     assert.match(matrix[0].group, /^big-one \(1\/\d+\)$/)
 })
 
