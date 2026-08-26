@@ -178,6 +178,11 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Reject: 'email_failed',
 }
 
+// RFC 5965 feedback types that count as a real complaint and so suppress the address. `not-spam`
+// is excluded on purpose — SES relays it through the same Complaint event, but it means the
+// recipient moved the message out of their spam folder.
+const COMPLAINT_SUPPRESSING_FEEDBACK_TYPES = new Set(['abuse', 'auth-failure', 'fraud', 'other', 'virus'])
+
 export type SesEventLogLine = {
     level: 'warn' | 'error'
     message: string
@@ -567,6 +572,14 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[]
+        // Spam complaints — suppressed immediately, since the recipient has said they don't want our
+        // mail and the provider measures the complaint rate across the whole sending account.
+        // Excludes `not-spam` reports, which SES relays as complaints but mean the opposite.
+        complainedRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+            feedbackType?: string
+        }[]
     }> {
         logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
         const parsed = this.parseIncomingBody(opts.body)
@@ -659,6 +672,11 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             timestamp?: string
+        }[] = []
+        const complainedRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+            feedbackType?: string
         }[] = []
 
         for (const rec of records) {
@@ -813,6 +831,29 @@ export class SesWebhookHandler {
                 transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
             }
 
+            // A complaint is the recipient telling us they don't want our mail, so suppress the
+            // address immediately. This also protects every other team on the account: AWS measures
+            // the complaint rate at account level and throttles or pauses sending once it climbs too
+            // high, so repeat sends to a complainer are a shared cost, not just this team's.
+            if (
+                suppressionAllowed &&
+                rec.eventType === 'Complaint' &&
+                // A `not-spam` report means the recipient rescued the message from their spam
+                // folder. SES relays it through the same Complaint event, so suppressing on it
+                // would block exactly the people who said they *do* want the mail.
+                (!rec.complaint.complaintFeedbackType ||
+                    COMPLAINT_SUPPRESSING_FEEDBACK_TYPES.has(rec.complaint.complaintFeedbackType))
+            ) {
+                const emails = rec.complaint.complainedRecipients.map((r) => r.emailAddress)
+                if (emails.length > 0) {
+                    complainedRecipients.push({
+                        teamId,
+                        emailAddresses: emails,
+                        feedbackType: rec.complaint.complaintFeedbackType,
+                    })
+                }
+            }
+
             // Successful delivery resets an address's soft-bounce counter — but only if newer than the
             // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
             // older send can't erase a fresh bounce.
@@ -832,6 +873,7 @@ export class SesWebhookHandler {
             transientBounceRecipients,
             hardBounceRecipients,
             deliveredRecipients,
+            complainedRecipients,
         }
     }
 }

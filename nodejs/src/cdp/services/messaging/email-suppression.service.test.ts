@@ -46,6 +46,16 @@ describe('EmailSuppressionService', () => {
         return res.rows[0]
     }
 
+    const readReason = async (email: string): Promise<string | undefined> => {
+        const res = await hub.postgres.query<{ reason: string }>(
+            PostgresUse.COMMON_READ,
+            `SELECT reason FROM posthog_messagesuppression WHERE team_id = $1 AND identifier = $2`,
+            [team.id, email],
+            'test-read-reason'
+        )
+        return res.rows[0]?.reason
+    }
+
     describe('recordTransientBounces (threshold=3)', () => {
         beforeEach(() => {
             // Threshold=3 gives a clean boundary: 2 bounces must not flip, 3 must.
@@ -201,6 +211,95 @@ describe('EmailSuppressionService', () => {
                 'test-read-reason'
             )
             expect(detail.rows[0].reason).toBe('Manually added')
+        })
+    })
+
+    describe('recordComplaints', () => {
+        it('suppresses immediately with source=COMPLAINT and the feedback type in the reason', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'reported-us@example.com'
+            await svc.recordComplaints(team.id, [email], 'abuse')
+
+            expect(await readRow(email)).toMatchObject({
+                identifier: email,
+                source: 'COMPLAINT',
+                suppressed: true,
+                deleted: false,
+            })
+            expect(await readReason(email)).toBe('Auto-suppressed after a spam complaint (abuse)')
+        })
+
+        it('drops an unrecognized feedback type rather than storing it in the reason', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'odd-feedback@example.com'
+            await svc.recordComplaints(team.id, [email], 'Reason: [Action:evil] injected')
+
+            expect(await readReason(email)).toBe('Auto-suppressed after a spam complaint')
+        })
+
+        it('escalates a bounce-counter row to COMPLAINT without disturbing the bounce counter', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'bounced-then-complained@example.com'
+            await svc.recordTransientBounces(team.id, [email], 'temp')
+            expect(await readRow(email)).toMatchObject({ suppressed: false, transient_bounce_count: 1 })
+
+            await svc.recordComplaints(team.id, [email], 'abuse')
+            expect(await readRow(email)).toMatchObject({
+                source: 'COMPLAINT',
+                suppressed: true,
+                // A complaint is not a deliverability failure, so bounce history is left as-is.
+                transient_bounce_count: 1,
+            })
+        })
+
+        it('does not override a MANUAL entry (user-managed rows are authoritative)', async () => {
+            const email = 'user-managed-complaint@example.com'
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'MANUAL', 'Manually added', 0,
+                     false, NULL, true, NOW(), NOW())`,
+                [team.id, email],
+                'test-insert-manual'
+            )
+
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            await svc.recordComplaints(team.id, [email], 'abuse')
+
+            // A user who deliberately removed the address keeps it removed.
+            expect(await readRow(email)).toMatchObject({
+                source: 'MANUAL',
+                suppressed: false,
+                deleted: true,
+            })
+            expect(await readReason(email)).toBe('Manually added')
+        })
+
+        it('re-suppresses an auto row a user had removed, since the address complained again', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'removed-then-complained@example.com'
+            await svc.recordComplaints(team.id, [email], 'abuse')
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_messagesuppression SET suppressed = false, deleted = true
+                 WHERE team_id = $1 AND identifier = $2`,
+                [team.id, email],
+                'test-soft-delete'
+            )
+
+            await svc.recordComplaints(team.id, [email], 'abuse')
+            expect(await readRow(email)).toMatchObject({ suppressed: true, deleted: false })
+        })
+
+        it('blocks the address from the next send', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'blocked-after-complaint@example.com'
+            expect(await svc.isSuppressed(team.id, email)).toBe(false)
+
+            await svc.recordComplaints(team.id, [email], 'abuse')
+            expect(await svc.isSuppressed(team.id, email)).toBe(true)
         })
     })
 

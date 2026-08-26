@@ -9,6 +9,9 @@ class SuppressionSource(models.TextChoices):
     # Added automatically after an address repeatedly soft-bounced (see the transient
     # bounce handling in the SES webhook path).
     BOUNCE = "BOUNCE"
+    # Added automatically after the recipient reported a message as spam, relayed to us
+    # through the provider's feedback loop (see the SES Complaint handling).
+    COMPLAINT = "COMPLAINT"
     # Added by a user via the Suppression list tab / API.
     MANUAL = "MANUAL"
 
@@ -22,6 +25,10 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
       sends without a successful delivery in between. A single soft bounce is not enough — the
       recipient server may just be briefly down — so we count and only suppress once the count
       crosses a configurable threshold. Any successful delivery resets the count.
+    - Automatically and immediately, when the recipient reports a message as spam. Unlike a soft
+      bounce this needs no threshold: the recipient has explicitly said they don't want our mail,
+      and continuing to send drives the account-level complaint rate toward the level at which the
+      provider throttles or pauses sending for every team.
     - Manually, when a user adds it in the Suppression list UI.
 
     The pre-send path consults this list (see the Node `EmailSuppressionService`) and skips

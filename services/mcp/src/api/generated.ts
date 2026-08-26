@@ -49454,6 +49454,7 @@ export namespace Schemas {
 
     /**
      * * `BOUNCE` - Bounce
+     * * `COMPLAINT` - Complaint
      * * `MANUAL` - Manual
      */
     export type MessageSuppressionSourceEnum = typeof MessageSuppressionSourceEnum[keyof typeof MessageSuppressionSourceEnum];
@@ -49461,6 +49462,7 @@ export namespace Schemas {
 
     export const MessageSuppressionSourceEnum = {
       Bounce: 'BOUNCE',
+      Complaint: 'COMPLAINT',
       Manual: 'MANUAL',
     } as const;
 
@@ -49469,9 +49471,10 @@ export namespace Schemas {
       readonly id: string;
       /** Normalized recipient email address. Suppression is keyed on this value, per team. */
       readonly identifier: string;
-      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` when the recipient reported a message as spam, `MANUAL` for user-added via the UI/API.
        *
        * * `BOUNCE` - Bounce
+       * * `COMPLAINT` - Complaint
        * * `MANUAL` - Manual */
       readonly source: MessageSuppressionSourceEnum;
       /**

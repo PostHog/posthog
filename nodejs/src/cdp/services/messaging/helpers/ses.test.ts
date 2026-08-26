@@ -555,21 +555,37 @@ describe('SesWebhookHandler', () => {
         expect(result.hardBounceRecipients).toBeUndefined()
     })
 
-    it('parses a raw Complaint event', async () => {
-        const body = [
-            {
-                eventType: 'Complaint',
-                mail: baseMail,
-                complaint: {
-                    complainedRecipients: [{ emailAddress: 'to@example.com' }],
-                    timestamp: '2025-10-03T12:05:00Z',
-                },
+    const buildComplaintBody = (complaintFeedbackType?: string): Record<string, any>[] => [
+        {
+            eventType: 'Complaint',
+            mail: baseMail,
+            complaint: {
+                complainedRecipients: [{ emailAddress: 'to@example.com' }],
+                timestamp: '2025-10-03T12:05:00Z',
+                ...(complaintFeedbackType ? { complaintFeedbackType } : {}),
             },
-        ]
-        const result = await handler.handleWebhook({ body, headers: {} })
+        },
+    ]
+
+    // A `not-spam` report means the recipient moved the message out of their spam folder. SES
+    // relays it as a Complaint, so suppressing on it would block the people who want the mail.
+    // The metric assertion pins today's behavior rather than endorsing it: every complaint,
+    // not-spam included, lands in email_blocked, which the UI shows as "Marked as spam".
+    // Splitting that out changes what the reputation complaint rate counts, so it belongs with
+    // the metric path, not here.
+    it.each([
+        ['abuse', ['to@example.com']],
+        // SES may omit the feedback type entirely; a complaint is still a complaint.
+        [undefined, ['to@example.com']],
+        ['not-spam', []],
+    ] as const)('a %s complaint surfaces %j for suppression', async (feedbackType, expectedEmails) => {
+        const result = await handler.handleWebhook({ body: buildComplaintBody(feedbackType), headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_blocked')
         expect(result.metrics?.[0].distinctId).toBe('user-123')
+        expect(result.complainedRecipients).toEqual(
+            expectedEmails.length ? [{ teamId: '1', emailAddresses: expectedEmails, feedbackType }] : []
+        )
     })
 
     it('returns 200 and no metrics if tracking code is missing from both carriers', async () => {
@@ -1016,12 +1032,22 @@ describe('SesWebhookHandler', () => {
                     mail: unsignedMail,
                     delivery: { timestamp: '2025-10-03T12:05:00Z', recipients: ['delivered@example.com'] },
                 },
+                {
+                    eventType: 'Complaint',
+                    mail: unsignedMail,
+                    complaint: {
+                        complainedRecipients: [{ emailAddress: 'complained@example.com' }],
+                        timestamp: '2025-10-03T12:06:00Z',
+                        complaintFeedbackType: 'abuse',
+                    },
+                },
             ]
             const result = await handler.handleWebhook({ body, headers: {} })
             expect(result.status).toBe(200)
             expect(result.transientBounceRecipients).toEqual([])
             expect(result.hardBounceRecipients).toEqual([])
             expect(result.deliveredRecipients).toEqual([])
+            expect(result.complainedRecipients).toEqual([])
             // Metrics are unaffected — engagement signal is still emitted for the parsed events.
             expect(result.metrics?.length).toBeGreaterThan(0)
         })

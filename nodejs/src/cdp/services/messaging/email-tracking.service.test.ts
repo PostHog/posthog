@@ -566,6 +566,75 @@ describe('EmailTrackingService', () => {
                 .send(JSON.stringify(envelope))
         }
 
+        const postComplaint = async (
+            functionId: string,
+            emailAddress: string,
+            complaintFeedbackType?: string
+        ): Promise<supertest.Response> => {
+            const trackingCode = signer.generate({ functionId, id: 'invocation-id', teamId: team.id })
+            const sesRecord = {
+                eventType: 'Complaint',
+                mail: {
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                    source: 'sender@posthog.com',
+                    messageId: 'ses-message-id',
+                    destination: [emailAddress],
+                    headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                },
+                complaint: {
+                    complainedRecipients: [{ emailAddress }],
+                    timestamp: '2024-01-01T00:00:00.000Z',
+                    ...(complaintFeedbackType ? { complaintFeedbackType } : {}),
+                },
+            }
+            const envelope = {
+                Type: 'Notification',
+                MessageId: 'sns-message-id',
+                TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                Message: JSON.stringify(sesRecord),
+                Timestamp: '2024-01-01T00:00:00.000Z',
+                SignatureVersion: '1',
+                Signature: 'stubbed',
+                SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+            }
+            return await supertest(app)
+                .post('/public/m/ses_webhook')
+                .set('Content-Type', 'text/plain')
+                .send(JSON.stringify(envelope))
+        }
+
+        it('inserts a suppressed row for a Complaint webhook, so we stop mailing a complainer', async () => {
+            const hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
+            const email = 'complainer@example.com'
+
+            const res = await postComplaint(hogFlow.id, email, 'abuse')
+            expect(res.status).toBe(200)
+
+            const result = await hub.postgres.query<{
+                identifier: string
+                source: string
+                suppressed: boolean
+                reason: string
+                deleted: boolean
+            }>(
+                PostgresUse.COMMON_READ,
+                `SELECT identifier, source, suppressed, reason, deleted
+                 FROM posthog_messagesuppression
+                 WHERE team_id = $1 AND identifier = $2`,
+                [team.id, email],
+                'test-read-complaint-suppression'
+            )
+            expect(result.rows).toEqual([
+                {
+                    identifier: email,
+                    source: 'COMPLAINT',
+                    suppressed: true,
+                    reason: 'Auto-suppressed after a spam complaint (abuse)',
+                    deleted: false,
+                },
+            ])
+        })
+
         it('inserts a suppression row and marks it suppressed after a Transient bounce webhook', async () => {
             const hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
             const email = 'transient-bouncer@example.com'
