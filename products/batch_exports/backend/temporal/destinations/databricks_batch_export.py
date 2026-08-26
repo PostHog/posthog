@@ -1008,6 +1008,25 @@ def _get_databricks_fields_from_record_schema(
     return databricks_schema
 
 
+def _events_table_fields(json_type: str) -> list[DatabricksField]:
+    """Return the Databricks columns for the events model.
+
+    Must stay in sync with the fields `databricks_default_fields` queries, minus `_inserted_at`,
+    which only tracks progress and is never exported.
+    """
+    return [
+        ("uuid", "STRING"),
+        ("event", "STRING"),
+        ("properties", json_type),
+        ("person_properties", json_type),
+        ("distinct_id", "STRING"),
+        ("team_id", "BIGINT"),
+        ("timestamp", "TIMESTAMP"),
+        ("created_at", "TIMESTAMP"),
+        ("databricks_ingested_timestamp", "TIMESTAMP"),
+    ]
+
+
 class TableSettings(t.NamedTuple):
     table_fields: list[DatabricksField]
     record_batch_schema: pa.Schema
@@ -1039,25 +1058,18 @@ def _get_databricks_table_settings(
         known_variant_columns = []
 
     if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-        table_fields = [
-            ("uuid", "STRING"),
-            ("event", "STRING"),
-            ("properties", json_type),
-            ("person_properties", json_type),
-            ("distinct_id", "STRING"),
-            ("team_id", "BIGINT"),
-            ("timestamp", "TIMESTAMP"),
-            ("created_at", "TIMESTAMP"),
-            ("databricks_ingested_timestamp", "TIMESTAMP"),
-        ]
+        table_fields = _events_table_fields(json_type)
+
         # COPY INTO reads the staged files by column name, so a column the staged data does not
-        # carry fails the copy. A run that staged its data before a new field was added to
-        # `databricks_default_fields` is the case this covers.
-        staged_columns = set(record_batch_schema.names)
-        missing_columns = [name for name, _ in table_fields if name not in staged_columns]
-        if missing_columns:
-            LOGGER.warning("Skipping columns absent from the staged data: %s", missing_columns)
-            table_fields = [field for field in table_fields if field[0] in staged_columns]
+        # carry fails the copy. This covers a run that staged its data before a new field was
+        # added to `databricks_default_fields`. A custom schema is left alone: its columns never
+        # matched this list to begin with, so filtering would hide the mismatch instead.
+        if model is None or model.schema is None:
+            staged_columns = set(record_batch_schema.names)
+            missing_columns = [name for name, _ in table_fields if name not in staged_columns]
+            if missing_columns:
+                LOGGER.warning("Skipping columns absent from the staged data: %s", missing_columns)
+                table_fields = [field for field in table_fields if field[0] in staged_columns]
     else:
         table_fields = _get_databricks_fields_from_record_schema(
             record_batch_schema,

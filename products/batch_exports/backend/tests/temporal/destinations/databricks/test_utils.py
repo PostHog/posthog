@@ -4,8 +4,9 @@ import pytest
 
 import pyarrow as pa
 
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
+    _events_table_fields,
     _get_databricks_table_settings,
     _get_long_running_query_timeout,
     databricks_default_fields,
@@ -34,27 +35,38 @@ def _staged_events_schema(column_names: list[str]) -> pa.Schema:
     return pa.schema([pa.field(name, pa.string()) for name in column_names])
 
 
-def _events_table_field_names(staged_column_names: list[str]) -> list[str]:
+def _events_table_field_names(staged_column_names: list[str], schema: BatchExportSchema | None) -> list[str]:
     table_fields, _, _ = _get_databricks_table_settings(
-        model=BatchExportModel(name="events", schema=None),
+        model=BatchExportModel(name="events", schema=schema),
         record_batch_schema=_staged_events_schema(staged_column_names),
         use_variant_type=True,
     )
     return [name for name, _ in table_fields]
 
 
-def test_events_table_fields_cover_every_exported_field():
-    # The fields we query and the table columns we create are two separate literals, so adding to
-    # one without the other silently drops the column from the user's table.
-    exported = [field["alias"] for field in databricks_default_fields()]
+def test_events_table_fields_match_the_exported_fields():
+    # The fields we query and the table columns we create are two separate literals. Adding to the
+    # first alone drops the column from the user's table; adding to the second alone builds a
+    # CREATE TABLE and a COPY INTO naming a column the staged data has no value for.
     # `_inserted_at` only tracks progress and is never exported.
-    expected = sorted(alias for alias in exported if alias != "_inserted_at")
+    exported = sorted(field["alias"] for field in databricks_default_fields() if field["alias"] != "_inserted_at")
 
-    assert sorted(_events_table_field_names(exported)) == expected
+    assert sorted(name for name, _ in _events_table_fields("VARIANT")) == exported
 
 
-def test_events_table_fields_exclude_columns_missing_from_staged_data():
-    # A run that staged its data before `created_at` was added has no such column to copy.
+@pytest.mark.parametrize(
+    "schema, keeps_created_at",
+    [
+        # A run that staged its data before `created_at` was added has no such column to copy, so
+        # dropping it keeps the copy working instead of wedging the run on a retry loop.
+        (None, False),
+        # A custom schema never matched the hardcoded columns, so the mismatch has to stay visible
+        # rather than turn into a partial export.
+        ({"fields": [{"expression": "event", "alias": "event"}], "values": {}}, True),
+    ],
+    ids=["default-schema-drops-it", "custom-schema-keeps-it"],
+)
+def test_events_table_fields_drop_columns_missing_from_staged_data(schema, keeps_created_at):
     staged = [field["alias"] for field in databricks_default_fields() if field["alias"] != "created_at"]
 
-    assert "created_at" not in _events_table_field_names(staged)
+    assert ("created_at" in _events_table_field_names(staged, schema=schema)) is keeps_created_at

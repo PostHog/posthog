@@ -271,6 +271,17 @@ export const PERSON_PROPERTIES_EVENT_FIELD: Record<string, DatabaseSchemaField> 
     },
 }
 
+// When we created the event row, as opposed to when the event happened. Exported by the S3-family
+// destinations and Databricks; the others drop it for backwards compatibility with the legacy schema.
+export const CREATED_AT_EVENT_FIELD: Record<string, DatabaseSchemaField> = {
+    created_at: {
+        name: 'created_at',
+        hogql_value: 'created_at',
+        type: 'datetime',
+        schema_valid: true,
+    },
+}
+
 // Event table preview columns shared by every S3-family destination (S3, AwsS3, S3Compatible).
 export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaField> = {
     person_id: {
@@ -280,12 +291,7 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
         schema_valid: true,
     },
     ...PERSON_PROPERTIES_EVENT_FIELD,
-    created_at: {
-        name: 'created_at',
-        hogql_value: 'created_at',
-        type: 'datetime',
-        schema_valid: true,
-    },
+    ...CREATED_AT_EVENT_FIELD,
 }
 
 // Shared form fields for the AwsS3 and S3Compatible destinations. Per-destination definitions toggle
