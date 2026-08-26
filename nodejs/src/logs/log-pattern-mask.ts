@@ -59,7 +59,7 @@ export function maskString(input: string): MaskResult {
     return { masked, ruleFires }
 }
 
-export type PatternBodyKind = 'empty' | 'invalid_json' | 'json_object_or_array' | 'json_string' | 'primitive'
+export type PatternBodyKind = 'empty' | 'plaintext' | 'json_object_or_array' | 'json_string' | 'primitive'
 
 export type LogPatternResult = {
     pattern: string
@@ -104,7 +104,8 @@ export function computeLogPattern(
     const inputCapped = body.length > maxInputChars
     const cappedBody = inputCapped ? body.slice(0, maxInputChars) : body
     const parsed = parseLogBodyForIngestion(cappedBody)
-    const bodyKind: PatternBodyKind = parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind
+    const bodyKind: PatternBodyKind =
+        parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind === 'invalid_json' ? 'plaintext' : parsed.kind
 
     let maskInput: string
     switch (parsed.kind) {
