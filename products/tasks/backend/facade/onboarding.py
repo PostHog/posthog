@@ -12,6 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import MCP_READ_SCOPES
 
 from products.signals.backend.facade.api import enable_onboarding_signal_sources, waiting_reports
 from products.tasks.backend.facade.api import (
@@ -44,7 +45,7 @@ ONBOARDING_SESSION_TITLE = "Getting set up"
 ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
 ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
 ONBOARDING_SESSION_EFFORT = "medium"
-ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
+ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 
