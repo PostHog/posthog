@@ -518,7 +518,8 @@ async fn process_events_inner(
                 // restriction covers, so the limiter would start from zero if
                 // the restriction were lifted. The charge is cheap: the check
                 // reads the local cache and hands its count to a batched
-                // background writer, so it costs no Redis round trip.
+                // background writer, so it costs no inline Redis round trip. At
+                // most it queues one batched read for the next tick.
                 let limited = limiter.is_limited(&cache_key, 1).await.is_some();
 
                 // The limiter has nothing left to take away from an event whose
@@ -564,11 +565,11 @@ async fn process_events_inner(
             }
 
             if already_disabled_event_count > 0 {
-                counter!(
-                    "capture_global_rate_limiter_skipped",
-                    "reason" => "person_processing_already_disabled",
-                )
-                .increment(already_disabled_event_count);
+                // Charged against the limiter but not re-stamped: person
+                // processing was already off. Mirrors v1's
+                // `capture_v1_rate_limiter{outcome="already_disabled"}`.
+                counter!("capture_global_rate_limiter_already_disabled")
+                    .increment(already_disabled_event_count);
             }
 
             if limited_event_count > 0 {

@@ -954,8 +954,8 @@ async fn apply_token_distinct_id_limits(
         // upstream). The verdict cannot be acted on for that event, but its
         // volume still belongs in the key's fleet count, and the v0 path charges
         // it too. The charge is cheap: the check reads the local cache and hands
-        // its count to a batched background writer, so it costs no Redis round
-        // trip.
+        // its count to a batched background writer, so it costs no inline Redis
+        // round trip. At most it queues one batched read for the next tick.
         let limited = limiter.is_limited(&cache_key, 1).await.is_some();
 
         // The limiter has nothing left to take away here, so stamp nothing.
