@@ -533,6 +533,38 @@ class TestSurvey(APIBaseTest):
         assert "english" not in q_translations
         assert "translations" not in payload["questions"][1]
 
+    def test_sdk_payload_sanitizes_legacy_appearance_html(self) -> None:
+        # Created via the ORM, mirroring appearance JSON stored before write-path validation
+        # covered these fields, so nothing has ever sanitized it.
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Legacy appearance",
+            type="popover",
+            questions=[{"id": "q1", "type": "open", "question": "How are you?"}],
+            appearance={
+                "displayIntroScreen": True,
+                "introScreenHeader": "<i>Welcome</i><script>xss()</script>",
+                "introScreenDescription": "<b>Two quick questions.</b><script>alert(0)</script>",
+                "introScreenDescriptionContentType": "html",
+                "introScreenButtonText": "<strong>Go</strong><script>evil()</script>",
+                "thankYouMessageDescription": "<em>Thanks</em><script>bad()</script>",
+                "backgroundColor": "black",
+            },
+        )
+
+        response = get_surveys_response(self.team)
+        payload = next(item for item in response["surveys"] if str(item["id"]) == str(survey.id))
+        appearance = payload["appearance"]
+        assert appearance["introScreenHeader"] == "<i>Welcome</i>"
+        assert "<script>" not in appearance["introScreenDescription"]
+        assert "<b>Two quick questions.</b>" in appearance["introScreenDescription"]
+        assert "<script>" not in appearance["introScreenButtonText"]
+        assert "<script>" not in appearance["thankYouMessageDescription"]
+        assert appearance["backgroundColor"] == "black"
+        # The stored row itself is untouched; only the SDK payload is cleaned.
+        survey.refresh_from_db()
+        assert "<script>" in survey.appearance["introScreenHeader"]
+
     def test_sdk_payload_strips_invalid_translation_keys(self) -> None:
         result = get_survey_api_translations(
             {

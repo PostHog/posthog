@@ -3459,6 +3459,35 @@ def get_survey_api_translations(
     return safe_translations or None
 
 
+# Appearance text fields SDK renderers can output as HTML. They are sanitized on write, but
+# appearance JSON stored before a field's write-path validation existed (unknown keys used to
+# pass through unchanged) was never cleaned, so SDK payloads re-sanitize on the way out.
+SDK_RENDERED_APPEARANCE_TEXT_FIELDS = (
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+    "introScreenHeader",
+    "introScreenDescription",
+    "introScreenButtonText",
+)
+
+
+def sanitize_appearance_for_sdk(appearance: Any) -> Any:
+    """Return appearance with SDK-rendered text fields HTML-sanitized, copying only when needed."""
+    if not isinstance(appearance, dict):
+        return appearance
+    sanitized = appearance
+    for field in SDK_RENDERED_APPEARANCE_TEXT_FIELDS:
+        text = appearance.get(field)
+        if isinstance(text, str) and text and nh3.is_html(text):
+            cleaned = nh3_clean_with_allow_list(text)
+            if cleaned != text:
+                if sanitized is appearance:
+                    sanitized = dict(appearance)
+                sanitized[field] = cleaned
+    return sanitized
+
+
 class SurveyAPISerializer(serializers.ModelSerializer):
     """
     Serializer for the exposed /api/surveys endpoint, to be used in posthog-js and for headless APIs.
@@ -3539,6 +3568,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
+        data["appearance"] = sanitize_appearance_for_sdk(data.get("appearance"))
         if data.get("translations") is None:
             data.pop("translations", None)
         return data
