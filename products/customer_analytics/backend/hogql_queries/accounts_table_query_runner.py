@@ -271,6 +271,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     id=str(row.id),
                     name=row.name,
                     externalId=row.external_id,
+                    logoDomain=row.logo_domain,
                     accountFields={field.value: value for field, value in row.account_fields.items()},
                     tags=row.tags,
                     noteCount=row.note_count,

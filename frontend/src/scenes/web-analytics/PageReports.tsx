@@ -8,6 +8,7 @@ import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
+import { webAnalyticsDateMapping } from './constants'
 import { pageReportsLogic } from './pageReportsLogic'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { Tiles } from './WebAnalyticsDashboard'
@@ -53,7 +54,12 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
             top={tabs}
             left={
                 <div className="flex flex-row flex-wrap gap-2 items-center w-full min-w-0">
-                    <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
+                    <DateFilter
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        onChange={setDates}
+                        dateOptions={webAnalyticsDateMapping}
+                    />
                     <WebAnalyticsCompareFilter />
                     <LemonInputSelect
                         className="flex-1 min-w-0"
