@@ -591,6 +591,24 @@ class TestFunctionMessageTemplatesAPI(APIBaseTest):
         template.refresh_from_db()
         assert template.content["function"]["inputs"] == {"url": {"value": "https://example.com/v2"}}
 
+    def test_changing_type_to_function_without_content_fails(self):
+        email_template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Email template",
+            content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}},
+            type="email",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{email_template.id}/",
+            data={"type": "function"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        email_template.refresh_from_db()
+        assert email_template.type == "email"
+
     def test_partial_update_without_type_still_validates_as_function(self):
         response = self._create_function_template({"function": {"template_id": "template-webhook", "inputs": {}}})
         template_id = response.json()["id"]

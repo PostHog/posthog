@@ -203,8 +203,10 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
     def _validate_function_content(self, data: Any) -> None:
         content = data.get("content")
         if content is None:
-            # Partial updates of e.g. just the name don't resend content; creates must include it.
-            if self.instance is not None:
+            # Partial updates of e.g. just the name don't resend content, which is fine when the row
+            # already holds validated function content. A create, or a type switch from another kind,
+            # must include it - otherwise the stored content wouldn't match the new type.
+            if self.instance is not None and self.instance.type == "function":
                 return
             raise serializers.ValidationError(
                 {"content": {"function": {"template_id": "Function templates require content.function.template_id."}}}
