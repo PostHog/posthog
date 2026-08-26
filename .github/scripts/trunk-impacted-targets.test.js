@@ -340,6 +340,11 @@ test('every proto tree is declared, with the crate that compiles it', () => {
 // land in today, so a tree that starts generating into one of them without
 // declaring the domain fails here. A consumer that generates into a root
 // neither of these names is still only caught by review.
+//
+// The equality runs both ways. Reading only from the table cannot see a stub
+// directory no tree claims, because a tree whose directory name differs from
+// its own name (usage_ingestion generates into usage-ingestion) reads as "no
+// stubs" and agrees with an empty domain list. The directory side catches that.
 test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
     const stubRoots = [
         ['posthog/personhog_client/proto/generated', PYTHON],
@@ -349,14 +354,25 @@ test('every proto tree declaring a stub consumer has stubs there, and no other t
         const generated = fs
             .readdirSync(path.join(REPO_ROOT, root), { withFileTypes: true })
             .filter((entry) => entry.isDirectory())
+            // __pycache__ is a build artifact of the python root, not a stub tree.
+            .filter((entry) => !entry.name.startsWith('__'))
             .map((entry) => entry.name)
+        const claimed = new Set()
         for (const [tree, { domains, stubDir }] of PROTO_TREES) {
             assert.equal(
                 generated.includes(stubDir || tree),
                 domains.includes(domain),
                 `proto/${tree} stubs in ${root} must match its declared ${domain} consumer`
             )
+            if (domains.includes(domain)) {
+                claimed.add(stubDir || tree)
+            }
         }
+        assert.deepEqual(
+            generated.filter((dir) => !claimed.has(dir)),
+            [],
+            `every directory in ${root} must belong to a proto tree declaring its ${domain} consumer`
+        )
     }
 })
 

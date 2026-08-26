@@ -31,7 +31,7 @@ proto/
 | `personhog/`       | `rust/personhog-proto` (auto via tonic)        | `posthog/personhog_client/proto/generated/` (checked in) | `nodejs/src/common/generated/personhog` (checked in)        |
 | `kafka_assigner/`  | `rust/kafka-assigner-proto` (auto via tonic)   | —                                                        | —                                                           |
 | `prometheus/`      | `rust/prometheus-rw-proto` (auto via tonic)    | —                                                        | —                                                           |
-| `usage_ingestion/` | `rust/usage-ingestion-proto` (auto via tonic)  | —                                                        | —                                                           |
+| `usage_ingestion/` | `rust/usage-ingestion-proto` (auto via tonic)  | —                                                        | `nodejs/src/common/generated/usage-ingestion` (checked in)  |
 
 ## Updating protos
 
