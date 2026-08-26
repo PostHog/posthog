@@ -1195,6 +1195,7 @@ from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource
 from .tremendous.source import TremendousSource
 from .trigger_dev.source import TriggerDevSource
+from .trino.source import TrinoSource
 from .triple_whale.source import TripleWhaleSource
 from .trunk_io.source import TrunkIoSource
 from .trustpilot.source import TrustPilotSource

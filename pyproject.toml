@@ -142,6 +142,7 @@ dependencies = [
     "tiktoken==0.9.*",
     "tldextract~=5.1",
     "trafilatura==2.0.0",
+    "trino==0.338.0",
     "types-cachetools==5.5.0.20240820",
     "css-inline==0.18.0",
     "click~=8.0",

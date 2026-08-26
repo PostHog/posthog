@@ -1686,6 +1686,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `SideShift` - SideShift
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
+ * * `Trino` - Trino
  * * `Easybill` - Easybill
  * * `Bexio` - Bexio
  * * `Umami` - Umami
@@ -3008,6 +3009,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SideShift: 'SideShift',
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
+    Trino: 'Trino',
     Easybill: 'Easybill',
     Bexio: 'Bexio',
     Umami: 'Umami',
@@ -3090,6 +3092,7 @@ export const AccessMethodEnumApi = {
  * * `redshift` - redshift
  * * `clickhouse` - clickhouse
  * * `motherduck` - motherduck
+ * * `trino` - trino
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -3101,6 +3104,7 @@ export const EngineEnumApi = {
     Redshift: 'redshift',
     Clickhouse: 'clickhouse',
     Motherduck: 'motherduck',
+    Trino: 'trino',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -3162,7 +3166,8 @@ export interface ExternalDataSourceSerializersApi {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck */
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -4473,6 +4478,7 @@ export interface ExternalDataSourceCreateApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -4623,7 +4629,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck */
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -4756,7 +4763,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck */
+     * * `motherduck` - motherduck
+     * * `trino` - trino */
     readonly engine: EngineEnumApi | null
     /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
      *
@@ -6016,6 +6024,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -7367,6 +7376,7 @@ export interface DatabaseSchemaRequestApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -8693,6 +8703,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -10104,6 +10115,7 @@ export interface SourcePreviewRequestApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -11465,6 +11477,7 @@ export interface SourceSetupApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -12833,6 +12846,7 @@ export interface SourceCredentialCreateApi {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
