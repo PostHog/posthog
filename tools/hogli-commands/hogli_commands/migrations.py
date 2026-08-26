@@ -394,7 +394,7 @@ def _show_manual_rollback_instructions(uncached: list[MigrationInfo], command_na
         click.echo()
 
     click.echo("After manual rollback, run 'hogli migrations:sync' again.\n")
-    click.echo("Or use --force to skip schema rollback (just removes DB records):")
+    click.echo("Or use --force to continue, removing only the DB records for those migrations:")
     click.secho(f"  hogli {command_name} --force\n", fg="yellow")
     raise SystemExit(1)
 
