@@ -125,6 +125,14 @@ class MessageTemplateContentSerializer(serializers.Serializer):
         "Replaced as a whole on update — send the complete object.",
     )
 
+    def to_representation(self, instance: Any) -> Any:
+        data = super().to_representation(instance)
+        # Don't advertise channels the template doesn't have - a legacy email row shouldn't grow function: null
+        for key in ("email", "function"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
+
 
 class MessageTemplateSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
