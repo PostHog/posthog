@@ -13,7 +13,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
-import { isDataPipelinesListEmpty } from './utils/isDataPipelinesListEmpty'
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 
@@ -69,8 +68,8 @@ export function DataPipelinesHogFunctions({
 
     const productInfoMapping = MAPPING[kind]
 
-    // Each source is null until it loads. Keep them separate so the empty state can tell
-    // "no destinations" apart from "not loaded yet"; the list only needs them flattened.
+    // Each source is null until it loads, so keep them unflattened here: the list just needs
+    // everything in one array, but the empty state has to tell "none" apart from "not loaded yet".
     const manualSources: (HogFunctionType[] | null)[] =
         kind === 'destination'
             ? [hogFunctionPluginsDestinations, hogFunctionBatchExports]
@@ -79,6 +78,10 @@ export function DataPipelinesHogFunctions({
               : []
 
     const manualFunctions = manualSources.length > 0 ? manualSources.flatMap((source) => source ?? []) : undefined
+
+    // A null source has not loaded yet. Counting it as empty flashes the CTA before the data arrives.
+    const isEmpty =
+        !loading && hogFunctions.length === 0 && manualSources.every((source) => source !== null && source.length === 0)
 
     return (
         <SceneContent>
@@ -90,11 +93,7 @@ export function DataPipelinesHogFunctions({
                     description={productInfoMapping.description}
                     docsURL="https://posthog.com/docs/cdp"
                     actionElementOverride={action}
-                    isEmpty={isDataPipelinesListEmpty({
-                        hogFunctions,
-                        hogFunctionsLoading: loading,
-                        manualSources,
-                    })}
+                    isEmpty={isEmpty}
                 />
             ) : null}
             <SceneSection>
