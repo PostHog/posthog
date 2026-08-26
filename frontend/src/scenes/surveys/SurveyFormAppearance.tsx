@@ -11,6 +11,7 @@ import { Survey, SurveyQuestionBranchingType, SurveyType } from '~/types'
 import { INTRO_SCREEN_PAGE_INDEX, NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
+import { clampPreviewPageIndex } from './utils'
 
 interface SurveyFormAppearanceProps {
     previewPageIndex: number
@@ -25,6 +26,8 @@ export function SurveyFormAppearance({
     handleSetSelectedPageIndex,
 }: SurveyFormAppearanceProps): JSX.Element | null {
     const { isAppearanceModalOpen } = useValues(surveysLogic)
+    // A page index left on the intro after the toggle turns off falls back to question 0.
+    const effectivePageIndex = clampPreviewPageIndex(previewPageIndex, survey)
 
     if (isAppearanceModalOpen) {
         return null
@@ -34,15 +37,15 @@ export function SurveyFormAppearance({
         <div className="flex flex-col h-full gap-2 items-start flex-1 xl:pl-8 pt-8 xl:pt-0">
             <SurveyAppearancePreview
                 survey={survey as Survey}
-                previewPageIndex={previewPageIndex}
+                previewPageIndex={effectivePageIndex}
                 onPreviewSubmit={(response) => {
                     // The intro screen is not a question, so getNextSurveyStep cannot resolve it:
                     // its button always advances to question 0.
-                    if (previewPageIndex === INTRO_SCREEN_PAGE_INDEX) {
+                    if (effectivePageIndex === INTRO_SCREEN_PAGE_INDEX) {
                         handleSetSelectedPageIndex(0)
                         return
                     }
-                    const nextStep = getNextSurveyStep(survey, previewPageIndex, response)
+                    const nextStep = getNextSurveyStep(survey, effectivePageIndex, response)
                     if (nextStep === SurveyQuestionBranchingType.End && !survey.appearance?.displayThankYouMessage) {
                         return
                     }
@@ -54,7 +57,7 @@ export function SurveyFormAppearance({
                     handleSetSelectedPageIndex(
                         Math.max(
                             survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0,
-                            previewPageIndex - 1
+                            effectivePageIndex - 1
                         )
                     )
                 }
@@ -65,7 +68,7 @@ export function SurveyFormAppearance({
                     id="current-question-select"
                     fullWidth
                     truncateText={{ maxWidthClass: 'max-w-60' }}
-                    value={previewPageIndex}
+                    value={effectivePageIndex}
                     options={[
                         ...(survey.appearance?.displayIntroScreen
                             ? [

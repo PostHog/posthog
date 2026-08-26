@@ -6,6 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
+    INTRO_SCREEN_PAGE_INDEX,
     MAX_ITERATION_COUNT,
     NEW_SURVEY,
     NewSurvey,
@@ -267,6 +268,22 @@ export function sanitizeSurveyDisplayConditions(
     }
 
     return sanitized
+}
+
+/**
+ * The renderer shows the intro page for INTRO_SCREEN_PAGE_INDEX in preview mode regardless of
+ * `displayIntroScreen` (mirroring how the confirmation page ignores `displayThankYouMessage`),
+ * so a page index left on the intro after the toggle turns off must fall back to question 0.
+ */
+export function clampPreviewPageIndex(
+    pageIndex: number | null | undefined,
+    survey: Pick<Survey | NewSurvey, 'appearance'>
+): number {
+    const index = pageIndex ?? 0
+    if (index === INTRO_SCREEN_PAGE_INDEX && !survey.appearance?.displayIntroScreen) {
+        return 0
+    }
+    return index
 }
 
 export function sanitizeSurveyAppearance(

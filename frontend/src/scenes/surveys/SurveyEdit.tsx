@@ -858,6 +858,12 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           ),
                                                                           content: (
                                                                               <>
+                                                                                  <p className="text-secondary text-xs mb-2">
+                                                                                      The survey counts as shown while
+                                                                                      the intro is on screen, so
+                                                                                      response rates include people who
+                                                                                      never start the questions.
+                                                                                  </p>
                                                                                   <LemonField.Pure
                                                                                       label={getFieldLabel(
                                                                                           'Intro header',
