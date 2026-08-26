@@ -68,6 +68,8 @@ export async function prepareCodexHome(options: {
   subscription?: boolean;
   bundledSkillsDir: string;
   log: AgentScopedLogger;
+  /** Serializes the salvage write-back with sign-out and cleanup write-backs. */
+  queueStoreOp?: <T>(op: () => Promise<T>) => Promise<T>;
 }): Promise<string> {
   const codexHome = getCodexHomeDir(options.appDataPath, options.taskRunId);
   const skillsDir = path.join(codexHome, "skills");
@@ -117,12 +119,17 @@ export async function prepareCodexHome(options: {
     // A retried or reconnected run reuses its taskRunId, so its home may still
     // hold a token codex rotated after the store was last written (a crash skips
     // cleanup's write-back). Salvage that newer token into the store before the
-    // overwrite below, so re-seeding does not discard it.
-    await writeBackSubscriptionLogin({
-      appDataPath: options.appDataPath,
-      taskRunId: options.taskRunId,
-      log: options.log,
-    });
+    // overwrite below, so re-seeding does not discard it. The queue keeps the
+    // salvage from interleaving with a sign-out.
+    const queue =
+      options.queueStoreOp ?? ((op: () => Promise<unknown>) => op());
+    await queue(() =>
+      writeBackSubscriptionLogin({
+        appDataPath: options.appDataPath,
+        taskRunId: options.taskRunId,
+        log: options.log,
+      }),
+    );
     const login = await fs.promises.readFile(storedLogin);
     const runLogin = path.join(codexHome, "auth.json");
     await fs.promises.writeFile(runLogin, login, { mode: 0o600 });

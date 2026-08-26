@@ -316,6 +316,28 @@ describe("prepareCodexHome", () => {
     );
   });
 
+  it("runs the salvage write-back through the given store queue", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    await writeFile(path.join(subscriptionHome, "auth.json"), "{}");
+    let calls = 0;
+    const queueStoreOp = <T>(op: () => Promise<T>): Promise<T> => {
+      calls += 1;
+      return op();
+    };
+
+    await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+      queueStoreOp,
+    });
+
+    expect(calls).toBe(1);
+  });
+
   it("throws for a subscription session without a stored login", async () => {
     await expect(
       prepareCodexHome({
@@ -504,9 +526,7 @@ describe("prepareCodexHome", () => {
     let storeReads = 0;
     readFileSpy.mockImplementation(async (file, opts) => {
       if (
-        String(file).endsWith(
-          path.join("codex-home-subscription", "auth.json"),
-        )
+        String(file).endsWith(path.join("codex-home-subscription", "auth.json"))
       ) {
         storeReads += 1;
         if (storeReads === 2) {
@@ -516,16 +536,18 @@ describe("prepareCodexHome", () => {
       return realReadFile.call(fs.promises, file as never, opts as never);
     });
     try {
-      await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
+      await writeBackSubscriptionLogin({
+        appDataPath,
+        taskRunId,
+        log: noopLog,
+      });
     } finally {
       readFileSpy.mockRestore();
     }
 
     expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":1}');
     expect(
-      existsSync(
-        path.join(subscriptionHome, `.auth.json.${process.pid}.tmp`),
-      ),
+      existsSync(path.join(subscriptionHome, `.auth.json.${process.pid}.tmp`)),
     ).toBe(false);
   });
 

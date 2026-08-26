@@ -1016,6 +1016,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             subscription: codexSubscription,
             bundledSkillsDir,
             log: this.log,
+            queueStoreOp: this.enqueueSubscriptionStoreOp.bind(this),
           });
         } catch (err) {
           // A skills-prep failure must not kill the session; Codex falls back
