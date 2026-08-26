@@ -10,7 +10,7 @@ use crate::{
         symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload, MAX_FILE_SIZE},
     },
     debug_symbols::{discover, package_dsym_bundles, report_problems},
-    release_injection::inject_release_id,
+    release_injection::{inject_release_id, injected_binaries},
     sourcemaps::args::{pack_version, ReleaseArgs, ReleaseMode, UploadConflictArgs},
     utils::git::get_git_info,
 };
@@ -144,6 +144,22 @@ pub fn upload(args: &Args) -> Result<()> {
                 for upload in &mut uploads {
                     upload.release_id = Some(release_id.clone());
                 }
+            }
+            // A binary left over from an earlier `--release-mode=event` run still carries the
+            // injected `$release_id`, and cymbal prefers that id over this symbol-set binding, so
+            // that binary reports the old release. The default path does not rewrite or re-sign
+            // build output, so warn and let the user rebuild rather than editing their binaries.
+            let stale = injected_binaries(&directory);
+            if let Some(first) = stale.first() {
+                warn!(
+                    "{} binary/binaries under {} still carry a $release_id injected by an earlier \
+                     --release-mode=event run (e.g. {}). In symbol-set mode the server still \
+                     prefers that id over the symbol-set binding, so those binaries report the old \
+                     release. Rebuild from clean to clear it, or keep using --release-mode=event.",
+                    stale.len(),
+                    directory.display(),
+                    first.display(),
+                );
             }
         }
         // Carry the release on the event, not the symbol set: inject the created release's id into

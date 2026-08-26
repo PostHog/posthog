@@ -6,7 +6,7 @@
 //! keep it in sync with the SDKs (posthog-rs `src/release_marker.rs`).
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use tracing::{info, warn};
@@ -49,21 +49,10 @@ pub fn inject_release_id(directory: &Path, release_id: &str, resign: bool) -> Re
                 continue;
             }
         };
+        if !is_injection_candidate(&entry) {
+            continue;
+        }
         let path = entry.path();
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        // Skip `.dSYM` internals — the executable next to the bundle carries the marker, not its
-        // debug companion.
-        if path
-            .ancestors()
-            .any(|p| p.extension().is_some_and(|e| e == "dSYM"))
-        {
-            continue;
-        }
-        if !has_native_magic(path) {
-            continue;
-        }
 
         let Ok(mut data) = fs::read(path) else {
             continue;
@@ -91,7 +80,7 @@ pub fn inject_release_id(directory: &Path, release_id: &str, resign: bool) -> Re
                                 path.display()
                             );
                         }
-                        resign_macho(path);
+                        resign_macho(path)?;
                     } else if macho {
                         info!(
                             "Skipped re-signing {} (--no-resign); sign it before running on macOS",
@@ -109,6 +98,47 @@ pub fn inject_release_id(directory: &Path, release_id: &str, resign: bool) -> Re
         }
     }
     Ok(patched)
+}
+
+/// Native binaries under `directory` whose marker slot holds an injected (non-placeholder) release
+/// id, left behind by an earlier `--release-mode=event` run. Read-only: it never writes or re-signs.
+/// Symbol-set mode uses this to warn that a stale binary would still report the old `$release_id`.
+pub fn injected_binaries(directory: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in WalkDir::new(directory).follow_links(true) {
+        let Ok(entry) = entry else { continue };
+        if !is_injection_candidate(&entry) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(data) = fs::read(path) else {
+            continue;
+        };
+        let has_injected_slot = slot_offsets(&data)
+            .into_iter()
+            .any(|at| data[at..at + SLOT_LEN] != *PLACEHOLDER);
+        if has_injected_slot {
+            found.push(path.to_path_buf());
+        }
+    }
+    found
+}
+
+/// Whether `entry` is a native binary the scan should read: a regular file with a native magic,
+/// outside any `.dSYM` bundle (the executable beside the bundle carries the marker, not its debug
+/// companion).
+fn is_injection_candidate(entry: &walkdir::DirEntry) -> bool {
+    if !entry.file_type().is_file() {
+        return false;
+    }
+    let path = entry.path();
+    if path
+        .ancestors()
+        .any(|p| p.extension().is_some_and(|e| e == "dSYM"))
+    {
+        return false;
+    }
+    has_native_magic(path)
 }
 
 /// Byte offsets of every marker slot in `data`: the 36 bytes after each `MAGIC` that still hold
@@ -210,17 +240,18 @@ fn macho_has_real_signature(path: &Path) -> bool {
 }
 
 /// Re-sign a Mach-O ad-hoc after editing, so macOS will run it again. `codesign` only exists on
-/// macOS, so anywhere else this warns instead of re-signing: the injection itself succeeded, but
-/// the binary needs a signature before it runs on macOS. A missing or failing `codesign` warns
-/// rather than fails for the same reason.
-fn resign_macho(path: &Path) {
+/// macOS, so off macOS this warns and returns `Ok`: a cross-compiled Mach-O is signed later on its
+/// target host, not here. On macOS the edit has already invalidated the signature, so a missing or
+/// failing `codesign` is an error — the binary will not run, and the command must not report the
+/// injection as a success.
+fn resign_macho(path: &Path) -> Result<()> {
     if !cfg!(target_os = "macos") {
         warn!(
             "{} is a Mach-O whose code signature the injection invalidated, and it cannot be \
              re-signed here (codesign is macOS-only); sign it before it runs on macOS",
             path.display()
         );
-        return;
+        return Ok(());
     }
     match std::process::Command::new("codesign")
         .args(["--force", "--sign", "-"])
@@ -229,15 +260,15 @@ fn resign_macho(path: &Path) {
         .stderr(std::process::Stdio::null())
         .status()
     {
-        Ok(status) if status.success() => {}
-        Ok(status) => warn!(
-            "codesign exited {status} for {} after injection; the binary may not run until it is \
-             re-signed",
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => bail!(
+            "codesign exited {status} for {} after injection; the binary will not run until it is \
+             re-signed. Fix signing and re-run, or pass --no-resign and sign it yourself.",
             path.display()
         ),
-        Err(e) => warn!(
-            "could not run codesign for {} after injection ({e}); the binary may not run until it \
-             is re-signed",
+        Err(e) => bail!(
+            "could not run codesign for {} after injection ({e}); the binary will not run until it \
+             is re-signed. Fix signing and re-run, or pass --no-resign and sign it yourself.",
             path.display()
         ),
     }
@@ -329,6 +360,21 @@ mod tests {
         assert!(patch_all_slots(&mut data, REAL));
         assert_eq!(reset_slots(&mut data), 1);
         assert_eq!(data, original);
+    }
+
+    #[test]
+    fn injected_binaries_lists_only_binaries_with_a_non_placeholder_slot() {
+        // A stale binary left over from an earlier event-mode run must be reported; a pristine one
+        // (placeholder slot) and a plain file must not.
+        let dir = tempfile::tempdir().unwrap();
+        let native = |slot: &[u8]| [&ELF_MAGIC[..], &marker(slot)].concat();
+        fs::write(dir.path().join("stale"), native(REAL)).unwrap();
+        fs::write(dir.path().join("pristine"), native(NIL)).unwrap();
+        fs::write(dir.path().join("notes.txt"), b"plain text, not a binary").unwrap();
+
+        let found = injected_binaries(dir.path());
+        assert_eq!(found.len(), 1);
+        assert!(found[0].ends_with("stale"));
     }
 
     #[test]
