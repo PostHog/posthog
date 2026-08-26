@@ -92,11 +92,15 @@ def create_event_definitions_sql(
                 f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
             )
 
+    # COALESCE form (equivalent to `project_id = X OR (project_id IS NULL AND team_id = X)`)
+    # so the scope predicate can seek `event_definition_proj_uniq`, whose leading expression
+    # is exactly COALESCE(project_id, team_id) — the OR form matches no index. Same scoping
+    # idiom as posthog/taxonomy/property_definition_api.py.
     return f"""
             SELECT {",".join(event_definition_fields)}
             FROM posthog_eventdefinition
             {enterprise_join}
-            WHERE (project_id = %(project_id)s OR (project_id IS NULL AND team_id = %(project_id)s))
+            WHERE COALESCE(project_id, team_id) = %(project_id)s
             {conditions}
             ORDER BY {",".join(additional_ordering)}
         """
@@ -296,7 +300,14 @@ class EventDefinitionViewSet(
         event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
 
         search = self.request.GET.get("search", None)
-        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+        # `(name || '')` is deliberate: it makes the predicate unmatchable against the global
+        # trigram index (`index_event_definition_name`), whose posting lists span every team's
+        # event names — with URL/UUID-length search terms the planner drove each typeahead
+        # keystroke through a fleet-wide trigram intersection (seconds per query, ~10% of
+        # prod-US Postgres runtime). The scoped predicate below pins the plan to the
+        # per-project slice of `event_definition_proj_uniq` instead, so search cost is bounded
+        # by the team's own definition count.
+        search_query, search_kwargs = term_search_filter_sql(["(posthog_eventdefinition.name || '')"], search)
 
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
