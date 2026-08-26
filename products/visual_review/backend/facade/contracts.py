@@ -501,3 +501,97 @@ class BaselineOverview:
     totals: BaselineTotals
     truncated: bool
     generated_at: datetime
+
+
+# How recently a snapshot must have rendered a variant to count as unstable
+# rather than settled. A Storybook run lands many times a day on an active
+# repo, so a week is wide enough that a genuinely flaky snapshot cannot stay
+# quiet through it by chance.
+FLAKINESS_RECENT_DAYS = 7
+
+# Width of the per-day activity strip on each row. Fixed rather than following
+# the baseline era, so every row shares one time axis and rows stay comparable.
+FLAKINESS_STRIP_DAYS = 30
+
+# A quarantine this close to running out needs a human to extend it or let it
+# lapse, so it counts toward `needs_decision`.
+FLAKINESS_EXPIRY_SOON_DAYS = 7
+
+# Safety cap on rows returned by the flakiness endpoint. The population is
+# already narrow (only identifiers carrying variants or a quarantine), so this
+# is a backstop against a repo whose diff threshold is misconfigured and
+# tolerates everything, not an expected limit.
+FLAKINESS_MAX_ENTRIES = 2000
+
+
+@dataclass(frozen=True)
+class FlakinessEntry:
+    """How unstable one snapshot identity is, and what is being done about it.
+
+    One row per `(run_type, identifier)`. Only identifiers that carry at least
+    one live variant against their current baseline, or an active quarantine,
+    get an entry — everything else has nothing to report.
+    """
+
+    identifier: str
+    run_type: str
+    browser: str | None
+    thumbnail_hash: str | None
+    width: int | None
+    height: int | None
+    # Distinct alternate hashes the classifier can still match for this
+    # snapshot's current baseline. Reads as "how many different images this
+    # snapshot is currently allowed to produce".
+    variant_count: int
+    # Last default-branch run that rendered one of those variants. Not when a
+    # variant was first recorded: a snapshot can cycle through variants it
+    # already recorded forever without adding a new one, and that is the worst
+    # case this page exists to find. None when no run has matched one.
+    last_flaked_at: datetime | None
+    # Mean pixel-diff fraction across those variants. Separates sub-pixel
+    # noise from a small but real rendering change.
+    avg_diff_percentage: float | None
+    # Days since the first default-branch run that compared against the
+    # current baseline, which is when that baseline took effect.
+    baseline_age_days: int | None
+    # Variants recorded per day over the last `FLAKINESS_STRIP_DAYS`, oldest
+    # first. Always that length so the frontend can render a fixed axis.
+    daily_variant_counts: list[int]
+    # Index into `daily_variant_counts` where the baseline moved. None when it
+    # moved before the window opened, which is the common case.
+    baseline_moved_day_index: int | None
+    # One of `FlakinessState`. Named with a prefix because a field called
+    # `state` collides with other products' enums in the OpenAPI schema.
+    flakiness_state: str
+    is_quarantined: bool
+    # True when an active quarantine has run out, is about to, or covers a
+    # snapshot that has gone clean. All three mean a human has to choose
+    # between extending it and lifting it.
+    needs_decision: bool
+    quarantine: BaselineQuarantineSummary | None = None
+
+
+@dataclass(frozen=True)
+class FlakinessTotals:
+    """Counts across the full population, independent of any client-side filter."""
+
+    # Identifiers with an entry in `entries`.
+    listed: int
+    # Identifiers with a current baseline, listed or not. The denominator that
+    # tells a reader how much of the repo is quiet.
+    tracked: int
+    unstable: int
+    settled: int
+    quarantined: int
+    needs_decision: int
+    by_run_type: dict[str, int]
+
+
+@dataclass(frozen=True)
+class FlakinessOverview:
+    """Result of the flakiness overview endpoint."""
+
+    entries: list[FlakinessEntry]
+    totals: FlakinessTotals
+    truncated: bool
+    generated_at: datetime
