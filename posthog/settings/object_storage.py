@@ -1,8 +1,8 @@
 import os
 from typing import Optional
 
-from posthog.settings import get_from_env
 from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
