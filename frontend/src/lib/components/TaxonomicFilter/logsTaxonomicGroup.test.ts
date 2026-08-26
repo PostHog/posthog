@@ -16,7 +16,7 @@ describe('logsTaxonomicGroup', () => {
         // `attribute_type=log` resurfaces the namespace/container values.
         const endpoint = logsColumnValuesEndpoint(2, { dateRange: { date_from: '-1h' } })('service_name')
 
-        expect(endpoint).toContain('api/environments/2/logs/values')
+        expect(endpoint).toContain('api/projects/2/logs/values')
         expect(endpoint).toContain('attribute_type=resource')
         expect(endpoint).toContain('key=service.name')
         expect(endpoint).not.toContain('attribute_type=log')

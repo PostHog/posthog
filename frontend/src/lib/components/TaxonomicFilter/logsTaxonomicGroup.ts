@@ -35,7 +35,7 @@ export function logsColumnValuesEndpoint(
 ): (key: string) => string | undefined {
     return (key: string) =>
         key === 'service_name'
-            ? combineUrl(`api/environments/${projectId}/logs/values`, {
+            ? combineUrl(`api/projects/${projectId}/logs/values`, {
                   attribute_type: 'resource',
                   key: 'service.name',
                   ...endpointFilters,
