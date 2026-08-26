@@ -21150,6 +21150,11 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status: string;
+      /**
+         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * @nullable
+         */
+      readonly last_succeeded_at: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -21178,6 +21183,12 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * Config this run executed, snapshotted so an edit to the check cannot rewrite history. Null for runs recorded before snapshots existed -- unknown, not 'same as the check has now'.
+     * @nullable
+     */
+    export type DataQualityCheckRunCheckConfig = { [key: string]: unknown } | null;
+
     export interface DataQualityCheckRun {
       readonly id: string;
       /**
@@ -21200,6 +21211,16 @@ export namespace Schemas {
        * * `custom_sql` - custom_sql */
       readonly check_type: CheckTypeEnum;
       readonly column_name: string;
+      /**
+         * Config this run executed, snapshotted so an edit to the check cannot rewrite history. Null for runs recorded before snapshots existed -- unknown, not 'same as the check has now'.
+         * @nullable
+         */
+      readonly check_config: DataQualityCheckRunCheckConfig;
+      /** Severity this run was judged at. Null for runs recorded before snapshots existed.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      readonly check_severity: DataQualityCheckSeverityEnum | null;
       /** passed, failed, errored, or skipped. */
       readonly status: string;
       /**
@@ -21250,6 +21271,136 @@ export namespace Schemas {
     export interface DataQualityGateConfig {
       /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
       gate_materialization_on_checks: boolean;
+    }
+
+    /**
+     * Type-specific configuration, validated against the check type's JSON schema.
+     */
+    export type DataQualityOverviewCheckConfig = { [key: string]: unknown };
+
+    /**
+     * A check plus where its subject can be opened, for the project-wide list.
+     *
+     * The per-subject surfaces already know their parent; only this one lists checks across every
+     * table and view, so only this one needs to say where each subject lives. The ids are resolved
+     * for a whole page at once and handed in through ``subject_locations`` in the context.
+     */
+    export interface DataQualityOverviewCheck {
+      readonly id: string;
+      /**
+         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /** Why this check exists and what a failure means. */
+      description?: string;
+      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+       *
+       * * `table` - table
+       * * `view` - view */
+      readonly subject_type: SubjectTypeEnum;
+      /**
+         * Id of the table or view being checked -- the parent resource in the URL.
+         * @nullable
+         */
+      readonly subject_uuid: string | null;
+      /** Queryable name of the subject, refreshed on every run. */
+      readonly subject_name: string;
+      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      readonly subject_status: string;
+      /**
+         * Column the check applies to. Omit for table-scoped types like row_count.
+         * @maxLength 400
+         */
+      column_name?: string;
+      /** Which assertion to make. Determines the shape of config; see /check_types/.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      check_type: CheckTypeEnum;
+      /** Type-specific configuration, validated against the check type's JSON schema. */
+      config?: DataQualityOverviewCheckConfig;
+      /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      severity?: DataQualityCheckSeverityEnum;
+      /** Disabled checks are never run by any trigger. */
+      enabled?: boolean;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
+      /**
+         * Email of the human accountable for this check, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * When the check last executed.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
+      readonly last_status: string;
+      /**
+         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * @nullable
+         */
+      readonly last_succeeded_at: string | null;
+      /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
+      readonly fingerprint: string;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this check.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the check, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the check, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this check. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /**
+         * Data modeling node of the view this check audits, or null when it is on no DAG or the subject is a table.
+         * @nullable
+         */
+      readonly subject_node_id: string | null;
+      /**
+         * Warehouse source of the table this check audits, or null when the subject is a view.
+         * @nullable
+         */
+      readonly subject_source_id: string | null;
+      /**
+         * Warehouse source schema of the table this check audits, or null when the subject is a view.
+         * @nullable
+         */
+      readonly subject_schema_id: string | null;
+    }
+
+    /**
+     * What to run in a project-wide suite run.
+     */
+    export interface DataQualityRunRequest {
+      /** Ids of the checks to run. Omit to run every enabled check in the project. */
+      check_ids?: string[];
     }
 
     /**
@@ -52260,6 +52411,15 @@ export namespace Schemas {
       results: DataQualityCheck[];
     }
 
+    export interface PaginatedDataQualityOverviewCheckList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataQualityOverviewCheck[];
+    }
+
     export interface PaginatedDataQualitySuiteRunList {
       count: number;
       /** @nullable */
@@ -58976,6 +59136,11 @@ export namespace Schemas {
       readonly last_run_at?: string | null;
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status?: string;
+      /**
+         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * @nullable
+         */
+      readonly last_succeeded_at?: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint?: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -89265,6 +89430,28 @@ export namespace Schemas {
      * Saved query to build lineage for, resolved to its node. Alternative to node_id.
      */
     saved_query_id?: string;
+    };
+
+    export type DataQualityChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataQualityRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {
