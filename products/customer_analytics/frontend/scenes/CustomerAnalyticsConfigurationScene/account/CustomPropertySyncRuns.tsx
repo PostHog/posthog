@@ -116,9 +116,11 @@ export function CustomPropertySyncRuns({
 
     if (loadFailed) {
         return (
-            <LemonBanner type="error" action={{ children: 'Try again', onClick: onReload }}>
-                Couldn't load run history.
-            </LemonBanner>
+            <div className="w-full p-4">
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: onReload }}>
+                    Couldn't load run history.
+                </LemonBanner>
+            </div>
         )
     }
 
