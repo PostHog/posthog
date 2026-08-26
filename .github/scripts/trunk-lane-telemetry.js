@@ -81,6 +81,11 @@ function buildProperties(changedFiles, impactedTargets, universe) {
                 domain = 'universal'
             }
         }
+        // A cross-domain rule holds a list; one stable key keeps the counts
+        // per rule rather than per member.
+        if (Array.isArray(domain)) {
+            domain = domain.join('+')
+        }
         tripwireDomains[domain] = (tripwireDomains[domain] || 0) + 1
     }
 

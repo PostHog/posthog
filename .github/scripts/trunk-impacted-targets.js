@@ -121,6 +121,12 @@ const PYTHON = 'python'
 const JAVASCRIPT = 'javascript'
 const RUST = 'rust'
 
+// The nodejs lane on its own. No path-based tripwire resolves to it alone,
+// because a file that can break the ingestion suite can almost always break
+// more than that. The rust, proto, and cross-domain workflow rules still need
+// to name it without dragging in the frontend.
+const NODE = 'node'
+
 // The product manifests and the artifacts generated from them. Not a toolchain
 // domain: it names the two lane families that read that data rather than a
 // language, and it exists because `universal` was claiming lanes no reader of
@@ -176,18 +182,10 @@ const TRIPWIRE_RULES = [
     // A workflow decides which suites run, so one that defines a single
     // language's suite can be held to that language's lanes. A release or
     // maintenance workflow whose sources and artifacts all sit on one
-    // language's lanes is held the same way. Everything else under .github/
-    // stays universal: the list grows by decision, and a workflow nobody has
-    // placed here keeps the old radius.
-    //
-    // Deliberately absent, so still universal: the cross-domain workflows.
-    // ci-migrations-service-separation-check blocks rust+nodejs change
-    // combinations with no Python involved; build-deltalite,
-    // ci-deltalite-python, and build-hogql-parser-rs each pair a rust crate
-    // with the root Python pins (pyproject.toml, uv.lock);
-    // build-hogql-parser-npm compiles the C++ parser to WASM and commits
-    // pnpm-lock.yaml back to the PR branch. One domain cannot name both
-    // sides of any of them.
+    // language's lanes is held the same way, and a workflow spanning more
+    // than one family takes a list of domains, applied in union. Everything
+    // else under .github/ stays universal: the list grows by decision, and a
+    // workflow nobody has placed here keeps the old radius.
     ['.github/workflows/ci-frontend.yml', JAVASCRIPT],
     ['.github/workflows/ci-storybook.yml', JAVASCRIPT],
     ['.github/workflows/ci-storybook-update-test-timing.yml', JAVASCRIPT],
@@ -243,6 +241,17 @@ const TRIPWIRE_RULES = [
     // is the desktop product's own two lanes. A desktop workflow that starts
     // reaching further must be placed above this rule with the wider domain.
     ['.github/workflows/desktop-*.yml', DESKTOP],
+    // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
+    // changes, so all three families interact with an edit to the gate.
+    ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
+    // The deltalite and hogql-parser-rs release paths pair a rust crate with
+    // the root Python pins (pyproject.toml, uv.lock) they commit back.
+    ['.github/workflows/build-deltalite.yml', [RUST, PYTHON]],
+    ['.github/workflows/ci-deltalite-python.yml', [RUST, PYTHON]],
+    ['.github/workflows/build-hogql-parser-rs.yml', [RUST, PYTHON]],
+    // Compiles the C++ parser (a COMMON_PYTHON tree) to WASM and commits the
+    // frontend/package.json + pnpm-lock.yaml pin back to the PR branch.
+    ['.github/workflows/build-hogql-parser-npm.yml', [PYTHON, JAVASCRIPT]],
 
     // The Depot shadows of workflows narrowed above take their canonical
     // twin's domain: a shadow defines the same single-language suite, just on
@@ -1392,11 +1401,6 @@ function addCargoLockLanes(targets, context) {
     return true
 }
 
-// The nodejs lane on its own. No tripwire resolves to it, because a file that
-// can break the ingestion suite can almost always break more than that. The
-// rust and proto rules still need to name it without dragging in the frontend.
-const NODE = 'node'
-
 function addNodeLanes(targets) {
     targets.add('node:ingestion')
     return true
@@ -1477,11 +1481,17 @@ const DOMAIN_LANES = new Map([
 ])
 
 // Returns false when the file's domain is universal, which is the caller's cue
-// to abandon the per-file accumulation and report the whole set.
+// to abandon the per-file accumulation and report the whole set. A rule may
+// hold a list of domains for a file whose radius spans more than one family,
+// the same composition RUST_NON_CRATE_RULES and PROTO_TREES use; the list is
+// applied in union, and widens if any member cannot name its lanes in full.
 function applyTripwireDomain(domain, file, targets, context) {
     const resolved = domain === SEMGREP ? (context.semgrepDomains || new Map()).get(file) || UNIVERSAL : domain
-    const addLanes = DOMAIN_LANES.get(resolved)
-    return addLanes ? addLanes(targets, context, file) : false
+    const domains = Array.isArray(resolved) ? resolved : [resolved]
+    return domains.every((member) => {
+        const addLanes = DOMAIN_LANES.get(member)
+        return addLanes ? addLanes(targets, context, file) : false
+    })
 }
 
 // Paths under rust/ that belong to no crate, and the domains that read them. A

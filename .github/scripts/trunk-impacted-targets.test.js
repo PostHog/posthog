@@ -526,6 +526,20 @@ test('a single-language workflow claims that language rather than everything', (
         computeTargets(['.github/workflows/ci-openapi-codegen.yml'], CONTEXT),
         computeTargets(['tools/openapi-codegen/package.json'], CONTEXT)
     )
+    // Cross-domain workflows take the union of the families on each side,
+    // matching what the same change spelled as files would claim.
+    assert.deepEqual(
+        computeTargets(['.github/workflows/ci-migrations-service-separation-check.yml'], CONTEXT),
+        computeTargets(['mypy.ini', 'rust/Cargo.toml', 'nodejs/src/index.ts'], CONTEXT)
+    )
+    const rustPython = computeTargets(['mypy.ini', 'rust/Cargo.toml'], CONTEXT)
+    for (const workflow of ['build-deltalite.yml', 'ci-deltalite-python.yml', 'build-hogql-parser-rs.yml']) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), rustPython, workflow)
+    }
+    assert.deepEqual(
+        computeTargets(['.github/workflows/build-hogql-parser-npm.yml'], CONTEXT),
+        computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT)
+    )
     // The desktop workflow family takes the desktop product's own two lanes,
     // and widens in a context where no such product exists.
     const desktopContext = {
