@@ -51,26 +51,75 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, warn};
 
 use crate::readiness;
-use crate::transport::{FenceGuard, SendError, TransportError};
+use crate::transport::{
+    split_by_size, FenceGuard, SendError, TransportError, DEFAULT_MAX_BODY_BYTES,
+};
 use crate::types::SerializedKafkaMessage;
 
-/// An enqueued sub-batch awaiting its ack; resolves like an HTTP send.
+/// An acked chunk: the worker's accepted count, with the messages handed
+/// back so a split send can reassemble the whole sub-batch on failure.
+struct Accepted {
+    accepted: u32,
+    messages: Vec<SerializedKafkaMessage>,
+}
+
+type StreamReply = Result<Accepted, SendError>;
+
+/// An enqueued sub-batch awaiting its acks; resolves like an HTTP send. A
+/// sub-batch over the size cap rides the stream as several consecutive
+/// chunks, one receiver each.
 pub struct PendingWorkerStreamSend {
-    rx: oneshot::Receiver<Result<u32, SendError>>,
+    chunks: Vec<oneshot::Receiver<StreamReply>>,
 }
 
 impl PendingWorkerStreamSend {
+    /// All-or-nothing, like `HttpTransport::send_batch`: `Ok` only when every
+    /// chunk was accepted; on any failure the `SendError` carries back the
+    /// full original message set, in order, so the caller defers all of it.
+    /// Already-accepted chunks then replay, which is ordinary at-least-once.
     pub async fn wait(self) -> Result<u32, SendError> {
-        match self.rx.await {
-            Ok(result) => result,
-            // The worker stream task died without resolving its items — a bug, not an
-            // operational failure. The messages are gone, so the batch cannot
-            // reach its accepted total and the consumer exits and replays.
-            Err(_) => Err(SendError {
-                error: TransportError::WorkerStreamClosed,
-                messages: Vec::new(),
-                fence_guard: None,
-            }),
+        let mut accepted_total = 0u32;
+        let mut messages: Vec<SerializedKafkaMessage> = Vec::new();
+        let mut failure: Option<SendError> = None;
+        for rx in self.chunks {
+            let reply = match rx.await {
+                Ok(reply) => reply,
+                // The worker stream task died without resolving its items — a
+                // bug, not an operational failure. The messages are gone, so
+                // the batch cannot reach its accepted total and the consumer
+                // exits and replays.
+                Err(_) => Err(SendError {
+                    error: TransportError::WorkerStreamClosed,
+                    messages: Vec::new(),
+                    fence_guard: None,
+                }),
+            };
+            match reply {
+                Ok(accepted) => {
+                    accepted_total += accepted.accepted;
+                    messages.extend(accepted.messages);
+                }
+                Err(mut err) => {
+                    messages.extend(std::mem::take(&mut err.messages));
+                    match &mut failure {
+                        // Keep the first failure's error; fold later guards
+                        // into it so the stream fences until all are stashed.
+                        Some(first) => match (&mut first.fence_guard, err.fence_guard.take()) {
+                            (Some(guard), Some(other)) => guard.merge(other),
+                            (slot @ None, other) => *slot = other,
+                            (Some(_), None) => {}
+                        },
+                        None => failure = Some(err),
+                    }
+                }
+            }
+        }
+        match failure {
+            None => Ok(accepted_total),
+            Some(mut err) => {
+                err.messages = messages;
+                Err(err)
+            }
         }
     }
 }
@@ -79,7 +128,7 @@ struct WorkerStreamItem {
     batch_id: String,
     messages: Vec<SerializedKafkaMessage>,
     replay: bool,
-    reply: oneshot::Sender<Result<u32, SendError>>,
+    reply: oneshot::Sender<StreamReply>,
 }
 
 struct WorkerStream {
@@ -114,6 +163,10 @@ pub struct GrpcTransport {
     assignment_epoch: Arc<AtomicU64>,
     /// Readiness probing stays HTTP: workers always serve `/_ready`.
     probe_client: reqwest::Client,
+    /// Cap on one frame's estimated size. A sub-batch over it is sent as
+    /// consecutive chunks (see `begin_send`), so no frame crosses the worker's
+    /// message limit — the HTTP body cap, applied per frame.
+    max_body_bytes: usize,
 }
 
 impl GrpcTransport {
@@ -125,6 +178,7 @@ impl GrpcTransport {
             grpc_port,
             max_unacked,
             ack_timeout,
+            max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             assignment_epoch: Arc::new(AtomicU64::new(1)),
             probe_client: reqwest::Client::builder()
                 .timeout(readiness::PROBE_TIMEOUT)
@@ -138,9 +192,20 @@ impl GrpcTransport {
         Arc::clone(&self.assignment_epoch)
     }
 
+    /// Override the per-frame size cap. Call before the transport is shared.
+    pub fn set_max_body_bytes(&mut self, bytes: usize) {
+        assert!(bytes > 0, "max_body_bytes must be > 0");
+        self.max_body_bytes = bytes;
+    }
+
     /// Enqueue a sub-batch on the worker's stream. Synchronous on purpose: call
     /// in send order (the consumer loop / serialized flush paths) — the worker stream
     /// preserves enqueue order onto the stream.
+    ///
+    /// A sub-batch whose estimated size exceeds `max_body_bytes` goes on the
+    /// stream as consecutive chunks, so one frame never crosses the worker's
+    /// message limit. Consecutive chunks on one ordered stream keep the
+    /// sub-batch's order, and the caller still sees one send.
     pub fn begin_send(
         &self,
         worker_url: &str,
@@ -148,25 +213,40 @@ impl GrpcTransport {
         messages: Vec<SerializedKafkaMessage>,
         replay: bool,
     ) -> PendingWorkerStreamSend {
-        let (reply, rx) = oneshot::channel();
-        let item = WorkerStreamItem {
-            batch_id: batch_id.to_string(),
-            messages,
-            replay,
-            reply,
-        };
-        let stream = self.worker_stream_for(worker_url);
-        if let Err(send_err) = stream.tx.send(item) {
-            // Worker stream task gone (removed worker): fail the send immediately with
-            // its messages so the caller defers and re-routes.
-            let item = send_err.0;
-            let _ = item.reply.send(Err(SendError {
-                error: TransportError::WorkerStreamClosed,
-                messages: item.messages,
-                fence_guard: None,
-            }));
+        let chunks = split_by_size(messages, self.max_body_bytes);
+        if chunks.len() > 1 {
+            counter!(
+                "ingestion_consumer_transport_batch_splits_total",
+                "reason" => "size_estimate"
+            )
+            .increment((chunks.len() - 1) as u64);
         }
-        PendingWorkerStreamSend { rx }
+        let stream = self.worker_stream_for(worker_url);
+        let receivers = chunks
+            .into_iter()
+            .map(|messages| {
+                let (reply, rx) = oneshot::channel();
+                let item = WorkerStreamItem {
+                    batch_id: batch_id.to_string(),
+                    messages,
+                    replay,
+                    reply,
+                };
+                if let Err(send_err) = stream.tx.send(item) {
+                    // Worker stream task gone (removed worker): fail the send
+                    // immediately with its messages so the caller defers and
+                    // re-routes.
+                    let item = send_err.0;
+                    let _ = item.reply.send(Err(SendError {
+                        error: TransportError::WorkerStreamClosed,
+                        messages: item.messages,
+                        fence_guard: None,
+                    }));
+                }
+                rx
+            })
+            .collect();
+        PendingWorkerStreamSend { chunks: receivers }
     }
 
     fn worker_stream_for(&self, worker_url: &str) -> Arc<WorkerStream> {
@@ -591,7 +671,10 @@ impl WorkerStreamRunner {
         while ledger.front().is_some_and(|e| e.acked.is_some()) {
             let entry = ledger.pop_front().expect("front is present");
             let accepted = entry.acked.expect("front is acked");
-            let _ = entry.item.reply.send(Ok(accepted));
+            let WorkerStreamItem {
+                reply, messages, ..
+            } = entry.item;
+            let _ = reply.send(Ok(Accepted { accepted, messages }));
         }
         gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
             .set(ledger.len() as f64);

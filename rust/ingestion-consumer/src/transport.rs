@@ -536,7 +536,7 @@ fn approx_message_size(msg: &SerializedKafkaMessage) -> usize {
 /// Split a sub-batch into chunks whose estimated serialized size stays under
 /// `max_body_bytes`, preserving message order. A single message estimated
 /// above the cap gets its own chunk — it can't be split further.
-fn split_by_size(
+pub(crate) fn split_by_size(
     messages: Vec<SerializedKafkaMessage>,
     max_body_bytes: usize,
 ) -> Vec<Vec<SerializedKafkaMessage>> {
@@ -574,18 +574,29 @@ pub struct SendError {
 
 /// Tells a fencing worker stream that one fenced send's messages are stashed.
 pub struct FenceGuard {
-    released: tokio::sync::mpsc::UnboundedSender<()>,
+    /// One release per fenced send this guard stands for: a split sub-batch
+    /// fenced across several chunks merges their guards into one.
+    released: Vec<tokio::sync::mpsc::UnboundedSender<()>>,
 }
 
 impl FenceGuard {
     pub(crate) fn new(released: tokio::sync::mpsc::UnboundedSender<()>) -> Self {
-        Self { released }
+        Self {
+            released: vec![released],
+        }
+    }
+
+    /// Fold `other` into this guard, so both release only when this one drops.
+    pub(crate) fn merge(&mut self, mut other: FenceGuard) {
+        self.released.append(&mut other.released);
     }
 }
 
 impl Drop for FenceGuard {
     fn drop(&mut self) {
-        let _ = self.released.send(());
+        for released in &self.released {
+            let _ = released.send(());
+        }
     }
 }
 

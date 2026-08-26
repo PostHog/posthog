@@ -424,6 +424,89 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
 }
 
 #[tokio::test]
+async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
+    // The worker caps one frame; a sub-batch over the cap must split into
+    // consecutive frames on the same stream instead of one frame the worker
+    // rejects, fences, and replays forever.
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    // Frame size cap in bytes. One `msg()` estimates to ~143 bytes, so this
+    // fits exactly one message per frame and three messages become three frames.
+    transport.set_max_body_bytes(200);
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
+        false,
+    );
+    let accepted = pending.wait().await.expect("all chunks accepted");
+    assert_eq!(accepted, 3, "accepted counts sum across chunks");
+
+    let received = mock.received.lock().await;
+    let frames: Vec<(u64, &str, Vec<i64>)> = received
+        .iter()
+        .map(|s| {
+            (
+                s.seq,
+                s.batch_id.as_str(),
+                s.messages.iter().map(|m| m.offset).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        frames,
+        vec![
+            (1, "batch-1", vec![1]),
+            (2, "batch-1", vec![2]),
+            (3, "batch-1", vec![3]),
+        ],
+        "one message per frame, consecutive seqs, in offset order"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_chunk_hands_back_the_whole_sub_batch() {
+    // All-or-nothing like the HTTP path: chunk 1 is acked, chunk 2 nacked, so
+    // the send fails with every message (acked ones included) for deferral,
+    // and carries a fence guard.
+    let mock = start_mock(AckMode::NackSeq(2), None).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    // Frame size cap in bytes. One `msg()` estimates to ~143 bytes, so this
+    // fits exactly one message per frame and three messages become three frames.
+    transport.set_max_body_bytes(200);
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
+        false,
+    );
+    let err = pending
+        .wait()
+        .await
+        .expect_err("a nacked chunk fails the send");
+    assert!(matches!(err.error, TransportError::WorkerStreamFailed(_)));
+    let offsets: Vec<i64> = err.messages.iter().map(|m| m.offset).collect();
+    assert_eq!(
+        offsets,
+        vec![1, 2, 3],
+        "the whole sub-batch comes back in order"
+    );
+    assert!(err.fence_guard.is_some(), "a fenced send carries a guard");
+}
+
+#[tokio::test]
 async fn a_nack_fences_everything_outstanding_in_order() {
     // Regression: on a failure, every un-acked and queued sub-batch must fail
     // back to the caller with its messages (for the deferral path), and
