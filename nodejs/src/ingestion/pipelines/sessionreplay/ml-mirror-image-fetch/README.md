@@ -497,11 +497,21 @@ The fetch URL keeps the original query verbatim. The global ref uses a canonical
 
 **13.5** A URL ref has the form `imageurl:<hash>`. The producer calculates `GLOBAL_URL_KEY` with the existing `pseudonymize(ml_pseudonymization_secret, "image-url-key", "global-v1")` construction. The hash is the first 22 base64url characters of `HMAC-SHA256(GLOBAL_URL_KEY, canonical_url)`. Every producer must use this construction. The DynamoDB crawl-history key for the original URL is the same `imageurl:<hash>` string.
 
-**13.6** The mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
+**13.6** For a direct image attribute, the mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
 
-**13.7** Data preparation uses the suffix of the ref attribute to find the source attribute. If the ref resolves, data preparation replaces the placeholder with the scrubbed image.
+**13.7** For a CSS field, the mirror stores refs in a sibling attribute named `data-anon-image-refs-<field>`. Its value is a JSON object that maps each decimal slot number to one image ref.
 
-**13.8** Data preparation removes the ref attribute whether or not the ref resolves. The ref is a hash that has no meaning in training data and would appear as random noise.
+**13.8** The mirror replaces each collected CSS image with the existing valid SVG placeholder. It adds `<metadata id='anon-image-slot-<slot>'/>` before the closing `</svg>` to identify the corresponding ref without changing the rendered placeholder.
+
+**13.9** Data preparation uses the suffix of a direct ref attribute to find its source attribute. It uses each CSS slot number to find the matching numbered placeholder. If the ref resolves, data preparation replaces the placeholder with the scrubbed image.
+
+**13.10** Data preparation removes direct ref attributes and CSS ref maps whether or not their refs resolve. It removes the slot metadata from unresolved CSS placeholders, so the remaining CSS still contains a valid, unnumbered placeholder.
+
+**13.11** The mirror collects remote images from `img[src]`, `img[rr_src]`, `img[srcset]`, SVG `image[href]`, SVG `image[xlink:href]`, `video[poster]`, and `source[srcset]` below a `picture` element. It does not infer a `source` parent from a tagless attribute mutation.
+
+**13.12** For `srcset` and CSS `image-set()`, the mirror selects the candidate with the largest width or pixel density. It declines a malformed or mixed `srcset`. The first candidate wins a tie.
+
+**13.13** The mirror processes inline base64 images and remote URLs in image-bearing CSS properties. It keeps same-document fragment URLs unchanged and does not collect font or import URLs.
 
 ### 14. HTTP request/response
 
