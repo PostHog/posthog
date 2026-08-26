@@ -743,6 +743,9 @@ depends_on = [
     "products.data_warehouse",
     "products.error_tracking",
     "products.experiments",
+    # Facade-only: scout report Slack delivery renders report charts to PNG through the
+    # exports facade and mints their delivery urls there.
+    "products.exports",
     "products.feature_flags",
     # Facade-only: the scout harness pre-resolves the external MCP servers a run's sandbox will
     # mount so the run prompt can name them.
