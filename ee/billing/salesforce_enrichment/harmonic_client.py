@@ -29,6 +29,10 @@ class HarmonicCompanyLookup:
     enrichment_urn: Optional[str]
 
 
+# Harmonic rate limit is 5 req/s; well under that at one request per batch.
+_ENRICHMENT_STATUS_BATCH_SIZE = 50
+
+
 class AsyncHarmonicClient:
     """Async Harmonic API client with controlled concurrency.
 
@@ -203,6 +207,37 @@ class AsyncHarmonicClient:
                 return None
             response.raise_for_status()
             return await response.json()
+
+    async def get_enrichment_status(self, urns: list[str]) -> dict[str, dict[str, Any]]:
+        """Poll Harmonic's /enrichment_status for a set of tracking URNs, keyed by entity_urn.
+
+        Batches at most 50 URNs per request. Raises on a non-2xx response or a body that
+        isn't a list, rather than silently reporting every URN as unqueried.
+        """
+        if self.session is None:
+            raise RuntimeError("HTTP session not initialized. Use async context manager.")
+
+        statuses: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(urns), _ENRICHMENT_STATUS_BATCH_SIZE):
+            batch = urns[start : start + _ENRICHMENT_STATUS_BATCH_SIZE]
+            await asyncio.sleep(0.2)
+            # Same short cap as get_company_by_urn: this shares the recheck activity's 90s
+            # budget with the domain lookup, so it must not inherit the session's 30s total.
+            async with self.session.get(
+                f"{HARMONIC_BASE_URL}/enrichment_status",
+                params=[("urns", urn) for urn in batch],
+                headers={"apikey": self.api_key},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
+
+            if not isinstance(data, list):
+                raise ValueError(f"unexpected enrichment_status body: {type(data).__name__}")
+            for entry in data:
+                if isinstance(entry, dict) and isinstance(entry.get("entity_urn"), str):
+                    statuses[entry["entity_urn"]] = entry
+        return statuses
 
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently.

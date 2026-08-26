@@ -216,3 +216,44 @@ async def test_get_company_by_urn_reraises_on_http_error():
     client = _client_with_get_responses(_http_500())
     with pytest.raises(aiohttp.ClientResponseError):
         await client.get_company_by_urn("urn:harmonic:company:9801263")
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_get_enrichment_status_builds_repeated_urns_query_and_maps_by_entity_urn():
+    entries = [
+        {"entity_urn": "urn:harmonic:enrichment:aaa", "status": "COMPLETE", "enriched_entity_urn": "urn:x:1"},
+        {"entity_urn": "urn:harmonic:enrichment:bbb", "status": "QUEUED", "enriched_entity_urn": None},
+    ]
+    client = _client_with_get_responses(_response(json_data=entries))
+    result = await client.get_enrichment_status(["urn:harmonic:enrichment:aaa", "urn:harmonic:enrichment:bbb"])
+
+    assert result == {
+        "urn:harmonic:enrichment:aaa": entries[0],
+        "urn:harmonic:enrichment:bbb": entries[1],
+    }
+    client.session.get.assert_called_once()
+    call = client.session.get.call_args
+    assert call.args[0] == "https://api.harmonic.ai/enrichment_status"
+    assert call.kwargs["params"] == [
+        ("urns", "urn:harmonic:enrichment:aaa"),
+        ("urns", "urn:harmonic:enrichment:bbb"),
+    ]
+    assert call.kwargs["headers"]["apikey"] == "test-key"
+    assert "test-key" not in call.args[0]
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_get_enrichment_status_raises_on_non_list_body():
+    client = _client_with_get_responses(_response(json_data={"error": "not a list"}))
+    with pytest.raises(ValueError):
+        await client.get_enrichment_status(["urn:harmonic:enrichment:aaa"])
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_get_enrichment_status_reraises_on_http_error():
+    client = _client_with_get_responses(_http_500())
+    with pytest.raises(aiohttp.ClientResponseError):
+        await client.get_enrichment_status(["urn:harmonic:enrichment:aaa"])

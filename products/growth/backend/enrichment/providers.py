@@ -45,6 +45,13 @@ class EnrichmentProvider(abc.ABC):
         and alert, rather than conflating an outage with a genuine not-found.
         """
 
+    async def enrichment_status_for(self, urn: str) -> Optional[str]:
+        """Poll the provider for the status of a previously archived tracking URN.
+
+        No-op by default; a provider without async enrichment tracking has nothing to poll.
+        """
+        return None
+
 
 def _parent_company_urn(company: dict[str, Any]) -> Optional[str]:
     """Pick the parent-company URN from `relatedCompanies`: subsidiaryOf wins over acquiredBy.
@@ -73,6 +80,13 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
             if fields is not None and company is not None:
                 fields = await self._with_parent_company(client, company, fields)
         return ProviderLookup(fields=fields, raw_payload=company, enrichment_urn=lookup.enrichment_urn)
+
+    async def enrichment_status_for(self, urn: str) -> Optional[str]:
+        async with AsyncHarmonicClient() as client:
+            statuses = await client.get_enrichment_status([urn])
+        entry = statuses.get(urn)
+        status = entry.get("status") if isinstance(entry, dict) else None
+        return status if isinstance(status, str) else None
 
     async def _with_parent_company(
         self, client: AsyncHarmonicClient, company: dict[str, Any], fields: EnrichmentFields

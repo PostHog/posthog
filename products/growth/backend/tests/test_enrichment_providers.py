@@ -137,3 +137,31 @@ async def test_enrich_by_domain_skips_parent_resolution_for_empty_urn():
     assert lookup.fields.parent_company is None
     assert lookup.fields.parent_company_domain is None
     client.get_company_by_urn.assert_not_awaited()
+
+
+def _fake_status_client(statuses):
+    client = MagicMock()
+    client.get_enrichment_status = AsyncMock(return_value=statuses)
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=client)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return cm, client
+
+
+@pytest.mark.asyncio
+async def test_enrichment_status_for_returns_the_status_string():
+    cm, client = _fake_status_client({"urn:harmonic:enrichment:abc": {"status": "COMPLETE"}})
+    with patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm):
+        status = await HarmonicEnrichmentProvider().enrichment_status_for("urn:harmonic:enrichment:abc")
+
+    assert status == "COMPLETE"
+    client.get_enrichment_status.assert_awaited_once_with(["urn:harmonic:enrichment:abc"])
+
+
+@pytest.mark.asyncio
+async def test_enrichment_status_for_returns_none_when_urn_is_absent_from_the_response():
+    cm, _ = _fake_status_client({})
+    with patch("products.growth.backend.enrichment.providers.AsyncHarmonicClient", return_value=cm):
+        status = await HarmonicEnrichmentProvider().enrichment_status_for("urn:harmonic:enrichment:abc")
+
+    assert status is None
