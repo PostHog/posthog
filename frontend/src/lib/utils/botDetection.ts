@@ -837,6 +837,40 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'MrAnandPortfolio',
         definition: { name: 'MrAnandPortfolio', category: 'http_client', trafficType: 'Bot', operator: 'mranand.com' },
     },
+    // Self-declared crawlers observed in production `$http_log` traffic
+    {
+        pattern: 'SofyaBot',
+        definition: { name: 'Sofya', category: 'search_crawler', trafficType: 'Bot', operator: 'Sofya' },
+    },
+    {
+        pattern: 'VlexStatusBot',
+        definition: { name: 'Vlex Status', category: 'monitoring', trafficType: 'Bot', operator: 'sboi.online' },
+    },
+    {
+        pattern: 'MardiiBot',
+        definition: { name: 'Mardii', category: 'search_crawler', trafficType: 'Bot', operator: 'Mardii' },
+    },
+    {
+        pattern: 'PkgSeer',
+        definition: { name: 'PkgSeer', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'PkgSeer' },
+    },
+    {
+        pattern: 'usehardal-analytics-crawler',
+        definition: { name: 'Hardal', category: 'search_crawler', trafficType: 'Bot', operator: 'Hardal' },
+    },
+    {
+        pattern: 'AnalyticsKnowledgeBot',
+        definition: {
+            name: 'AnalyticsKnowledgeBot',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'Unknown',
+        },
+    },
+    {
+        pattern: 'HanaleiBot',
+        definition: { name: 'HanaleiBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Unknown' },
+    },
 ]
 
 export const CATEGORY_LABELS: Record<BotCategory, string> = {

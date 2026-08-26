@@ -67,6 +67,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "LlmsTxtBot/1.0 (+https://github.com/tristansinclair/llms-txt-tristan-sinclair)",
         "every-api/0.1 (+https://github.com/MEMEO-PRO/every-api; docs corpus for AI coding agents)",
         "Mozilla/5.0 (compatible; RightAIChoiceBot/1.0; +https://rightaichoice.com)",
+        "PkgSeer/1.0 (+https://example.com/bot)",
+        "Mozilla/5.0 (compatible; AnalyticsKnowledgeBot/1.0; +https://example.com/bot)",
     ],
     "ai_search": [
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
@@ -199,6 +201,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PolycoreSupabaseDetector/1.0; +https://www.polycore.ai/)",
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
+        "Mozilla/5.0 (compatible; SofyaBot/1.0; +https://example.com/bot)",
+        "Mozilla/5.0 (compatible; MardiiBot/1.0; +https://example.com/bot)",
+        "Mozilla/5.0 (compatible; usehardal-analytics-crawler/1.0; +https://example.com/bot)",
+        "Mozilla/5.0 (compatible; HanaleiBot/1.0; +https://example.com/bot)",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -332,6 +338,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "CurbCutScanner/0.2-spike (+https://github.com/devinxu0916/CurbCut) accessibility-audit-research",
         "VantageBot/0.1 (+https://github.com/morsela/webapp-monitor)",
         "NimbusBlocklistSync/1.0 (+https://nimbus.com)",
+        "Mozilla/5.0 (compatible; VlexStatusBot/1.0; +https://example.com/bot)",
     ],
     "http_client": [
         "Chrome Privacy Preserving Prefetch Proxy",

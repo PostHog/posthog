@@ -1456,5 +1456,47 @@
     "name": "Discord",
     "category": "social_crawler",
     "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SofyaBot",
+    "name": "Sofya",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "VlexStatusBot",
+    "name": "Vlex Status",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "MardiiBot",
+    "name": "Mardii",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PkgSeer",
+    "name": "PkgSeer",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "usehardal-analytics-crawler",
+    "name": "Hardal",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "AnalyticsKnowledgeBot",
+    "name": "AnalyticsKnowledgeBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "HanaleiBot",
+    "name": "HanaleiBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
   }
 ]
